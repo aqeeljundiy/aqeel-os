@@ -39,7 +39,7 @@ You fix one bug in aqeelOS (repo aqeeljundiy/aqeel-os, a Node app). The text of 
 2. Fix it at the root cause, in the smallest change that does it. No hard-coded ids, names or paths in shared code.
    Follow the existing dense code style and plain short UI text.
 3. Add or extend a test in scripts/ (scripts/<name>.test.mjs) that fails without your fix and passes with it.
-4. Run `node --test scripts/*.test.mjs`. Everything must pass.
+4. Run `node --test --test-timeout=120000 scripts/*.test.mjs`. Everything must pass.
 5. Push a branch named claude/<issue id> and open a pull request titled "<issue id>: <short plain title>". In the body: the
    problem, the cause, the fix, the test, and the output of the test run. Turn on auto-merge for the pull request.
 6. Never touch secrets: no .env files, keys, tokens, data/ folders. Never deploy, never change servers or settings, never

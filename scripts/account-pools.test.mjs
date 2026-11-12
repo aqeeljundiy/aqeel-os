@@ -57,13 +57,13 @@ test('spread: agents already on a member count against it, so a batch does not l
 test('a running agent stays: a better member does not pull it while it is in a chat',()=>{
  assert.deepEqual(plan([M('claude:main',60,10,1),M('claude:two',0,0),M('claude:three',0,0),M('claude:four',0,0)],'claude:main',{idle:false}),[])});
 
-test('hysteresis: between chats only a member at least 15 points better pulls an agent; two near the same level do not trade',()=>{
- const near=[M('claude:main',50,10,1),M('claude:two',50-(HYST-1),10),M('claude:three',99,99),M('claude:four',99,99)];
+test('hysteresis: between chats, an agent whose member is close to the number goes only to one at least 15 points better; two near the same level do not trade',()=>{
+ const near=[M('claude:main',85,10,1),M('claude:two',85-(HYST-1),10),M('claude:three',99,99),M('claude:four',99,99)];
  assert.deepEqual(plan(near,'claude:main',{idle:true}),[]);
- const far=[M('claude:main',50,10,1),M('claude:two',50-HYST,10),M('claude:three',99,99),M('claude:four',99,99)];
+ const far=[M('claude:main',85,10,1),M('claude:two',85-HYST,10),M('claude:three',99,99),M('claude:four',99,99)];
  const c=plan(far,'claude:main',{idle:true});assert.deepEqual(keys(c),['claude:two']);assert.equal(c[0].kind,'rebalance');
  // after that move the other side is not 15 points better: it stays (no trading back)
- const after=[M('claude:main',50,10,0),M('claude:two',50-HYST,10,1),M('claude:three',99,99),M('claude:four',99,99)];
+ const after=[M('claude:main',85,10,0),M('claude:two',85-HYST,10,1),M('claude:three',99,99),M('claude:four',99,99)];
  assert.deepEqual(plan(after,'claude:two',{idle:true}),[]);
  // an agent placed by hand, one that just moved, or switching turned off: no rebalance
  assert.deepEqual(plan(far,'claude:main',{idle:true,mayRebalance:false}),[]);assert.deepEqual(plan(far,'claude:main',{idle:true,on:false}),[])});

@@ -19,6 +19,7 @@
 //  - POST /posting-cancel {ticket}: nothing was posted (only before sending).
 // Limits per kind: rules.subjects = {comment:{perDay,perHour,gapMin,...},dm:{...},thread:{...},reply:{...}}; each inherits the agent's rule for
 // what it does not set. With no subjects the one rule governs every kind, as before. A kind without a rule may not post.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,stat,mkdtemp,rm,chmod} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
@@ -134,8 +135,8 @@ export function headlessLook({chrome='/opt/aqeelos/chrome/chrome',wait=9000}={})
 
 export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconnect=async()=>{},sig,setKey,readConfig,pick,look=headlessLook(),event=async()=>{},solved=async()=>{},engineTools=async()=>null,lastAnswer=async()=>'',telegram=async()=>false,nameOf=a=>a,log=m=>console.log(m),now=()=>Date.now(),retryMs=40000}){
  const FILE=path.join(DATA,'posting-limits.json'),LOGS=path.join(DATA,'posting-log');let db=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.agents||={};db.gates||={};db.gateLog||={}}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.agents||={};db.gates||={};db.gateLog||={}}return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const posts=new Map();
  const logFile=a=>path.join(LOGS,a+'.json');
  async function entries(a){if(!posts.has(a)){let l=[];try{l=JSON.parse(await readFile(logFile(a),'utf8'))}catch{}posts.set(a,l)}return posts.get(a)}
@@ -248,8 +249,9 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
   const x=silentPosting({gates,entries:l,now:now(),stopped:stop,tools:await engineTools(a).catch(()=>null),answer:await lastAnswer(a).catch(()=>'')});
   if(x)await event('silent',x.text,x.detail,{topic,agent:a}).catch(()=>{});else await solved(a,topic).catch(()=>{})}
  async function tick(){if(busy)return;busy=true;try{await load();for(const a of Object.keys(db.agents)){const r=await rulesOf(a);if(!r?.on)continue;await expire(a,r).catch(x=>log('posting expire: '+x.message));await unrecordedItem(a).catch(x=>log('posting unrecorded: '+x.message));const l=await entries(a);await silence(a,r,l.filter(x=>x.status!=='pending')).catch(x=>log('posting silence: '+x.message));
-   const e=l.find(x=>x.status==='unchecked'&&now()-x.at>60e3)||l.find(x=>x.status==='visible'&&!x.rechecked&&now()-x.at>=r.recheckMin*60e3&&now()-x.at<6*3600e3);if(!e)continue;
-   const s=await check(a,r,e);if(s==='unchecked'){if(now()-e.at>3600e3){e.status='missing';e.missingAt=now();e.checkFailed=true;await alert(a,r,e,'now')}continue}
+   const e=l.find(x=>(x.status==='unchecked'&&now()-x.at>60e3)||(x.status==='checking'&&now()-x.at>120e3))||   // 'checking' for over 2 minutes: the app restarted during the look (audit M15)
+    l.find(x=>x.status==='visible'&&!x.rechecked&&now()-x.at>=r.recheckMin*60e3&&now()-x.at<6*3600e3);if(!e)continue;
+   const s=await check(a,r,e);if(s!=='unchecked'&&e.status==='checking')e.status='unchecked';if(s==='unchecked'){if(e.status==='checking')e.status='unchecked';if(now()-e.at>3600e3){e.status='missing';e.missingAt=now();e.checkFailed=true;await alert(a,r,e,'now')}continue}
    if(e.status==='visible')e.rechecked=now();e.checkedAt=now();
    if(s==='missing'){const was=e.status;e.status='missing';e.missingAt=now();await alert(a,r,e,was==='visible'?'later':'now')}else e.status='visible';await keep(a)}}
   catch(x){log('posting check: '+x.message)}finally{busy=false}}

@@ -2,6 +2,7 @@
 // The engine's own names are technical ("browser-firecrawl", "baoyu-infographic"); Haiku rewrites each one
 // once, in everyday words, and the result is kept in DATA/explain.json (redone only when the text changes).
 // It uses the engine's own small helper model (whatever LLM you set up, no tools at all), never a particular vendor's CLI.
+import {readStore,writeStore} from './store.mjs';
 import {execFile} from 'node:child_process';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
@@ -12,8 +13,8 @@ const KINDS={plugin:'a plugin that extends the assistant app itself',skill:'a sk
 
 export function createExplain(DATA,{python,root}={}){
  const FILE=path.join(DATA,'explain.json');let cache=null;const busy=new Set();
- const load=async()=>{if(cache)return cache;try{cache=JSON.parse(await readFile(FILE,'utf8'))}catch{cache={}}return cache};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(cache));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(cache)return cache;cache=await readStore(FILE);return cache};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(cache))};
  const key=(kind,it)=>kind+':'+it.id+':'+createHash('sha1').update(String(it.name||'')+'|'+String(it.desc||'')).digest('hex').slice(0,10);
  const ask=prompt=>new Promise(async res=>{const py=python&&await python();if(!py)return res(null);const c=execFile(py,[path.join(root,'scripts','aux-llm.py'),path.join(homedir(),'.hermes','hermes-agent')],{timeout:120000,maxBuffer:2e6,cwd:path.join(homedir(),'.hermes')},(err,out)=>res(err?null:String(out)));c.stdin.end(JSON.stringify({system:'You write short, plain explanations for a non-technical person. Follow the format asked for exactly.',user:prompt,max_tokens:1800}))});
 

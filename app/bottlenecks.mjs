@@ -5,6 +5,7 @@
 //     a permission, something only the person can give.
 // Reports of the same thing merge; items leave when fixed (system ones disappear by themselves, reports are marked
 // fixed); "Not now" hides an item for a day (for everyone when an admin says it, else just for that person).
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
@@ -79,8 +80,8 @@ export function forPopup(items){const out=[],by=new Map(),groupAgents=new Set(it
 
 export function createBottlenecks({DATA,dash,listAgents,names,onInfo=async()=>{}}){
  const FILE=path.join(DATA,'bottlenecks.json');let db=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.reports||=[];db.snooze||={};db.fixed||={};db.events||=[]}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.reports||=[];db.snooze||={};db.fixed||={};db.events||=[]}return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,120);
  // an agent reports what blocks it (merged with an open report about the same missing thing)
  async function report(agent,{what,missing,fix,from,system}){await load();const m=String(missing||'').trim().slice(0,400);if(!m)throw Error('Say what is missing.');

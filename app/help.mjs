@@ -13,6 +13,7 @@
 //    in the person's Help chat.
 // One model for everyone (Help › Tickets and settings, admins), its own daily message limit; members' model lists and
 // chat limits don't apply. Its usage shows as its own "Help" line on System › Usage.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes,createHash} from 'node:crypto';
@@ -60,9 +61,9 @@ ${GUIDE}`;
 
 export function createHelp({DATA,root,DASH,DASH_TOKEN,GATE,API_KEY,users,listAgents,names,platforms,signins,accounts,agentModel,security,send,readBody}){
  const FILE=path.join(DATA,'help.json');let db=null,saving=Promise.resolve();
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.settings||={};db.people||={};db.tickets||=[]}return db};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.settings||={};db.people||={};db.tickets||=[]}return db};
  // one save after another (two at once shared the .tmp file)
- const save=()=>{const snap=JSON.stringify(db,null,1);const p=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',snap);await rename(FILE+'.tmp',FILE)});saving=p.catch(()=>{});return p};
+ const save=()=>{const snap=JSON.stringify(db,null,1);const p=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,snap)});saving=p.catch(()=>{});return p};
  const person=uid=>db.people[uid]||=(db.people[uid]={session:null,notices:[],seen:0,day:'',n:0});
  const today=()=>{const d=new Date();return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate()};
  const limitOf=()=>LIMITS.includes(+db.settings.limit)?+db.settings.limit:LIMIT_DEFAULT;

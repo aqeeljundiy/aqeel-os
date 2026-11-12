@@ -1,6 +1,7 @@
 // People in aqeelOS: the owner (super admin, signs in with the original UI password), admins, and members
 // invited by link. Members only reach the agents shared with them, their own chats and their own folder.
 // Hermes itself is single-user, so every rule here is enforced in front of it, on this server.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,unlink,copyFile} from 'node:fs/promises';
 import {scryptSync,randomBytes,timingSafeEqual,randomInt,createHash} from 'node:crypto';
 import {homedir} from 'node:os';
@@ -37,7 +38,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  const hooks={};   // onJoin(person): the server makes their lead agent
  const FILE=path.join(DATA,'users.json');
  let db=null;
- const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}
+ const load=async()=>{if(db)return db;db=await readStore(FILE)
   db.users||=[];db.invites||=[];db.shares||={};db.owners||={};db.agentOwners||={};db.privateAgents||={};db.roles||=JSON.parse(JSON.stringify(DEFAULT_ROLES));db.leads||={};db.resets||=[];
   // the owner's name and username: chosen at first run (OWNER_NAME / OWNER_USERNAME, else neutral), then kept in users.json.
   // Older data had only a name; its username was the name in lower case, so sign-in keeps working
@@ -57,7 +58,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   await save();await rename(F,path.join(DATA,'login-emails.done.json'));if(Object.keys(left).length)await writeFile(path.join(DATA,'login-emails.left.json'),JSON.stringify(left,null,1));return done}
  // saves run one after another so two never share the .tmp file; a failed one still lets the next run
  let saving=Promise.resolve();
- const save=()=>{const p=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)});saving=p.catch(()=>{});return p};
+ const save=()=>{const p=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))});saving=p.catch(()=>{});return p};
  const hash=pw=>{const salt=randomBytes(16);return 'scrypt:'+salt.toString('hex')+':'+scryptSync(String(pw),salt,64).toString('hex')};
  const check=(pw,h)=>{const [k,s,x]=String(h||'').split(':');if(k!=='scrypt'||!s||!x)return false;const a=scryptSync(String(pw),Buffer.from(s,'hex'),64),b=Buffer.from(x,'hex');return a.length===b.length&&timingSafeEqual(a,b)};
  const norm=s=>String(s||'').trim().toLowerCase();

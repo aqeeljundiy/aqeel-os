@@ -5,6 +5,7 @@
 // The page is write-only: nothing stored is ever shown or returned. Values are never logged; the audit keeps agent, key and time.
 // An agent also talks to strangers (a support bot's customers), so whoever opens a link may not be the owner: a link only
 // ever adds a NEW key, never one that changes how programs run, and the owner hears about every link (review, 4 Nov 2026).
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import {randomBytes,createHash} from 'node:crypto';
 import path from 'node:path';
@@ -26,9 +27,9 @@ export const TOKEN=/^[A-Za-z0-9_-]{43}$/;
 export function createSecretLinks({DATA,save,reserved=()=>false,exists=async()=>false,isAgent=async()=>true,nameOf=a=>a,tell=async()=>{},PUBLIC_URL,now=()=>Date.now(),random=n=>randomBytes(n)}){
  const FILE=path.join(DATA,'secret-links.json');let db=null,loading=null,chain=Promise.resolve();
  // read once (the first caller's promise is shared); a link that was being saved when aqeelOS stopped stays closed
- const load=()=>db?Promise.resolve(db):loading||=(async()=>{let d={};try{d=JSON.parse(await readFile(FILE,'utf8'))}catch{}d.links||={};d.audit||=[];
+ const load=()=>db?Promise.resolve(db):loading||=(async()=>{let d=await readStore(FILE);d.links||={};d.audit||=[];
   db=d;for(const r of Object.values(d.links))if(r.state==='saving'){r.state='interrupted';r.done=now();log(r,'interrupted')}return d})();
- const write=async()=>{await mkdir(DATA,{recursive:true});const tmp=FILE+'.'+process.pid+'.'+random(4).toString('hex')+'.tmp';await writeFile(tmp,JSON.stringify(db,null,1),{mode:0o600});await rename(tmp,FILE)};
+ const write=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1),{mode:0o600})};
  // every change, and every write, one at a time: two taps on Save cannot both get through, and writes never overlap
  const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
  const log=(rec,event,extra={})=>{db.audit.unshift({at:now(),agent:rec.base,name:rec.name,label:rec.label,event,...extra});db.audit.length=Math.min(db.audit.length,200)};

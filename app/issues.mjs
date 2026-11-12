@@ -25,6 +25,7 @@
 // in a git work dir on branch fix/<issue>, committed, pushed and opened as a pull request (state "deploy" = waits for the
 // review and the deploy). No GitHub token yet: the branch waits committed, one "Needs you" item asks for the token, and
 // the tick opens the pull requests by itself once there is one. Without the checkout the older patch-file way still runs.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,open,stat,copyFile,readdir,rm} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
@@ -212,6 +213,13 @@ export function sortPrompt(i,others){return [
  'steps: for "person" only, what the person must do, as facts aqeelOS turns into buttons (it checks each one, so name things exactly as they are called here and never invent one): a list of {"what","id","agent","alt"}. what is "ai-account" (sign in again to an AI account on Models: id is the exact name of the account, or its provider), "google" (connect a Google account for an agent: agent is the id of the agent), "app" (sign in to a connected app: id is the exact name of the app, agent the id of the agent), "remove-app" (remove a connected app entry from an agent: id its exact name, agent the id of the agent), "key" (add or change a key under System › Keys: id is the name of the key) or "screen" (sign in on the browser screen of the agent: agent). One entry per thing to do, in order; "alt":true on one that is an alternative to the others. Leave steps empty when none of these fits.',
  '','The line (JSON on one line):','SORT: {"kind":"fixer|person|duplicate|code","duplicateOf":"","title":"","need":"","group":"","steps":[]}'].join('\n')}
 
+/* The list is capped (CAP items), but only ended items are ever dropped, oldest first (audit H3, 12 Nov 2026: the cap kept the newest 300
+   whatever their state, so a "Needs you" item, a stuck one or one waiting for a deploy fell off after about six days and nobody was told).
+   An item that is open, running or waiting for anyone is never dropped; when those alone pass the cap, the list grows and the caller says so. */
+export const ENDED=['fixed','declined','gone','closed','expired'],CAP=300;
+export function capItems(items,cap=CAP){const live=items.filter(i=>!ENDED.includes(i.state)).length;if(items.length<=cap)return {items,dropped:[],live,over:false};
+ const drop=new Set(items.filter(i=>ENDED.includes(i.state)).sort((a,b)=>(a.updated||a.created||0)-(b.updated||b.created||0)).slice(0,items.length-cap).map(i=>i.id));
+ return {items:items.filter(i=>!drop.has(i.id)),dropped:[...drop],live,over:live>cap}}
 export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=async()=>false,tellOwner=async()=>{},toTeam=async()=>false,busy=async()=>0,ready=async()=>true,
  apply=async()=>({ok:true}),usageOf=async()=>null,nameOf=a=>a,codeRoots=[],onFixed=async()=>{},checks={},quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],
  // tz: the install's time zone (the daily runs and Skip reset at its midnight); sortRun: one short model call, {prompt,agent,model,effort} → its output
@@ -224,6 +232,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  ask=async()=>null,
  // limits: the shared "AI provider not available" state (provider-limits.mjs); nothing that needs a model starts while it holds
  limits=null,
+ // onOver(n): the open issues alone are more than the list's cap (n of them; 0 = back under it). defer: how the sorter is started after a filing
+ onOver=async()=>{},defer=f=>setTimeout(f,0),
  // kept for older callers (the Approve/Decline flow is gone)
  askOwner=null,approvalLink=null,restartSelf=null,engineOk=()=>true}){
  const FILE=path.join(DATA,'issues.json'),POL=path.join(DATA,'team-policy.json'),DIR=path.join(DATA,'issues');let db=null,chain=Promise.resolve();
@@ -241,8 +251,14 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   // filed again and again while the fixer was off (before 7 Nov 2026 'open' was not matched): one issue per problem
   const seen=new Map();for(const i of db.items){if(i.state!=='open')continue;const k=seen.get(i.key);if(!k){seen.set(i.key,i);continue}
    k.count=(k.count||1)+(i.count||1);i.state='closed';i.history.push({kind:'person',at:now(),status:'close',summary:'Closed as a duplicate of '+k.id})}};
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.items||=[];db.runs||={};migrate()}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.'+randomBytes(4).toString('hex')+'.tmp';await writeFile(t,JSON.stringify(db,null,1));await rename(t,FILE)};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.items||=[];db.runs||={};migrate();pruneRuns()}return db};
+ // runs of issues that are no longer in the list go once their day is over (the daily cap counts today's runs); the file was rewritten whole,
+ // pretty-printed, with every run ever made (12 Nov 2026: 342 runs, a quarter of the file)
+ const pruneRuns=()=>{const ids=new Set(db.items.map(i=>i.id)),day=today();let n=0;for(const [k,r] of Object.entries(db.runs))if(!ids.has(r.issue)&&r.day!==day){delete db.runs[k];n++}return n};
+ const cap=()=>{const c=capItems(db.items);db.items=c.items;if(c.dropped.length)pruneRuns();
+  if(c.over&&!(now()-(db.overTold||0)<864e5)){db.overTold=now();log('issues: '+c.live+' open issues, more than the list keeps ('+CAP+'): none is dropped');Promise.resolve().then(()=>onOver(c.live)).catch(()=>{})}
+  else if(!c.over&&db.overTold){delete db.overTold;Promise.resolve().then(()=>onOver(0)).catch(()=>{})}};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
  const policy=async()=>{try{return JSON.parse(await readFile(POL,'utf8'))}catch{return {teams:[],fixer:{on:true}}}};
  const view=i=>({...i,agentName:nameOf(i.agent),sig:undefined});
@@ -276,8 +292,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(o.hold){i.state='needs_human';i.noRetry=true;i.need=clip(o.hold,500);i.decision='needs a person: '+clip(o.hold,200)}
   // MODEL-3: one short call sorts it before it joins the line (duplicate, person-only, or the fixer's); urgent ones go at once
   if(i.state==='queued'&&!i.urgent&&sortRun)i.sorting=now();
-  db.items.unshift(i);db.items=db.items.slice(0,300);await save();log('issue '+i.id+' filed by '+(i.source==='health'?'Health':i.agent)+': '+i.state);
-  if(i.sorting)setTimeout(()=>sortNext().catch(e=>log('issues: sort: '+e.message)),0);return {issue:view(i)}});
+  db.items.unshift(i);cap();await save();log('issue '+i.id+' filed by '+(i.source==='health'?'Health':i.agent)+': '+i.state);
+  if(i.sorting)defer(()=>sortNext().catch(e=>log('issues: sort: '+e.message)));return {issue:view(i)}});
  // the item a merged one ended up in (it may have been merged on in turn)
  const endOf=x=>{for(let k=0;x?.mergedInto&&k<20;k++){const n=db.items.find(y=>y.id===x.mergedInto);if(!n)break;x=n}return x};
  // what was merged into `from` moves on to `to`: its reports, its count and the items that point at it

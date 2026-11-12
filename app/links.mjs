@@ -3,6 +3,7 @@
 // The copy points at the agent's own personality, memory, skills, plugins and folders (symlinks), and its
 // settings (model, tools, MCP servers…) are kept equal to the agent's, except its own channel settings.
 // To the person it is the same agent on another number. Chats stay with the copy that received them.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,rm,lstat,symlink,mkdir,stat,readdir} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
@@ -13,8 +14,8 @@ export const baseOf=n=>isLink(n)?n.split('--')[0]:n;
 
 export function createLinks({DATA,DASH,TOKEN,HERMES_HOME,python,setupAgent}){
  const FILE=path.join(DATA,'channel-links.json');let db=null;
- const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.links||={};return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(db)return db;db=await readStore(FILE);db.links||={};return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const api=(p,o={})=>fetch(DASH+'/api'+p,{signal:AbortSignal.timeout(o.timeout||60000),...o,headers:{'x-hermes-session-token':TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||('HTTP '+r.status));return j});
  const SHARED=['SOUL.md','memories','skills','plugins','home','workspace','mcp-tokens'];

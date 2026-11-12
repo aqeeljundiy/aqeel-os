@@ -2,6 +2,7 @@
 // which account, and optional automatic switching when an account runs low.
 // Each account is its own Claude Code config folder (CLAUDE_CONFIG_DIR); the main one is ~/.claude.
 // Hermes' Claude plugin is pointed at an account per agent with its `claude_config_dir` setting.
+import {readStore,writeStore} from './store.mjs';
 import {spawn,execFile} from 'node:child_process';
 import {readFile,writeFile,mkdir,rename,rm,readdir,cp,access,stat,copyFile,appendFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
@@ -12,7 +13,7 @@ import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
 import {providerUnavailable} from './provider-limits.mjs';
 import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';
-import {groupEntries,planGroups,normalise,planMove,nextPick,moves24} from './account-pools.mjs';
+import {groupEntries,planGroups,normalise,nextPick,moves24,stepAgent,pinState,afterMove,pinFromEvents,upGate,movesToday,singleFlight,DAY_MAX} from './account-pools.mjs';
 
 const HOME=homedir();
 const CLAUDE=process.env.CLAUDE_BIN||path.join(HOME,'.local','bin','claude');
@@ -37,18 +38,22 @@ export const entryReset=(wins,full=99)=>{const t=(wins||[]).filter(w=>(w.used||0
 // Anthropic's usage call is refused (429) for some accounts every time (12 Nov 2026, Elkiya "main": never a reading, and it was at
 // its weekly limit). Such an account whose last refusal said "limit, resets <time>" is at its limit until then, not "unknown".
 export const limitNote=(refused,note,now=Date.now())=>refused&&note?.until>now?{until:note.until,text:'At its limit until '+new Date(note.until).toISOString().slice(0,16).replace('T',' ')+' UTC (from its last refusal).'}:null;
-export const accountHooks={idle:null,exhausted:null,giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null,keyStatus:null,keyCheck:null,held:null,backupSync:null};   // keyStatus/keyCheck: connect.mjs (API keys tested); held/backupSync: backup-models.mjs
+export const accountHooks={idle:null,exhausted:null,capped:null,giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null,keyStatus:null,keyCheck:null,held:null,backupSync:null};   // keyStatus/keyCheck: connect.mjs (API keys tested); held/backupSync: backup-models.mjs
 export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code')}={}){
  const FILE=path.join(DATA,'accounts.json'),LIM_FILE=path.join(DATA,'claude-limits.json');let lims=null;
  const limits=async()=>lims||=await readFile(LIM_FILE,'utf8').then(JSON.parse,()=>({}));
- const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {accounts:[],assign:{},auto:{on:false,threshold:90},events:[]}}};
+ // store.mjs: only a missing file is a new install; an unreadable accounts.json is never taken for empty and saved over (audit H4)
+ const load=()=>readStore(FILE,{accounts:[],assign:{},auto:{on:false,threshold:90},events:[]});
  // every write is a change applied to a fresh read, one after another, so a slow writer (auto-switch, a sign-in
  // finishing) never saves a stale copy over another's change; each write has its own tmp file; a change that returns false saves nothing
  let saving=Promise.resolve();
- const update=fn=>{const p=saving.then(async()=>{const d=await load();const r=await fn(d);if(r===false)return r;await mkdir(DATA,{recursive:true});const tmp=FILE+'.'+process.pid+'.'+Date.now()+'.'+Math.random().toString(36).slice(2)+'.tmp';await writeFile(tmp,JSON.stringify(d,null,1));await rename(tmp,FILE);return r});saving=p.catch(()=>{});return p};
+ const update=fn=>{const p=saving.then(async()=>{const d=await load();const r=await fn(d);if(r===false)return r;await writeStore(FILE,JSON.stringify(d,null,1));return r});saving=p.catch(()=>{});return p};
  // every model move: kept here (the last 50), in DATA/model-moves.jsonl for good, and told to the owner (accountHooks.tell)
  // unless a person made it by hand (6 Nov 2026: seven agents moved to GPT in silence)
  const event=(x,e)=>{x.events=[e,...(x.events||[])].slice(0,50);appendFile(path.join(DATA,'model-moves.jsonl'),JSON.stringify({at:new Date(e.t||Date.now()).toISOString(),...e})+'\n').catch(()=>{});
+  // each move also sets that agent's pin and counts its automatic moves today (account-pools.mjs afterMove): kept per agent in the file, so
+  // other agents' events or a restart never lift a pin (12 Nov 2026: the pin was read from the last 50 events and lasted about 3 hours)
+  const am=afterMove({moved:x.moved?.[e.profile],hand:e.why==='Chosen by hand',now:e.t||Date.now()});(x.pins||={})[e.profile]=am.pin;if(am.moved)(x.moved||={})[e.profile]=am.moved;
   if(e.why!=='Chosen by hand')Promise.resolve(accountHooks.tell?.(e)).catch(()=>{})};
  const all=d=>[{...MAIN,label:d.mainLabel||MAIN.label},...d.accounts.filter(a=>a.id!=='main')];
  const run=(cmd,args,env={},timeout=30000)=>new Promise(res=>execFile(cmd,args,{env:{...process.env,...env},timeout,maxBuffer:4e6},(err,stdout,stderr)=>res({ok:!err,out:String(stdout||''),err:String(stderr||err?.message||'')})));
@@ -267,8 +272,11 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  const reading=(e,det,prov,model,onIt)=>({key:e.key,used:usageOf(e.key,det,prov,model),...windowsOf(e.key,det,prov,model),agents:onIt.get(e.key)||0,held:!!accountHooks.held?.(e.key)});
 
  /* ---------- auto-switch: move agents off an account that is nearly used up, and back once it has room ---------- */
- const upSeen=new Map();   // agent → the higher entry it could go back to, and how many checks in a row
- async function autoTick(){const d=await load();BASIS=['either','session','week','both'].includes(d.auto?.basis)?d.auto.basis:'either';const on=!!d.auto?.on,back=d.auto?.backHome!==false;if(!on&&!back)return;const th=Number(d.auto?.threshold)||90;const accts=all(d);
+ const upSeen=new Map();   // agent → the higher entry it could go back to, and since when
+ // one check at a time (12 Nov 2026: the timer and the check after each save overlapped, and each of 9 agents was moved twice within a
+ // minute). A call during a check asks for one more after it, so a changed setting is still acted on.
+ const autoTick=singleFlight(()=>autoTickOnce());
+ async function autoTickOnce(){const d=await load();BASIS=['either','session','week','both'].includes(d.auto?.basis)?d.auto.basis:'either';const on=!!d.auto?.on,back=d.auto?.backHome!==false;if(!on&&!back)return;const th=Number(d.auto?.threshold)||90;const accts=all(d);
   // back home: an entry higher in the list is used again once it has this share free (owner's setting, 20% by default)
   const backAt=100-(Number(d.auto?.backFree)||20);
   const det=Object.fromEntries(await Promise.all(accts.map(async a=>[a.id,await details(a)])));
@@ -292,19 +300,23 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
     const at=pe?groups.findIndex(g=>g.members.includes(pe)):-1,g=at>=0?groups[at]:null;
     // a provider in an outage (backup-models.mjs) has no room (held), so nobody is moved back up to it before it works again
     const state=e=>reading(e,det,prov,e.model||(e.key.startsWith(PLUGIN_KEY)&&!isClaude(model)?'':model),onIt);
-    // an agent someone moved by hand stays where they put it; no flip-flopping: 30 minutes on an entry before going back up or changing member
-    const lastMove=(d.events||[]).find(e=>e.profile===profile),byHand=lastMove?.why==='Chosen by hand',settled=!lastMove||Date.now()-(lastMove.t||0)>=30*60e3,free=!byHand&&settled;
+    // an agent someone moved by hand stays where they put it; after any move an agent is pinned for the settle time (account-pools.mjs).
+    // Both are kept per agent in the file (d.pins, written with each move); an agent with no pin yet gets it from its last event, as before.
+    const now=Date.now(),pin=d.pins?.[profile]||pinFromEvents(d.events,profile),moved=d.moved?.[profile],{free}=pinState(pin,now);
     if(!(at>0&&back&&free))upSeen.delete(profile);
     // between chats: nothing of the agent is running and it has been quiet for a while (server.mjs); unknown counts as busy
-    const idle=on&&g?.pool&&free?await Promise.resolve(accountHooks.idle?.(profile)).catch(()=>false)===true:false;
-    const {cands}=planMove({groups,at,cur,state,curState:reading({key:cur},det,prov,model,onIt),th,backAt,on,back,mayGoUp:free,mayRebalance:free,idle,serves:e=>servesModel(e,model,prov),
-     // two checks in a row (10 minutes) before going back, so it does not flip back and forth
-     upConfirmed:id=>{if(!id){upSeen.delete(profile);return false}const u=upSeen.get(profile),n=u?.k===id?u.n+1:1;upSeen.set(profile,{k:id,n});return n>=2}});
+    const idle=on&&g?.pool&&free&&movesToday(moved,now)<DAY_MAX?await Promise.resolve(accountHooks.idle?.(profile)).catch(()=>false)===true:false;
+    const {cands,capped}=stepAgent({pin,moved,now,plan:{groups,at,cur,state,curState:reading({key:cur},det,prov,model,onIt),th,backAt,on,back,idle,serves:e=>servesModel(e,model,prov),
+     // the same higher group had room on two checks minutes apart, so it does not flip back and forth
+     upConfirmed:id=>upGate(upSeen,profile,id,now)}});
+    // the day's ceiling: this agent is not moved again today by itself; said once (one Health item, accountHooks.capped)
+    if(capped){if(!moved.told){moved.told=now;await update(x=>{const m=x.moved?.[profile];if(!m||m.told)return false;m.told=now});console.log('auto-switch:',profile,'reached',DAY_MAX,'moves today and stays where it is');Promise.resolve(accountHooks.capped?.({profile,n:moved.n,max:DAY_MAX})).catch(()=>{})}continue}
     for(const c of cands){const done=await useEntry(d,profile,c.entry,c.why).then(()=>true,er=>{console.warn('auto-switch',er.message);return false});
      if(done){onIt.set(cur,Math.max(0,(onIt.get(cur)||1)-1));onIt.set(c.entry.key,(onIt.get(c.entry.key)||0)+1);console.log('auto-switch:',profile,cur,'to',c.entry.key,'('+c.kind+')',c.why);break}}}
    return}
   if(!on)return;
   for(const profile of await agents()){const cur=d.assign[profile]||'main';const v=det[cur];if(!v?.usage)continue;
+   {const pin=d.pins?.[profile]||pinFromEvents(d.events,profile),moved=d.moved?.[profile];if(!pinState(pin).settled||movesToday(moved)>=DAY_MAX)continue}   // the same settle time and ceiling without a priority list
    const worst=claudeUsed(v.usage,(await agentRoute(profile)).model);if(worst<th)continue;
    const best=accts.filter(a=>a.id!==cur&&det[a.id]?.signedIn&&det[a.id]?.usage).sort((x,y)=>headroom(det[y.id])-headroom(det[x.id]))[0];
    if(best&&headroom(det[best.id])>100-th)await assign(d,profile,best.id,`${v.label||cur} reached ${worst}%`).catch(e=>console.warn('auto-switch',e.message))}}

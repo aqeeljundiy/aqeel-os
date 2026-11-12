@@ -6,6 +6,7 @@
 //   skill:<skill name>  mcp:<mcp_servers key>  plugin:<plugin id>  ca:<connected account id>  google:<email>
 //   key:<env name>  channel:<agent>|<platform>  kirimdev:<line id>  agent:<profile>
 // Schedules keep their own: the job's name (engine) and its description (schedule-meta.json summary).
+import {writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {LABEL_DEFAULTS} from './label-defaults.mjs';
@@ -24,7 +25,7 @@ export function createLabels(DATA,{defaults=LABEL_DEFAULTS,pluginDesc=null}={}){
  const pluginWhat=pluginDesc&&(r=>{if(!String(r?.key||'').startsWith('plugin:'))return null;const d=pluginDesc(r.key.slice(7));return d?{...r,what:d}:null});
  const FILE=path.join(DATA,'labels.json');let db=null,chain=Promise.resolve();
  const load=async()=>{if(db)return db;try{const j=JSON.parse(await readFile(FILE,'utf8'));db=j&&typeof j==='object'&&!Array.isArray(j)?j:{}}catch(e){if(e.code!=='ENOENT')console.warn('labels.json:',e.message);db={}}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(db,null,1));await rename(t,FILE)};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  // the built-in ones (label-defaults.mjs) under what people set; each says which it is
  async function all(){const l=await load(),out={};for(const [k,v] of Object.entries(defaults))out[k]={...v,builtIn:true};for(const [k,v] of Object.entries(l))out[k]={...v};return out}
  async function get(kind,id){const k=labelKey(kind,id);return (await load())[k]||(defaults[k]?{...defaults[k],builtIn:true}:null)}

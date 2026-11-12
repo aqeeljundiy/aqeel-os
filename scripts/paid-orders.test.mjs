@@ -103,6 +103,30 @@ test('check_payment marks a tester\'s test-amount QRIS as standing for the full 
  const C=createCustomerTools({WORK:s.W,DATA:s.D,payments:s.P,googleCall:async()=>({}),chatFind:async()=>({}),history:async()=>'',log:()=>{},runAsAgent:async()=>({})});const tok=C.begin({agent:A,line:'1',conversation:'cnv_1',phone:PHONE,mode:'test',tester:true});
  const x=(await C.call(A,tok,'check_payment',{})).text;assert.match(x,/10,000: PAID \(TEST payment/);assert.match(x,/955,000/);assert.match(x,/send your payment-confirmed message right away/)});
 
+// Audit H1 (12 Nov 2026): while labelling failed, the order was posted to the team again on every tick and payment.paid fired each time,
+// because the record of the failed try had no time and the clean-up deleted it in the same tick.
+test('labelling keeps failing: the order is posted once, payment.paid is told once, and it closes after five tries',async()=>{
+ const W=await mkdtemp(path.join(tmpdir(),'h1-')),D=path.join(W,'data');await mkdir(path.join(W,A,'.secrets'),{recursive:true});await mkdir(D,{recursive:true});await writeFile(path.join(W,A,'.secrets','TRIPAY_API_KEY'),'k');
+ let t=Date.parse('2026-11-08T05:00:00Z'),posts=0,labelTries=0;const events=[];
+ const P=createPaidLabels({DATA:D,WORK:W,log:()=>{},now:()=>t,fetchImpl:tripay({v:'PAID'}),orders:async()=>({chatId:-100123,threadId:101,persona:'Sam',currency:'Rp'}),post:async()=>{posts++;return 77},
+  onEvent:(a,e)=>events.push(e.type),label:async()=>{labelTries++;throw Error('Kirimdev answered 503')}});
+ await appendFile(path.join(D,'payments.jsonl'),JSON.stringify({at:new Date(t-60e3).toISOString(),agent:A,line:'1',conversation:'cnv_1',phone:PHONE,mode:'live',run:'r1',kind:'qris',amounts:[100000],total:100000,products:[],refs:[REF],orders:[],name:'N',form:'f',ok:true})+'\n');
+ const rec=async()=>Object.values(JSON.parse(await readFile(path.join(D,'paid-labels.json'),'utf8')).done)[0];
+ for(let i=0;i<6;i++){await P.tick();await new Promise(r=>setImmediate(r));t+=60e3;
+  if(i===0){const r=await rec();assert.equal(r.tries,1,'the failed try is remembered');assert.equal(typeof r.at,'number');assert.equal(r.paid,true);assert.equal(r.order.state,'posted')}}
+ assert.equal(posts,1,'the order went to the team once');assert.deepEqual(events.filter(e=>e==='payment.paid'),['payment.paid']);assert.deepEqual(events.filter(e=>e==='order.posted'),['order.posted']);
+ assert.equal(labelTries,5,'five tries, then it stops');const r=await rec();assert.equal(r.state,'closed');assert.match(r.why,/labels failed/);
+ // and a later tick does nothing more
+ await P.tick();assert.equal(posts,1);assert.equal(labelTries,5)});
+
+test('a record written before records carried a time is kept (and stamped), not deleted and done again',async()=>{
+ const W=await mkdtemp(path.join(tmpdir(),'h1b-')),D=path.join(W,'data');await mkdir(path.join(W,A,'.secrets'),{recursive:true});await mkdir(D,{recursive:true});await writeFile(path.join(W,A,'.secrets','TRIPAY_API_KEY'),'k');
+ const t=Date.parse('2026-11-08T05:00:00Z'),at=new Date(t-60e3).toISOString();let posts=0,labels=0;
+ await writeFile(path.join(D,'paid-labels.json'),JSON.stringify({done:{[A+'|'+at+'|100000']:{tries:2,paid:true,order:{state:'posted',at:t-30e3},refs:[REF]}}}));
+ await appendFile(path.join(D,'payments.jsonl'),JSON.stringify({at,agent:A,line:'1',conversation:'cnv_1',phone:PHONE,mode:'live',run:'r1',kind:'qris',amounts:[100000],total:100000,products:[],refs:[REF],orders:[],ok:true})+'\n');
+ const P=createPaidLabels({DATA:D,WORK:W,log:()=>{},now:()=>t,fetchImpl:tripay({v:'PAID'}),orders:async()=>({chatId:-1,threadId:1,persona:'S',currency:'Rp'}),post:async()=>{posts++;return 1},label:async()=>{labels++;return {set:true,changed:[]}}});
+ await P.tick();assert.equal(posts,0,'already posted: not again');assert.equal(labels,1);
+ const r=Object.values(JSON.parse(await readFile(path.join(D,'paid-labels.json'),'utf8')).done)[0];assert.equal(r.state,'labelled')});
 // ---- audit 12 Nov 2026, H8b: a split payment that is only partly paid tells the team and stays open
 test('a part-paid split payment: one team post and one Health line, no labels, not closed as unpaid, check_payment keeps saying PARTLY_PAID',async()=>{
  const W=await mkdtemp(path.join(tmpdir(),'pp-')),D=path.join(W,'data');await mkdir(D,{recursive:true});const posts=[],labels=[],alerts=[],asked=[];let t=Date.parse('2026-11-08T05:00:00Z');

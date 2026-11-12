@@ -10,6 +10,7 @@
 // One row per problem, not per occurrence: an item with a group key updates the open row of that group in place
 // ("since 14:02, 3 times") instead of adding one; resolve(group) closes it. Bell items expire after 7 days and acting
 // on one clears it. Items from before this (no cls) are Activity, and repeats of one problem fold into one row at load.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
@@ -32,8 +33,8 @@ export function excerpt(s,n=240){const t=String(s??'').replace(/\s+/g,' ').trim(
 export function eveningLine(fixed,needs){const f=fixed===1?'1 thing fixed itself today':fixed+' things fixed themselves today';return f+', '+(needs?needs+(needs===1?' thing needs':' things need')+' you':'nothing needs you')}
 export function createNews({DATA}){const sent=new Map();   // aud -> times of recent adds from a person's app
  const FILE=path.join(DATA,'news.json');let db=null,saving=Promise.resolve();
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.items||=[];if(!db.v2){db.items=fold(db.items);db.v2=Date.now();await save()}}return db};
- const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db));await rename(FILE+'.tmp',FILE)}).catch(e=>console.warn('news: saving',e.message));
+ const load=async()=>{if(!db){db=await readStore(FILE);db.items||=[];if(!db.v2){db.items=fold(db.items);db.v2=Date.now();await save()}}return db};
+ const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db))}).catch(e=>console.warn('news: saving',e.message));
  const clip=(s,n)=>String(s??'').replace(/\s+/g,' ').trim().slice(0,n);
  const pub=({aud,read,gone,...x})=>x;
  const sees=(x,u,admin)=>x.aud==='u:'+u.id||(x.aud==='admins'&&admin);

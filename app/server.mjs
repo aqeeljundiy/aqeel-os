@@ -1,3 +1,5 @@
+import {channelsPause,payHook,beforeEngineStop} from './route-handlers.mjs';
+import {setStoreHooks,sweepTmp,writeStore} from './store.mjs';
 import {spawn} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import {setDefaultResultOrder} from 'node:dns';
@@ -194,7 +196,7 @@ function cookieId(req){const m=/(?:^|;\s*)hui=([^;]+)/.exec(req.headers.cookie||
  const a=Buffer.from(sign(v)),b=Buffer.from(sig);if(!(a.length===b.length&&timingSafeEqual(a,b)&&Number(exp)>Date.now()))return null;
  // "Sign out everywhere": cookies issued before that moment no longer count
  const cut=revoked[id];if(cut&&Number(exp)-SESSION_DAYS*864e5<cut)return null;return id}
-async function revokeSessions(uid){revoked[uid]=Date.now();const f=path.join(DATA,'session-revoke.json');await writeFile(f+'.tmp',JSON.stringify(revoked));await rename(f+'.tmp',f)}
+async function revokeSessions(uid){revoked[uid]=Date.now();const f=path.join(DATA,'session-revoke.json');await writeStore(f,JSON.stringify(revoked))}
 const validCookie=req=>!!cookieId(req);
 const cookieAttrs=max=>`Path=/; HttpOnly; SameSite=Strict; Max-Age=${max}${SECURE_COOKIE?'; Secure':''}`;
 function checkPassword(pw){const [kind,salt,hash]=PW_HASH.split(':');if(kind!=='scrypt'||!salt||!hash)return false;const got=scryptSync(String(pw),Buffer.from(salt,'hex'),64);const want=Buffer.from(hash,'hex');return got.length===want.length&&timingSafeEqual(got,want)}
@@ -290,7 +292,7 @@ const okProfile=n=>/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(n);
 async function readIds(){try{return JSON.parse(await readFile(IDS,'utf8'))}catch{return {}}}
 // for a change: missing is empty, but a file that does not parse stops it (never saved over, so nobody's identity is lost)
 async function readIdsForWrite(){let t;try{t=await readFile(IDS,'utf8')}catch(e){if(e.code==='ENOENT')return {};throw e}const j=JSON.parse(t);if(!j||typeof j!=='object'||Array.isArray(j))throw Error('not an object');return j}
-async function writeIds(ids){await mkdir(DATA,{recursive:true});const t=IDS+'.'+process.pid+'.'+randomBytes(4).toString('hex')+'.tmp';await writeFile(t,JSON.stringify(ids,null,1));await rename(t,IDS)}
+async function writeIds(ids){await mkdir(DATA,{recursive:true});await writeStore(IDS,JSON.stringify(ids,null,1))}
 // one change at a time, each on the file as it is then (read inside the queue, after its upload is in)
 let idsChain=Promise.resolve();const withIds=fn=>{const r=idsChain.then(async()=>{let ids;try{ids=await readIdsForWrite()}catch(e){throw Object.assign(Error('The agents’ names and pictures could not be read, so nothing was changed. Try again, or ask an admin to check identities.json.'),{status:500,cause:e})}return fn(ids)});idsChain=r.catch(()=>{});return r};
 async function setDisplayName(profile,name){
@@ -646,7 +648,7 @@ async function loopGuard(a,all){if(a.split('--')[0]==='default')return;const hom
   const keep=m[2].split(',').map(x=>x.trim()).filter(x=>{const d=x.replace(/\D/g,'');if(d&&others.has(d)){removed.push(x);changed=true;return false}return !!x});return m[1]+keep.join(',')});return changed?next.join('\n'):null})).catch(()=>{});
  const apF=path.join(home,'platforms','pairing','whatsapp-approved.json');const ap=await readFile(apF,'utf8').then(JSON.parse).catch(()=>null);
  if(ap&&typeof ap==='object'){let ch=false;for(const k of Object.keys(ap))if(others.has(k.replace(/\D/g,''))){delete ap[k];removed.push(k);ch=true}
-  if(ch){await writeFile(apF+'.tmp',JSON.stringify(ap));await rename(apF+'.tmp',apF)}}
+  if(ch){await writeStore(apF,JSON.stringify(ap))}}
  if(removed.length){platCache.delete(a);console.log('loop guard:',a,'no longer answers other agents\' WhatsApp numbers:',removed.join(', '))}}
 async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};const st=await getStatus();await users.load();
  for(const a of only?[only]:await listAllProfiles()){try{
@@ -728,7 +730,7 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
   // engine started kept running without a Claude login for an hour); the wait above already gave them their time
   // the engine needs 30 to 45 s to shut down cleanly; it is waited for before its window closes (gateway-stop.mjs)
   // an agent with a gateway process of its own is restarted with it (on a shared gateway there is none: the default one serves every agent)
-  await syncDelegs().catch(()=>{});   // what runs now is journaled before the stop cuts it
+  await beforeEngineStop({syncDelegs,log:m=>console.warn(m)});   // what runs now is journaled before the stop cuts it (route-handlers.mjs)
   const own=ownGateways(parseGatewayList((await shx('hermes gateway list 2>/dev/null',30000)).out));if(own.length)console.log('gateway restart: agents with their own gateway too:',own.join(', '));
   for(const a of own)await shx(stopOwnGatewayCmd(a),90000);
   {const t0=Date.now(),st=await shx(stopGatewayCmd(),stopTimeoutMs());console.log('gateway restart: engine stopped after',Math.round((Date.now()-t0)/1000)+' s'+(/FORCED/.test(st.out)?' (it did not stop by itself in time and was closed)':' (clean)'))}
@@ -905,7 +907,7 @@ const brandMarks=async({custom}={})=>{const out=[],rd=f=>readFile(path.join(root
 // how an install's logo is really used when the owner has set no colours: Pixel & Profits shows its mark in green #83b271 on near-black #111 (its site's favicon and header), so its icon does too
 const BRAND_LOOK={'ai.pixelandprofits.com':{colour:'#111111',accent:'#83b271'}}[(()=>{try{return new URL(env.PUBLIC_URL||'').hostname}catch{return ''}})()]||{};
 const brand=createBrand({DATA,contactFallback:OWNER_CONTACT,fallbackMarks:brandMarks,colourDefault:env.AQEELOS_BRAND_COLOUR||BRAND_LOOK.colour||'',accentDefault:env.AQEELOS_BRAND_ACCENT||BRAND_LOOK.accent||''});
-const backups=createBackups({DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.',{topic:'backup'}).catch(()=>{}),solved:()=>bottlenecks.resolve('backup').catch(()=>{}),
+const backups=createBackups({detach:LIVE_APP,DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.',{topic:'backup'}).catch(()=>{}),solved:()=>bottlenecks.resolve('backup').catch(()=>{}),
  restored:(ok,text,detail)=>(ok?bottlenecks.resolve('restore').then(()=>bottlenecks.event('backup',text,detail,{info:true})):bottlenecks.event('backup',text,detail,{topic:'restore'})).catch(()=>{}),   // done: the bell; failed: Bottlenecks
  // a restore stops the agents and the engine's dashboard (it keeps the chats database and settings open too), and the
  // watches leave both alone until it starts them again (services.sh starts both)
@@ -974,6 +976,10 @@ const morning=createMorning({DATA,tz:()=>tzNow,send:text=>ownerSend(text,'telegr
 if(LIVE_APP)setInterval(()=>morning.tick().catch(e=>console.warn('morning line:',e.message)),5*60e3).unref();
 const newsInfo=(kind,text,detail)=>{const ok=/works again|fixed|back on|working again|passed/i.test(text);return news.add({aud:'admins',group:'ev|'+kind+'|'+String(text).replace(/\(.*?\)|[0-9]+/g,'#').replace(/\s+/g,' ').trim().slice(0,100),icon:kind==='down'?'activity':ok?'check':'refresh',kind:ok?'ok':'blue',title:text,text:detail,go:'/system/health',label:'Health'})};
 const bottlenecks=createBottlenecks({DATA,onInfo:newsInfo,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
+// a state file that cannot be read is left untouched and nothing is saved over it (store.mjs, audit H4): one Health item per file, gone when it reads again
+setStoreHooks({bad:(file,why)=>bottlenecks.event('store','aqeelOS cannot read '+path.basename(file),'The file is left exactly as it is and nothing is saved over it, so what it holds is not lost; changes to it are refused until it reads again. Repair '+file+' or put back its copy ('+path.basename(file)+'.last-good), then it carries on by itself. ('+why+')',{topic:'store|'+path.basename(file)}).catch(()=>{}),
+ good:file=>bottlenecks.resolve('store|'+path.basename(file)).catch(()=>{})});
+sweepTmp(DATA).then(n=>{if(n)console.log('store: removed '+n+' temp file(s) a cut-off write left in the data folder')}).catch(()=>{});
 // agents' instructions with a history, contradiction flags and approval for rewrites (instructions.mjs)
 const instructions=createInstructions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,python:enginePython,root,names:a=>agentName(a),live:LIVE_APP});
 if(LIVE_APP){setTimeout(()=>listAgents().then(l=>instructions.tick(l)).catch(()=>{}),150000).unref();setInterval(()=>listAgents().then(l=>instructions.tick(l)).catch(()=>{}),30*60000).unref()}
@@ -1279,7 +1285,7 @@ async function trueWhatsApp(agent,v){const list=v?.platforms||v;if(!Array.isArra
    or the bridge stopped) is marked needs_link, so every screen offers the same "Link again". */
 const PAUSED_FILE=path.join(DATA,'channel-paused.json');
 const pausedLoad=async()=>{try{return JSON.parse(await readFile(PAUSED_FILE,'utf8'))}catch{return {}}};
-const pausedSave=async v=>{await writeFile(PAUSED_FILE+'.tmp',JSON.stringify(v,null,1));await rename(PAUSED_FILE+'.tmp',PAUSED_FILE)};
+const pausedSave=async v=>{await writeStore(PAUSED_FILE,JSON.stringify(v,null,1))};
 /* Pause / resume a channel: the engine's own on/off (an explicit "off" beats a saved login or token), so a paused
    WhatsApp keeps its link and a paused Telegram its bot; picking an agent again turns it on with no new QR. */
 async function setChannelOn(agent,platform,on){const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
@@ -1410,7 +1416,7 @@ async function waSettingsPending(agent){try{
   if(Object.keys(run).length)return Object.entries(now).some(([k,v])=>k in run&&!same(run[k],v))}
  const hash=createHash('sha1').update(Object.keys(now).sort().map(k=>k+'='+now[k]).join('\n')).digest('hex');
  bridgeEnv||=await readFile(BRIDGE_ENV,'utf8').then(JSON.parse).catch(()=>({}));const s=bridgeEnv[agent];
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(BRIDGE_ENV+'.tmp',JSON.stringify(bridgeEnv));await rename(BRIDGE_ENV+'.tmp',BRIDGE_ENV)};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(BRIDGE_ENV,JSON.stringify(bridgeEnv))};
  if(!s||s.pid!==info.pid||Math.abs(s.start-info.start)>5000||!s.wa){bridgeEnv[agent]={pid:info.pid,start:info.start,wa:hash};await save();return false}   // first sight (or a record from before this rule): its baseline
  return s.wa!==hash}catch{return false}}
 /* Channel checks. "Check connection" asks the engine fresh and, for WhatsApp, also looks for its running bridge.
@@ -1791,12 +1797,14 @@ const providerLimits=createLimitState({DATA});
 // between chats (account pools, 12 Nov 2026): no reply running in aqeelOS, no engine session running, and quiet for 10 minutes, so a
 // change of account throws away no warm prompt cache. An engine that does not answer counts as busy.
 accountHooks.idle=async a=>{if([...LIVE].some(([k,r])=>!r.done&&String(k).split('|')[0]===a))return false;const s=await engineSessions(a).catch(()=>null);return !!s&&!s.active&&Date.now()-s.lastActive>=10*60e3};
+// an agent that reached the day's ceiling of automatic account moves: one Health item per agent (a newer one replaces it)
+accountHooks.capped=({profile,n,max})=>bottlenecks.event('models',(NAMES[profile]||profile)+' changed AI account '+n+' times today and now stays where it is','aqeelOS moves an agent at most '+max+' times a day by itself. It stays on its account until tomorrow; move it by hand on Models › AI accounts if that account is used up. So many moves in one day usually means every account is close to its limit.',{topic:'account-moves|'+profile,agent:profile}).catch(()=>{});
 accountHooks.exhausted=until=>{if(until)providerLimits.set(until,'every AI account is used up','accounts');else if(providerLimits.hold()?.kind==='accounts')providerLimits.clear()};
 // questions for the owner (questions.mjs): the fixer, an agent (ask_owner) or the app asks with a few options; the answer goes back to the asker
 const questions=createQuestions({DATA,names:a=>agentName(a),onAnswer:async q=>{if(q.kind==='fixer'&&q.issue)await issues.answered(q.issue,q);if(q.kind==='app'&&q.issue==='brand-logo'&&q.answered?.choice==='b'){await brand.setMono(true);await pwa.current()}if(q.kind==='app'&&String(q.issue).startsWith('live-logo-')&&q.answered?.choice==='b')await live.useLetter(String(q.issue).slice(10))}});
 // the cloud fixer (cloud-fixer.mjs, 12 Nov 2026): code fixes are written by a Claude Code routine in Anthropic's cloud; the account with the most room is used
 const cloudFixer=createCloudFixer({DATA,accounts:async()=>{const b=accountsApi.backup,d=await b.load();return Promise.all(b.all(d).map(a=>b.details(a)))},github:id=>fixerGit.mergedPr(id)});
-const issues=createIssues({DATA,ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
+const issues=createIssues({DATA,onOver:n=>n?bottlenecks.event('issues',n+' open issues: more than the list is meant to hold','None is dropped. Close or decline the ones that no longer matter under System › Health, so new ones stay easy to find.',{topic:'issues-over'}):bottlenecks.resolve('issues-over'),ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
  needCloud:()=>bottlenecks.event('cloud_fixer','Set up the cloud fixer','A bug in aqeelOS\'s own code is fixed in the cloud. Add a routine on System › Settings › Cloud fixer; until then the older way runs.',{topic:'cloud_fixer'}),cloudOk:()=>bottlenecks.resolve('cloud_fixer'),needToken:()=>bottlenecks.event('github_token','The fixer needs a GitHub token','Fixes wait for review as branches on the box. Add the token and their pull requests open by themselves.',{topic:'github_token'}),tokenOk:()=>bottlenecks.resolve('github_token'),usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
  tz:()=>installTz()||process.env.TZ||'',sortRun:engineSortRun({bin:path.join(homedir(),'.local','bin','aqeelos'),home:homedir(),dir:path.join(DATA,'issues','sort')}),
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,engineOk:()=>inQuiet(new Date(),installTz()||process.env.TZ||''),envFiles:issueEnvFiles,
@@ -1879,9 +1887,9 @@ const resumeEng=createResumeEngine({python:enginePython,homeOf:homeOfAggent,agen
  posted:(a,from,to)=>postingLimits.view(a).then(v=>(v.recent||[]).some(e=>e.at>=from&&e.at<=to+60e3))});
 // a provider that is busy, out of room or signed out is tried again later; anything else is said and left
 const PROVIDER_WAIT=/rate.?limit|overload|\b(429|5\d\d)\b|time(d)? ?out|unavailable|quota|credit|capacity|connection|network|temporar|no (available )?(account|credential|provider)|auth|unauthori|api.?key|log.?in|sign.?in|expired/i;
-async function resumeSend(e,note){const key=e.agent+'|'+e.session,cur=LIVE.get(key);if(cur&&!cur.done)return e.kind==='deleg'?{retry:true,why:'a reply is already running there'}:{skip:true,why:'a reply is already running there'};
+async function resumeSend(e,note,plan,signal){const key=e.agent+'|'+e.session,cur=LIVE.get(key);if(cur&&!cur.done)return e.kind==='deleg'?{retry:true,why:'a reply is already running there'}:{skip:true,why:'a reply is already running there'};
  const pre=e.agent==='default'?'':'/p/'+encodeURIComponent(e.agent);
- const up=await fetch(GATE.origin+pre+'/api/sessions/'+encodeURIComponent(e.session)+'/chat/stream',{method:'POST',headers:{authorization:'Bearer '+API_KEY,'content-type':'application/json',accept:'text/event-stream'},body:JSON.stringify({message:note,...(e.opts||{})}),...longFetch()}).catch(er=>({ok:false,status:0,text:async()=>er.message}));
+ const up=await fetch(GATE.origin+pre+'/api/sessions/'+encodeURIComponent(e.session)+'/chat/stream',{method:'POST',headers:{authorization:'Bearer '+API_KEY,'content-type':'application/json',accept:'text/event-stream'},body:JSON.stringify({message:note,...(e.opts||{})}),...longFetch(),...(signal?{signal}:{})}).catch(er=>({ok:false,status:0,text:async()=>er.message}));   // signal: resume.mjs gives up on a stream that stays silent (audit H10)
  if(!up.ok||!up.body){const t=String(await up.text().catch(()=>'')).replace(/\s+/g,' ').slice(0,120);return up.status===404?{fail:true,why:'the chat no longer exists'}:{retry:true,why:'the engine did not take it ('+(up.status||t)+')'}}
  const rec=liveStart(key,e.user);rec.jid=resume.begin({agent:e.agent,session:e.session,user:e.user,userName:e.userName,text:e.text,opts:e.opts,gw:gwPidNow,from:e.id,n:e.n,cut0:e.cut0});
  return new Promise(res=>{let said=false;const say=r=>{if(!said){said=true;res(r)}};
@@ -1920,7 +1928,10 @@ let rtLedger=null,rtGw=0,rtFull=0;
 // background tasks (the engine's ledger in each agent's state.db, which changes all day, so it is read once a minute, when the engine
 // restarted or something waits, and just before aqeelOS itself restarts the engine) instead of every 30 s
 let rtDeleg=0;async function syncDelegs(){const dl=await resumeEng.delegsNow().catch(()=>null);if(dl)resume.sync(dl,'deleg');rtDeleg=Date.now();return !!dl}
-async function resumeTick(){if(!LIVE_APP)return;resume.beat();
+// one tick at a time: a tick waiting on a slow engine no longer has the next ones pile up behind it (audit H10)
+let resumeTicking=false;
+async function resumeTick(){if(!LIVE_APP||resumeTicking)return;resumeTicking=true;try{await resumeTickOnce()}finally{resumeTicking=false}}
+async function resumeTickOnce(){resume.beat();
  const hs=await agentNames().then(l=>l.map(homeOfAg)).catch(()=>[]),led=await ledgerSig(hs).catch(()=>null),gw=await gatewayPid().catch(()=>0);
  const look=led===null||led!==rtLedger||gw!==rtGw||resume.pending()>0||Date.now()-rtFull>=300e3,lookD=look||Date.now()-rtDeleg>=60e3;
  const runs=look?await resumeEng.runsNow().catch(()=>null):null;if(runs)resume.sync(runs,'schedule');
@@ -2436,8 +2447,11 @@ const SCREEN=new URL(env.UI_SCREEN||'http://127.0.0.1:6080');
 const BUILD=String(Date.now());
 // home-screen app for every page (pwa.mjs): icons from the brand's real mark, the manifest, head tags and the service worker. No real mark = one question under Needs you
 const brandNeeds=async(set,s)=>{try{const ask={kind:'app',issue:'brand-logo'};if(set.needsLogo)await questions.file(ask,{question:'No logo found for '+s.name+': upload its mark',options:[{label:'Upload the mark',effect:'Opens Branding, where you choose its SVG or PNG file.',recommended:true,go:'/system/branding'},{label:'Use its first letter',effect:'The first letter on the colour tile instead. You can still upload the mark later.'}],allowOther:false});else await questions.retire(ask)}catch(e){console.warn('brand icon question:',e.message)}};
-const pwa=createPwa({brand,build:()=>BUILD,onSet:(set,s)=>{brandNeeds(set,s)}});
-await pwa.current().catch(e=>console.warn('icons:',e.message));
+// The icons are drawn off the main thread with a time limit and never hold up the start (audit C2: a malformed logo hung every start). A logo that
+// cannot be drawn gives the plain tile and one Health item, which goes away once a set is drawn again.
+const pwa=createPwa({brand,build:()=>BUILD,onSet:(set,s,failed)=>{if(failed)return;brandNeeds(set,s);bottlenecks.resolve('brand-icons').catch(()=>{})},
+ onFail:(e,s)=>{console.warn('icons: the plain tile is used:',e.message);bottlenecks.event('brand','The logo could not be made into icons','The plain colour tile is used for the home-screen icon and the tab icon until another logo is uploaded in System › Branding. '+String(e.message).slice(0,200),{topic:'brand-icons'}).catch(()=>{})}});
+pwa.current().catch(e=>console.warn('icons:',e.message));
 const sameOrigin=req=>{const o=req.headers.origin;if(!o)return true;try{return new URL(o).host===req.headers.host}catch{return false}};
 const plugins=createPluginHost({DASH,DASH_TOKEN,users,send,security,proxy,me,validCookie,sameOrigin});
 function screenHttp(req,res){
@@ -2769,7 +2783,7 @@ const server=createServer(async(req,res)=>{
   // Tripay and Xendit call here when a payment is paid, no sign-in: each call is checked with the agent's own provider secret (payment-callbacks.mjs)
   {const pm=/^\/hooks\/pay\/(tripay|xendit)\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(pm){if(req.method!=='POST')return send(res,405,{success:false});let raw;
    if(+req.headers['content-length']>65536)return send(res,413,{success:false});try{raw=await readRaw(req,65536)}catch{return send(res,413,{success:false})}
-   try{const r=await paymentCallbacks.receive(pm[1],pm[2],req.headers,raw);send(res,r.status,r.body);if(r.after&&LIVE_APP)setImmediate(()=>r.after().catch(e=>console.warn('payment callback',e.message)));return}catch(e){console.warn('payment callback',e.message);return send(res,500,{success:false})}}}
+   {const r=await payHook({provider:pm[1],agent:pm[2],headers:req.headers,raw,receive:(...a)=>paymentCallbacks.receive(...a),live:LIVE_APP});send(res,r.status,r.body);if(r.after)setImmediate(r.after);return}}}
   // one-time secret links (no sign-in: the token after # is the credential)
   // Kirimdev posts customer messages here, signed; nothing else is taken (kirimdev.mjs)
   {const km=/^\/kirimdev\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(km){if(req.method!=='POST')return send(res,405,{error:'POST only'});let raw;
@@ -3808,7 +3822,7 @@ const server=createServer(async(req,res)=>{
       const r=await fetch(DASH.origin+'/api/messaging/platforms/'+encodeURIComponent(kp==='QQ'?'qqbot':kp.toLowerCase())+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:{...hh,'content-type':'application/json'},body:JSON.stringify(engineChange(k,val)),signal:AbortSignal.timeout(30000)}).catch(()=>null);
       return {changed:true,hot:!!(r?.ok&&(await r.json().catch(()=>({}))).hot_served)}}),
      revoke:(platform,ids)=>envQueue(envF,()=>withFlock(path.join(pdir,'.lock'),async()=>{const f=path.join(pdir,platform+'-approved.json');let d;try{d=JSON.parse(await readFile(f,'utf8'))}catch(e){if(e.code==='ENOENT')return;throw new Error('The approved list for '+platform+' could not be read, so it was left as it is.')}
-      const {data,gone}=approvedWithout(d,platform,ids,waMapping(home));if(!gone.length)return;const t=f+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(data,null,2),{mode:0o600});await rename(t,f)},10)),
+      const {data,gone}=approvedWithout(d,platform,ids,waMapping(home));if(!gone.length)return;await writeStore(f,JSON.stringify(data,null,2),{mode:0o600})},10)),
      ...(ag==='default'?{}:{mainEnv:()=>readFile(path.join(HERMES_HOME,'.env'),'utf8').catch(()=>'')})};
     let out;try{out=await removePerson(io,{pf,id,every,clear})}catch(e){platCache.delete(ag);return send(res,e.status||500,{error:e.message})}
     if(id&&id!=='*'){const mp=waMapping(home);await editAdded(all=>{let ch=false;for(const k2 of Object.keys(all)){const [a2,p2,...r2]=k2.split('|');if(a2===ag&&(every||p2===pf)&&samePerson(p2,r2.join('|'),id,mp)){delete all[k2];ch=true}}return ch?undefined:false}).catch(()=>{})}
@@ -3928,9 +3942,8 @@ const server=createServer(async(req,res)=>{
     if(ag==='default'){restartGateway('reconnect '+pf+' (main agent)',{bridges:pf==='whatsapp'}).catch(()=>{});return send(res,200,{ok:true,restarting:true,waiting:await waitingNow()})}
     let j;try{j=await reconnectOne(ag,pf)}catch(e){platCache.clear();return send(res,502,{error:e.message})}platCache.clear();
     console.log('reconnected',pf,'on',ag,j.hot_served?'(live)':'');return send(res,200,{ok:true,restarting:false})}
-   if(p==='/ui/channels/pause'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!ownsAgent(u,b.agent))return send(res,403,{error:'Only an admin or this agent’s owner pauses its channels.'});
-    const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf)||['api_server','webhook'].includes(pf))return send(res,400,{error:'Unknown channel'});
-    try{return send(res,200,await setChannelOn(ag,pf,b.on===true))}catch(e){return send(res,400,{error:e.message})}}
+   // an admin or the agent's owner (ownsAgent(u, agent) is checked inside: route-handlers.mjs, tested as a member, an owner and an admin)
+   if(p==='/ui/channels/pause'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const r=await channelsPause({u,body:b,ownsAgent,profiles:listAllProfiles,setChannelOn});return send(res,r.status,r.body)}
    if(p==='/ui/channels/move'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can move channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     try{return send(res,200,await channels.move(String(b.platform||''),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}   // the pause, sharing and note follow in channels' moved hook
    // QR codes (WhatsApp linking…): drawn here with the qrcode library that ships with the engine

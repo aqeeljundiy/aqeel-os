@@ -2,6 +2,7 @@
 // Folders come from the [Bracket] in a title, or are picked by the helper model; anything set by hand wins.
 // Descriptions are written once per prompt by the engine's small helper model (the one that describes agents),
 // reading the runbook file a prompt points to, so nobody has to open a .md they cannot see.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -11,8 +12,8 @@ import {homedir} from 'node:os';
 export function createSchedules({DATA,DASH,TOKEN,HERMES_HOME,listAgents,python,root,live,relays=async()=>({})}){
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const FILE=path.join(DATA,'schedule-meta.json');let db=null;
- const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.jobs??={};db.folds??={};return db};
- const save=async()=>{const t=FILE+'.tmp';await writeFile(t,JSON.stringify(db,null,1));await rename(t,FILE)};
+ const load=async()=>{if(db)return db;db=await readStore(FILE);db.jobs??={};db.folds??={};return db};
+ const save=async()=>{await writeStore(FILE,JSON.stringify(db,null,1))};
  const api=(p,o={})=>fetch(DASH+'/api'+p,{signal:AbortSignal.timeout(o.timeout||60000),...o,headers:{'x-hermes-session-token':TOKEN,'content-type':'application/json',...(o.headers||{})}}).then(async r=>{const j=await r.json().catch(()=>null);if(!r.ok)throw new Error(j?.detail||'HTTP '+r.status);return j});
  const key=(profile,id)=>(profile||'default')+'|'+id;
  const hash=s=>createHash('sha1').update(String(s||'')).digest('hex').slice(0,12);

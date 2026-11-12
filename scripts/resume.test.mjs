@@ -11,7 +11,8 @@ const dir=()=>mkdtempSync(path.join(tmpdir(),'aq-resume-'));
 const T0=Date.parse('2026-11-11T17:10:00Z');   // 00:10 in Jakarta
 // one "app": a clock it shares with the test, and a record of what it sent
 function app(DATA,clock,over={}){const sent=[],triggered=[],kicked=[];
- const r=createResume({DATA,now:()=>clock.t,log:()=>{},tz:()=>'Asia/Jakarta',stagger:0,sleep:async()=>{},
+ const r=createResume({DATA,actMs:1500,now:()=>clock.t,log:()=>{},tz:()=>'Asia/Jakarta',stagger:0,sleep:async()=>{},   // actMs: a test that leaves a reply unanswered (the app "dies") ends soon after
+ 
   probeChat:async()=>({stored:true,tools:[],lastAt:clock.t-10*60e3}),sendChat:async(e,note)=>{sent.push({id:e.id,session:e.session,note});return {ok:true}},
   probeRun:async()=>({status:'unknown',error:'owner process gone',ownerLive:false,newer:false,enabled:true,jobKnown:true}),triggerRun:async e=>{triggered.push(e.job);return {ok:true}},
   probeFixer:async()=>({done:false,alive:false}),kickFixer:async e=>{kicked.push(e.run);return {ok:true}},...over});
@@ -215,6 +216,36 @@ test('a task in a web chat while a reply runs there, or while the provider is do
 
 test('background tasks are wired: read from the engine’s ledger on the tick, before aqeelOS restarts the engine, and counted on Health',()=>{
  const rd=f=>readFileSync(new URL(f,import.meta.url),'utf8'),s=rd('../app/server.mjs'),e=rd('../app/resume-engine.mjs');
- assert.ok(s.includes("resume.sync(dl,'deleg')")&&s.includes("probeDeleg:e=>resumeEng.probeDeleg(e)")&&s.includes('await syncDelegs().catch(()=>{});'),'tick, probe and the moment before an own restart');
+ assert.ok(s.includes("resume.sync(dl,'deleg')")&&s.includes("probeDeleg:e=>resumeEng.probeDeleg(e)")&&s.includes('await beforeEngineStop({syncDelegs'),'tick, probe and the moment before an own restart (behaviour: route-handlers.test.mjs)');
  assert.ok(e.includes('from async_delegations')&&e.includes('delegation_id')&&e.includes('mode=ro'),'read-only, the engine’s own ledger');
  assert.equal(healthLine({at:T0,chats:0,schedules:0,delegs:2,helpers:0,failed:[],waiting:0},{tz:'Asia/Jakarta',now:T0+6e4}),'Restarted at 00:10: 2 background tasks continued.')});
+
+// Audit H10 (12 Nov 2026): one continued chat whose stream stayed silent blocked all continuing until the app restarted.
+test('H10: a continued chat that never answers is given up after its limit, the rest is continued, and later passes run',async()=>{const D=dir(),c={t:T0};
+ const one=app(D,c);one.r.begin(chat);one.r.begin({...chat,session:'s2',text:'Second'});c.t+=60e3;
+ const sent=[],aborted=[];
+ const two=app(D,c,{actMs:60,sendChat:(e,note,plan,signal)=>{sent.push(e.session);if(e.session==='s1')return new Promise(()=>{signal?.addEventListener('abort',()=>aborted.push(e.session))});return Promise.resolve({ok:true})}});
+ assert.equal(two.r.boot(),2);const t=Date.now();await two.r.run();assert.ok(Date.now()-t<5000,'the pass ended');
+ assert.deepEqual(sent,['s1','s2'],'the second chat was still continued');assert.deepEqual(aborted,['s1'],'the silent stream was told to stop');
+ assert.equal(two.r.pendingFor('donna','s2'),null);assert.ok(two.r.pendingFor('donna','s1'),'the silent one waits for another try');
+ const j=JSON.parse(readFileSync(path.join(D,'resume','journal.json'),'utf8')).entries.find(e=>e.session==='s1');assert.equal(j.state,'cut');assert.match(j.lastWhy,/no answer within/);
+ // a later pass is a new pass (not the stuck one handed out again): after the back-off it tries the first chat once more
+ c.t+=5*60e3;await two.r.run();assert.deepEqual(sent,['s1','s2','s1'])});
+
+// Audit M1: only chats went from "resuming" back to waiting at start; a schedule, background task, channel or fixer entry stayed there for ever.
+for(const kind of ['schedule','deleg','channel','fixer'])test('M1: a '+kind+' entry that was being continued when the app ended waits again after the start',()=>{const D=dir(),c={t:T0};
+ mkdirSync(path.join(D,'resume'),{recursive:true});
+ writeFileSync(path.join(D,'resume','journal.json'),JSON.stringify({v:1,saved:T0,done:[],last:null,entries:[{id:'x1',kind,agent:'donna',job:'j1',run:'r1',session:'s9',state:'resuming',n:1,at:T0-60e3,cutAt:T0-30e3,claimed:T0-10e3}]}));
+ const a=app(D,c);a.r.boot();const e=JSON.parse(readFileSync(path.join(D,'resume','journal.json'),'utf8')).entries;
+ assert.equal(a.r.pending(),1);const live=a.r.pending();assert.equal(live,1);
+ const st=(e.find(x=>x.id==='x1')||{}).state;assert.ok(st===undefined||st==='cut'||st==='resuming');
+ // five starts later it is not still "resuming": the pass can act on it
+ for(let i=0;i<5;i++){c.t+=60e3;app(D,c).r.boot()}
+ const after=JSON.parse(readFileSync(path.join(D,'resume','journal.json'),'utf8')).entries.find(x=>x.id==='x1');assert.ok(!after||after.state!=='resuming','still resuming after five starts')});
+
+// Audit M12: the engine's error column often holds the agent's own last words; "restart" or "cancel" inside them is not a cut
+test('M12: a schedule that failed by itself is not run again because its error text mentions a restart',()=>{const e={cutAt:T0},now=T0+60e3,p=x=>({status:'failed',ownerLive:false,newer:false,enabled:true,jobKnown:true,...x});
+ assert.equal(runPlan(e,p({error:'The unreplied check script crashed, so I could not finish. I tried to restart it twice and then cancelled the run; please look at the traceback in the log.'}),now).do,'skip');
+ assert.equal(runPlan(e,p({error:'I could not reach the sheet. If this keeps happening the owner may want to restart the Google connection, which was killed last week by a password change, and then run me again by hand.'}),now).do,'skip');
+ // the engine's own short words still count
+ for(const error of ['interrupted','Scheduler restarted while the job was running','owner process gone','cancelled','Killed (SIGKILL)'])assert.notEqual(runPlan(e,p({error}),now).do,'skip',error)});

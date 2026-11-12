@@ -3,6 +3,7 @@
 // that is gone, or a new one made since the deploy is a hand edit: the next deploy would put the old file back, and nobody
 // reviewed it. The result is one Health item (System › Health › Fixes waiting for review); it clears itself once the folder
 // matches the commit again. A deploy unpacks file by file, so a difference only counts once it has lasted `settle`.
+import {writeStore} from './store.mjs';
 import {readFile,writeFile,readdir,stat,mkdir,rename} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
@@ -30,7 +31,7 @@ export async function liveDrift({live,repo,git=gitOut}){
 
 export function createLiveDrift({DATA,live,repo,settle=10*60e3,now=()=>Date.now(),git}){const F=path.join(DATA,'live-drift.json');
  const read=async()=>{try{return JSON.parse(await readFile(F,'utf8'))}catch{return {}}};
- const write=async d=>{await mkdir(DATA,{recursive:true});await writeFile(F+'.tmp',JSON.stringify(d,null,1));await rename(F+'.tmp',F)};
+ const write=async d=>{await mkdir(DATA,{recursive:true});await writeStore(F,JSON.stringify(d,null,1))};
  async function check(){const r=await liveDrift({live,repo,git});if(!r.ok)return r;const prev=await read();
   const files=[...r.changed,...r.removed.map(f=>f+' (removed)'),...r.added.map(f=>f+' (new)')];
   // the clock restarts when the commit changes (a deploy) or the box was clean in between

@@ -3,18 +3,23 @@
 // the manifest, the head tags, the minimal service worker and the routes that serve them. Icons live at /pwa/<version>/<file>
 // (the version changes with the brand, so phones fetch new ones) plus the unversioned addresses browsers look for by themselves.
 import {buildIcons,GEN} from './icons.mjs';
+import {buildIconsOff} from './icons-off.mjs';
 
 const esc=s=>String(s).replace(/[<>&"]/g,c=>'&#'+c.charCodeAt(0)+';');
 export const shortName=n=>{n=String(n||'App').trim();if(n.length<=12)return n;const w=n.split(/\s+/)[0];return (w.length>=3&&w.length<=12?w:n.slice(0,12)).trim()};
 const DARK_BG='#12151c',LIGHT_BG='#ffffff';
 
-export function createPwa({brand,build=()=>String(Date.now()),onSet=()=>{}}){
+// make(spec) → the icon set, off the main thread with a time limit (icons-off.mjs). When it fails or is stopped, the plain tile is used (the
+// same set with no mark looked at, drawn here: no uploaded file is read) and onFail(error, spec) says so once; onSet(set, spec, failed).
+export const plainSpec=s=>({...s,markCands:[],custom:null});
+export function createPwa({brand,build=()=>String(Date.now()),onSet=()=>{},onFail=()=>{},make=buildIconsOff}){
  const sets=new Map();let latest=null,spec=null,key='',pending=null;
  const keyOf=s=>[s.v,s.name,s.colour,s.accent,s.mono,!!s.custom,s.markCands.map(c=>c.file+':'+(c.data?.length||0)).join(',')].join('|');
  // the current set; rebuilt only when the brand changed
  async function current(){const s=await brand.iconSpec(),k=keyOf(s);if(latest&&k===key)return {set:latest,spec};
   if(pending&&pending.k===k)return pending.p;
-  const p=(async()=>{const set=buildIcons(s);sets.set(set.v,set);if(sets.size>6)sets.delete(sets.keys().next().value);latest=set;spec=s;key=k;tagsNow=tags(set,s);onSet(set,s);return {set,spec:s}})();pending={k,p};try{return await p}finally{pending=null}}
+  const p=(async()=>{let set,failed=null;try{set=await make(s)}catch(e){failed=e;set={...buildIcons(plainSpec(s)),needsLogo:false,failed:String(e?.message||e).slice(0,300)};try{onFail(e,s)}catch{}}
+   sets.set(set.v,set);if(sets.size>6)sets.delete(sets.keys().next().value);latest=set;spec=s;key=k;tagsNow=tags(set,s);onSet(set,s,failed);return {set,spec:s}})();pending={k,p};try{return await p}finally{pending=null}}
  const iconsOf=(set,base)=>{const u=f=>base+'/pwa/'+set.v+'/'+f,o=[{src:u('icon-192.png'),sizes:'192x192',type:'image/png',purpose:'any'},{src:u('icon-512.png'),sizes:'512x512',type:'image/png',purpose:'any'},
   {src:u('icon-maskable-192.png'),sizes:'192x192',type:'image/png',purpose:'maskable'},{src:u('icon-maskable-512.png'),sizes:'512x512',type:'image/png',purpose:'maskable'}];
   if(set.files['icon-mono-512.png'])o.push({src:u('icon-mono-512.png'),sizes:'512x512',type:'image/png',purpose:'monochrome'});return o};

@@ -20,10 +20,10 @@ export function pngInfo(buf){if(!Buffer.isBuffer(buf)||buf.length<33||!buf.subar
 
 // full decode to straight RGBA (8, 16, and 1-4 bit palettes; not interlaced)
 export function decodePng(buf){const info=pngInfo(buf);if(!info)throw Error('Not a PNG image.');if(info.interlaced)throw Error('Interlaced PNGs are not supported. Re-save it without interlacing.');
- const {w,h,depth,type}=info;if(!w||!h||w>8192||h>8192)throw Error('That image is too large.');
+ const {w,h,depth,type}=info;if(!w||!h||w>8192||h>8192||w*h>4096*4096)throw Error('That image is too large.');   // 16 million pixels at most (audit M21: 8192×8192 took 1.1 GB)
  let p=8,idat=[],plte=null,trns=null;while(p+8<=buf.length){const n=buf.readUInt32BE(p),t=buf.toString('latin1',p+4,p+8),d=buf.subarray(p+8,p+8+n);if(t==='IDAT')idat.push(d);else if(t==='PLTE')plte=d;else if(t==='tRNS')trns=d;else if(t==='IEND')break;p+=12+n}
  const ch={0:1,2:3,3:1,4:2,6:4}[type];if(!ch)throw Error('Unsupported PNG type.');
- const bpp=Math.max(1,ch*depth>>3),rowBytes=Math.ceil(w*ch*depth/8);let raw;try{raw=zlib.inflateSync(Buffer.concat(idat))}catch{throw Error('This PNG is damaged.')}
+ const bpp=Math.max(1,ch*depth>>3),rowBytes=Math.ceil(w*ch*depth/8);let raw;try{raw=zlib.inflateSync(Buffer.concat(idat),{maxOutputLength:(rowBytes+1)*h+65536})}catch{throw Error('This PNG is damaged.')}   // never more than its own size says (a small file that unpacks to gigabytes)
  if(raw.length<(rowBytes+1)*h)throw Error('This PNG is damaged.');
  const px=Buffer.alloc(rowBytes*h);
  for(let y=0;y<h;y++){const f=raw[y*(rowBytes+1)],s=y*(rowBytes+1)+1,d=y*rowBytes;

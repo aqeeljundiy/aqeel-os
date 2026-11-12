@@ -5,6 +5,7 @@
 // "Terminal, files and code" permission. Admins see who added what, and keep a block list of apps and hosts.
 // Also the check that an address really is an MCP tool before it is saved (on P&P a Google Sheet link was saved as an
 // app with no tools and a broken sign-in): probeMcp asks it the MCP way and refuses ordinary web pages.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -74,8 +75,8 @@ export function blockMatch(entry,{name='',url=''}={}){const e=clean(entry).toLow
  const h=url?hostOf(url):'';if(h&&e.includes('.'))return h===e||h.endsWith('.'+e);
  return false}
 export function createAddons({DATA}){const F=path.join(DATA,'addons.json');let db=null;
- async function load(){if(db)return db;try{db=JSON.parse(await readFile(F,'utf8'))}catch{db={}}db.added??=[];db.blocked??=[];return db}
- async function save(){await mkdir(DATA,{recursive:true});const t=F+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(db,null,1));await rename(t,F)}
+ async function load(){if(db)return db;db=await readStore(F);db.added??=[];db.blocked??=[];return db}
+ async function save(){await mkdir(DATA,{recursive:true});await writeStore(F,JSON.stringify(db,null,1))}
  // one line per kind+agent+name; adding it again moves it to the top with the latest details
  async function note({kind,agent,name,url='',by={},via='app'}){await load();name=clean(name).slice(0,120);if(!name)return;const key=kind+'|'+(agent||'')+'|'+name;
   db.added=db.added.filter(x=>x.key!==key);db.added.unshift({key,kind,agent:agent||null,name,url:clean(url).slice(0,300).replace(/([?&][^=]*(key|token|secret|sig)[^=]*=)[^&]+/gi,'$1(hidden)'),by:{id:by.id||null,name:by.name||null},via,at:Date.now()});

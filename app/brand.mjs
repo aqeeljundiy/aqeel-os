@@ -3,6 +3,7 @@
 // never reset them. The look stays ours: the font is Plus Jakarta Sans and the logo is shown in black and white (a
 // colourful SVG is refused; any logo is drawn in greyscale). The page was removed on 24 Oct 2026 and brought back on
 // 7 Nov 2026 so a new owner can set it in the app instead of in a file.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,unlink,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -16,8 +17,8 @@ export function colourful(svg){const s=String(svg);const hex=[...s.matchAll(/#([
 
 export function createBrand({DATA,contactFallback='',fallbackMarks=async()=>[],colourDefault='',accentDefault=''}){
  const FILE=path.join(DATA,'brand.json');let b=null;
- const load=async()=>{if(!b){try{b=JSON.parse(await readFile(FILE,'utf8'))}catch{b={}}}return b};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(b,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(!b){b=await readStore(FILE)}return b};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(b,null,1))};
  const publish=()=>{globalThis.AQ_BRAND=b.name||DEFAULT;globalThis.AQ_CONTACT=b.contact||''};
  async function get(){await load();publish();return {name:b.name||DEFAULT,logo:b.logo?'/ui/brand/logo?v='+(b.v||0):null,custom:!!(b.name&&b.name!==DEFAULT)||!!b.logo||!!b.icon,contact:b.contact||'',contactDefault:contactFallback,...(b.colour?{colour:b.colour}:{}),...(b.accent?{accent:b.accent}:{}),...(b.mono?{mono:true}:{}),...(b.icon?{icon:true}:{})}}
  async function setName(name){await load();const n=String(name||'').replace(/[<>"`]/g,'').trim().slice(0,24);if(n&&!/^[\p{L}\p{N} ._-]{2,24}$/u.test(n))throw Error('Use 2 to 24 letters, numbers or spaces.');b.name=n||'';b.v=Date.now();await save();return get()}

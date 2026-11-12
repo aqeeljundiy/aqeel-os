@@ -20,6 +20,7 @@
 // The parts that only decide (log lines, scripts, package lists, when to try or tell again) are exported and tested in
 // scripts/automation-guard.test.mjs. The engine's own files are never changed; only agents' config.yaml (through the
 // engine's dashboard, with a backup first) and the broken Python environments.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,readdir,stat,lstat,realpath,access,open,rm} from 'node:fs/promises';
 import {constants} from 'node:fs';
 import {execFile,spawn} from 'node:child_process';
@@ -120,9 +121,9 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const signedBefore=(a,n)=>stat(path.join(homeOf(a),'mcp-tokens',n+'.json')).then(()=>true,()=>false);
  const FILE=path.join(DATA,'automation-guard.json');let db=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}for(const k of ['offsets','servers','jobs','venvs','told'])db[k]||={};db.digest||=[]}return db};
+ const load=async()=>{if(!db){db=await readStore(FILE);for(const k of ['offsets','servers','jobs','venvs','told'])db[k]||={};db.digest||=[]}return db};
  // fixes run side by side (one per agent), so writes take turns
- let saving=Promise.resolve();const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)}).catch(e=>console.warn('automations: saving',e.message));
+ let saving=Promise.resolve();const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))}).catch(e=>console.warn('automations: saving',e.message));
  const key=(a,s)=>a+'|'+s;
  const rec=(a,s)=>db.servers[key(a,s)]||=({agent:a,name:s,state:'ok'});
  const say=async(k,text,o={})=>{if(!shouldTell(db.told,k,Date.now(),o.every))return;db.told[k]=Date.now();console.log('automations:',text,o.detail?'('+o.detail.slice(0,160)+')':'');

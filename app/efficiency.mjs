@@ -8,6 +8,7 @@
 // A value someone set by hand is kept: only a missing value, or one this module set before, is written. Every write is
 // remembered in DATA/efficiency.json, so a later change of the default reaches the homes it set and nothing else.
 // Model-agnostic: both keys are engine settings; a model without prompt caching simply ignores the second.
+import {writeStore,readStore} from './store.mjs';
 import {readFile,writeFile,readdir,stat,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -20,8 +21,8 @@ export function createEfficiency({HERMES_HOME,DATA,readConfig,setKey,pick,log=m=
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  async function homes(){const out=['default'];for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}).catch(()=>[]))
   if(d.isDirectory()&&!d.name.startsWith('.')&&/^[a-z0-9][a-z0-9_-]{0,80}$/.test(d.name)&&await stat(path.join(home(d.name),'config.yaml')).then(()=>true,()=>false))out.push(d.name);return out}
- const load=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {set:{}}}};
- const save=async d=>{await mkdir(DATA,{recursive:true});const tmp=FILE+'.'+process.pid+'.tmp';await writeFile(tmp,JSON.stringify(d,null,1));await rename(tmp,FILE)};
+ const load=()=>readStore(FILE,{set:{}});
+ const save=async d=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(d,null,1))};
  // returns the homes whose settings changed (the engine reads them when it reloads)
  async function apply(){const d=await load();d.set||={};const changed=[];
   for(const a of await homes()){const c=await readConfig(a).catch(()=>null);if(!c)continue;let did=false;

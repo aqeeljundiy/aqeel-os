@@ -50,7 +50,7 @@ Only the live copy runs the background jobs that change agents (Help, backups, h
 `app/install.mjs` exports `publicUrl()` (the current address; use it for every callback), `installTz()`, `isLive()` and `engineKeys()`. `PUBLIC_URL_REF` and `urlRef(suffix)` read as the current address wherever a string was passed at start.
 
 ## Tests
-`node --test scripts/*.test.mjs` (unit tests, no network). End-to-end checks such as `scripts/e2e-check.mjs` need a running install.
+`node --test --test-timeout=120000 scripts/*.test.mjs` (unit tests, no network). End-to-end checks such as `scripts/e2e-check.mjs` need a running install.
 
 ### Before you push: the pre-push hook
 Once per clone: `git config core.hooksPath scripts/hooks`. The hook (`scripts/hooks/pre-push`) runs the privacy test (`scripts/repo-privacy.test.mjs`: no real phone numbers, chat ids, addresses, e-mails, sheet ids or keys in any tracked file) and, when [gitleaks](https://github.com/gitleaks/gitleaks) is installed, scans the commits being pushed. CI runs the same checks (`.github/workflows/tests.yml`, settings in `.gitleaks.toml`) and fails on a new finding. Install-specific notes belong in the install's data folder, never in the repo: see `CONTRIBUTING.md`.

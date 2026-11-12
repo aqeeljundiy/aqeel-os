@@ -7,6 +7,7 @@
 //    from the AI box's compose in Dokploy) makes those users for the names aqeelOS lists.
 // The owner's own accounts (Slack, Notion, Google and so on) are never handed out by these defaults; each agent can
 // connect apps with its own sign-in. Applied at every start (an engine update can reset settings) and to new agents.
+import {writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,stat,rename,readdir} from 'node:fs/promises';
 import path from 'node:path';
 import {homedir,userInfo} from 'node:os';
@@ -42,7 +43,7 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
  // Agents › Edit agent › Trusted (admins, agents of admins only): written here, then the agent's defaults run again so it
  // moves to the main user (or back to its own) at once
  async function setTrusted(a,on){if(a==='default')return;const t=await trusted();t.delete('default');if(on)t.add(a);else t.delete(a);
-  await mkdir(DATA,{recursive:true});await writeFile(TRUST+'.tmp',JSON.stringify({trusted:[...t].sort()},null,1));await rename(TRUST+'.tmp',TRUST)}
+  await mkdir(DATA,{recursive:true});await writeStore(TRUST,JSON.stringify({trusted:[...t].sort()},null,1))}
  async function ensureKey(){if(await stat(KEY).catch(()=>null))return;await mkdir(path.dirname(KEY),{recursive:true,mode:0o700});await run('ssh-keygen',['-q','-t','ed25519','-N','','-f',KEY,'-C','aqeelos-agents'])}
  // the box itself as a known SSH host (the agents' commands go to 127.0.0.1)
  async function knownHost(){const f=path.join(homedir(),'.ssh','known_hosts');const cur=await readFile(f,'utf8').catch(()=>'');if(/^127\.0\.0\.1 /m.test(cur))return;

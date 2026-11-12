@@ -14,6 +14,7 @@
 // Events (12 Nov 2026, event-hooks.mjs): the provider is polled, nothing calls us when a payment succeeds, so this is the moment aqeelOS learns it.
 // onEvent(agent,{type,data:{kind}}) is told 'payment.paid' (a payment of the agent's is now confirmed PAID) and 'order.posted' (its order
 // form went to the Orders topic, now or on a retry), once the state is saved; never an amount, a name or a number. A failing listener changes nothing.
+import {writeStore,readStore,storeBad} from './store.mjs';
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -31,7 +32,7 @@ export function createPaidLabels({DATA,WORK,keyOf=null,label,orders=async()=>nul
  const F=path.join(DATA,'paid-labels.json');
  const tell=list=>{for(const k of new Set(list.map(e=>e.agent+'|'+e.type+'|'+e.kind))){const [agent,type,kind]=k.split('|');Promise.resolve().then(()=>onEvent(agent,{type,data:{kind}})).catch(()=>{})}};
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
- const put=async v=>{await mkdir(DATA,{recursive:true});const t=F+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(v,null,1),{mode:0o600});await rename(t,F)};
+ const put=async v=>{await mkdir(DATA,{recursive:true});await writeStore(F,JSON.stringify(v,null,1),{mode:0o600})};
  // the provider keys: the app's own store (agent-keys.mjs) when given, else the agent's .secrets as before (audit H3)
  const secret=async(agent,name)=>keyOf?await keyOf(agent,name):(await readFile(path.join(WORK,agent,'.secrets',name),'utf8').catch(()=>'')).trim();
  const lines=async f=>(await readFile(f,'utf8').catch(()=>'')).split('\n').filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean);
@@ -68,7 +69,7 @@ export function createPaidLabels({DATA,WORK,keyOf=null,label,orders=async()=>nul
  const paymentsOf=async(agent,phone,limit)=>{const ph=String(phone||'').replace(/\D/g,''),t=now();return (await lines(path.join(DATA,'payments.jsonl'))).filter(p=>p.agent===agent&&p.phone===ph&&p.ok&&t-Date.parse(p.at)<7*86400e3).slice(-limit).reverse()};
  const look=async p=>{const card=p.kind==='card',refs=card?await invoices(p.agent,p):await references(p.agent,p);return {refs,states:await Promise.all(refs.map(r=>(card?cardStatus:status)(p.agent,r)))}};
  async function statusFor(agent,phone,scope=null){return serial(async()=>{
-  let mine=await paymentsOf(agent,phone,Number.MAX_SAFE_INTEGER);const db=await readJson(F,{done:{}});db.confirmed||={};
+  let mine=await paymentsOf(agent,phone,Number.MAX_SAFE_INTEGER);const db=await readStore(F,{done:{}});db.confirmed||={};
   if(scope){
    if(!scope.conversation||!scope.line||!scope.run)return [];
    mine=mine.filter(p=>p.conversation===scope.conversation&&String(p.line)===String(scope.line)&&(!scope.since||Date.parse(p.at)>=Date.parse(scope.since))).slice(0,1);
@@ -79,14 +80,14 @@ export function createPaidLabels({DATA,WORK,keyOf=null,label,orders=async()=>nul
    if(scope&&st==='PAID'){db.confirmed[p.agent+'|'+p.at+'|'+p.total]=scope.run;changed=true}
    result.push({at:p.at,kind:p.kind||'qris',total:p.total,status:st,...(p.testAmount?{testAmount:true,orderTotal:p.orderTotal}:{})});
   }
-  if(changed)await put(db);return result;
+  if(changed&&!storeBad(F))await put(db);return result;
  })}
  // post_order: the newest paid payment of this customer that has no post yet
  const postOrder=(agent,phone,form,ctx=null)=>serial(async()=>{const mine=await paymentsOf(agent,phone,3);if(!mine.length)return {posted:false,why:'No payment was made through you for this customer.'};
-  const db=await readJson(F,{done:{}});db.done||={};let seen=false;
+  const db=await readStore(F,{done:{}});db.done||={};let seen=false;if(storeBad(F))return {posted:false,why:'The record of posted orders cannot be read right now. Tell the team.'};
   for(const p of mine){let x;try{x=await look(p)}catch(e){log('paid check: '+agent+' '+e.message);continue}if(overall(x.states)!=='PAID')continue;
    const key=p.agent+'|'+p.at+'|'+p.total,d=db.done[key]||{tries:0};if(d.order?.state==='posted'){seen=true;continue}
-   const o=await sendOrder(p,x.refs,form,d.order,ctx);if(o.state==='none')return {posted:false,why:'No Orders topic is set for this line.'};db.done[key]={...d,order:o};await put(db);if(o.state==='posted')tell([{agent:p.agent,type:'order.posted',kind:p.kind||'qris'}]);
+   const o=await sendOrder(p,x.refs,form,d.order,ctx);if(o.state==='none')return {posted:false,why:'No Orders topic is set for this line.'};db.done[key]={...d,order:o,at:now()};await put(db);if(o.state==='posted')tell([{agent:p.agent,type:'order.posted',kind:p.kind||'qris'}]);
    return o.state==='posted'?{posted:true}:{posted:false,why:'Telegram did not take the post. Tell the team.'}}
   return seen?{posted:false,already:true,why:'This order is already in the Orders topic.'}:{posted:false,why:'No payment of this customer is PAID yet.'}});
  let running=false,again=false;const forced=new Set();
@@ -94,7 +95,9 @@ export function createPaidLabels({DATA,WORK,keyOf=null,label,orders=async()=>nul
  async function nudge(agent){forced.add(agent);if(running){again=true;return {queued:true}}return tick()}
  async function tick(){if(running)return {skipped:true};running=true;return serial(async()=>{try{
   const force=new Set(forced);forced.clear();
-  const db=await readJson(F,{done:{}});db.done||={};let changed=false;const t=now(),res=[],evs=[];
+  const db=await readStore(F,{done:{}});db.done||={};let changed=false;const t=now(),res=[],evs=[];
+  // what was already done cannot be read: doing nothing is the only safe thing (posting from an empty record re-posted every paid order, audit H4)
+  if(storeBad(F)){log('paid labels: paid-labels.json cannot be read; nothing is labelled or posted until it reads again');return {labelled:[],held:true}}
   for(const p of await lines(path.join(DATA,'payments.jsonl'))){
    const at=Date.parse(p.at),key=p.agent+'|'+p.at+'|'+p.total;
    const card=p.kind==='card';
@@ -127,8 +130,11 @@ export function createPaidLabels({DATA,WORK,keyOf=null,label,orders=async()=>nul
    if(!d.order){d.order=await sendOrder(p,refs,'');d.refs=refs;changed=true;if(d.order.state==='posted')evs.push({agent:p.agent,type:'order.posted',kind:p.kind||'qris'})}
    try{const r=await label(p.agent,{conversationId:p.conversation,phone:p.phone,add:['Customer',...(p.products||[])],remove:['Checkout'],source:'payment',run:p.run||'pay'});
     db.done[key]={state:'labelled',at:t,refs,changed:r?.changed||[],...(r?.set===false?{why:r.why}:{}),order:d.order};res.push({agent:p.agent,total:p.total,...r})}
-   catch(e){d.tries++;d.error=e.message;db.done[key]=d.tries>=TRIES?{state:'closed',why:'labels failed: '+e.message,at:t,order:d.order,refs}:d;log('paid labels: '+p.agent+' labelling failed (try '+d.tries+'): '+e.message)}
+   // the record of a failed try carries its time like every other: without it the clean-up below took it for 1970 and deleted it in the same
+   // tick, so the next tick started from nothing and posted the order to the team again, every minute (audit H1, 12 Nov 2026)
+   catch(e){d.tries++;d.error=e.message;d.at=t;db.done[key]=d.tries>=TRIES?{state:'closed',why:'labels failed: '+e.message,at:t,order:d.order,refs}:d;log('paid labels: '+p.agent+' labelling failed (try '+d.tries+'): '+e.message)}
    changed=true}
-  for(const [k,v] of Object.entries(db.done))if(t-(v.at||0)>7*86400e3)delete db.done[k],changed=true;
+  // a week after its last change a record goes; one with no time yet (written before 12 Nov 2026) gets one now instead of being deleted
+  for(const [k,v] of Object.entries(db.done)){if(typeof v.at!=='number'){v.at=t;changed=true}else if(t-v.at>7*86400e3){delete db.done[k];changed=true}}
   if(changed)await put(db);tell(evs);return {labelled:res}}finally{running=false;if(again){again=false;setImmediate(()=>tick().catch(()=>{}))}}})}
  return {tick,nudge,statusFor,postOrder}}

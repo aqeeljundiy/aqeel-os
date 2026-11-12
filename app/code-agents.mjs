@@ -3,6 +3,7 @@
 // come back into the run's project. An agent never changes a Code project by itself. This module holds the pieces the
 // /ui/code routes use: the run ticket (which agents a run may ask), each agent's short introduction, the folder an
 // agent saves files into and how they reach the project, the engine runs that may ask, and "Open in Code" requests.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,readdir,mkdir,rm,stat,realpath,writeFile,lstat,cp} from 'node:fs/promises';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {homedir} from 'node:os';
@@ -76,8 +77,8 @@ export function createCodeAgents({HERMES_HOME,DATA,sign,readIds,outboxAccess}){
     and that agent attached, and nothing runs until the person sends it. Only a person who may chat with the agent can
     open it. */
  const HF=path.join(DATA,'code-handoffs.json');let hdb=null;
- const hload=async()=>{if(hdb)return hdb;try{hdb=JSON.parse(await readFile(HF,'utf8'))}catch{hdb={}}return hdb};
+ const hload=async()=>{if(hdb)return hdb;hdb=await readStore(HF);return hdb};
  async function handoff(agent,text){const d=await hload();const now=Date.now();for(const [k,v] of Object.entries(d))if(now-v.t>7*864e5)delete d[k];
-  const id=randomBytes(12).toString('base64url');d[id]={agent,text:String(text).slice(0,12000),t:now};await mkdir(DATA,{recursive:true});await writeFile(HF,JSON.stringify(d),{mode:0o600});return id}
+  const id=randomBytes(12).toString('base64url');d[id]={agent,text:String(text).slice(0,12000),t:now};await mkdir(DATA,{recursive:true});await writeStore(HF,JSON.stringify(d),{mode:0o600});return id}
  async function handoffGet(id){const d=await hload();const v=/^[\w-]{10,40}$/.test(String(id||''))?d[id]:null;return v&&Date.now()-v.t<7*864e5?v:null}
  return {ticket,ticketAgents,intro,outbox,collect,saveInto,runStart,runsOf,runFor,planCopy,planDrop,handoff,handoffGet}}

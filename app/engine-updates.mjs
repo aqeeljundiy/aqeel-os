@@ -14,6 +14,7 @@
 //     the engine's docs describe: stop, check out that version, prepare its dependencies, start.
 //   - The owner gets one message the next morning; every attempt is listed next to the setting.
 // The decisions are in engine-update-rules.mjs (tested on their own); this file gathers facts and acts.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,readdir,stat,open,readlink} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {homedir} from 'node:os';
@@ -69,8 +70,8 @@ export function createEngineUpdates({guard=null,DATA,HERMES_HOME,PORT,LIVE,dash,
  const REPO=path.join(HERMES_HOME,'hermes-agent'),HERMES=process.env.HERMES_BIN||path.join(homedir(),'.local','bin','hermes');
  const git=(...a)=>run('git',['-C',REPO,...a]);
  const FILE=path.join(DATA,'engine-updates.json');let db=null,active=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}if(!R.MODES.includes(db.mode))db.mode='ask';db.log||=[]}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(!db){db=await readStore(FILE);if(!R.MODES.includes(db.mode))db.mode='ask';db.log||=[]}return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const zone=async()=>(await readConfig('default').catch(()=>null))?.timezone||Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';
  const head=async()=>{const h=(await git('rev-parse','HEAD')).out.trim();return /^[0-9a-f]{40}$/.test(h)?h:''};
 

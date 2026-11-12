@@ -34,9 +34,12 @@ function pathToSubs(d){const s=String(d||''),subs=[];let i=0,cmd='',cx=0,cy=0,sx
   if(!fs&&dt>0)dt-=2*Math.PI;else if(fs&&dt<0)dt+=2*Math.PI;const n=Math.max(1,Math.ceil(Math.abs(dt)/(Math.PI/2))),step=dt/n,k=4/3*Math.tan(step/4);
   for(let j=0;j<n;j++){const a1=t1+j*step,a2=a1+step,p=(a,rr)=>{const ex=rx*Math.cos(a),ey=ry*Math.sin(a);return [c*ex-sn*ey+ccx,sn*ex+c*ey+ccy]},d1=a=>[-rx*Math.sin(a),ry*Math.cos(a)],P1=p(a1),P2=p(a2),D1=d1(a1),D2=d1(a2),rt=(v)=>[c*v[0]-sn*v[1],sn*v[0]+c*v[1]];
    const r1=rt(D1),r2=rt(D2);cubic(P1[0]+k*r1[0],P1[1]+k*r1[1],P2[0]-k*r2[0],P2[1]-k*r2[1],P2[0],P2[1])}};
- while(true){while(/[\s,]/.test(s[i]||''))i++;if(i>=s.length)break;if(/[A-Za-z]/.test(s[i]))cmd=s[i++];else if(!cmd)throw U('path data');
+ // every round takes at least one character, so the rounds are bounded by the length: counted, so no input can spin here (audit C2)
+ let rounds=0;
+ while(true){if(++rounds>s.length+1)throw U('path data');while(/[\s,]/.test(s[i]||''))i++;if(i>=s.length)break;if(/[A-Za-z]/.test(s[i]))cmd=s[i++];else if(!cmd)throw U('path data');
   const rel=cmd===cmd.toLowerCase(),C=cmd.toUpperCase(),ox=rel?cx:0,oy=rel?cy:0;
-  if(C==='Z'){if(cur){cur.closed=true;cx=sx;cy=sy;cur=null}lastC='Z';continue}
+  // Z takes no numbers: forget the command, so a number after it is bad path data instead of Z again for ever (12 Nov 2026: "…Z 5" hung the app)
+  if(C==='Z'){if(cur){cur.closed=true;cx=sx;cy=sy;cur=null}lastC='Z';cmd='';continue}
   if(C==='M'){const x=num()+ox,y=num()+oy;cx=sx=x;cy=sy=y;start(x,y);cmd=rel?'l':'L';lastC='M';continue}
   if(C==='L'){to(num()+ox,num()+oy)}else if(C==='H'){to(num()+ox,cy)}else if(C==='V'){to(cx,num()+oy)}
   else if(C==='C'){const a=num()+ox,b=num()+oy,c2=num()+ox,d=num()+oy,e=num()+ox,f=num()+oy;cubic(a,b,c2,d,e,f)}
@@ -86,6 +89,7 @@ const IGN=new Set(['title','desc','metadata','defs','namedview','sodipodi:namedv
 const INH=['fill','stroke','stroke-width','fill-opacity','stroke-opacity','fill-rule','stroke-linecap','stroke-linejoin','stroke-miterlimit','stroke-dasharray','color'];
 
 // parse into drawables: [{subs (device space), fill:[r,g,b,a]|null, stroke, sw, ...}] plus the document's own box
+export const pathSubs=pathToSubs;   // for the tests
 export function parseSvg(svg){const root=/<svg\b[^>]*>/i.exec(String(svg));if(!root)throw U('not an SVG');
  if(/<script|javascript:|<!ENTITY/i.test(svg))throw U('scripts or entities');
  const ra=attrs(root[0].slice(4));let vb=(ra.viewbox||'').split(/[\s,]+/).map(Number);if(vb.length!==4||vb.some(x=>!Number.isFinite(x)))vb=null;
