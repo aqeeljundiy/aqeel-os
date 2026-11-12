@@ -1,6 +1,7 @@
-// The fixer's own Linux user (security audit CR-7, 13 Nov 2026).
-// Until now the on-box fixer was the engine run as the owner's user: a shell with every key. A report written by an outsider could
-// steer it. Now a fix to aqeelOS's own code runs like this:
+// The fixer's own Linux user (security audit CR-7 and AUD-6, 13 Nov 2026).
+// The on-box fixer used to be the engine run as the owner's user: a shell with every key. A report written by an outsider could
+// steer it. Now EVERY fixer run (a fix to aqeelOS's code, a settings repair, a proof run) runs like this, and no run has any other way
+// to start (issues.mjs holds a run until this is ready; there is no switch to turn it off):
 //   - the engine process (it holds the model access) still belongs to the owner's user, but its tools are only "terminal" and "file",
 //     and those run over SSH as the user aq-fixer (made by the root script, scripts/agent-users.sh, when this app writes "on" to
 //     ~/.aqeelos-fixer-user);
@@ -8,18 +9,20 @@
 //     ~/.hermes, the data folder, the agents' folders or the local-owner key, and its only outgoing connection is this app on
 //     127.0.0.1 (the firewall rules of the root script). GitHub and the AI provider are reached by the app and the engine, so no
 //     address list is needed for them;
-//   - what it needs from the app comes through five routes signed for one run (the way agents' relays are signed): the issue,
-//     redacted logs, the tests (run as aq-fixer), the test copy and a read-only probe of it, and the diff. The pull request is
-//     opened by the app after the run (fixer-git.mjs), never by the fixer.
+//   - what it needs from the app comes through routes signed for one run (the way agents' relays are signed): the issue, redacted
+//     logs, the tests (run as aq-fixer), the test copy and a read-only probe of it, the diff, and (AUD-6) "repair" and "check": a short
+//     list of named repairs the APP performs after checking the arguments, and read-only looks (fixer-actions.mjs). A repair run has
+//     no checkout and a proof run changes nothing; both work only through those two routes. The pull request is opened by the app
+//     after a code run (fixer-git.mjs), never by the fixer. Whatever is not on the lists ends as "needs a person".
 // The engine may take its terminal settings from the profile's config.yaml rather than from the environment this sets, so the first
 // time (and after every engine update) a canary run asks the confined engine for `id -un`: only an answer of aq-fixer counts. The
 // launch variant that passed is kept; if none passes, fixes wait and Health says so. Nothing runs confined on a guess.
-// A person can turn it off (team policy fixer.isolate false) for an install where the user cannot be made: the fixer then runs as
-// before, and Health says it runs with full rights.
+// Where the user cannot be made, fixes and proofs wait and Health says so; the fixer is never run as the owner's user instead.
 import {execFile} from 'node:child_process';
 import {readFile,writeFile,stat,mkdir,rename} from 'node:fs/promises';
 import {createHmac,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
+import {createFixerActions} from './fixer-actions.mjs';
 
 export const FIXER_USER='aq-fixer';
 export const TOOLSETS='terminal,file';
@@ -27,8 +30,6 @@ export const TOOLSETS='terminal,file';
 export const VARIANTS=[{name:'env',args:[]},{name:'no-profile-config',args:['--ignore-user-config']}];
 export const TEST_FILE=/^scripts\/[\w.-]+\.test\.mjs$/;
 export const PROBE_PATH=/^\/(healthz|install-ping|auth\/me|auth\/setup|ui\/[\w\/.-]*)$/;
-// default on; false only when a person turned it off (or the install cannot make the user)
-export const isolateWanted=pol=>pol?.fixer?.isolate!==false;
 
 // the signature of one run's routes: HMAC over issue and run, the same way as the agents' relays (server.mjs sign)
 export const opsSig=(sign,issue,run)=>String(sign('fixer-ops:'+issue+':'+run)).slice(0,32);
@@ -37,7 +38,7 @@ export const sigOk=(sign,issue,run,got)=>{const a=Buffer.from(String(got||'')),b
 const execP=(cmd,args,opt={})=>new Promise(res=>execFile(cmd,args,{timeout:opt.timeout||60000,maxBuffer:4e6,env:opt.env,cwd:opt.cwd},(e,o,er)=>res({ok:!e,out:String(o||''),err:String(er||e?.message||'')})));
 
 export function createFixerSandbox({DATA,home,sign,redactText=t=>String(t),keyFile=path.join(home,'.hermes','agent-ssh','id_ed25519'),appPort=4400,run=execP,
- fetchFn=(...a)=>fetch(...a),isActive=async()=>false,issueText=async()=>'',logs=async()=>'',diffOf=async()=>'',log=()=>{},now=()=>Date.now(),bin=path.join(home,'.local','bin','aqeelos'),testPort=4402,owner=path.basename(home)}){
+ fetchFn=(...a)=>fetch(...a),isActive=async()=>false,issueText=async()=>'',logs=async()=>'',diffOf=async()=>'',log=()=>{},now=()=>Date.now(),bin=path.join(home,'.local','bin','aqeelos'),testPort=4402,owner=path.basename(home),actionsRun}){
  const REQ=path.join(home,'.aqeelos-fixer-user'),STATE=path.join(DATA,'fixer-sandbox.json'),FIX=path.join(home,'apps','aqeel-os-fixer');
  const load=async()=>JSON.parse(await readFile(STATE,'utf8').catch(()=>'{}')||'{}');
  const save=async s=>{await mkdir(DATA,{recursive:true});await writeFile(STATE+'.tmp',JSON.stringify(s,null,1),{mode:0o600});await rename(STATE+'.tmp',STATE)};
@@ -57,19 +58,20 @@ export function createFixerSandbox({DATA,home,sign,redactText=t=>String(t),keyFi
  const sshArgs=cmd=>['-i',keyFile,'-o','BatchMode=yes','-o','ConnectTimeout=10','-o','StrictHostKeyChecking=yes','-p','22',FIXER_USER+'@127.0.0.1',cmd];
  const ssh=(cmd,timeout=240000)=>run('ssh',sshArgs(cmd),{timeout});
  const q=s=>"'"+String(s).replace(/'/g,"'\\''")+"'";
+ const actions=createFixerActions({DATA,home,redactText,log,...(actionsRun?{run:actionsRun}:{})});
+ // the scratch folder of a repair or proof run (no checkout): its own, wiped before each run
+ const scratch=issue=>path.join(FIX,'s-'+String(issue).replace(/[^\w-]/g,''));
 
- // What to do with a fix run: confine it, hold it (the user or the canary is not ready: never run it unconfined by accident), or let it
- // run as before (a person switched isolation off). Only fixes sorted as bugs in aqeelOS's own code, in a git work dir, are confined;
- // repairs of agents' settings, sign-ins and the like still need the owner's files, so they stay with the full fixer (Health says so).
- async function plan(pol,i,{hasWorkDir=true}={}){
-  if(!isolateWanted(pol))return {confine:false,full:true,why:'Isolation is switched off in the team policy (fixer.isolate).'};
+ // What to do with a run: confine it, or hold it (the user or the canary is not ready). Never run it unconfined: there is no third answer.
+ // mode: code (a bug in aqeelOS's own code, in a git checkout), repair (a settings repair, through the app's named repairs), proof (read-only checks).
+ async function plan(pol,i,{mode='code',hasWorkDir=true}={}){
   await request(true).catch(()=>{});
-  if(i?.sorted!=='code'||!hasWorkDir)return {confine:false,full:false,why:'not a code fix'};
+  if(mode==='code'&&!hasWorkDir)return {confine:false,hold:true,why:'No git work dir for the confined fixer.'};
   if(!await userReady())return {confine:false,hold:true,why:'The fixer\'s own user ('+FIXER_USER+') is not made yet; the box\'s root script makes it within a minute of the request.'};
   const s=await load(),sig=await engineSig();
-  if(s.canary?.sig===sig&&s.canary.ok)return {confine:true,variant:VARIANTS.find(v=>v.name===s.canary.variant)||VARIANTS[0]};
+  if(s.canary?.sig===sig&&s.canary.ok)return {confine:true,mode,variant:VARIANTS.find(v=>v.name===s.canary.variant)||VARIANTS[0]};
   if(s.canary?.sig===sig&&s.canary.ok===false&&now()-(s.canary.at||0)<30*60e3)return {confine:false,hold:true,broken:true,why:'The engine did not run its tools as '+FIXER_USER+' in the last check ('+(s.canary.note||'no answer')+'); fixes wait and it is checked again.'};
-  return {confine:true,canary:true,sig,variant:null}}
+  return {confine:true,mode,canary:true,sig,variant:null}}
  async function recordCanary(sig,variant,ok,note=''){const s=await load();s.canary={sig,variant:variant||null,ok:!!ok,at:now(),note:String(note).slice(0,200)};await save(s)}
 
  // what the engine run is launched with: the terminal settings in its environment, only terminal and file tools, the routes' address
@@ -82,8 +84,13 @@ export function createFixerSandbox({DATA,home,sign,redactText=t=>String(t),keyFi
  async function ops(op,issue,runId,sig,body={}){
   if(!/^[\w-]{1,40}$/.test(issue)||!/^[\w-]{1,60}$/.test(runId))return {status:400,json:{error:'bad address'}};
   if(!sigOk(sign,issue,runId,sig))return {status:403,json:{error:'bad signature'}};
-  if(!await isActive(issue,runId))return {status:410,json:{error:'This run is over; its routes are closed.'}};
-  const dir=path.join(FIX,issue);
+  const sc=await isActive(issue,runId);if(!sc)return {status:410,json:{error:'This run is over; its routes are closed.'}};
+  const scope=sc===true?{}:sc,mode=scope.mode||'code',ctx={issue,run:runId,agents:scope.agents||[]};
+  const dir=mode==='code'?path.join(FIX,issue):scratch(issue);
+  if(op==='help')return {status:200,json:actions.help()};
+  if(op==='check')return actions.check(String(body.check||''),body.args??{},ctx);
+  if(op==='repair'){if(mode!=='repair')return {status:403,json:{error:'Repairs are only for a repair run.'}};return actions.repair(String(body.action||''),body.args??{},ctx)}
+  if(mode!=='code')return {status:403,json:{error:'This route is for a code fix. Use repair, check or help.'}};
   if(op==='issue')return {status:200,json:{text:redactText(await issueText(issue))}};
   if(op==='logs')return {status:200,json:{text:redactText(String(await logs(issue)||'')).slice(-12000)}};
   if(op==='diff')return {status:200,json:{diff:redactText(String(await diffOf(issue)||'')).slice(0,200000)}};
@@ -102,5 +109,5 @@ export function createFixerSandbox({DATA,home,sign,redactText=t=>String(t),keyFi
     return {status:200,json:{status:r.status,body:redactText(t).slice(0,6000)}}}catch(e){return {status:200,json:{error:'The test copy does not answer: '+String(e.message).slice(0,160)}}}}
   return {status:404,json:{error:'Unknown route'}}}
 
- return {request,userReady,plan,recordCanary,launch,prepareDir,clean,ops,engineSig,FIX,state:load}}
+ return {request,userReady,plan,recordCanary,launch,prepareDir,clean,ops,engineSig,scratch,help:actions.help,journal:actions.journal,added:actions.added,FIX,state:load}}
 export const canaryOk=(out,owner)=>/(^|\s)aq-fixer(\s|$)/.test(String(out))&&!new RegExp('(^|\\s)'+String(owner).replace(/[^\w-]/g,'')+'(\\s|$)').test(String(out).replace(/aq-fixer/g,''));
