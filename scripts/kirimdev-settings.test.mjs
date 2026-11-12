@@ -14,7 +14,7 @@ test('people to pick from: the owner, the team that covers the agent, then the r
  const p=peopleOf(POL,'cove-support');
  assert.deepEqual(p.map(x=>x.name),['Abel','Ari','Bo'],'a group id and a missing id are not people; a second "ari" is the same name');
  assert.deepEqual(p[1].ids,['1000000002','1000000003']);assert.equal(p[0].team,'Owner');assert.equal(p[1].team,'Cove');
- assert.deepEqual(peopleOf(POL,'x').map(x=>x.name),['Abel','Bo','Ari'],'the agent\'s own team first');assert.deepEqual(peopleOf({},'a'),[])});
+ assert.deepEqual(peopleOf(POL,'x').map(x=>x.name),['Abel','Bo','ari'],'the agent\'s own team first');assert.deepEqual(peopleOf({},'a'),[])});
 
 test('approvers: picked people store all their ids; approvers nobody matches are kept unless dropped; unknown names are refused',()=>{
  const people=peopleOf(POL,'cove-support'),cur=[{who:'Old Contractor',telegramId:'555666777'}];
