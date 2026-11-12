@@ -75,11 +75,18 @@ export function pruneTests(text,exists,goneBefore=new Set()){const gone=new Set(
 export const LIMIT_DEFAULTS={memory_cap_gb:4,sleep_minutes:15,screen_mode:'lean'};
 // keep(a): its AdsPower runs on the engine's screen (never sleeps, 8 GB). own(a): it has its own AdsPower on a screen of its own user (8 GB;
 // it is kept awake by the root script, which sees the AdsPower process). An explicit memory_cap_gb in the file still wins.
-export function limitLines(agents,cfg={},keep=()=>false,own=()=>false){const d={...LIMIT_DEFAULTS,...(cfg?.default||{})};
- return agents.filter(a=>NAME.test(a)).map(a=>{const o=cfg?.agents?.[a]||{},k=keep(a),big=k||own(a);
-  const gb=Number(o.memory_cap_gb??(big?Math.max(8,Number(d.memory_cap_gb)||0):d.memory_cap_gb)),min=k?0:Number(o.sleep_minutes??d.sleep_minutes);
-  const mode=String(o.screen_mode??d.screen_mode)==='desktop'?'desktop':'lean';
-  return a+' '+Math.max(0,Math.round((gb||0)*1024))+' '+Math.max(0,Math.round(min||0))+' '+mode}).join('\n')+(agents.length?'\n':'')}
+export const AWAKE_WHY='stays awake: uses its own AdsPower profile';
+// The rule (13 Nov 2026): waking an AdsPower profile is slow and signs its sessions out, so an agent that uses AdsPower is never put to
+// sleep by the clock. Its screen defaults to the desktop with no sleep; only an explicit setting for that agent (agents.<name>.sleep_minutes
+// or screen_mode in the file) changes either. The install-wide default does not count as explicit. The wake proxy still listens for it.
+export function limitRule(a,cfg={},keep=()=>false,own=()=>false){const d={...LIMIT_DEFAULTS,...(cfg?.default||{})},o=cfg?.agents?.[a]||{},k=keep(a),w=own(a),big=k||w;
+ const gb=Number(o.memory_cap_gb??(big?Math.max(8,Number(d.memory_cap_gb)||0):d.memory_cap_gb));
+ const min=Math.max(0,Math.round((k?0:Number(o.sleep_minutes??(w?0:d.sleep_minutes)))||0)),mode=String(o.screen_mode??(w?'desktop':d.screen_mode))==='desktop'?'desktop':'lean';
+ return {gb,min,mode,why:big&&min===0?AWAKE_WHY:''}}
+export function limitLines(agents,cfg={},keep=()=>false,own=()=>false){
+ return agents.filter(a=>NAME.test(a)).map(a=>{const r=limitRule(a,cfg,keep,own);return a+' '+Math.max(0,Math.round((r.gb||0)*1024))+' '+r.min+' '+r.mode}).join('\n')+(agents.length?'\n':'')}
+// agent -> why its screen stays awake, for the Health view
+export const awakeReasons=(agents,cfg={},keep=()=>false,own=()=>false)=>Object.fromEntries(agents.filter(a=>NAME.test(a)).map(a=>[a,limitRule(a,cfg,keep,own).why]).filter(([,w])=>w));
 
 // The sleep and wake log (scripts/agent-users.sh writes one JSON line per event to <wake dir>/events.jsonl) as the Health line:
 // "Screens: N awake, M asleep; wakes in the last 24 h: X, failed: Y, slowest: Z s". The janitor's file gives awake and asleep.
@@ -111,7 +118,7 @@ export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',ke
  async function janitor(){return processesLine(JSON.parse(await readFile(JAN,'utf8').catch(()=>'null')))}
  // the sleep and wake line for System › Health (OPS-19)
  async function screens(now=Date.now()){const j=JSON.parse(await readFile(JAN,'utf8').catch(()=>'null'));if(!j||!j.agents)return null;
-  return screensLine(j,parseEvents(await readFile(path.join(WAKE,'events.jsonl'),'utf8').catch(()=>'')),now)}
+  return {...screensLine(j,parseEvents(await readFile(path.join(WAKE,'events.jsonl'),'utf8').catch(()=>'')),now),awake:await awake().catch(()=>({}))}}
  // each agent's memory: everything its own Linux user runs (ag-<agent>)
  const agentMemory=()=>new Promise(res=>execFile('ps',['-eo','user:32=,rss='],{maxBuffer:8e6},(e,o)=>{const m=new Map();
   for(const l of String(o||'').split('\n')){const x=/^(ag-\S+)\s+(\d+)/.exec(l.trim());if(x)m.set(x[1].slice(3),(m.get(x[1].slice(3))||0)+Number(x[2])*1024)}
@@ -161,6 +168,9 @@ export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',ke
   const cfg=JSON.parse(await readFile(path.join(DATA,'agent-limits.json'),'utf8').catch(()=>'{}')||'{}');
   const text=limitLines(agents,cfg,a=>{try{return !!keepOn(a)}catch{return false}},a=>{try{return !!hasOwnAds(a)}catch{return false}}),f=path.join(HOME,'.aqeelos-agent-limits');
   if(text!==await readFile(f,'utf8').catch(()=>null)){await writeFile(f+'.tmp',text);await rename(f+'.tmp',f)}return text}
+ async function awake(){const agents=(await readFile(path.join(HOME,'.aqeelos-agent-users'),'utf8').catch(()=>'')).split('\n').map(x=>x.trim()).filter(Boolean);
+  const cfg=JSON.parse(await readFile(path.join(DATA,'agent-limits.json'),'utf8').catch(()=>'{}')||'{}');
+  return awakeReasons(agents,cfg,a=>{try{return !!keepOn(a)}catch{return false}},a=>{try{return !!hasOwnAds(a)}catch{return false}})}
  const wake=async a=>{if(!NAME.test(a))return false;const f=path.join(WAKE,a+'.wake');await writeFile(f,'').catch(()=>{});return true};
  const stopAll=async a=>{if(!NAME.test(a))return false;await writeFile(path.join(HOME,'.aqeelos-agent-users.stop'),a+'\n',{flag:'a'});return true};
  // rewritten every minute even when unchanged: the root script ignores a file older than 3 minutes
@@ -169,4 +179,4 @@ export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',ke
   if(!st.expiredAt||Date.now()-st.expiredAt>864e5)await expire().catch(e=>console.warn('box: expire',e.message));
   if(!st.tmpAt||Date.now()-st.tmpAt>6*36e5)await pruneTmp().catch(e=>console.warn('box: tmp',e.message))}
  function start(){uploadsReadable().catch(()=>{});setTimeout(()=>writeLimits().catch(()=>{}),10000).unref?.();setTimeout(()=>tick().catch(()=>{}),30000).unref?.();setInterval(()=>tick().catch(()=>{}),60000).unref?.()}
- return {intake,janitor,screens,agentMemory,expire,pruneTmp,uploadsReadable,tick,start,writeLimits,writeBusy,wake,stopAll}}
+ return {intake,janitor,screens,agentMemory,expire,pruneTmp,uploadsReadable,tick,start,writeLimits,awake,writeBusy,wake,stopAll}}

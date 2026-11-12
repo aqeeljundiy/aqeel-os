@@ -50,7 +50,7 @@ test('intake files one issue per agent and kind',async()=>{
  assert.equal(await ops.intake(),2);assert.equal(await ops.intake(),0);
  assert.equal(filed[0].agent,'sesa');assert.equal(filed[0].healthKey,'box:sesa:screen-stopped')});
 
-import {limitLines,parseEvents,screensLine} from '../app/box-ops.mjs';
+import {limitLines,limitRule,awakeReasons,AWAKE_WHY,parseEvents,screensLine} from '../app/box-ops.mjs';
 test('limits: defaults 4 GB and 15 min, lean, set per agent; an AdsPower screen never sleeps and gets 8 GB',()=>{
  assert.equal(limitLines(['a','b','c'],{agents:{b:{memory_cap_gb:2,sleep_minutes:0}}},n=>n==='c'),['a 4096 15 lean','b 2048 0 lean','c 8192 0 lean',''].join('\n'));
  assert.equal(limitLines(['a'],{default:{sleep_minutes:0}}),'a 4096 0 lean\n');assert.equal(limitLines([]),'')
@@ -137,9 +137,20 @@ test('limits: an agent with its own AdsPower on its own user gets 8 GB without a
  const cfgAds=JSON.parse('{"off":{},"ports":{"default":50400,"continue-threads":50402,"sesa":50404},"next":15}'),optins={adspower:{'continue-threads':true}};
  const own=a=>!!optins.adspower[a]&&!!cfgAds.ports[a]&&!cfgAds.off[a];
  const NL='\n';
- assert.equal(limitLines(['continue-threads','sesa'],{default:{screen_mode:'lean'}},()=>false,own),['continue-threads 8192 15 lean','sesa 4096 15 lean',''].join(NL));
- assert.equal(limitLines(['continue-threads'],{agents:{'continue-threads':{memory_cap_gb:6}}},()=>false,own),'continue-threads 6144 15 lean'+NL,'an explicit cap still wins');
+ assert.equal(limitLines(['continue-threads','sesa'],{default:{screen_mode:'lean'}},()=>false,own),['continue-threads 8192 0 desktop','sesa 4096 15 lean',''].join(NL));
+ assert.equal(limitLines(['continue-threads'],{agents:{'continue-threads':{memory_cap_gb:6}}},()=>false,own),'continue-threads 6144 0 desktop'+NL,'an explicit cap still wins');
  // through the module: the app's own flag reaches the file
  const HOME=mkdtempSync(path.join(tmpdir(),'aq-boxops-')),DATA=path.join(HOME,'d');mkdirSync(DATA);writeFileSync(HOME+'/.aqeelos-agent-users','continue-threads'+NL+'sesa'+NL);
  const ops=createBoxOps({HOME,DATA,HERMES_HOME:HOME,keepOn:()=>false,hasOwnAds:own,keepKnown:()=>true});
- assert.equal(await ops.writeLimits(),['continue-threads 8192 15 lean','sesa 4096 15 lean',''].join(NL))});
+ assert.equal(await ops.writeLimits(),['continue-threads 8192 0 desktop','sesa 4096 15 lean',''].join(NL))});
+
+// 13 Nov 2026: an agent on its own AdsPower profile is never put to sleep by the clock: desktop, no sleep, unless the owner set it for that agent
+test('limits: an AdsPower agent defaults to desktop with no sleep; an explicit setting for that agent wins; the reason is shown',()=>{
+ const own=a=>a==='ads',NL='\n';
+ assert.equal(limitLines(['ads','plain'],{default:{sleep_minutes:15,screen_mode:'lean'}},()=>false,own),['ads 8192 0 desktop','plain 4096 15 lean',''].join(NL),'the install default does not reach it');
+ assert.equal(limitLines(['ads'],{agents:{ads:{sleep_minutes:20,screen_mode:'lean'}}},()=>false,own),'ads 8192 20 lean'+NL,'explicit sleep and mode win');
+ assert.equal(limitLines(['ads'],{agents:{ads:{screen_mode:'lean'}}},()=>false,own),'ads 8192 0 lean'+NL,'explicit mode only: still no sleep');
+ assert.equal(limitRule('ads',{},()=>false,own).why,AWAKE_WHY);assert.equal(AWAKE_WHY,'stays awake: uses its own AdsPower profile');
+ assert.equal(limitRule('ads',{agents:{ads:{sleep_minutes:20}}},()=>false,own).why,'','a sleep the owner chose has no "stays awake" reason');
+ assert.equal(limitRule('plain',{},()=>false,own).why,'');
+ assert.deepEqual(awakeReasons(['ads','plain','k'],{},a=>a==='k',own),{ads:AWAKE_WHY,k:AWAKE_WHY})});

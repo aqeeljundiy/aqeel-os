@@ -212,3 +212,13 @@ test('the fixer\'s own user (CR-7): asked with "on", its firewall allows one con
 test('the fixer\'s user is listed to pass through the owner\'s home only when asked for',()=>{
  const src=readFileSync(SCRIPT,'utf8');
  assert.match(src,/Match User ag-\*,aq-fixer/);assert.match(src,/AllowUsers claude ag-\* aq-fixer/);assert.match(src,/fixer_wanted; then uid=/)});
+
+// 13 Nov 2026: the AdsPower rule writes "<agent> 8192 0 desktop"; that agent stays in the wake proxy's map and Chrome keeps the inner port
+test('an AdsPower agent (sleep 0, desktop) is still in the wake proxy map and never goes to sleep',()=>{
+ const d=tmp();mkdirSync(d+'/wake');
+ writeFileSync(d+'/.aqeelos-agent-users','ads1\nplain\n');writeFileSync(d+'/.aqeelos-agent-ports','ads1 40 9600\nplain 41 9601\n');
+ writeFileSync(d+'/.aqeelos-agent-limits','ads1 8192 0 desktop\nplain 4096 15 lean\n');
+ sh('id(){ return 0; }; WAKE='+d+'/wake; wake_ports',d);
+ assert.deepEqual(readFileSync(d+'/wake/ports','utf8').trim().split('\n'),['ads1 9600 19600','plain 9601 19601']);
+ assert.equal(sh('limit_of ads1',d).out,'8192 0');assert.equal(sh('chrome_port 9600 0',d).out,'19600');
+ assert.equal(sh('sleep_step 0 2000000 0 0 0 1 1',d).out,'off')});

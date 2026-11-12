@@ -1,0 +1,32 @@
+# Is aqeelOS up? Checked from outside the server every 10 minutes (a server that is off cannot report itself).
+# Set the repository variable AQEELOS_URLS (Settings > Secrets and variables > Actions > Variables): the sites' addresses, comma separated.
+# (AQEELOS_URL, one address, still works when AQEELOS_URLS is not set.) Nothing set = the run skips with a notice.
+# A site is down after 2 failed tries 30 s apart (its login page must answer 200): the run fails (GitHub emails the owner) and one issue
+# labelled `uptime` per site is opened or updated; it is closed with a comment when the site answers again. No secrets: the issues use the run's own token.
+# The logic is scripts/uptime-check.mjs (tested in scripts/uptime-check.test.mjs).
+name: aqeelOS uptime
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: aqeelos-uptime
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AQEELOS_URLS: ${{ vars.AQEELOS_URLS }}
+      AQEELOS_URL: ${{ vars.AQEELOS_URL }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: aqeelOS answers
+        run: node scripts/uptime-check.mjs
