@@ -96,12 +96,12 @@ function fakeDash(){const jobs={};let n=0;const srv=createServer(async(req,res)=
  if(req.method==='PUT'){Object.assign(j,b.updates);if(b.updates.schedule)j.schedule={kind:'cron',expr:b.updates.schedule},j.schedule_display=b.updates.schedule;return send(200,j)}
  if(req.method==='DELETE'){L.splice(L.indexOf(j),1);return send(200,{ok:true})}return send(405,{})});
  return new Promise(r=>srv.listen(0,'127.0.0.1',()=>r({srv,jobs,url:'http://127.0.0.1:'+srv.address().port})))}
-async function make({user='ag-bot'}={}){const root=await mkdtemp(path.join(tmpdir(),'dg-')),H=path.join(root,'hermes'),DATA=path.join(root,'data'),WORK=path.join(root,'work');
+async function make({user='ag-bot',trusted}={}){const root=await mkdtemp(path.join(tmpdir(),'dg-')),H=path.join(root,'hermes'),DATA=path.join(root,'data'),WORK=path.join(root,'work');
  await mkdir(path.join(H,'profiles','bot','cron'),{recursive:true});await mkdir(path.join(WORK,'bot','sales-recap'),{recursive:true});await mkdir(DATA,{recursive:true});
  for(const f of ['sales-recap/run.py','sales-recap/recap.py','gate.py'])await writeFile(path.join(WORK,'bot',f),'print("x")\n');
  const d=await fakeDash(),rules={},records=[];let t=Date.UTC(2026,10,12,3,0),G;
  const v=createAgentVersions({guard:()=>G,DATA,HERMES_HOME:H,DASH:d.url,DASH_TOKEN:'x',listAgents:async()=>['bot'],nameOf:()=>'Bot',readConfig:async()=>({}),setKey:async()=>({ok:true}),pick:()=>undefined,now:()=>t,live:true,log:()=>{}});
- G=createDesignGuard({HERMES_HOME:H,DATA,WORK,PORT:4400,sig:()=>'sig123',names:()=>'Bot',homes:async()=>['bot'],ownOf:async()=>({user,cwd:'/w/bot'}),jobs:a=>v.myJobs(a),updateJob:(a,id,up)=>v.updateJob(a,id,up),
+ G=createDesignGuard({HERMES_HOME:H,DATA,WORK,PORT:4400,sig:()=>'sig123',names:()=>'Bot',homes:async()=>['bot'],ownOf:async()=>({user,cwd:'/w/bot',trusted}),jobs:a=>v.myJobs(a),updateJob:(a,id,up)=>v.updateJob(a,id,up),
   record:async(a,e)=>{records.push(e)},eventRules:{get:async a=>rules[a]||[],set:async(a,l)=>{rules[a]=l}},now:()=>t,log:()=>{}});
  const scriptOf=n=>readFile(path.join(H,'profiles','bot','scripts',n),'utf8'),sched=(args)=>v.mySchedules('bot',args,{by:'Bot'});
  return {v,G,d,H,DATA,WORK,rules,records,scriptOf,sched,jobs:()=>d.jobs.bot||[],close:()=>d.srv.close(),tick:ms=>{t+=ms},now:()=>t}}
@@ -311,3 +311,63 @@ test('H6: the canonical echo prompts are still echoes, with every wording the li
   assert.ok(echoOf(p)?.cmd,p);
  // a limit that names an action is still a limit ("do not summarise", "never post")
  assert.ok(echoOf('Run exactly this command: python3 a.py\nReply with its output verbatim. Do not summarise, translate or explain it. Never post it anywhere.'))});
+
+// ---- the main agent and trusted agents (13 Nov 2026): Donna AI ("default") has no ag- user, it runs as the box user; its check script was refused ----
+test('the main agent and a trusted agent get check scripts and script-only schedules, run here in their own folder; the 30-minute rule takes the check',async()=>{
+ const x=await make({user:'',trusted:true});
+ try{const r=await x.sched({action:'create',name:'Master To Do sync',schedule:'every 5m',prompt:TODO,check_script:'python3 gate.py',why:WHY});assert.notEqual(r.isError,true,r.text);
+  const j=x.jobs().find(y=>y.name==='Master To Do sync');assert.ok(j,'made');const c=await x.scriptOf('aqeelos-check-'+j.id+'.sh');
+  assert.ok(c.includes("cd '/w/bot' && echo "+Buffer.from('python3 gate.py').toString('base64')+' | base64 -d | bash'));assert.doesNotMatch(c,/ssh /);assert.match(c,/as the box user it already runs as/);
+  const s=await x.sched({action:'create',name:'Recap',schedule:'every 2h',script:'python3 sales-recap/run.py',why:WHY});assert.notEqual(s.isError,true,s.text);
+  const k=x.jobs().find(y=>y.name==='Recap');assert.equal(k.no_agent,true);const body=await x.scriptOf(k.script);assert.doesNotMatch(body,/ssh /);assert.ok(body.includes("cd '/w/bot' && echo "))}finally{x.close()}
+ // the main agent, with nothing saying it is trusted: it is (agent-defaults.mjs trusted() always has "default")
+ const y=await make({user:''});
+ try{await mkdir(path.join(y.WORK,'default','automations'),{recursive:true});await writeFile(path.join(y.WORK,'default','automations','todo-sync-check.py'),'print("x")\n');
+  const cur={id:'995f08f40e51',name:'Master To Do sync',prompt:TODO,schedule:{kind:'interval',minutes:5}};
+  const e=await y.G.before('default',{action:'edit',check_script:'python3 automations/todo-sync-check.py',why:WHY},cur);assert.equal(e.refuse,undefined,e.refuse);
+  assert.match((await e.after({id:cur.id})).join(' '),/Its check "python3 automations\/todo-sync-check\.py" runs before each start with no AI/);
+  assert.match(await readFile(path.join(y.H,'scripts','aqeelos-check-995f08f40e51.sh'),'utf8'),/as the box user it already runs as/);
+  const fast={action:'create',name:'Sync',schedule:'every 5m',prompt:TODO,why:WHY};assert.match((await y.G.before('default',fast)).refuse,/every 5 minutes/,'no check: the 30-minute question');
+  assert.equal((await y.G.before('default',{...fast,check_script:'python3 automations/todo-sync-check.py'})).refuse,undefined,'with its check it is accepted');
+  // an agent with no user yet and not trusted is still refused (the test above, "the means are refused plainly")
+  assert.match((await y.G.before('bot',{action:'create',name:'R',schedule:'every 2h',script:'python3 sales-recap/run.py',why:WHY})).refuse,/no Linux user of its own/)}finally{y.close()}});
+
+test('the run check\'s --agent-cmd runs the main agent\'s command here, in its folder, with the timeout',async()=>{const {runCommand}=await import('../app/run-checks.mjs');
+ const calls=[],f=async(...a)=>{calls.push(a);return {ok:true,out:'work\n'}};
+ const r=await runCommand({cmd:'automations/todo-sync-check.py',as:{local:true,dir:'/home/x/workspaces/default'},timeoutSec:20,exec:f});assert.equal(r.ok,true);
+ assert.deepEqual(calls[0].slice(0,2),['python3',['automations/todo-sync-check.py']]);assert.equal(calls[0][2].cwd,'/home/x/workspaces/default');assert.equal(calls[0][2].timeout,20000);
+ assert.equal((await runCommand({cmd:'/etc/x.py',as:{local:true,dir:'/w'},exec:f})).ok,false,'paths stay inside');
+ assert.match(src('scripts/run-check.mjs'),/const local=!u&&\(b==='default'\|\|!!DATA&&await isTrusted\(DATA,b\)\)/)});
+
+test('trusted is the main agent and the agents in agent-trust.json; an event hook of theirs runs here in their folder, anyone else\'s is still refused',async()=>{
+ const {isTrusted}=await import('../app/event-hooks.mjs');const D=await mkdtemp(path.join(tmpdir(),'dg-trust-'));
+ assert.equal(await isTrusted(D,'default'),true,'the main agent, even with no file');assert.equal(await isTrusted(D,'bot'),false);
+ await writeFile(path.join(D,'agent-trust.json'),JSON.stringify({trusted:['bot']}));assert.equal(await isTrusted(D,'bot'),true);assert.equal(await isTrusted(D,'other'),false);
+ const here=[],H=createEventHooks({DATA:D,WORK:'/w',runAs:async()=>({ok:false,err:'this agent has no own user'}),runLocal:async(dir,cmd)=>{here.push([dir,cmd]);return {ok:true,out:''}},deliver:async()=>{},log:()=>{}});
+ await writeFile(path.join(D,'event-hooks.json'),JSON.stringify({default:[{id:'d1',on:'payment.paid',run:'python3 a.py'}],other:[{id:'o1',on:'payment.paid',run:'python3 a.py'}]}));
+ await H.runNow('default','d1').catch(()=>{});assert.equal(here.length,1);assert.equal(here[0][0],path.join('/w','default'));assert.match(here[0][1],/timeout -k 5 300 python3 a\.py$/);
+ assert.match(String(await H.runNow('other','o1')),/no own user/);assert.equal(here.length,1,'not trusted: never run here')});
+
+test('Health: a schedule only the agent can redesign has Make it a check (and Start it from an event where one fits), and pressing it asks the agent',async()=>{const x=await make();
+ try{const PAID='Look at today\'s payments and write the owner a short digest of the paid orders, in plain words.';
+  await withJobs(x,[{id:'t1',name:'Master To Do sync',prompt:TODO},{id:'p1',name:'Paid digest',prompt:PAID}]);
+  await writeFile(path.join(x.H,'profiles','bot','cron','usage_audit.jsonl'),audit('t1',75,69,{tokens:200000})+audit('p1',40,38));
+  const [it]=await x.G.needs(true);const t1=it.jobs.find(j=>j.job==='t1'),p1=it.jobs.find(j=>j.job==='p1');
+  assert.deepEqual([t1.how,t1.mechanical,t1.checked,t1.events],['ask',false,false,[]]);assert.deepEqual([p1.how,p1.events],['ask',['payment.paid','order.posted']]);
+  const c=await x.G.decide('bot','t1','check');assert.equal(c.agent,'bot');assert.match(c.ask,/"Master To Do sync" \(id t1\) started the AI 75 times in 7 days and 69 of them said nothing/);
+  assert.ok(c.ask.includes('my_schedules {"action":"edit","id":"t1","check_script":"<your command, a path inside your own folder>","why":"<what starts it and why>"}'));assert.match(c.ask,/If you already wrote a check script for it, test that one and attach it/);
+  const e=await x.G.decide('bot','p1','event');assert.ok(e.ask.includes('"on_event":["payment.paid","order.posted"]'));await assert.rejects(x.G.decide('bot','t1','event'),/No event aqeelOS sees fits/);
+  assert.equal(x.jobs().find(j=>j.id==='t1').prompt,TODO,'asking changes nothing by itself');
+  // the card: run bottlenecks.js with stubs, for the main agent too (the request goes to its own chat)
+  const calls=[],stub=n=>(...a)=>{calls.push([n,...a]);return n==='post'?Promise.resolve({ok:true,agent:a[2].agent,ask:'ASK '+a[2].choice}):undefined};
+  const ctx={S:{me:{admin:true},profile:'default'},UI:'ui',post:stub('post'),toast:()=>{},closeLayers:()=>{},switchAgent:stub('switchAgent'),Chat:{newChat:stub('newChat'),send:stub('send')},setTimeout:fn=>fn(),go:()=>{},document:{querySelector:()=>null,createElement:()=>({append(){}})},
+   ACT:{},esc:s=>String(s),icon:()=>'',Why:{rows:()=>'',wire:()=>{}},Poll:{add:()=>{}},drawer:()=>({}),ident:a=>({name:a}),fail:()=>{},location:{origin:'x'},window:{open:()=>null}};
+  const vm=await import('node:vm');vm.createContext(ctx);vm.runInContext(src('app/bottlenecks.js')+';this.__B=Bottlenecks;',ctx);const B=ctx.__B;
+  for(const [agent,job] of [['default',{...t1,name:'Master To Do sync'}],['bot',p1]]){calls.length=0;const a=B.actions({kind:'design',id:'design|'+agent,agent,agentName:'Donna AI',title:'x',jobs:[job]});
+   const labels=a.map(b=>b[0]);assert.deepEqual(labels,job.events.length?['Make it a check','Start it from an event','Keep as it is']:['Make it a check','Keep as it is']);
+   assert.deepEqual(a.filter(b=>b[2]).map(b=>b[0]),['Make it a check']);
+   a[0][1]();await new Promise(r=>setImmediate(r));
+   assert.equal(JSON.stringify(calls.find(c=>c[0]==='post').slice(2)),JSON.stringify(['/ui/design-guard/decide',{agent,job:job.job,choice:'check'}]));assert.ok(calls.some(c=>c[0]==='newChat'));
+   assert.deepEqual(calls.find(c=>c[0]==='send'),['send','ASK check']);
+   assert.equal(calls.some(c=>c[0]==='switchAgent'),agent!=='default','the main agent\'s own chat; another agent is switched to first');
+   if(job.events.length){calls.length=0;a[1][1]();await new Promise(r=>setImmediate(r));assert.equal(calls.find(c=>c[0]==='post')[3].choice,'event')}}}finally{x.close()}});

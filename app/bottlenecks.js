@@ -68,8 +68,14 @@ const Bottlenecks={items:[],
   if(x.kind==='signin')return [['Sign in to '+(x.signin?.app||x.signin?.label||x.signin?.name||'it'),()=>{closeLayers();Signins.open(x.signin);return new Promise(()=>{})},true],['Not now',later]];
   // a schedule that starts the AI every few minutes with no check (run-gates.mjs): per schedule, Add a check (when a standard one fits) or Keep every N min
   if(x.kind==='cadence')return x.jobs.flatMap(j=>{const n=(x.jobs.length>1?' · '+Bottlenecks.short(j.name):'');return [...(j.suggest?[['Add a check'+n,async()=>{await post(UI,'/ui/run-gates/decide',{agent:x.agent,job:j.job,choice:'check'});toast('Check added · it looks at '+j.suggest.what+' before each start')},true]]:[]),['Keep every '+j.every+' min'+n,async()=>{await post(UI,'/ui/run-gates/decide',{agent:x.agent,job:j.job,choice:'keep'});toast('Kept as it is')},!j.suggest]]});
-  // schedules that mostly woke the AI for nothing (design-guard.mjs): per schedule, the better design where a button can apply it, or Keep as it is
-  if(x.kind==='design')return x.jobs.flatMap(j=>{const n=(x.jobs.length>1?' · '+Bottlenecks.short(j.name):'');return [...(j.mechanical?[[j.label+n,async()=>{await post(UI,'/ui/design-guard/decide',{agent:x.agent,job:j.job,choice:'apply'});toast(j.how==='script'?'Done · it runs as a script with no AI now':'Done · a check runs before each start now')},true]]:[]),['Keep as it is'+n,async()=>{await post(UI,'/ui/design-guard/decide',{agent:x.agent,job:j.job,choice:'keep'});toast('Kept as it is')},!j.mechanical]]});
+  // schedules that mostly woke the AI for nothing (design-guard.mjs): per schedule, the better design where a button can apply it; else
+  // Make it a check (and Start it from an event where one fits): the agent is asked in a new chat, with the exact call (13 Nov 2026: the
+  // owner's card for Donna AI's "Master To Do sync" had only Keep as it is); or Keep as it is
+  if(x.kind==='design')return x.jobs.flatMap(j=>{const n=(x.jobs.length>1?' · '+Bottlenecks.short(j.name):'');
+   const ask=(choice,label,primary)=>[label+n,()=>this.askDesign(x,j,choice),primary];
+   return [...(j.mechanical?[[j.label+n,async()=>{await post(UI,'/ui/design-guard/decide',{agent:x.agent,job:j.job,choice:'apply'});toast(j.how==='script'?'Done · it runs as a script with no AI now':'Done · a check runs before each start now')},true]]
+    :[ask('check',j.checked?'Ask for a sharper check':'Make it a check',true),...(j.events?.length?[ask('event','Start it from an event',false)]:[])]),
+    ['Keep as it is'+n,async()=>{await post(UI,'/ui/design-guard/decide',{agent:x.agent,job:j.job,choice:'keep'});toast('Kept as it is')},false]]});
   // a conflict: one button per side, and Something else (a number for timing and limits, else the words)
   if(x.kind==='conflict')return [...x.sides.map((s,i)=>[(x.sides.length>1?String.fromCharCode(65+i)+': ':'')+s.label.slice(0,48),async()=>{await post(UI,'/ui/conflicts/decide',{cid:x.cid,choice:s.key});toast('Done · the other versions are removed')},false]),['Something else',async()=>{const v=await promptBox('Something else','What should count instead?','','Choose');if(v==null||!v.trim())return;await post(UI,'/ui/conflicts/decide',{cid:x.cid,choice:'other',text:v.trim(),value:/^[0-9]+$/.test(v.trim())?+v.trim():undefined});toast('Done')}]];
   if(x.kind==='access')return S.me?.admin===false?[]:[['Allow',async()=>{await post(UI,'/ui/access/decide',{rid:x.rid,ok:true});toast(x.agentName+' can use it · ready in about a minute')},true],['Decline',async()=>{await post(UI,'/ui/access/decide',{rid:x.rid,ok:false});toast('Declined')}]];
@@ -102,6 +108,10 @@ const Bottlenecks={items:[],
   // anything else is in the fixer's hands (System › Health): nothing to press
   return []},
  // the agent's chat, with the message that asks it to try again
+ // the request comes from the server (design-guard.mjs askFor) and is sent as the owner's message in a new chat with that agent, the main one too
+ askDesign(x,j,choice){return (async()=>{const r=await post(UI,'/ui/design-guard/decide',{agent:x.agent,job:j.job,choice});closeLayers();
+  if((S.profile||'default')!==r.agent&&typeof switchAgent==='function')switchAgent(r.agent);Chat.newChat();setTimeout(()=>Chat.send(r.ask),1500);
+  toast('Asked '+(x.agentName||'the agent')+' in a new chat');return new Promise(()=>{})})()},
  retryReport(x,done){return (async()=>{await done();closeLayers();if((S.profile||'default')!==x.agent&&typeof switchAgent==='function')switchAgent(x.agent);go(x.from?.chat?'/chat/'+x.from.chat:'/chat');setTimeout(()=>{const t=document.querySelector('.composer textarea');if(t){t.value='That should be fixed now: '+x.title.replace(/^.*? is blocked: /,'')+'. Please try again.';t.dispatchEvent(new Event('input'));t.focus()}},600);return new Promise(()=>{})})()},
  // the exact steps to add a bot back to a Telegram group; the item leaves by itself once Health sees the bot there again
  addBot(x,g){const bot=x.data?.bot?'@'+x.data.bot:'the agent’s bot';closeLayers();

@@ -20,7 +20,7 @@ import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,stat,chmod,realpath,open} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
-import {commandOf,cleanHook,fallbackScript} from './event-hooks.mjs';
+import {commandOf,cleanHook,fallbackScript,isTrusted} from './event-hooks.mjs';
 import {GATE_PREFIX,CHECK_PREFIX,MIN_CADENCE,cadenceOf,suggestCheck,checkBody} from './run-gates.mjs';
 
 // The events this install emits (server.mjs emitEvent: both an event hook, a script with no model, and an event-started run can start
@@ -37,6 +37,9 @@ export const EVENTS=[
  {id:'post.failed',from:'tebar',what:'a Tebar post failed'},
  {id:'schedule.finished',from:'schedules',what:'another schedule of yours finished a run (chain one after another)'}];
 export const EVENT_IDS=EVENTS.map(e=>e.id);
+// the events that fit a schedule from its name and prompt (the Health button "Start it from an event" is offered only for these)
+const EVENT_WORDS=[[/\b(?:payments?|paid|tripay|xendit)\b/i,'payment.paid'],[/\borders?\b/i,'order.posted'],[/\b(?:whatsapp|kirimdev)\b/i,'whatsapp.received'],[/\bcomments?\b/i,'comment.created'],[/\b(?:dms?|direct messages?|instagram messages?)\b/i,'message.received'],[/\bposts? (?:failed|went out|published)\b/i,'post.published']];
+const eventsFor=t=>[...new Set(EVENT_WORDS.filter(([r])=>r.test(String(t||''))).map(([,e])=>e))].slice(0,2);
 export const eventHelp=()=>EVENTS.map(e=>e.id+' ('+e.what+')').join('; ');
 
 // the rule, in every agent's context (server.mjs writeAgentContext): short, every word is paid on every turn
@@ -159,13 +162,17 @@ const pattern=(v,what)=>{const s=String(v??'');if(!s)return '';if(s.length>120||
 // ---- the scripts aqeelOS writes --------------------------------------------------------------------------------------------
 // The engine runs a schedule's script as the box's own user, so the agent's command runs as the agent's own user (ssh to 127.0.0.1 with
 // aqeelOS's agent key, as agent-care.mjs does): never with more rights than the agent has. Everything an agent gave travels as base64.
-const sshRun=({user,key,cwd,cmd})=>{if(!/^ag-[\w-]+$/.test(user)||/'/.test(key+cwd))throw Error('this agent has no own Linux user');
+// local: the main agent and the agents the owner marked trusted (agent-trust.json) already run as the box user, so their command runs
+// here, in their own folder, with the same rights they have in chat (13 Nov 2026: Donna AI's check script was refused for having no ag- user).
+const sshRun=({user,local=false,key,cwd,cmd})=>{if(local&&!user){if(/'/.test(String(cwd)))throw Error('this folder cannot be used');return `cd '${cwd}' && echo ${b64(cmd)} | base64 -d | bash`}
+ if(!/^ag-[\w-]+$/.test(user)||/'/.test(key+cwd))throw Error('this agent has no own Linux user');
  return `ssh -i '${key}' -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 '${user}@127.0.0.1' "cd '${cwd}' && echo ${b64(cmd)} | base64 -d | bash"`};
 // a script-only schedule: the command's lines, filtered by keep and drop, each with the prefix; nothing printed when nothing is left
-export function jobScript({agent,user,key,cwd,cmd,keep='',drop='',prefix=''}){return ['#!/bin/bash',
- '# Made by aqeelOS (design-guard.mjs) for '+agent+'\'s script-only schedule: runs its own command as its own user, no model.',
+const asWho=(user,local)=>local&&!user?'as the box user it already runs as':'as its own user';
+export function jobScript({agent,user,local=false,key,cwd,cmd,keep='',drop='',prefix=''}){return ['#!/bin/bash',
+ '# Made by aqeelOS (design-guard.mjs) for '+agent+'\'s script-only schedule: runs its own command '+asWho(user,local)+', no model.',
  '# The command: '+String(cmd).replace(/\s+/g,' '),
- 'out=$('+sshRun({user,key,cwd,cmd})+'); rc=$?',
+ 'out=$('+sshRun({user,local,key,cwd,cmd})+'); rc=$?',
  ...(keep?['K=$(echo '+b64(keep)+' | base64 -d); out=$(printf \'%s\\n\' "$out" | grep -E -- "$K")']:[]),
  ...(drop?['X=$(echo '+b64(drop)+' | base64 -d); out=$(printf \'%s\\n\' "$out" | grep -Ev -- "$X")']:[]),
  ...(prefix?['P=$(echo '+b64(prefix)+' | base64 -d)']:['P=""']),
@@ -173,10 +180,10 @@ export function jobScript({agent,user,key,cwd,cmd,keep='',drop='',prefix=''}){re
  'exit $rc',''].join('\n')}
 // a schedule's own check: the run gate runs it before the AI (run-gates.mjs gateBody). Nothing printed = nothing to do. What it prints is
 // handed to the run, so the prompt need not run it again. A check that fails never stops a run.
-export function ownCheckScript({agent,user,key,cwd,cmd}){return ['#!/bin/bash',
- '# Written by aqeelOS (design-guard.mjs): '+agent+'\'s own check for this schedule, run as its own user before the AI starts.',
+export function ownCheckScript({agent,user,local=false,key,cwd,cmd}){return ['#!/bin/bash',
+ '# Written by aqeelOS (design-guard.mjs): '+agent+'\'s own check for this schedule, run '+asWho(user,local)+' before the AI starts.',
  '# The command: '+String(cmd).replace(/\s+/g,' '),
- 'out=$('+sshRun({user,key,cwd,cmd})+' 2>/dev/null); rc=$?',
+ 'out=$('+sshRun({user,local,key,cwd,cmd})+' 2>/dev/null); rc=$?',
  'if [ "$rc" = 0 ] && [ -z "$(printf \'%s\' "$out" | tr -d \'[:space:]\')" ]; then echo \'{"anythingToDo": false}\'; exit 0; fi',
  'printf \'%s\\n\' "$out"','echo \'{"anythingToDo": true}\'',''].join('\n')}
 export const STEP0_NOTE='aqeelOS: the check of this schedule (its step 0 script) has already run before you started, and what it printed is given to you with this run. Do not run it again; go on from its output.';
@@ -191,7 +198,9 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const exists=f=>stat(f).then(()=>true,()=>false);
  const put=async(a,name,body)=>{const f=path.join(home(a),'scripts',name);await mkdir(path.dirname(f),{recursive:true});await writeFile(f,body,{mode:0o700});await chmod(f,0o700).catch(()=>{});return name};
- const own=async a=>{const o=await Promise.resolve(ownOf(a)).catch(()=>null)||{};return {user:/^ag-[\w-]+$/.test(String(o.user||''))?o.user:'',cwd:String(o.cwd||path.join(WORK,base(a)))}};
+ // runs: aqeelOS can run a command for this agent: as its own ag- user, or here (local) for the main agent and a trusted one (event-hooks.mjs isTrusted)
+ const own=async a=>{const o=await Promise.resolve(ownOf(a)).catch(()=>null)||{},user=/^ag-[\w-]+$/.test(String(o.user||''))?o.user:'',local=!user&&(o.trusted===true||await isTrusted(DATA,a));
+  return {user,local,runs:!!(user||local),cwd:String(o.cwd||path.join(WORK,base(a)))}};
  // a schedule's script that is only aqeelOS's run gate with nothing of the person's behind it counts as no script (run-gates.mjs gives every
  // AI schedule one within 10 minutes; the echo converter then skipped every gated job)
  async function ownScript(a,script){const s=String(script||'').trim();if(!s.startsWith(GATE_PREFIX))return s;
@@ -229,7 +238,7 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
    if(/[\n\r\0]/.test(prefix))throw Error('prefix is one short line.');
    if((keep||drop||prefix)&&!script)throw Error('keep, drop and prefix go with script.');
    if(script&&(checks||checkCmd))throw Error('A script-only schedule starts no AI, so it has nothing to check first: give script alone, or prompt with checks or check_script.');
-   if((script||checkCmd)&&!o.user)throw Error('This agent has no Linux user of its own on this server, so aqeelOS cannot run a script for it. Report it with report_bottleneck system true.');
+   if((script||checkCmd)&&!o.runs)throw Error('This agent has no Linux user of its own on this server, so aqeelOS cannot run a script for it. Report it with report_bottleneck system true.');
    if(act==='create'&&why.length<10)throw Error('Not made yet: say in why, in one sentence, what starts this work and why you chose that (an event, a script with no AI, a check before the AI, or the AI on a timer). The person sees it on the schedule.');
    // an event hook: the script runs when the event happens, no model, no schedule needed
    if(script&&events.length){const id=(cur?'job-'+cur.id:'h-'+sha(a+'|'+script).slice(0,10)),deliver=has('deliver')&&TARGET.test(String(args.deliver))?String(args.deliver):cur?.deliver&&TARGET.test(String(cur.deliver))?cur.deliver:null;
@@ -243,7 +252,7 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
       return [said+' The clock ('+(args.schedule||cur?.schedule?.display||'')+') is only its slow safety run.'+TELL]}}}
    // a script-only schedule
    if(script){if(!has('schedule')&&!cur)throw Error('script needs a schedule (when it runs), or on_event (what starts it).');
-    const name='aq-script-'+sha([a,script,keep,drop,prefix].join('|')).slice(0,12)+'.sh';await put(a,name,jobScript({agent:a,user:o.user,key:sshKey,cwd:o.cwd,cmd:script,keep,drop,prefix}));
+    const name='aq-script-'+sha([a,script,keep,drop,prefix].join('|')).slice(0,12)+'.sh';await put(a,name,jobScript({agent:a,user:o.user,local:o.local,key:sshKey,cwd:o.cwd,cmd:script,keep,drop,prefix}));
     return {body:{no_agent:true,script:name,...(has('prompt')?{}:{prompt:'Script-only: runs "'+script+'" in the agent\'s own folder and delivers what it prints. No AI.'})},
      after:async j=>{if(j&&(!j.no_agent||j.script!==name))await updateJob(a,j.id,{no_agent:true,script:name});await setTrigger(a,j.id,{kind:'script',cmd:script,why,by});
       return ['It is a script-only schedule: "'+script+'" runs with no AI and what it prints is delivered (nothing printed, nothing sent).'+TELL]}}}
@@ -256,7 +265,7 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
    let c=classify({prompt,schedule,no_agent:!!cur?.no_agent&&!has('prompt'),hasCheck:checked,hasEvent:evented});
    // an agent with no user of its own cannot have a script run for it: the echo or step 0 stays an AI run, and the 30-minute question still stands
    const plain=()=>{const every=cadenceOfText(schedule);return every!=null&&every<MIN_CADENCE&&!checked&&!evented?{kind:'fast',every,suggest:suggestCheck(prompt)}:{kind:'ok',trigger:evented?'event':checked?'check':'model'}};
-   if((c.kind==='echo'||c.kind==='step0')&&!o.user)c=plain();
+   if((c.kind==='echo'||c.kind==='step0')&&!o.runs)c=plain();
    // a change is reviewed for what it changes: a new prompt for its wording, a new time for its cadence. Renaming a schedule, or fixing a line of
    // the prompt of one the owner decided to keep, is never held up by what was already there.
    if(cur&&(c.kind==='echo'||c.kind==='step0')&&!has('prompt'))c=plain();if(cur&&c.kind==='fast'&&!has('schedule'))c={kind:'ok',trigger:'model'};
@@ -264,7 +273,7 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
     if(c.filter)return {refuse:'Not saved: this prompt only runs one command and passes on some of its lines by a fixed rule. That needs no AI, and an AI start every time costs a full run. Make it a script-only schedule: '+
       callText(tool,{...fields,script:rel||'<the command, as a path inside your own folder>',...(c.filter.keep?{keep:c.filter.keep}:{}),...(c.filter.drop?{drop:c.filter.drop}:{}),...(c.filter.prefix?{prefix:c.filter.prefix}:{}),why:'<what starts it and why>'},a)+
       '. If the work can start from an event instead of the clock (a payment paid, a message arriving), add on_event.'+TELL};
-    const name='aq-script-'+sha([a,c.cmd].join('|')).slice(0,12)+'.sh';await put(a,name,jobScript({agent:a,user:o.user,key:sshKey,cwd:o.cwd,cmd:c.cmd}));
+    const name='aq-script-'+sha([a,c.cmd].join('|')).slice(0,12)+'.sh';await put(a,name,jobScript({agent:a,user:o.user,local:o.local,key:sshKey,cwd:o.cwd,cmd:c.cmd}));
     return {body:{no_agent:true,script:name},after:async j=>{if(j&&(!j.no_agent||j.script!==name))await updateJob(a,j.id,{no_agent:true,script:name});
      await setTrigger(a,j.id,{kind:'script',cmd:c.cmd,why:why||'aqeelOS: the prompt only ran one command and repeated what it printed',by:by||'aqeelOS'});
      return ['aqeelOS made it a script-only schedule: the prompt only ran "'+clip(c.cmd,120)+'" and repeated what it printed, so the command now runs with no AI (same output, no tokens). If it can start from an event instead of the clock (a payment paid, a message arriving), change it with on_event.'+TELL]}}}
@@ -275,7 +284,7 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
     (c.suggest?'add the check that fits (checks "'+c.suggest.checks+'": '+c.suggest.what+')':'add a check (checks, or check_script with a small script of yours that prints only when there is work)')+'; or run it every '+MIN_CADENCE+' minutes or slower. Only if the person still wants it after hearing this, pass accept_cost true.'+TELL};
    const kind=events.length?'event':checks||checkCmd?'check':c.trigger||'model';
    return {body:{},after:async j=>{const out=[];if(!j?.id)return out;
-    if(checkCmd){await put(a,CHECK_PREFIX+j.id+'.sh',ownCheckScript({agent:a,user:o.user,key:sshKey,cwd:o.cwd,cmd:checkCmd}));out.push('Its check "'+checkCmd+'" runs before each start with no AI: the AI starts only when it prints something, and gets what it printed (do not run it again in the prompt).')}
+    if(checkCmd){await put(a,CHECK_PREFIX+j.id+'.sh',ownCheckScript({agent:a,user:o.user,local:o.local,key:sshKey,cwd:o.cwd,cmd:checkCmd}));out.push('Its check "'+checkCmd+'" runs before each start with no AI: the AI starts only when it prints something, and gets what it printed (do not run it again in the prompt).')}
     else if(checks){await put(a,CHECK_PREFIX+j.id+'.sh',checkBody({agent:a,home:home(a),data:DATA,job:j.id,checks}));out.push('Its check ('+checks+') runs before each start with no AI: the AI starts only when there is something to do.')}
     if(events.length){const l=(await rulesOf(a)).filter(r=>r.job!==j.id);l.push({event:events,job:j.id});await eventRules.set(a,l);out.push('It starts at once when '+events.join(' or ')+' happens; its clock is only the slow safety run.')}
     if(c.kind==='fast')out.push('It starts the AI every '+c.every+' minutes with no check, so aqeelOS lets it start at most once every '+MIN_CADENCE+' minutes until the owner keeps it as it is in Health.');
@@ -294,9 +303,9 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
    if(cur&&(c.kind==='echo'||c.kind==='step0')&&args.prompt==null){const every=cadenceOfText(schedule);c=every!=null&&every<MIN_CADENCE&&!checked&&!evented?{kind:'fast',every,suggest:suggestCheck(prompt)}:{kind:'ok'}}
    if(cur&&c.kind==='fast'&&args.schedule==null)return null;
    const f={action:act==='create'?'create':'edit',...(cur?{id:cur.id}:{}),...(args.name?{name:String(args.name)}:{}),...(args.schedule?{schedule:String(args.schedule)}:{}),...(args.deliver?{deliver:String(args.deliver)}:{})};
-   if(c.kind==='echo'&&o.user)return 'Not saved: this schedule only runs one command and repeats what it prints, so it needs no AI (each AI start costs a full run). Make it with my_schedules (from aqeelos-notify) instead: '+
+   if(c.kind==='echo'&&o.runs)return 'Not saved: this schedule only runs one command and repeats what it prints, so it needs no AI (each AI start costs a full run). Make it with my_schedules (from aqeelos-notify) instead: '+
     callText('my_schedules',{...f,script:relCommand(c.cmd,o.cwd)||'<the command, as a path inside your own folder>',...(c.filter?.keep?{keep:c.filter.keep}:{}),...(c.filter?.drop?{drop:c.filter.drop}:{}),...(c.filter?.prefix?{prefix:c.filter.prefix}:{}),why:'<what starts it and why>'})+'. If it can start from an event instead of the clock, add on_event.'+TELL;
-   if(c.kind==='step0'&&o.user)return 'Not saved: step 0 of this prompt runs a script and stops when it prints nothing, so the AI starts every time only to learn there is nothing to do. Make it with my_schedules (from aqeelos-notify) instead, with that script as the check and step 0 taken out of the prompt: '+
+   if(c.kind==='step0'&&o.runs)return 'Not saved: step 0 of this prompt runs a script and stops when it prints nothing, so the AI starts every time only to learn there is nothing to do. Make it with my_schedules (from aqeelos-notify) instead, with that script as the check and step 0 taken out of the prompt: '+
     callText('my_schedules',{...f,check_script:relCommand(c.cmd,o.cwd)||'<that script, as a path inside your own folder>',prompt:'<the prompt without step 0>',why:'<what starts it and why>'})+'.'+TELL;
    if(c.kind==='fast')return 'Not saved: this would start the AI every '+c.every+' minutes with nothing that says whether there is anything to do. Make it with my_schedules (from aqeelos-notify) and choose one: on_event ('+EVENT_IDS.join(', ')+'); '+
     (c.suggest?'checks "'+c.suggest.checks+'" ('+c.suggest.what+')':'checks or check_script')+'; or every '+MIN_CADENCE+' minutes or slower. Only if the person still wants it after hearing this: my_schedules with accept_cost true.'+TELL;
@@ -305,19 +314,19 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
  // ---- existing schedules: what a schedule would better be, and the conversion where it is mechanical ----
  async function adviceFor(a,j){const o=await own(a),checked=await hasCheck(a,j.id),ev=(await eventsOf(a,j.id)).length>0,c=classify({prompt:j.prompt,schedule:null,no_agent:!!j.no_agent,hasCheck:false,hasEvent:false});
   if(j.no_agent)return null;
-  if(c.kind==='echo'&&!(await ownScript(a,j.script)))return {how:'script',mechanical:!!o.user,label:'Make it script-only',cmd:c.cmd,filter:c.filter,text:'it only runs one command and repeats what it prints'+(c.filter?' (by a fixed line rule)':'')+': that runs as a script with no AI'+(o.user?'':' (this agent has no own user yet, so aqeelOS cannot convert it)')};
-  if(c.kind==='step0'&&!checked)return {how:'step0',mechanical:!!o.user,label:'Move its check in front',cmd:c.cmd,text:'its first step runs a script and stops when that prints nothing: the script becomes the check, so the AI starts only when it prints something'};
+  if(c.kind==='echo'&&!(await ownScript(a,j.script)))return {how:'script',mechanical:o.runs,label:'Make it script-only',cmd:c.cmd,filter:c.filter,text:'it only runs one command and repeats what it prints'+(c.filter?' (by a fixed line rule)':'')+': that runs as a script with no AI'+(o.runs?'':' (this agent has no own user yet, so aqeelOS cannot convert it)')};
+  if(c.kind==='step0'&&!checked)return {how:'step0',mechanical:o.runs,label:'Move its check in front',cmd:c.cmd,text:'its first step runs a script and stops when that prints nothing: the script becomes the check, so the AI starts only when it prints something'};
   const s=suggestCheck((j.name||'')+' '+(j.prompt||''));
   if(s&&!checked)return {how:'check',mechanical:true,label:'Add a check',checks:s.checks+(/--dms/.test(s.checks)?' --max-idle 60':''),text:'a check with no AI ('+s.what+') can decide whether the AI starts'};
-  return {how:'ask',mechanical:false,text:checked||ev?'it has a check or an event already, and most runs still find nothing: ask '+names(a)+' for a sharper check':'ask '+names(a)+' to start it from an event, or to write a small check script that prints only when there is work'}}
+  return {how:'ask',mechanical:false,checked:checked||ev,events:ev?[]:eventsFor((j.name||'')+' '+(j.prompt||'')),text:checked||ev?'it has a check or an event already, and most runs still find nothing: ask '+names(a)+' for a sharper check':'ask '+names(a)+' to start it from an event, or to write a small check script that prints only when there is work'}}
  // apply the mechanical conversion of one schedule (the Health button, and agent-care for a clean echo). Returns what was done.
  async function convert(a,jobId,{by='aqeelOS'}={}){await load();const j=(await jobs(a)).find(x=>x.id===jobId);if(!j)throw Error('That schedule is gone.');
   if(!/^[\w-]{1,64}$/.test(String(jobId)))throw Error('Unknown schedule');const adv=await adviceFor(a,j);if(!adv?.mechanical)throw Error('Nothing here can be changed by a button. Ask the agent for the better design.');const o=await own(a);
-  if(adv.how==='script'){const name='aq-job-'+jobId+'.sh',f=adv.filter||{};await put(a,name,jobScript({agent:a,user:o.user,key:sshKey,cwd:o.cwd,cmd:adv.cmd,keep:f.keep,drop:f.drop,prefix:f.prefix}));
+  if(adv.how==='script'){const name='aq-job-'+jobId+'.sh',f=adv.filter||{};await put(a,name,jobScript({agent:a,user:o.user,local:o.local,key:sshKey,cwd:o.cwd,cmd:adv.cmd,keep:f.keep,drop:f.drop,prefix:f.prefix}));
    await updateJob(a,jobId,{no_agent:true,script:name});await setTrigger(a,jobId,{kind:'script',cmd:adv.cmd,why:'aqeelOS: the prompt only ran one command and repeated what it printed',by});
    await record(a,{kind:'schedule',what:'"'+j.name+'" now runs its command without a model turn (script '+name+'); same output, no tokens',why:'aqeelOS: the prompt only ran one command',before:{prompt:j.prompt,script:j.script||null,no_agent:false},after:{script:name,no_agent:true}}).catch(()=>{});
    log('design guard: '+a+' schedule '+jobId+' is script-only now');cache=null;return {ok:true,how:'script',script:name}}
-  if(adv.how==='step0'){await put(a,CHECK_PREFIX+jobId+'.sh',ownCheckScript({agent:a,user:o.user,key:sshKey,cwd:o.cwd,cmd:adv.cmd}));
+  if(adv.how==='step0'){await put(a,CHECK_PREFIX+jobId+'.sh',ownCheckScript({agent:a,user:o.user,local:o.local,key:sshKey,cwd:o.cwd,cmd:adv.cmd}));
    if(!String(j.prompt||'').startsWith(STEP0_NOTE))await updateJob(a,jobId,{prompt:STEP0_NOTE+'\n\n'+j.prompt});await setTrigger(a,jobId,{kind:'check',cmd:adv.cmd,why:'aqeelOS: step 0 of the prompt was a script that decides whether there is anything to do',by});
    await record(a,{kind:'schedule',what:'"'+j.name+'" runs its step 0 script as a check before the AI starts; the AI starts only when it prints something',why:'aqeelOS: most runs said nothing',before:{prompt:j.prompt},after:{check:CHECK_PREFIX+jobId+'.sh'}}).catch(()=>{});
    log('design guard: '+a+' schedule '+jobId+' has its step 0 as the check now');cache=null;return {ok:true,how:'check',check:adv.cmd}}
@@ -336,7 +345,7 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
   for(const a of await homes()){if(await Promise.resolve(skipAgent(a)).catch(()=>false))continue;const runs=await runsOf(a,since);if(!Object.keys(runs).length)continue;
    const list=await Promise.resolve(jobs(a)).catch(()=>[]),found=[];
    for(const j of list){const r=runs[j.id];if(!r||j.no_agent||j.enabled===false||j.state==='paused'||j.state==='completed'||r.runs<minRuns||r.silent/r.runs<minSilent||db.kept[key(a,j.id)])continue;
-    const adv=await adviceFor(a,j);if(!adv)continue;found.push({job:j.id,name:j.name||j.id,runs:r.runs,silent:r.silent,tokens:r.tokens,how:adv.how,mechanical:adv.mechanical,label:adv.label||'',better:adv.text})}
+    const adv=await adviceFor(a,j);if(!adv)continue;found.push({job:j.id,name:j.name||j.id,runs:r.runs,silent:r.silent,tokens:r.tokens,how:adv.how,mechanical:adv.mechanical,label:adv.label||'',better:adv.text,...(adv.how==='ask'?{checked:!!adv.checked,events:adv.events||[]}:{})})}
    if(found.length)v.push({agent:a,jobs:found.sort((x,y)=>y.silent-x.silent)})}
   cache={at:now(),v};return v}
  const big=n=>n>=1e6?(n/1e6).toFixed(1).replace(/\.0$/,'')+'M':n>=1e3?Math.round(n/1e3)+'k':String(n);
@@ -345,9 +354,23 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
   return (await review(opt)).map(({agent:a,jobs:l})=>{const n=l.length,wasted=l.reduce((s,j)=>s+j.silent,0);return {id:'design|'+a,kind:'design',agent:a,agentName:names(a),
    title:names(a)+': '+(n===1?'a schedule':n+' schedules')+' woke the AI '+wasted+' times this week for nothing',
    text:l.map(j=>'“'+j.name+'” started the AI '+j.runs+' times in '+days+' days and '+j.silent+' of them said nothing ('+big(j.tokens)+' tokens). Better: '+j.better+'.').join(' '),jobs:l,created:cache?.at||now()}})}
- // the Health buttons: "apply" the conversion, or "keep" the schedule as it is (stored, never asked again)
+ // what the Health buttons "Make it a check" and "Start it from an event" ask the agent, in a new chat of its own (bottlenecks.js askDesign):
+ // the same request the owner made of Donna AI by hand on 13 Nov 2026, with the exact call that attaches it. Nothing changes until the agent
+ // makes that call, and the call goes through before() like any other, so the rules stay the same.
+ async function askFor(a,jobId,choice){const j=(await Promise.resolve(jobs(a)).catch(()=>[])).find(x=>x.id===jobId);if(!j)throw Error('That schedule is gone.');
+  const adv=await adviceFor(a,j);if(!adv||adv.mechanical)throw Error('A button applies the better design for this one.');
+  const r=(cache?.v||[]).find(x=>x.agent===a)?.jobs.find(x=>x.job===jobId),seen=r?' started the AI '+r.runs+' times in '+days+' days and '+r.silent+' of them said nothing':' mostly starts the AI for nothing',
+   head='Health found that your schedule "'+clip(j.name||j.id,80)+'" (id '+j.id+')'+seen+'. ',end=' Do not change what the schedule does. Tell me in one sentence what starts it now.';
+  if(choice==='check')return {ok:true,agent:a,ask:head+(adv.checked?'Its check or event still lets most runs through: write a sharper check. ':'Make it a check. ')+
+   'Write a small script in your own folder that prints only when there is work for this schedule (nothing printed = the AI does not start; what it prints is given to the run), run it once to test it, then attach it: '+
+   callText('my_schedules',{action:'edit',id:j.id,check_script:'<your command, a path inside your own folder>',why:'<what starts it and why>'})+'. If you already wrote a check script for it, test that one and attach it.'+end};
+  const ev=adv.events||[];if(!ev.length)throw Error('No event aqeelOS sees fits this schedule. Make it a check instead.');
+  return {ok:true,agent:a,ask:head+'Start it from an event instead of the clock: '+callText('my_schedules',{action:'edit',id:j.id,on_event:ev,schedule:'<hourly or slower: the clock is only its slow safety run>',why:'<what starts it and why>'})+
+   '. The events aqeelOS sees: '+eventHelp()+'. If none of them really starts this work, make it a check instead (a small script that prints only when there is work, attached with check_script).'+end}}
+ // the Health buttons: "apply" the conversion, "check" or "event" (ask the agent, above), or "keep" the schedule as it is (stored, never asked again)
  async function decide(a,jobId,choice){await load();if(!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(String(a))||!/^[\w-]{1,64}$/.test(String(jobId)))throw Error('Unknown schedule');
   if(choice==='keep'){db.kept[key(a,jobId)]={at:now()};await save();cache=null;return {ok:true,kept:true}}
+  if(choice==='check'||choice==='event')return askFor(a,jobId,choice);
   if(choice!=='apply')throw Error('Unknown choice');return convert(a,jobId,{by:'the owner (Health)'})}
 
  // ---- "why this trigger" for the schedule cards: {"<agent>|<job id>": {kind, label, detail, why}} ----
