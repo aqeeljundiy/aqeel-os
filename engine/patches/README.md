@@ -1,7 +1,18 @@
-Engine (Hermes Agent) changes made on the reference install on 6 Nov 2026 that `scripts/apply-skill-patches.mjs` (step 16) now applies on install and after engine updates: per-chat SSH ControlMaster sockets (tools/environments/ssh.py), configurable
+Engine (Hermes Agent) changes made on the reference install on 6 Nov 2026: per-chat SSH ControlMaster sockets (tools/environments/ssh.py), configurable
 persona branding (hermes_cli/branding.py, used by default_soul.py and prompt_builder.py), turn_finalizer fallback
-notice, and matching tests. Apply to a Hermes Agent checkout with `git apply 2026-11-06-tonight.patch` and copy
-`branding.py` to `hermes_cli/`. Verified with the engine's pytest: 180 passed, 0 related failures.
+notice, and matching tests. Verified then with the engine's pytest: 180 passed, 0 related failures. Step 16 of
+`scripts/apply-skill-patches.mjs` still copies `branding.py` to `hermes_cli/`; the patch itself is retired (below).
+
+## Retired: 2026-11-06-tonight.patch (12 Nov 2026, now `retired/`)
+
+Every deploy printed `! MISFIT 2026-11-06-tonight.patch` in the engine update check. Checked read-only on both live engines
+(same commit bf0203a794, v0.22.5): the patch reverse-applies on each live engine (in place) and applies cleanly to the bare
+commit (`git apply --cached --check`), but never inside a run of the steps: step 8 (the engine wording rename) and the
+prompt_builder and turn_finalizer steps rewrite its context lines before step 16, so on a clean update it always failed and
+changed nothing. Its content reaches a clean engine through `2026-11-11-engine-hand-edits.patch` (step 17b), whose base is
+exactly "clean engine plus the steps without this patch"; the engine update check passing with the MISFIT showing proves the
+update copy equals the live engine without it. So the git apply was a no-op on every path: step 16 now only copies
+branding.py. The file is kept in `retired/` for the record; step 17b reads only this folder's own `*.patch` files.
 
 ## 2026-11-06-shared-skills.patch (applied by step 17)
 
@@ -32,8 +43,8 @@ Found by simulating an engine update on a clean copy (the live engine's commit, 
   branding, the fallback-notice setting).
 - `2026-11-11-telegram-cross-topic-digest.patch` (3 files): Elkiya's Telegram cross-topic digest. P&P gets it at its
   next update step.
-- `2026-11-06-tonight.patch` no longer fits a clean engine of this version, so step 16 warns "6 Nov patch does not fit".
-  That is expected now: its content is in the hand-edits patch above. Keep branding.py here (step 16 still copies it).
+- `2026-11-06-tonight.patch` no longer fit a clean engine of this version, so step 16 warned "6 Nov patch does not fit" until
+  12 Nov, when its git apply was retired (see "Retired" above). Keep branding.py here (step 16 still copies it).
 - Since 11 Nov this runs in every deploy check (ENG-3): `scripts/engine-sim.sh` makes two throwaway copies under /tmp
   (a clean update of the live engine's commit, and the live engine itself), runs every patch step on both with HOME
   pointed at each copy, and fails the deploy with the names of the files that differ. Allowed differences are listed in
