@@ -1,4 +1,4 @@
-import {channelsPause,payHook,beforeEngineStop} from './route-handlers.mjs';
+import {channelsPause,payHook,beforeEngineStop,issueReply} from './route-handlers.mjs';
 import {setStoreHooks,sweepTmp,writeStore} from './store.mjs';
 import {spawn} from 'node:child_process';
 import {existsSync} from 'node:fs';
@@ -1782,14 +1782,8 @@ const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,postingLine:a=>post
    system true, or file_issue) that the fixer on this box fixes, reloads and proves by itself, and Health counts how
    often the team still had to go to the main agent. Who is in which team is the team policy (DATA/team-policy.json). */
 const chatHistory=createChatHistory({DATA});
-async function replyInTopic(i,text){const b=i.by||{};
- // asked from a chat in aqeelOS (11 Nov 2026: Fakhri's agent filed i7d96eb8c and said it could not tell him when it was fixed,
- // and the news went to the owner): aqeelOS knows whose chat that is, so the answer goes to that person's bell, linked to the chat
- const who=b.chat&&!['telegram','whatsapp','slack','discord'].includes(b.platform)?users.sessionOwner(String(b.chat)):null;
- if(who&&users.byId(who)){await news.add({aud:'u:'+who,started:true,key:'issue|'+i.id,icon:'check',title:(NAMES[i.agent]||i.agent)+': '+text.replace(/\s+/g,' ').slice(0,130),text,go:'/chat/'+encodeURIComponent(String(b.chat)),label:'Open the chat'});return true}
- if(b.platform==='api_server')return false;   // a chat whose person aqeelOS does not know: the issue falls back to the team contact or the owner
- if(!b.chat||!['telegram','whatsapp','slack','discord'].includes(b.platform)){await bottlenecks.event('issues',(NAMES[i.agent]||i.agent)+': '+text.slice(0,180),'',{info:true});return true}
- await relay.send({owner:i.agent,platform:b.platform,chat:String(b.chat)+(b.thread?':'+b.thread:''),text});return true}
+// the issue fixer's word for whoever asked (route-handlers.mjs issueReply): their bell for a chat in aqeelOS, the chat itself on a channel
+const replyInTopic=(i,text)=>issueReply({i,text,users,news,nameOf:a=>NAMES[a]||a,info:t=>bottlenecks.event('issues',t,'',{info:true}),send:o=>relay.send(o)});
 /* Owner approvals as Telegram buttons (6 Nov 2026): the main agent's bot sends the question to the owner(s) named in
    the team policy with Approve / Decline buttons. The gateway keeps the only poller on that bot; its plugin
    aqeelos-issue-buttons catches presses ("aqi:…") and posts them to /issue-press here with the key in

@@ -141,15 +141,15 @@ Run the named tests with `node --test scripts/<name>.test.mjs`, then the full su
 | 9 | A UI page or control | `app/*-page.js` or the area's script, `app/app.css`, `app/index.html` (script order); no native `<select>`; check in a real browser | `check-globals`, `flicker`, `labels`, `abilities-ui`, `first-run-ui`, `node scripts/flicker-ci.mjs` |
 | 10 | Wording or the Indonesian text | `app/lang.js`, `app/lang-id-more.js` (data), `labels` | `labels`, `name-rules` |
 | 11 | Schedules, run gates, posting limits | `schedules`, `run-gates`, `run-checks`, `posting-limits`, `scripts/posting-guard.py` | `schedules`, `run-gates`, `run-gates-cadence`, `posting-limits`, `posting-guard` |
-| 12 | Kirimdev (WhatsApp CRM) | `kirimdev`, `kirimdev-agent`, `kirim-guard`, `tebar` | `kirimdev`, `kirimdev-agent`, `kirimdev-outbox`, `kirim-guard`, `kirim-guard-leaks` |
+| 12 | Kirimdev (WhatsApp CRM) | `kirimdev`, `kirimdev-agent`, `kirim-guard`, `tebar` | `kirimdev`, `kirimdev-agent`, `kirimdev-outbox`, `kirim-guard`, `kirim-guard-leaks`, `proof-whatsapp` (the chain: script, app, Kirimdev, phone) |
 | 13 | Channels and who may message an agent | `channels`, `allowlist`, `route-handlers` (`channelsPause`) | `allowlist`, `own-gateways`, `route-handlers` |
-| 14 | Prices, orders, payments | `price-catalog`, `customer-tools`, `payment-providers`, `payment-callbacks`, `route-handlers` (`payHook`) | `customer-tools`, `paid-orders`, `payment-callbacks`, `store-bypass-fixes` |
+| 14 | Prices, orders, payments | `price-catalog`, `customer-tools`, `payment-providers`, `payment-callbacks`, `route-handlers` (`payHook`) | `customer-tools`, `paid-orders`, `payment-callbacks`, `store-bypass-fixes`, `proof-events` (webhook or callback to one run, on the real app) |
 | 15 | Google, Microsoft, Slack, other connections | `google-connect`, `google-tools`, `connected-accounts`, `microsoft-connect`, `slack-connect`, `connect` | `google-connect`, `google-tools`, `connected-accounts`, `microsoft-connect`, `slack-connect`, `connections-status` |
 | 16 | Backups and restore | `backup`, `backup-job`, `backup-models` | `backup-restore` (Linux), `backup-job`, `backup-local`, `backup-models` |
 | 17 | Engine update or an engine patch | `engine/patches/`, `engine-updates`, `engine-update-rules`, `scripts/apply-skill-patches.mjs`; never edit an applied patch's meaning without `engine-sim.sh` | `engine-patch-layers`, `engine-sim`, `engine-updates` |
-| 18 | Per-agent users, screens, memory caps | `scripts/agent-users.sh` (root script), `wake-proxy.mjs`, `box-ops` | `agent-users` (Linux), `root-script-safety`, `lean-screen`, `wake-proxy`, `box-ops`, `ops-rules` |
+| 18 | Per-agent users, screens, memory caps | `scripts/agent-users.sh` (root script), `wake-proxy.mjs`, `box-ops` | `agent-users` (Linux), `root-script-safety`, `lean-screen`, `proof-lean-screen` (real fluxbox and Chrome, Linux box), `wake-proxy`, `box-ops`, `ops-rules` |
 | 19 | Deploy, update, undo | `scripts/deploy.sh`, `box-deploy.sh`, `box-check.sh`, `box-live.sh`, `auto-update.mjs` | `box-undo` (Linux), `light-deploy`, `box-hardening`, `auto-update`, `services` |
-| 20 | Issues and the fixers; CI | `issues`, `cloud-fixer`, `fixer-git`, `scripts/pr-gate.mjs`, `.github/` (owner territory) | `issues`, `cloud-fixer`, `fixer-git`, `fixer-untrusted`, `pr-gate`, `premerge-check` |
+| 20 | Issues and the fixers; CI | `issues`, `cloud-fixer`, `fixer-git`, `route-handlers` (`issueReply`: who hears about an issue), `scripts/pr-gate.mjs`, `.github/` (owner territory) | `issues`, `cloud-fixer`, `fixer-git`, `fixer-untrusted`, `proof-fixer-tells`, `proof-needs` (the Needs-you buttons on the real app, `scripts/lib/app-rig.mjs`), `pr-gate`, `premerge-check` |
 | 21 | Code by aqeel | `code/` | `cd code && node --test test.mjs *.test.mjs desktop/*.test.mjs` |
 | 22 | First run, address, time zone, brand | `install`, `install-routes`, `tz`, `brand` | `install`, `accounts-brand`, `store-bypass-fixes` |
 

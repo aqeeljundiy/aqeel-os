@@ -144,7 +144,7 @@ export function newSecrets(before,after,known=[]){const b=envValues(before),a=en
 const NO_LIVE_TEST='Never test on a real agent: no test messages, no trial runs of it. A real agent is proven only from what really happened after the change (its logs, a real reply it delivered, Health checking again). A live test only on a test agent (listed in ~/.hermes/.aqeelos-test-agents)';
 // a picture that does not reach a customer's phone is provable without a person (11 Nov 2026, if734729a: three fix runs were
 // rolled back only because the proof asked a person to look at a tester phone)
-const DELIVERY_PROOF='A picture (QRIS, product photo) that does not reach the phone is provable WITHOUT a person: run node ~/apps/hermes-ui/scripts/delivery-check.mjs <agent> [--link <the picture link>]. It sends the line\'s picture to the main agent\'s own WhatsApp and says whether it downloaded ("picture": true). It is not a customer message. Never ask a person to look at a phone for this';
+const DELIVERY_PROOF='A picture (QRIS, product photo) that does not reach the phone is provable WITHOUT a person: run node ~/apps/hermes-ui/scripts/delivery-check.mjs <agent> [--link <the picture link>]. It sends the line\'s picture to the main agent\'s own WhatsApp and says whether it downloaded ("picture": true). Exit 3 means no answer (the app did not take the request, or restarted during the wait): that says nothing about the picture, run it again. It is not a customer message. Never ask a person to look at a phone for this';
 const KIRIM_TEST='on a real agent, a real reply it delivered after the change (~/apps/hermes-ui-data/kirimdev-state.json "ours", the log lines "kirimdev <agent>"); none yet means not proven yet. Only on a test agent you may write as a tester: never ask a person to write from a tester phone, run node ~/apps/hermes-ui/scripts/kirimdev-test-message.mjs <agent> "<text>" (optionally --tester <name>). It posts the same signed webhook Kirimdev posts when a customer writes, as one of the line\'s testers, to this box; the agent then answers that tester for real through Kirimdev. Check the reply was sent (~/apps/hermes-ui-data/kirimdev-state.json "ours", and the log lines "kirimdev <agent>"). Only testers, never a customer number; the script refuses a real agent';
 // the code-change rule when the fixer has its own git work dir (fixer-git.mjs)
 export const gitRule=(i,g)=>'- aqeelOS\'s own code is NEVER changed in the live folders (~/apps/hermes-ui, ~/.hermes/hermes-agent), urgent or not: the next deploy would put the old file back and nobody would have reviewed it. Your own git checkout for this issue is '+g.dir+' (branch '+g.branch+', cut from main). Change the app code (app/, scripts/, engine/, assets/) there and nowhere else. Do not commit or push: aqeelOS commits the branch and opens the pull request. Run the tests there (node --test scripts/<name>.test.mjs). Then prove it on the test copy: bash '+g.dir+'/scripts/fixer-testcopy.sh '+g.dir+' starts the checkout as the private test copy on port 4402 (its own password and data, never the live app); rerun the original check against http://127.0.0.1:4402 and paste what you saw in "proof". Use status "patch" and name the changed files in "summary". '+(i.urgent?'This issue is URGENT: say so in "summary"; it still goes through the pull request. ':'')+'The engine source ~/.hermes/hermes-agent is never changed in place either: copy the file to ~/apps/hermes-ui-data/fixer-work/'+i.id+'/<its full path without the leading slash>, change and check the copy, and list it in "patches" as {"file":"<live path>","copy":"<copy path>"}; aqeelOS makes it an engine/patches file in the same pull request. The change goes live only when a person merges the pull request and the next deploy runs; aqeelOS then checks the problem again. If the same fix is already waiting as a branch or pull request (System › Health › Fixes waiting for review), say so with status "no_change".';
@@ -340,6 +340,12 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   try{if(w.kind==='asker'&&await reply(i,text))return w.name;
    if(w.kind==='team'&&await toTeam(i.agent,w.member,text))return w.name}catch(e){log('issues: could not reach '+w.name+': '+e.message)}
   await tellOwner(text);return pol.owner?.name||'the owner'}
+ // GOOG-6 (12 Nov 2026, "tell me when it's fixed"): a proven fix was silent for everyone (7 Nov: no "Fixed by aqeelOS" messages), so the
+ // person who asked from a chat in aqeelOS heard about "needs a person" and "stuck" but never that it was fixed. That one person now gets
+ // one line (reply: their bell, linked to the chat they asked in). Only aqeelOS's own chats: a Telegram or WhatsApp chat stays silent as
+ // before, nobody else is told when the chat's person is not known, and a test agent or a restart hold says nothing.
+ async function tellFixed(i){if(i.by?.platform!=='api_server'||!i.by?.chat||i.toldFixed||quiet(i.agent||null))return;
+  try{if(await reply(i,'Fixed: '+clip(i.missing,200)+(i.proof?'\nHow it was checked: '+clip(i.proof,300):'')))i.toldFixed=now()}catch(e){log('issues: '+i.id+' fixed, but the person who asked was not told: '+e.message)}}
 // an issue: o = {agent, what, missing, evidence, proposed_fix, affects, needs, source, healthKey, origin:{platform, uid, who, chat, thread}}
  const file=o=>queue(async()=>{await load();const pol=await policy();const m=clip(o.missing,500).trim();if(!m)throw Error('Say what is broken (missing).');
   const key=o.healthKey?'health|'+o.healthKey:o.agent+'|'+m.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,100);
@@ -741,7 +747,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   // a recheck of a stuck issue (sweep): nothing to roll back; proven closes it, otherwise it stays stuck until its files change again
   if(i.recheck==='deploy'){i.recheck=false;i.recheckedAt=now();i.rechecks=(i.rechecks||0)+1;
    if(pr.status==='proven'){i.state='fixed';i.fixed=now();i.proof=pr.proof;i.result={...(i.result||{}),status:'fixed',proof:pr.proof,summary:clip('Fixed by the daily deploy ('+(i.patch||'its patch')+'). '+(i.result?.summary||''),1600)};if(last)last.outcome='proven after the deploy';
-    await save();log('issues: '+i.id+' fixed by the deploy and proven');await onFixed(view(i)).catch(e=>log('issues: '+i.id+' after the fix: '+e.message));return}
+    await tellFixed(i);await save();log('issues: '+i.id+' fixed by the deploy and proven');await onFixed(view(i)).catch(e=>log('issues: '+i.id+' after the fix: '+e.message));return}
    if(i.cloud)return await cloudAgain(i);   // the merged fix is deployed and the problem is still there
    // not in that deploy, or not enough: it keeps waiting for the next one; after 3 deploys it is stuck (nobody told)
    i.state=i.rechecks>=TRIES?'stuck':'deploy';await save();log('issues: '+i.id+' not proven after the deploy ('+i.rechecks+'), '+i.state);return}
@@ -749,9 +755,14 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(pr.status==='proven'){i.state='fixed';i.fixed=now();i.proof=pr.proof;i.result={...(i.result||{}),status:'fixed',proof:pr.proof};if(last)last.outcome='proven';
    const pf=await savePatch(i,last,i.history.filter(h=>h.kind==='fix').length).catch(e=>{log('issues: '+i.id+' patch not saved: '+e.message);return null});
    if(pf){i.patch=pf;if(last)last.patch=pf;i.result.summary=clip((i.result.summary||'')+' The code change is saved as '+pf+' for git.',1600)}
-   await save();log('issues: '+i.id+' fixed and proven'+(pf?', patch '+pf:''));await onFixed(view(i)).catch(e=>log('issues: '+i.id+' after the fix: '+e.message));return}
+   await tellFixed(i);await save();log('issues: '+i.id+' fixed and proven'+(pf?', patch '+pf:''));await onFixed(view(i)).catch(e=>log('issues: '+i.id+' after the fix: '+e.message));return}
   if(last){last.outcome='not proven';last.proofNeed=pr.need}
   const back=await rollBack(last?.changes);if(last&&back.length)last.outcome+=', rolled back';i.lastNeed=pr.need||i.lastNeed;
+  // QR-3 (12 Nov 2026): the proof run names something only a person can do or see (money, a key or login only they have, a bot to add,
+  // a decision). Two more fix runs cannot give that, and each was rolled back for nothing (if734729a: three tries undone because the proof
+  // needed someone to look at a phone). The change is put back as after any unproven try, and the issue waits for that person at once
+  // (afterTry); on the last try nothing changes: it is stuck with the same need, as before.
+  if(pr.need&&!noPersonNeeded(pr.need)&&i.tries<TRIES&&!i.noRetry){i.personNow=clip(pr.need,500);if(last)last.outcome+='; only a person can do the rest'}
   return await nextTry(i,back.length&&last?.apply!=='none'?last.apply:null)}
  // after a failed try: reload what was put back (if anything), then queued again, or stuck after the last try
  // 7 Nov 2026 (i87c8beb0 restarted the web app twice per try: once for the fix, once to roll it back): a try restarts the
@@ -760,6 +771,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  async function nextTry(i,reloadKind){if(reloadKind==='ui'&&i.uiRestartTry===i.tries){i.uiDirty=true;await save();log('issues: '+i.id+' put the web app files back; the reload waits for the next try or the end');return await afterTry(i)}
   if(reloadKind){i.state='rollback';i.applyKind=reloadKind;i.waitingSince=now();await save();return}return await afterTry(i)}
  async function afterTry(i){if(i.noRetry){i.state=i.closeAfter?'closed':'stopped';i.updated=now();await save();log('issues: '+i.id+' '+i.state+' after its try (no more tries asked)');return}
+ if(i.personNow){const need=i.personNow;delete i.personNow;i.state='needs_human';i.need=need;i.lastNeed=need;await save();
+  const to=await tell(i,nameOf(i.agent)+' needs a person for a fix\n\nProblem: '+i.missing+'\nWhat is needed: '+need+'\n\naqeelOS tries the fix again once this is done: press Try again on System › Health (issue '+i.id+').');i.told=to;await save();log('issues: '+i.id+' needs a person after its proof run, told '+to+' (no more tries spent)');return}
  if(i.tries<TRIES){i.state='queued';i.notBefore=now()+60e3;await save();return}
   i.state='stuck';await save();
   const tried=i.history.filter(h=>h.kind==='fix').map((h,n)=>(n+1)+') '+clip(h.summary,200)+(h.outcome?' ('+h.outcome+')':'')).join('\n');
