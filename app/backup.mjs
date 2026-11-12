@@ -267,8 +267,9 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
     follows that file; after a restart it picks the same job up again (adopt), and its result goes into backups.json exactly once. */
  const JOB=path.join(DATA,'backup-job.json'),JOB_FILE=path.join(path.dirname(fileURLToPath(import.meta.url)),'backup-job.mjs');
  const readJob=async()=>{try{return JSON.parse(await readFile(JOB,'utf8'))}catch{return null}};
- const jobAlive=j=>{if(!j?.pid||j.done)return false;if(now()-(j.beat||j.at||0)>jobQuiet)return false;try{process.kill(j.pid,0);return true}catch(e){return e.code==='EPERM'}};
- async function follow(at,ctl={}){const t0=Date.now();for(;;){const j=await readJob();
+ const jobAlive=j=>{if(!j?.pid||j.done)return false;if(Date.now()-(j.beat||j.at||0)>jobQuiet)return false;try{process.kill(j.pid,0);return true}catch(e){return e.code==='EPERM'}};
+ let unfollow=false;   // stopFollowing(): this instance lets go of the job without recording anything (tests stand in for an app that died)
+ async function follow(at,ctl={}){const t0=Date.now();for(;;){if(unfollow)throw Object.assign(Error('no longer following the backup'),{abandoned:true});const j=await readJob();
    if(j&&j.at===at&&j.done){await rm(JOB,{force:true}).catch(()=>{});if(j.last)return {last:j.last,note:j.note||j.last.name};throw Object.assign(Error(j.error||'The backup failed.'),j.code?{code:j.code}:{})}
    if(ctl.error)throw Object.assign(Error('The backup could not be started: '+ctl.error),{cutOff:true});
    // no file yet: the job writes it first thing, give it half a minute; then a job that is gone or silent was cut off
@@ -286,7 +287,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
  async function run(why='scheduled'){if(copying)throw Error('A restore is running. Back up after it finishes.');if(running)return running;running=(async()=>{await load();const at=now(),name=nameOf(at);
   {const day=localParts(at,tz()).day;state.tries=state.tries?.day===day?{...state.tries,n:state.tries.n+1}:{day,n:1};await save()}
   try{return await good(detach?await viaJob(why,at,name):await pack(why,at,name))}
-  catch(e){if(e.cutOff)await cutOff(why,at);else await bad(e,why,at);throw e}
+  catch(e){if(e.abandoned)throw e;if(e.cutOff)await cutOff(why,at);else await bad(e,why,at);throw e}
   finally{running=null}})();return running}
  /* When the app starts: a job that is still running (or finished while the app was away) is followed to its end; one that was cut off, or
     an archive an in-app backup left behind, gives its try back. Then what a cut-off backup left in /tmp is removed. */
@@ -427,4 +428,4 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
    restore:r,prepared:p?{id:p.id,name:p.name,local:p.local,at:p.at,preview:p.preview}:null,
    settings:s,keep:s.keep,where:'Google Drive › '+s.folder,account:pick?.email||'',google:{connected:!!pick&&pick.renews&&pick.drive,file:tokenFile(),email:pick?.email||'',drive:!!pick?.drive,renews:!!pick?.renews},accounts:acc}}
  // settled(): resolves when the Prepare or Restore running in the background has finished (tests wait on this, not on a timer)
- return {settled:()=>job||Promise.resolve(),following:()=>running||Promise.resolve(),startUp,tick,job:o=>job2(o),run,staleCheck,test,status,key,setKey,schedule,list,estimate,prepare,cancel,apply,recover,setSettings,accounts,busy:()=>copying,writesHeld:()=>held}}
+ return {settled:()=>job||Promise.resolve(),following:()=>running||Promise.resolve(),stopFollowing:()=>{unfollow=true},startUp,tick,job:o=>job2(o),run,staleCheck,test,status,key,setKey,schedule,list,estimate,prepare,cancel,apply,recover,setSettings,accounts,busy:()=>copying,writesHeld:()=>held}}

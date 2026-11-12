@@ -36,7 +36,7 @@ test('the real job, start to end: a detached backup lands on the box and its res
 
 test('an app restart in the middle does not stop the backup: the next app instance follows the same job and records it once',async()=>{const s=scene();try{
  const cmd=fakeJob(s,{ms:700});const a=s.make({detach:true,jobCmd:cmd});const first=a.run('scheduled');first.catch(()=>{});
- for(let i=0;i<100&&!existsSync(s.JOB);i++)await wait(20);const j=JSON.parse(readFileSync(s.JOB,'utf8'));assert.ok(j.pid>0);assert.equal(s.state().tries.n,1);
+ for(let i=0;i<100&&!existsSync(s.JOB);i++)await wait(20);const j=JSON.parse(readFileSync(s.JOB,'utf8'));assert.ok(j.pid>0);assert.equal(s.state().tries.n,1);a.stopFollowing();await first.catch(()=>{});   // the first app instance is gone
  // "restart": a new instance on the same data while the job is still working (the old one is simply gone in real life)
  const b=s.make({detach:true,jobCmd:cmd});const up=await b.startUp();assert.deepEqual(up,{adopted:true});assert.equal((await b.status()).running,true);
  // while it is followed, nothing starts a second backup
