@@ -69,7 +69,9 @@ for(let i=0;i<pages.length;i++){const p=pages[i];
  if(flick.length){bad++;out.push('✗ '+p+' flickers: '+[...new Set(flick)].slice(0,3).join(', '))}
  const err=[...document.querySelectorAll('#view .state-box.err')].map(x=>x.textContent.trim().slice(0,140));
  const txt=(()=>{const v=document.querySelector('#view');if(!v)return '';const c=v.cloneNode(true);c.querySelectorAll('.log,pre,code,#logBox').forEach(e=>e.remove());return c.textContent||''})();const nul=/\bnull\b|\bundefined\b|NaN|\[object Object\]/.test(txt);
- if(!window.SWEEP_LOOSE&&(err.length||nul)){bad++;out.push('✗ '+p+' '+(err.join(' / ')||'shows null/undefined text'))}}
+ if(!window.SWEEP_LOOSE&&(err.length||nul)){bad++;out.push('✗ '+p+' '+(err.join(' / ')||'shows null/undefined text'))}
+ // 12 Nov 2026 (UI walk): a row of tabs says it is one to screen readers and the keyboard (core.js ariaTabs)
+ {const t=[...document.querySelectorAll('#view .tabs')].filter(x=>x.offsetParent&&(x.getAttribute('role')!=='tablist'||!x.querySelector('[role=tab][aria-selected=true]')));if(t.length){bad++;out.push('✗ '+p+' has tabs without tab roles or a chosen tab ('+t.map(x=>x.dataset.tabs||'?').join(', ')+')')}}}
 clearInterval(scanT);shellOn=false;
 if(shell.length){bad++;out.push('✗ the sidebar or topbar was drawn again while pages changed ('+shell.length+' elements): '+[...new Set(shell)].slice(0,5).join(', '))}
 if(jumps.length){bad++;out.push('✗ content jumps instead of gliding: '+[...new Set(jumps)].slice(0,4).join(', '))}
@@ -82,7 +84,7 @@ if(bellOn&&bellPops){bad++;out.push('✗ the bell popped in or rang again '+bell
   if(p&&o>.9){bad++;out.push('✗ the search palette appears without fading in (opacity '+o.toFixed(2)+' on its second frame)')}
   if(p){await sl(400);const y0=p.getBoundingClientRect().top;closeLayers();let worst=0;for(let i=0;i<10&&p.isConnected;i++){await fr();if(p.isConnected)worst=Math.max(worst,Math.abs(p.getBoundingClientRect().top-y0))}
    if(worst>20){bad++;out.push('✗ the search palette jumps '+Math.round(worst)+' px as it closes')}}}
- await sl(300);const bb=document.querySelector('.topbar [data-act="inbox"]');if(bb){bb.click();await sl(70);const d=document.querySelector('.drawer:not(.closing)');if(d){let last=+getComputedStyle(d).opacity,up=0;closeLayers();{const o=+getComputedStyle(d).opacity;if(o>last+.05)up=o-last;last=o}
+ await sl(300);const bb=document.querySelector('.topbar [data-act="inbox"]');if(bb){bb.click();await sl(70);const d=document.querySelector('.drawer:not(.closing)');if(d&&!d.contains(document.activeElement)){bad++;out.push('✗ the notifications panel opened with the focus left behind it (Tab would leave the panel)')}if(d){let last=+getComputedStyle(d).opacity,up=0;closeLayers();{const o=+getComputedStyle(d).opacity;if(o>last+.05)up=o-last;last=o}
   for(let i=0;i<14&&d.isConnected;i++){await fr();if(!d.isConnected)break;const o=+getComputedStyle(d).opacity;if(o>last+.05)up=Math.max(up,o-last);last=o}
   if(up){bad++;out.push('✗ a panel closed while still opening flashes back to fully shown before it leaves (+'+up.toFixed(2)+' opacity)')}}}}
 if(bellOn){Inbox.items=Inbox.items.filter(x=>x.id!=='l-sweep');Inbox.paintBell()}
