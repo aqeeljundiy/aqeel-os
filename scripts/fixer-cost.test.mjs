@@ -18,11 +18,40 @@ const done=async(DATA,id,out)=>{const d=path.join(DATA,'issues',id);await mkdir(
 
 test('fingerprint: the same words with other times, ids and counters are the same evidence; other words are not',()=>{
  const a=fingerprint({missing:'Schedule 198bc372ee48 failed',evidence:'2026-11-12T03:26:26Z exit 1: script aqeelos-posting-gate.sh not found (3 times)'});
- const b=fingerprint({missing:'Schedule 7ab01824ed01 failed',evidence:'2026-11-12 09:40:01 exit 2: script aqeelos-posting-gate.sh not found (12 times)'});
+ const b=fingerprint({missing:'Schedule 7ab01824ed01 failed',evidence:'2026-11-12 09:40:01 exit 1: script aqeelos-posting-gate.sh not found (12 times)'});
  assert.equal(a,b);
  assert.notEqual(a,fingerprint({missing:'Schedule 198bc372ee48 failed',evidence:'script aqeelos-posting-gate.sh not found; token expired'}));
  assert.equal(fingerprint({missing:'x',evidence:'b a b a'}),fingerprint({missing:'x',evidence:'a b'}),'order and repeats do not count');
  assert.equal(fingerprint({}),fingerprint({missing:'',evidence:''}))});
+// 12 Nov 2026 review: every number was dropped, so "HTTP 500" and "HTTP 401" were the same evidence and a changed situation was skipped
+test('fingerprint: status codes, exit codes, error codes and failure counts are kept; times, durations, ids, ports, pids, bytes and hex are not',()=>{
+ const fp=e=>fingerprint({missing:'Shop sync failed',evidence:e});
+ const differ=[
+  ['HTTP 500 from api.example.com/v2/orders after 1.2 s','HTTP 401 from api.example.com/v2/orders after 1.2 s'],
+  ['POST /v1/messages answered 502 Bad Gateway','POST /v1/messages answered 429 Too Many Requests'],
+  ['request failed with status code 404','request failed with status code 403'],
+  ['Unauthorized (401) on webhook','Forbidden (403) on webhook'],
+  ['backup.sh exited with code 1','backup.sh exited with code 137'],
+  ['Command failed: exit status 2','Command failed: exit status 1'],
+  ['subprocess returned non-zero exit status 1','subprocess returned non-zero exit status 127'],
+  ['mysql error 1045: access denied for user','mysql error 1049: access denied for user'],
+  ['Cloudflare error code: 1016 origin DNS error','Cloudflare error code: 1020 origin DNS error'],
+  ['tool call error, code -32000: server error','tool call error, code -32601: server error'],
+  ['deploy check: 1 failed, 40 passed','deploy check: 3 failed, 38 passed'],
+  ['3 of 12 checks failed','1 of 12 checks failed'],
+  ['tests: pass 120, fail 0','tests: pass 119, fail 1'],
+ ];
+ for(const [x,y] of differ)assert.notEqual(fp(x),fp(y),x+'  vs  '+y);
+ const same=[
+  ['2026-11-12T03:26:26Z HTTP 500 from api.example.com after 1.2 s (request 7f3a9c2e1b44)','2026-11-12 09:40:01 HTTP 500 from api.example.com after 38.7 s (request 0a1b2c3d4e5f)'],
+  ['backup.sh exited with code 1 after 12 s (pid 4411)','backup.sh exited with code 1 after 340 s (pid 98213)'],
+  ['listen EADDRINUSE: address already in use 127.0.0.1:3000','listen EADDRINUSE: address already in use 127.0.0.1:4402'],
+  ['upload stopped at 4060723 bytes, took 69 ms','upload stopped at 1577364 bytes, took 1500 ms'],
+  ['session 3f2c1a9e-77b0-4c1d-9a51-2b6f0e4d8c13 expired at 09:41','session 9a0b7c6d-1e2f-4a3b-8c9d-0e1f2a3b4c5d expired at 17:02'],
+  ['segfault at 0x7ffd3a2b1c40 in worker 3','segfault at 0x55e1c0a2f310 in worker 7'],
+  ['script not found (3 times)','script not found (12 times)'],
+ ];
+ for(const [x,y] of same)assert.equal(fp(x),fp(y),x+'  vs  '+y)});
 
 test('caps and turn limits: defaults, overrides, nonsense ignored',()=>{
  assert.deepEqual(costCaps({}),{issue:COST_CAPS.issue,day:COST_CAPS.day,escalateSpent:COST_CAPS.escalateSpent});

@@ -121,8 +121,20 @@ export const runCost=(runs,issue)=>{let c=0;for(const r of Object.values(runs||{
 export const costToday=(runs,day)=>{let c=0;for(const r of Object.values(runs||{}))if(r.day===day&&!r.notStarted)c+=Number(r.usage?.cost)||0;return c};
 // MODEL-3b: "something changed" means the evidence changed, not that the same problem was reported again. The fingerprint is of the words of the
 // problem and its evidence with the parts that change on every report left out (times, dates, ids, counters): the same words, the same fingerprint.
+// 12 Nov 2026 review: dropping every number made "HTTP 500" and "HTTP 401" (or exit 1 and exit 137) the same evidence, so a changed situation was
+// skipped. The numbers that say WHAT happened are kept as tokens (HTTP status, exit code, error code, how many failed); the rest stay out.
+const FP_KEEP=[
+ [/\b(?:http(?:\/[\d.]+)?|status(?:[ _]?code)?|response code)\s*[:=]?\s*([1-5]\d\d)\b/g,'http'],
+ [/\b([1-5]\d\d)\s+(?:ok|created|accepted|no content|moved permanently|found|not modified|(?:temporary|permanent) redirect|bad request|unauthorized|payment required|forbidden|not found|method not allowed|not acceptable|request timeout|conflict|gone|payload too large|unprocessable (?:entity|content)|too many requests|internal server error|not implemented|bad gateway|service unavailable|gateway timeout)\b/g,'http'],
+ [/\b(?:bad request|unauthorized|forbidden|not found|conflict|too many requests|internal server error|bad gateway|service unavailable|gateway timeout)\s*\(\s*([1-5]\d\d)\s*\)/g,'http'],
+ [/\bexit(?:ed)?(?:\s+(?:with|code|status|value))*\s*[:=]?\s*(-?\d{1,3})\b/g,'exit'],[/\b(?:returncode|exit_?code|exit_status|rc)\s*[:=]\s*(-?\d{1,3})\b/g,'exit'],
+ [/\b(?:error|errno|err)(?:\s+code)?\s*[:=#]?\s*(-?\d{1,6})\b/g,'err'],[/\bcode\s*[:=]?\s*(-\d{1,6})\b/g,'err'],
+ [/\b(\d+)\s*(?:(?:\/|of|out of)\s*\d+\s+)?(?:[a-z]+\s+)?(?:failed|failures?|failing)\b/g,'fail'],[/\b(?:failed|failures?|failing|fail)\s*[:=]?\s*(\d+)\b(?!\s*(?:times?|x)\b)/g,'fail'],
+];
 export function fingerprint(o){const t=String(o?.missing??'')+'\n'+String(o?.evidence??'');
- const w=[...new Set(t.toLowerCase().replace(/\d{4}-\d{2}-\d{2}[t ]?[\d:.]*z?/g,' ').replace(/\b[0-9a-f]{6,}\b/g,' ').replace(/[0-9]+/g,' ').match(/[a-z]{3,}/g)||[])].sort();
+ let s=t.toLowerCase().replace(/\d{4}-\d{2}-\d{2}[t ]?[\d:.]*z?/g,' ').replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g,' ').replace(/\b0x[0-9a-f]+\b/g,' ').replace(/\b[0-9a-f]{6,}\b/g,' ');
+ const keep=[];for(const [re,k] of FP_KEEP)for(const m of s.matchAll(re))keep.push('#'+k+Number(m[1]));
+ const w=[...new Set([...(s.replace(/[0-9]+/g,' ').match(/[a-z]{3,}/g)||[]),...keep])].sort();
  return evHash(w.join(' '))}
 // how long a problem that came back counts as the same one: policy fixer.comeBackHours (default 72)
 export const cameBackMs=pol=>{const h=Number(pol?.fixer?.comeBackHours);return (Number.isFinite(h)&&h>0?h:72)*36e5};
