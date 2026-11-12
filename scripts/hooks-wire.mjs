@@ -10,7 +10,7 @@
 //          [--keep "-> OK|ERROR"] [--prefix "Recap: "] [--dedupe] [--user ag-x --cwd /dir] [--data DIR] [--home DIR] [--port 4400] [--apply | --undo]
 // Engine: HERMES_DASH (default http://127.0.0.1:9119) and HERMES_DASHBOARD_SESSION_TOKEN (node --env-file=$HOME/.hermes/.env ...), as aqeelOS itself uses.
 import {readFile,writeFile,mkdir,rename,chmod} from 'node:fs/promises';
-import {createHmac} from 'node:crypto';
+import {sigOf,relayKeys} from '../app/relay-keys.mjs';
 import path from 'node:path';
 import {homedir} from 'node:os';
 import {cleanHook,remoteCommand,fallbackScript} from '../app/event-hooks.mjs';
@@ -44,7 +44,7 @@ if(!hook.deliver)die('no delivery target: the schedule has none; pass --deliver 
 remoteCommand(hook.run);   // throws when the command is not allowed
 const expr=opt('expr','17 * * * *');
 let secret=process.env.UI_SECRET||'';if(!secret)secret=(await readFile(path.join(DATA,'ui-secret'),'utf8').catch(()=>'')).trim();if(apply&&secret.length<32)die('no UI secret (UI_SECRET or '+path.join(DATA,'ui-secret')+')',3);
-const sig=createHmac('sha256',secret||'x').update('relay:'+agent).digest('base64url').slice(0,32);
+const sig=sigOf(relayKeys(DATA,secret||'x').cur,'relay:',agent);   // the relay key when there is one (rotate-secrets.mjs), else the cookie key
 const body=fallbackScript({agent,id:hook.id,port,sig});
 say('1. in '+file+' the hook of '+agent+': '+JSON.stringify(hook));
 say('2. write '+path.join(home,'scripts',script)+':\n'+body.replace(sig,'<signature>'));

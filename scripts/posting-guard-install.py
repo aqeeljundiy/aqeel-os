@@ -8,7 +8,8 @@ dm_outbound.py, thread_full.py ...). A DRY RUN unless --apply. Every file it cha
 
 What it does, per agent:
   1. .tools/posting_guard.py     the helper (a copy of scripts/posting-guard.py), and .tools/posting-guard (a shell wrapper for it)
-  2. .tools/posting-guard.json   where aqeelOS is: read from the agent's own posting gate script (scripts/aqeelos-posting-gate.sh), so the same signature
+  2. .tools/posting-guard.json   where aqeelOS is: read from the agent's own posting gate script (scripts/aqeelos-posting-gate.sh), so the same signature.
+     aqeelOS owns this file from then on: it makes it again with its current key at every start and after a key rotation. The signature is never printed.
   3. the posting scripts, two or three lines each (see PATCHES): ask before the browser is touched, say "sending" right before the click, record right after.
 A script it cannot patch (a line it does not recognise) is left alone and listed; the exit code is 2. A file that already mentions posting_guard is skipped.
 Nothing here posts, comments or DMs, and nothing here starts a run.
@@ -113,8 +114,20 @@ def py_ok(text, name):
         shutil.rmtree(d, ignore_errors=True)
 
 
+SIG_RX = re.compile(r'("sig"\s*:\s*")[^"]*(")')
+
+
+def mask(text):
+    """The signature is a secret of the agent: it never goes to the screen or a log."""
+    return SIG_RX.sub(r"\1(hidden)\2", text)
+
+
 def show(name, old, new):
-    d = "".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), "a/" + name, "b/" + name, n=1))
+    mo, mn = mask(old), mask(new)
+    if mo == mn and old != new:
+        sys.stdout.write("%s: the signature changes (not shown)\n" % name)
+        return
+    d = "".join(difflib.unified_diff(mo.splitlines(True), mn.splitlines(True), "a/" + name, "b/" + name, n=1))
     sys.stdout.write(d if d.endswith("\n") else d + "\n")
 
 
@@ -150,7 +163,7 @@ def main():
         return 0
 
     addr = gate_address(profile)
-    print("  aqeelOS: %s  agent: %s  (signature read from the posting gate script)" % (addr["base"], addr["agent"]))
+    print("  aqeelOS: %s  agent: %s  (signature read from the posting gate script, not shown)" % (addr["base"], addr["agent"]))
     guard_src = read(a.guard)
     problems = 0
     plan = []   # (path, old text or None, new text, mode, label)

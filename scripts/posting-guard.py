@@ -23,12 +23,55 @@ against the limits and raises one Health item. A ticket checked but never sent i
 
 Where it finds aqeelOS: $POSTING_GUARD_CONF, else posting-guard.json next to this file: {"base":"http://127.0.0.1:4400","agent":"continue-threads","sig":"..."}
 (the migration script writes it from the agent's posting gate). $POSTING_GUARD_BASE / _AGENT / _SIG override single values.
+aqeelOS owns that file: it makes it again with its current key at every start, after a key rotation and whenever it refuses a signature.
+A refusal of the signature itself (HTTP 401/403, not "over the limit") is told apart: the file is read once more after a moment (aqeelOS may have just
+made it again) and the call retried once; if it is still refused, ONE line is printed: "the posting guard's key is out of date; aqeelOS re-issues it at its
+next start" (exit 8). The same line within the hour says "already reported at <time>; do not report again" (the marker is .stale-reported next to the file).
 """
 import atexit, json, os, sys, time, urllib.error, urllib.request
 
 EXIT_REFUSED, EXIT_ERROR = 7, 8
+STALE_MSG = "the posting guard's key is out of date; aqeelOS re-issues it at its next start"
+DID_NOT_ANSWER = "aqeelOS did not answer"
+STALE_WAIT = float(os.environ.get("POSTING_GUARD_STALE_WAIT", "3"))   # seconds to wait before the file is read once more
 KINDS = ("comment", "dm", "thread", "reply")
 _S = {"ticket": None, "kind": None, "sent": False, "mine": False, "recorded": False}
+
+
+class KeyStale(RuntimeError):
+    """aqeelOS refused the signature (401/403), not the post."""
+
+
+def _mask(x):
+    """An error as text, with the signature taken out (a log never shows it)."""
+    t = str(x)
+    try:
+        sig = _conf().get("sig")
+    except RuntimeError:
+        sig = None
+    return t.replace(sig, "(hidden)") if sig else t
+
+
+def _stale_note():
+    """STALE_MSG; the second time within the hour it says it was already reported (so an agent does not tell the team every few minutes)."""
+    f = os.path.join(os.path.dirname(os.environ.get("POSTING_GUARD_CONF") or os.path.abspath(__file__)), ".stale-reported")
+    try:
+        with open(f) as fh:
+            at = float(fh.read().strip())
+        if 0 <= time.time() - at < 3600:
+            return "%s (already reported at %s; do not report again)" % (STALE_MSG, time.strftime("%H:%M", time.localtime(at)))
+    except (OSError, ValueError):
+        pass
+    try:
+        with open(f, "w") as fh:
+            fh.write(str(time.time()))
+    except OSError:
+        pass
+    return STALE_MSG
+
+
+def _code(why):
+    return EXIT_ERROR if why.startswith((DID_NOT_ANSWER, STALE_MSG)) else EXIT_REFUSED
 
 
 def _conf():
@@ -51,14 +94,24 @@ def _conf():
 def _post(route, body, tries=3, timeout=20, urlopen=None):
     """POST json to /posting-<route>/<agent>/<sig>. Returns (http status, parsed json). Raises RuntimeError when aqeelOS cannot be reached."""
     c = _conf()
-    url = "%s/posting-%s/%s/%s" % (c["base"].rstrip("/"), route, c["agent"], c["sig"])
-    last = None
+    last, reread = None, False
     for i in range(tries):
+        url = "%s/posting-%s/%s/%s" % (c["base"].rstrip("/"), route, c["agent"], c["sig"])
         req = urllib.request.Request(url, json.dumps(body).encode(), {"content-type": "application/json"})
         try:
             with (urlopen or urllib.request.urlopen)(req, timeout=timeout) as r:
                 return r.status, json.loads(r.read().decode() or "{}")
-        except urllib.error.HTTPError as e:     # 409 = a refusal, with its reason in the body; anything else is an error
+        except urllib.error.HTTPError as e:     # 409 = a refusal, with its reason in the body; 401/403 = the signature was refused; anything else is an error
+            if e.code in (401, 403):
+                if reread:
+                    raise KeyStale(STALE_MSG)
+                reread = True
+                time.sleep(STALE_WAIT)          # aqeelOS makes the file again as soon as it refuses a signature: read it once more
+                c2 = _conf()
+                if c2["sig"] == c["sig"]:
+                    raise KeyStale(STALE_MSG)
+                c = c2
+                continue
             try:
                 return e.code, json.loads(e.read().decode() or "{}")
             except ValueError:
@@ -66,7 +119,7 @@ def _post(route, body, tries=3, timeout=20, urlopen=None):
         except (urllib.error.URLError, OSError, ValueError) as e:
             last = e
         time.sleep(1 + i)
-    raise RuntimeError("aqeelOS did not answer (%s)" % (last,))
+    raise RuntimeError("%s (%s)" % (DID_NOT_ANSWER, _mask(last)))
 
 
 def _get(path, timeout=20):
@@ -82,8 +135,10 @@ def check_raw(kind):
         return None, "unknown kind %r (use %s)" % (kind, ", ".join(KINDS))
     try:
         st, j = _post("check", {"kind": kind})
+    except KeyStale:
+        return None, _stale_note()
     except (RuntimeError, ValueError) as e:
-        return None, "aqeelOS did not answer, so nothing may be posted (%s)" % e
+        return None, "aqeelOS did not answer, so nothing may be posted (%s)" % _mask(e)
     if st == 200 and j.get("allow") and j.get("ticket"):
         return j["ticket"], ""
     return None, j.get("reason") or "refused (HTTP %s)" % st
@@ -134,7 +189,7 @@ def check(kind):
         return t
     t, why = check_raw(kind)
     if not t:
-        _refuse(why, EXIT_ERROR if why.startswith("aqeelOS did not answer") else EXIT_REFUSED)
+        _refuse(why, _code(why))
     _S.update(ticket=t, kind=kind, sent=False, mine=True, recorded=False)
     os.environ["POSTING_GUARD_TICKET"], os.environ["POSTING_GUARD_KIND"] = t, kind   # a script this one starts (dm_outbound -> dm_send) posts under the same ticket
     atexit.register(_cancel_at_exit)
@@ -154,8 +209,10 @@ def sending():
         return
     try:
         ok, text = sending_raw(_S["ticket"])
+    except KeyStale:
+        _refuse(_stale_note(), EXIT_ERROR)
     except RuntimeError as e:
-        _refuse("aqeelOS did not answer when the post was about to go (%s)" % e, EXIT_ERROR)
+        _refuse("aqeelOS did not answer when the post was about to go (%s)" % _mask(e), EXIT_ERROR)
     if not ok:
         _refuse(text or "the ticket is no longer valid; check again", EXIT_REFUSED)
     _S["sent"] = True
@@ -168,7 +225,7 @@ def record(kind=None, ref="", text=None, lead=None):
     try:
         ok, msg = record_raw(kind or _S["kind"], ref, text, _S["ticket"], lead)
     except RuntimeError as e:
-        sys.stderr.write("POSTING_GUARD_RECORD_FAILED: %s (aqeelOS will flag it as an unrecorded action)\n" % e)
+        sys.stderr.write("POSTING_GUARD_RECORD_FAILED: %s (aqeelOS will flag it as an unrecorded action)\n" % _mask(e))
         return False
     _S["recorded"] = True
     sys.stdout.write("POSTING_GUARD: %s\n" % msg)
@@ -205,7 +262,7 @@ def main(argv):
                 print(t)
                 return 0
             sys.stderr.write("REFUSED_POSTING_LIMIT: %s\n" % why)
-            return EXIT_ERROR if why.startswith("aqeelOS did not answer") else EXIT_REFUSED
+            return _code(why)
         if cmd == "sending" and a:
             ok, text = sending_raw(a[0])
             if not ok:
@@ -226,7 +283,7 @@ def main(argv):
             t, why = check_raw(a[0])
             if not t:
                 sys.stderr.write("REFUSED_POSTING_LIMIT: %s\n" % why)
-                return EXIT_ERROR if why.startswith("aqeelOS did not answer") else EXIT_REFUSED
+                return _code(why)
             ok, text = sending_raw(t)
             if not ok:
                 sys.stderr.write("REFUSED_POSTING_LIMIT: %s\n" % text)
@@ -237,8 +294,16 @@ def main(argv):
         if cmd == "peek" and a:
             print(json.dumps(_get("gate?json=1&kind=" + a[0])))
             return 0
+    except urllib.error.HTTPError as e:   # peek reads without the retry
+        if e.code not in (401, 403):
+            raise
+        sys.stderr.write("REFUSED_POSTING_LIMIT: %s\n" % _stale_note())
+        return EXIT_ERROR
+    except KeyStale:
+        sys.stderr.write("REFUSED_POSTING_LIMIT: %s\n" % _stale_note())
+        return EXIT_ERROR
     except RuntimeError as e:
-        sys.stderr.write("REFUSED_POSTING_LIMIT: aqeelOS did not answer, so nothing may be posted (%s)\n" % e)
+        sys.stderr.write("REFUSED_POSTING_LIMIT: aqeelOS did not answer, so nothing may be posted (%s)\n" % _mask(e))
         return EXIT_ERROR
     sys.stderr.write("usage: posting-guard check|sending|record|cancel|act|peek ...  (posting-guard --help)\n")
     return 2

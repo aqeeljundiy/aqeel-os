@@ -180,7 +180,13 @@ test('posting-guard.py: check/sending/record as a command, refusal exits 7 with 
   r=await run([cli,'check','dm'],env);assert.equal(r.status,7);assert.match(r.stderr,/at least 10 min apart|min ago/);
   r=await run([cli,'peek','thread'],env);assert.equal(JSON.parse(r.stdout).allow,true);
   r=await run([cli,'check','tweet'],env);assert.equal(r.status,7);assert.match(r.stderr,/unknown kind/);
-  const bad=path.join(x.dir,'bad.json');await writeFile(bad,JSON.stringify({base,agent:'ct',sig:'wrong'}));assert.equal((await run([cli,'check','thread'],{POSTING_GUARD_CONF:bad})).status,7,'a refusal from aqeelOS (bad signature) is a refusal');
+  const bad=path.join(x.dir,'bad.json');await writeFile(bad,JSON.stringify({base,agent:'ct',sig:'wrong'}));r=await run([cli,'check','thread'],{POSTING_GUARD_CONF:bad,POSTING_GUARD_STALE_WAIT:'0'});assert.equal(r.status,8,'a refused signature is not "over the limit": exit 8');
+  assert.equal(r.stderr.trim(),"REFUSED_POSTING_LIMIT: the posting guard's key is out of date; aqeelOS re-issues it at its next start",'ONE clear line, no signature');assert.doesNotMatch(r.stdout+r.stderr,/wrong/);
+  r=await run([cli,'check','thread'],{POSTING_GUARD_CONF:bad,POSTING_GUARD_STALE_WAIT:'0'});assert.match(r.stderr,/key is out of date; aqeelOS re-issues it at its next start \(already reported at \d\d:\d\d; do not report again\)/,'the same line within the hour says it was reported');
+  // aqeelOS makes the file again while the guard waits: the one retry reads the new signature and goes through
+  const heal=path.join(x.dir,'heal.json');await writeFile(heal,JSON.stringify({base,agent:'ct',sig:'wrong'}));const later=setTimeout(()=>writeFile(heal,JSON.stringify({base,agent:'ct',sig:'sig-ct'})),400);
+  r=await run([cli,'check','thread'],{POSTING_GUARD_CONF:heal,POSTING_GUARD_STALE_WAIT:'1'});clearTimeout(later);assert.equal(r.status,0,r.stderr);assert.match(r.stdout.trim(),/^[0-9a-f]{10}$/,'the retry used the new file');
+  r=await run([cli,'peek','thread'],{POSTING_GUARD_CONF:bad});assert.equal(r.status,8);assert.match(r.stderr,/key is out of date/,'peek says the same, no traceback');
   const dead=path.join(x.dir,'dead.json');await writeFile(dead,JSON.stringify({base:'http://127.0.0.1:1',agent:'ct',sig:'sig-ct'}));r=await run([cli,'check','thread'],{POSTING_GUARD_CONF:dead});assert.equal(r.status,8);assert.match(r.stderr,/did not answer/)}
  finally{srv.close()}});
 

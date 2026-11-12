@@ -25,7 +25,7 @@ import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
-import {silentPosting} from './silent-ok.mjs';
+import {silentPosting} from './silent-ok.mjs';import {createRelayHeal} from './relay-heal.mjs';
 
 export const DEFAULTS={on:false,perDay:20,perHour:3,gapMin:10,perRun:2,quietFrom:1,quietTo:5,quietPerHour:1,hotShare:0,afterMissingPerHour:2,afterMissingHours:6,
  stopFile:'',checkUrl:'',alert:'',tz:'',recheckMin:30,subject:'',unrecordedSec:600,subjects:{},jobs:{}};   // subject: what the limits govern (thread, comment or dm); '' = read from the pause file and page   // '' = the box's zone (tz.mjs)
@@ -133,7 +133,9 @@ export function headlessLook({chrome='/opt/aqeelos/chrome/chrome',wait=9000}={})
  // one look at a time on the box (each is a whole Chrome)
  return url=>{const p=chain.then(()=>Promise.race([once(url),new Promise((_,rej)=>setTimeout(()=>rej(Error('the check took too long')),60000))]));chain=p.catch(()=>{});return p}}
 
-export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconnect=async()=>{},sig,setKey,readConfig,pick,look=headlessLook(),event=async()=>{},solved=async()=>{},engineTools=async()=>null,lastAnswer=async()=>'',telegram=async()=>false,nameOf=a=>a,log=m=>console.log(m),now=()=>Date.now(),retryMs=40000}){
+export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconnect=async()=>{},sig,setKey,readConfig,pick,look=headlessLook(),event=async()=>{},solved=async()=>{},engineTools=async()=>null,lastAnswer=async()=>'',telegram=async()=>false,signAll=null,nameOf=a=>a,log=m=>console.log(m),now=()=>Date.now(),retryMs=40000}){
+ // every signature in the agents' folders is kept current by relay-heal.mjs (signAll: (label, agent) => signature, from relay-keys.mjs); ensure() runs it
+ const heal=signAll?createRelayHeal({HERMES_HOME,WORK,sign:signAll,readConfig,pick,log}):null;
  const FILE=path.join(DATA,'posting-limits.json'),LOGS=path.join(DATA,'posting-log');let db=null;
  const load=async()=>{if(!db){db=await readStore(FILE);db.agents||={};db.gates||={};db.gateLog||={}}return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
@@ -162,8 +164,28 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
 
  // the same decision as the gate, for a script that posts without a model (12 Nov 2026, the comment queue): numbers, no text, nothing logged as a gate call
  async function allowNow(a,kind){const r=await rulesOf(a);if(!r?.on)return {allow:false,n:0,reason:'aqeelOS posting limits are off for this agent'};
-  kind=normKind(kind,r);const d=decideKind(r,await entries(a),kind,{now:now(),stopped:await stoppedFor(a,r,kind)});return {allow:d.allow,n:d.n,reason:d.reason||'',kind,today:d.today,perDay:d.perDay,hour:d.hour,cap:d.cap,sinceMin:d.since,gapMin:ruleFor(r,kind)?.gapMin??r.gapMin}}
+  kind=normKind(kind,r);const d=decideKind(r,await entries(a),kind,{now:now(),stopped:await stoppedFor(a,r,kind)});return {allow:d.allow,n:d.n,reason:d.allow?'':await told(a,kind,d.reason||'not now',r.tz),kind,today:d.today,perDay:d.perDay,hour:d.hour,cap:d.cap,sinceMin:d.since,gapMin:ruleFor(r,kind)?.gapMin??r.gapMin}}
 
+ // A refusal that repeats (12 Nov 2026): an agent refused for the same reason every few minutes posted the same warning to the team chat each time.
+ // The first refusal of a reason is plain; the same reason for the same agent and kind within the hour comes with "already reported at <time>; do not
+ // report again", and the memory is cleared when that kind may post again.
+ const TOLD_MS=3600e3;
+ async function told(a,kind,reason,tz){await load();const t=(db.told||={}),k=a+'|'+kind,key=String(reason).replace(/\d+/g,'#'),x=t[k];
+  if(x&&x.key===key&&now()-x.at<TOLD_MS)return reason+' Already reported at '+local(x.at,tz).clock+'; do not report this again.';
+  t[k]={key,at:now()};await save().catch(()=>{});return reason}
+ async function forget(a,kind){await load();if(db.told?.[a+'|'+kind]){delete db.told[a+'|'+kind];await save().catch(()=>{})}}
+ // the posting guard's file in the agent's workspace (.tools/posting-guard.json): the app owns it and makes it again with the key in use
+ async function guardFile(a){if(!live||!heal)return 'none';try{const r=await heal.guardFile(a,{base:'http://127.0.0.1:'+PORT,sig:sig(a)});if(r!=='none'&&db?.keyStale?.[a]){delete db.keyStale[a];await save().catch(()=>{});await solved(a,'posting-guard-key').catch(()=>{})}return r}
+  catch(e){log('posting guard file '+a+': '+e.message);return 'failed'}}
+ // a posting route refused a signature (server.mjs): make the file again now, so the guard's one retry reads the new one. When that cannot be done
+ // there is ONE Health item (and again after 6 hours at the earliest), never one per run.
+ const staleAt=new Map();
+ async function staleKey(a0){const a=String(a0).split('--')[0];try{return await staleKey1(a)}catch(e){log('posting guard key '+a+': '+e.message);return 'failed'}}
+ async function staleKey1(a){await load();const r=await rulesOf(a);if(!r?.on||!live||now()-(staleAt.get(a)||0)<60e3)return 'ignored';staleAt.set(a,now());
+  const res=await guardFile(a);if(res==='written'){log('posting: the guard key of '+a+' was out of date and is made again');return 'written'}
+  const k=(db.keyStale||={});if(now()-(k[a]||0)>6*3600e3){k[a]=now();await save().catch(()=>{});
+   await event('guard-key',nameOf(a)+": the posting guard's key is out of date",'The posting guard in its workspace (.tools/posting-guard.json) is refused by aqeelOS and could not be made again ('+res+'). Nothing is posted until it is. aqeelOS re-issues it at its next start.',{topic:'posting-guard-key',agent:a}).catch(()=>{})}
+  return 'raised'}
  // ---- the guard: what the scripts that post call (scripts/posting-guard.py) ----
  // one thing at a time per agent, so two checks can never both take the last slot
  const mu=new Map();const exclusive=(a,fn)=>{const p=(mu.get(a)||Promise.resolve()).then(()=>fn());mu.set(a,p.catch(()=>{}));return p};
@@ -172,7 +194,8 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
  async function guard(a,kind){return exclusive(a,async()=>{const r=await rulesOf(a);if(!r?.on)return {allow:false,reason:'aqeelOS posting limits are off for this agent, so nothing may be posted.'};
   kind=String(kind||'').toLowerCase();if(!KINDS.includes(kind))return {allow:false,reason:'Unknown kind "'+kind+'": use '+KINDS.join(', ')+'.'};
   const l=await entries(a),d=decideKind(r,l,kind,{now:now(),stopped:await stoppedFor(a,r,kind)});
-  if(!d.allow){await load();const g=(db.refused||={})[a]=((db.refused||{})[a]||[]).filter(x=>now()-x<48*3600e3);g.push(now());await save().catch(()=>{});return {allow:false,kind,reason:d.reason,...nums(d)}}
+  if(!d.allow){await load();const g=(db.refused||={})[a]=((db.refused||{})[a]||[]).filter(x=>now()-x<48*3600e3);g.push(now());await save().catch(()=>{});return {allow:false,kind,reason:await told(a,kind,d.reason,r.tz),...nums(d)}}
+  await forget(a,kind);
   const e={id:randomBytes(5).toString('hex'),at:now(),kind,status:'pending',post:'',text:'',lead:'hot'};l.push(e);await keep(a);
   return {allow:true,kind,ticket:e.id,...nums(d)}})}
  // sending: the click that posts is next. cancel: nothing was posted (not after sending: then the record, or the lack of it, is what counts)
@@ -248,7 +271,8 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
   const gates=db.gateLog[a]||[],stop=await stopped(a,r),topic='silent-posting';
   const x=silentPosting({gates,entries:l,now:now(),stopped:stop,tools:await engineTools(a).catch(()=>null),answer:await lastAnswer(a).catch(()=>'')});
   if(x)await event('silent',x.text,x.detail,{topic,agent:a}).catch(()=>{});else await solved(a,topic).catch(()=>{})}
- async function tick(){if(busy)return;busy=true;try{await load();for(const a of Object.keys(db.agents)){const r=await rulesOf(a);if(!r?.on)continue;await expire(a,r).catch(x=>log('posting expire: '+x.message));await unrecordedItem(a).catch(x=>log('posting unrecorded: '+x.message));const l=await entries(a);await silence(a,r,l.filter(x=>x.status!=='pending')).catch(x=>log('posting silence: '+x.message));
+ let ticks=0;
+ async function tick(){if(busy)return;busy=true;try{await load();if(++ticks%10===0)await ensure().catch(x=>log('posting ensure: '+x.message));for(const a of Object.keys(db.agents)){const r=await rulesOf(a);if(!r?.on)continue;await expire(a,r).catch(x=>log('posting expire: '+x.message));await unrecordedItem(a).catch(x=>log('posting unrecorded: '+x.message));const l=await entries(a);await silence(a,r,l.filter(x=>x.status!=='pending')).catch(x=>log('posting silence: '+x.message));
    const e=l.find(x=>(x.status==='unchecked'&&now()-x.at>60e3)||(x.status==='checking'&&now()-x.at>120e3))||   // 'checking' for over 2 minutes: the app restarted during the look (audit M15)
     l.find(x=>x.status==='visible'&&!x.rechecked&&now()-x.at>=r.recheckMin*60e3&&now()-x.at<6*3600e3);if(!e)continue;
    const s=await check(a,r,e);if(s!=='unchecked'&&e.status==='checking')e.status='unchecked';if(s==='unchecked'){if(e.status==='checking')e.status='unchecked';if(now()-e.at>3600e3){e.status='missing';e.missingAt=now();e.checkFailed=true;await alert(a,r,e,'now')}continue}
@@ -265,9 +289,11 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
  async function set(a,b){if(b.serial!==undefined){const r=await setKey(a,'cron.max_parallel_jobs',b.serial?'1':'0');if(r&&r.ok===false)throw Error('Could not change it: '+String(r.out||'').trim().slice(-200))}
   // turned on: its gate script, and its aqeelOS tool connection again. The engine keeps the tool list it read first, so this alone did not
   // give a running agent record_post (11 Nov): the tool is now listed for every agent from the start (server.mjs tools/list)
-  if(b.rules){await load();const was=!!db.agents[a]?.on;const r=clean({...(db.agents[a]||{}),...b.rules});db.agents[a]=r;await save();if(r.on)await writeGate(a);if(r.on!==was&&live)await reconnect(a).catch(e=>log('posting: tool reconnect '+a+': '+e.message))}
+  if(b.rules){await load();const was=!!db.agents[a]?.on;const r=clean({...(db.agents[a]||{}),...b.rules});db.agents[a]=r;await save();if(r.on){await writeGate(a);await guardFile(a)}if(r.on!==was&&live)await reconnect(a).catch(e=>log('posting: tool reconnect '+a+': '+e.message))}
   return view(a)}
  // gate scripts for every agent with limits on (a restored box, a new port)
- async function ensure(){await load();for(const a of Object.keys(db.agents))if(db.agents[a].on)await writeGate(a).catch(e=>log('posting gate '+a+': '+e.message))}
+ async function ensure(){await load();for(const a of Object.keys(db.agents))if(db.agents[a].on){await writeGate(a).catch(e=>log('posting gate '+a+': '+e.message));await guardFile(a)}
+  // every other signature in the agents' folders too (relay-heal.mjs), so none of them can go stale after a key rotation
+  if(live&&heal){const r=await heal.sweep().catch(e=>({changed:[],failed:[],err:e.message}));if(r.changed.length)log('relay keys: '+r.changed.length+' file(s) in the agents folders carried an old signature and were made again')}}
  const usesLimits=async a=>!!(await rulesOf(a))?.on;
- return {gate,allowNow,guard,mark,record,line,tick,view,set,ensure,usesLimits,gateName,silence:async a=>{silenceAt.delete(a);const r=await rulesOf(a);if(r?.on)await silence(a,r,await entries(a))}}}
+ return {gate,allowNow,guard,mark,record,line,tick,view,set,ensure,staleKey,usesLimits,gateName,silence:async a=>{silenceAt.delete(a);const r=await rulesOf(a);if(r?.on)await silence(a,r,await entries(a))}}}
