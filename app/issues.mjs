@@ -697,7 +697,17 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  const close=(id,who)=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i)return null;if(['closed','fixed','gone','expired'].includes(i.state))return view(i);
   i.history.push({kind:'person',at:now(),status:'close',summary:'Closed'+(who?' by '+clip(who,60):'')});
   if(IDLE.includes(i.state)||!OPEN.includes(i.state)){i.state='closed';i.notBefore=0}else{i.noRetry=true;i.closeAfter=true}i.updated=now();await save();return view(i)});
- return {file,reviews,healthGone,sweep,retry,answered,stop,close,decideOwner,press,forAgent,list,tick,policy,move,skip,pause,fixerView:async()=>{await load();return fixerView()},sortNext,_db:async()=>{await load();return db}}}
+ // Re-sort (the owner, from the box: aq-needs.mjs issue <id> resort "<reason>"): an item that was sorted wrongly (it asked a person for
+ // something that is already there) loses its sort, its need and its steps, takes the owner's reason as a note, and goes through the
+ // sorter and the fixer again with a fresh count.
+ const resort=(id,reason,who)=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i)return null;
+  if(['closed','fixed','gone','expired'].includes(i.state))throw Object.assign(Error('That issue is already '+i.state+'.'),{status:409});
+  const why=clip(String(reason||'').replace(/\s+/g,' ').trim(),400);
+  i.history.push({kind:'person',at:now(),status:'resort',summary:'Sorted again'+(who?' by '+clip(who,60):'')+(why?': '+why:'')});
+  delete i.sorted;delete i.need;delete i.steps;delete i.group;i.told=null;if(why)i.evidence=clip((i.evidence||'')+'\nNote from the owner: '+why,2000);
+  if(!OPEN.includes(i.state)){i.state='queued';i.tries=0;i.notBefore=0;i.noRetry=i.closeAfter=false;i.unavail=0;if(i.capped)delete i.capped}
+  if(i.state==='queued'&&!i.urgent&&sortRun)i.sorting=now();i.updated=now();await save();if(i.sorting)defer(()=>sortNext().catch(e=>log('issues: sort: '+e.message)));return view(i)});
+ return {file,reviews,healthGone,sweep,retry,resort,answered,stop,close,decideOwner,press,forAgent,list,tick,policy,move,skip,pause,fixerView:async()=>{await load();return fixerView()},sortNext,_db:async()=>{await load();return db}}}
 // one short sorting call through the engine (MODEL-3): no tools, no agent rules or memory, one turn, at most 2 minutes;
 // its answer is the last line of what it prints
 export function engineSortRun({bin,home,dir}){return async({prompt,agent,model='',effort=''})=>{await mkdir(dir,{recursive:true,mode:0o700});

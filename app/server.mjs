@@ -2524,6 +2524,12 @@ const server=createServer(async(req,res)=>{
    if(p==='/local/needs'&&req.method==='GET'){console.log('local owner: needs listed');return send(res,200,{items:(await needsFor(owner)).map(localView)})}
    if(p==='/local/answer'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     try{const r=await localAnswer({items:await needsFor(owner),id:String(b.id||''),choice:b.choice,value:b.value,text:b.text,conflicts,questions,runGates});console.log('local owner: answered',b.id,'with',String(b.choice||'').slice(0,40));return send(res,200,r)}catch(e){return send(res,e.status||409,{error:e.message})}}
+   // an issue closed or sorted again from the box (aq-needs.mjs issue <id> resort|close "<reason>"); the app's own issue functions, as the owner
+   if(p==='/local/issue'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    const id=String(b.id||''),why=String(b.reason||'').trim();if(!/^i[0-9a-f]{8}$/.test(id))return send(res,400,{error:'That is not an issue id.'});
+    if(!['resort','close'].includes(b.action))return send(res,400,{error:'Use resort or close.'});if(!why)return send(res,400,{error:'Give a reason.'});
+    try{const i=b.action==='close'?await issues.close(id,'owner (local): '+why.slice(0,200)):await issues.resort(id,why,'owner (local)');if(!i)return send(res,404,{error:'No such issue.'});
+     console.log('local owner: issue',id,b.action);return send(res,200,{ok:true,id,action:b.action,state:i.state})}catch(e){return send(res,e.status||409,{error:e.message})}}
    return send(res,404,'Not found')}
   if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),engine:(void engineAgents(),engAgents.n),busy:busyTotal({live:liveCount(),setups:export_setups.running(),ops:opsBusy(),relay:relay.sending(),gwRestarting:!!gwRestarting,engineUpdate:engineUpd.busy(),restore:backups.busy()}),
    // hold: what a deploy still waits for (it cannot be continued afterwards); resume: what is waiting to continue

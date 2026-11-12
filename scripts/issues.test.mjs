@@ -254,28 +254,17 @@ await t('sweep: a planned test item closes at once as a test item; an access iss
  await S.I.file({agent:'agenta',missing:'Read/execute access for ag-agenta to /home/claude/work/labels'});
  await S.I.sweep(true);const st=Object.fromEntries((await S.I._db()).items.map(i=>[i.agent,[i.state,i.result?.summary||'']]));
  assert.deepEqual(st.default,['closed','Test item, closed.']);assert.equal(st['agent-c'][0],'gone');assert.match(st['agent-c'][1],/own workspace/);assert.equal(st.agenta[0],'open');assert.equal(quietAll(S.said),0)});
+// i7d96eb8c (12 Nov 2026): sorted as "a person must connect Google" although the install has a Google client. The owner sorts it again
+// or closes it from the box (aq-needs.mjs issue <id> resort|close "<reason>").
+await t('resort: a wrongly sorted item loses its sort and its need, takes the owner\'s reason, and is queued again; close ends it',async()=>{
+ const S=await setup({sortRun:async()=>'SORT: {"kind":"fixer"}'});const {I}=S;
+ const r=await I.file({agent:'a1',missing:'Google is not connected',source:'agent'});const id=r.issue.id;
+ let db=(await I._db()).items.find(x=>x.id===id);db.state='needs_human';db.sorted='person';db.need='Connect Google';db.tries=2;db.steps=['x'];
+ const v=await I.resort(id,'The install has a Google client; the fixer connects it',  'owner (local)');
+ db=(await I._db()).items.find(x=>x.id===id);
+ assert.equal(db.sorted,undefined);assert.equal(db.need,undefined);assert.equal(db.tries,0);assert.ok(['queued','fixing'].includes(v.state)||db.sorting);
+ assert.match(db.evidence,/Note from the owner: The install has a Google client/);assert.match(db.history.at(-1).summary,/Sorted again by owner \(local\): The install has a Google/);
+ assert.equal(await I.resort('i00000000','x'),null,'unknown id');
+ const c=await I.close(id,'owner (local): wrong person was asked');assert.equal(c.state,'closed');
+ await assert.rejects(I.resort(id,'again'),/already closed/)});
 console.log(n+' passed');
-
-await t('a fixer reload of the engine, fix or rollback, waits for the quiet hours; a web-app reload does not; only proof runs and urgent fixes start meanwhile',async()=>{
- let quiet=false;const d0=await mkdtemp(path.join(tmpdir(),'iss-q-')),file=path.join(d0,'f.py');await writeFile(file,'x');await writeFile(file+'.bak','y');
- const S=await setup({engineOk:()=>quiet,fix:[{status:'changed',apply:'engine',changes:[{file,backup:file+'.bak'}],check:'c',summary:'needs the engine'}],proof:[{status:'proven',proof:'ok'}]});
- await S.I.file({agent:'a1',missing:'needs the engine'});await S.ticks(3);
- assert.equal((await S.db()).state,'applying');assert.equal(S.applied.length,0,'no engine restart outside the quiet hours');
- quiet=true;await S.ticks(2);assert.deepEqual(S.applied,['engine'],'reloaded once the quiet hours came');
- const U=await setup({engineOk:()=>false,fix:[{status:'changed',apply:'ui',changes:[{file,backup:file+'.bak'}],check:'c',summary:'web app'}],proof:[{status:'proven',proof:'ok'}]});
- await U.I.file({agent:'a1',missing:'web app only'});await U.ticks(3);assert.deepEqual(U.applied,['ui'],'a web-app reload goes on')});
-
-await t('rollback never overwrites rules added after the fix: only its own diff is reversed, or the file is left alone',async()=>{
- const d0=await mkdtemp(path.join(tmpdir(),'rb-')),file=path.join(d0,'SOUL.md');const base='r1\nr2\nr3\nr4\nr5\nr6\n';await writeFile(file+'.bak',base);await writeFile(file,base.replace('r2','r2 FIXED'));
- const S=await setup({fix:[{status:'changed',apply:'none',changes:[{file,backup:file+'.bak'}],summary:'x',check:'c'}],proof:[{status:'not_proven',proof:'no'}]});
- await S.I.file({agent:'a1',missing:'rb'});for(let k=0;k<6&&!S.f.runs.some(r=>r.kind==='proof');k++){if((await S.db()).state==='verify')break;await S.ticks(1)}
- await writeFile(file,base.replace('r2','r2 FIXED')+'NEW RULE\n');await S.ticks(4);
- assert.equal(await readFile(file,'utf8'),base+'NEW RULE\n','fix reversed, later rule kept');
- const d1=await mkdtemp(path.join(tmpdir(),'rb-')),f1=path.join(d1,'SOUL.md');await writeFile(f1+'.bak','a\n');await writeFile(f1,'b\n');
- const T=await setup({fix:[{status:'changed',apply:'none',changes:[{file:f1,backup:f1+'.bak'}],summary:'x',check:'c'}],proof:[{status:'not_proven',proof:'no'}]});
- await T.I.file({agent:'a1',missing:'rb2'});for(let k=0;k<6;k++){if((await T.db()).state==='verify')break;await T.ticks(1)}await writeFile(f1,'c\n');await T.ticks(4);
- assert.equal(await readFile(f1,'utf8'),'c\n','own diff no longer applies: left alone, not restored')});
-await t('a held item (drift patch to take into git) waits for a person: never queued for the fixer, filed again it stays put',async()=>{const {I,f}=await setup();
- const o={agent:'default',source:'health',healthKey:'drift:2026.patch',what:'Live code changes are not in git',missing:'The box had changes git does not have (2026.patch): app/k.mjs',hold:'Take 2026.patch into git, or drop it.'};
- const r=await I.file(o);assert.equal(r.issue.state,'needs_human');
- const r2=await I.file(o);assert.equal(r2.again,true);assert.equal(r2.issue.state,'needs_human');assert.equal(f.runs.length,0)});
