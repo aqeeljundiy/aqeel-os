@@ -14,7 +14,9 @@ const SCRIPT=path.join(path.dirname(fileURLToPath(import.meta.url)),'delivery-ch
 function run(DATA,args,env={}){const c=spawn(process.execPath,[SCRIPT,...args],{env:{...process.env,UI_DATA_DIR:DATA,...env}});let out='';c.stdout.on('data',d=>out+=d);c.stderr.on('data',d=>out+=d);
  const saw=async re=>{for(let i=0;i<1200;i++){if(re.test(out))return;await new Promise(r=>setTimeout(r,50))}throw Error('never printed '+re+': '+out)};
  return {c,saw,done:new Promise(r=>c.on('close',code=>r({code,out})))}}
-const reqOf=async D=>{for(let i=0;i<1200;i++){const f=(await readdir(D).catch(()=>[])).find(x=>x.endsWith('.req.json'));if(f)return {f:f.replace('.req.json',''),req:JSON.parse(await readFile(path.join(D,f),'utf8'))};await new Promise(r=>setTimeout(r,50))}throw Error('no request')};
+// the script writes the request with a plain writeFile, so the file can be seen while still empty (Linux full run, 12 Nov 2026:
+// "Unexpected end of JSON input"): a request counts once it parses
+const reqOf=async D=>{for(let i=0;i<1200;i++){const f=(await readdir(D).catch(()=>[])).find(x=>x.endsWith('.req.json'));if(f){let req=null;try{req=JSON.parse(await readFile(path.join(D,f),'utf8'))}catch{}if(req)return {f:f.replace('.req.json',''),req}}await new Promise(r=>setTimeout(r,50))}throw Error('no request')};
 
 test('prints each step the app reports, then the result; exit 0 when the PDF arrived',async()=>{
  const DATA=await mkdtemp(path.join(tmpdir(),'dc-')),D=path.join(DATA,'delivery-checks'),p=run(DATA,['cove-support','--document']);
