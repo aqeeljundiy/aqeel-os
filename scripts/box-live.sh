@@ -178,6 +178,10 @@ AQ_STAGE=done
 A=~/apps/hermes-ui; rm -rf $A/.prev $A/.prev.added $A/.prev.commit $A/.prev.tgz $A/.undone $A/.services.prev $A/.services.shipped.prev
 [ -n "$DC" ] && [ -s "$DC" ] && mv "$DC" $A/.deployed-commits
 node $A/scripts/apply-skill-patches.mjs || echo "! skill patches: see the message above (exit $?)"
+# every copy of the engine plugins this version ships (the engine home and each agent's own) becomes the shipped version (12 Nov 2026: copies were
+# made once and never updated, so a plugin fix reached no agent). Only shipped files are replaced, a home without a plugin does not get it, the
+# engine loads the update at its next restart and System › Health shows what waits or still differs (app/plugin-sync.mjs). Never fails the deploy.
+(cd $A && UI_DATA_DIR=${UI_DATA_DIR:-$HOME/apps/hermes-ui-data} node $( [ -f $HOME/apps/hermes-ui.env ] && echo --env-file=$HOME/apps/hermes-ui.env ) scripts/plugin-sync.mjs) || echo "! plugin sync: see the message above (exit $?)"
 C=~/apps/aqeel-code; mkdir -p $C; before=$(md5sum $C/package-lock.json 2>/dev/null)
 if tar -xzf $CT -C $C --strip-components=1; then rm -f $CT; echo "$CODE_V" > $C/VERSION; else echo "! unpacking Code failed; the Code files may be mixed. aqeelOS itself is live and tested."; rm -f $CT; fi
 # Online Code is off unless this install switched it on (12 Nov 2026): the Code files above stay (the Build app downloads and Live are made from

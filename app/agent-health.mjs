@@ -112,7 +112,7 @@ export function overview(agents,items,drops,nameOf=a=>a){const rows=agents.map(a
  for(const x of items){if(['invite','ticket','access'].includes(x.kind))continue;const base=x.agent?String(x.agent).split('--')[0]:null;(base&&idx.get(base)||(base?null:sys))?.problems.push(x)}
  for(const r of rows)r.ok=!r.problems.length;const list=[...rows.filter(r=>!r.ok),...rows.filter(r=>r.ok)];if(sys.problems.length)list.unshift({...sys,ok:false});return list}
 
-export function createAgentHealth({postingLine=async()=>null,DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner=null,link,quiet=()=>null,fixFirst=null,fileIssue=null,healthGone=null,customerTools=null,kirimdevAgents=async()=>[],memInfo=readMem,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
+export function createAgentHealth({postingLine=async()=>null,pluginLine=()=>null,DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner=null,link,quiet=()=>null,fixFirst=null,fileIssue=null,healthGone=null,customerTools=null,kirimdevAgents=async()=>[],memInfo=readMem,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
  const FILE=path.join(DATA,'agent-health.json');let st=null;
  const load=async()=>{if(!st){st=await readStore(FILE);st.told||={};st.seen||={};st.groups||={}}return st};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(st,null,1))};
@@ -216,7 +216,7 @@ print(json.dumps(out))`;
   await save();return toFile.length})().finally(()=>{running=null});return running}
  // one line per agent that posts in public: today's numbers per kind against its limits, and the actions no record came for (posting-limits.mjs line())
  async function view(){const agents=(await listAgents()).filter(a=>!a.includes('--'));const rows=overview(agents,await items(),await drops(),nameOf);
-  await Promise.all(rows.filter(r=>r.agent).map(async r=>{const l=await postingLine(r.agent).catch(()=>null);if(l)r.posting=l}));return {agents:rows,at:Date.now()}}
+  await Promise.all(rows.filter(r=>r.agent).map(async r=>{const l=await postingLine(r.agent).catch(()=>null);if(l)r.posting=l;const pl=await pluginLine(r.agent);if(pl)r.plugins=pl}));return {agents:rows,at:Date.now()}}   // plugins: an engine plugin was updated and waits for the reload, or is older than shipped (plugin-sync.mjs)
  return {problem,ok,tick,view,drops}}
 // ---- live checks in plain code, no model calls (7 Nov 2026, owner: "save tokens"). Each failure is a Health problem,
 // so it goes up the ladder like any other (the agent, then the fixer on the main agent's engine, then a person).

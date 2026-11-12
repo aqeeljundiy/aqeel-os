@@ -45,7 +45,7 @@ All in `app/` unless noted. Names are file names without `.mjs`.
 | **Work agents do** | `schedules` `schedule-finish` `run-gates` `run-checks` `posting-limits` `event-hooks` `event-runs` `self-runs` `self-runs-box` `resume` `resume-engine` `relay-keys` (the per-agent signatures) `need-action` `questions` `escalations` |
 | **Channels and customers** | `channels` `links` (extra connections) `relay` (shared channels between agents) `allowlist` `kirimdev` `kirimdev-agent` `kirim-guard` `tebar` `tebar-app` `customer-tools` `payment-providers` `payment-callbacks` `price-catalog` `paid-labels` `labels` `mail` |
 | **Connections** | `connect` `connections` `connectors` `connected-accounts` `accounts` `account-pools` `google-connect` `google-tools` `google-files` `google-sheet-ops` `google-shares` `microsoft-connect` `slack-connect` `n8n` `addons` `share` `plugin-host` |
-| **Operations** | `box-ops` `memwatch` `boxmem` `backup` `backup-job` `backup-models` `maintenance` `restart-later` `gateway-stop` `engine-updates` `engine-update-rules` `live-drift` `screens` `localbrowser` `browser-checks` `browser-tidy` `apply-on-start` |
+| **Operations** | `box-ops` `memwatch` `boxmem` `backup` `backup-job` `backup-models` `maintenance` `restart-later` `gateway-stop` `engine-updates` `engine-update-rules` `live-drift` `plugin-sync` (every copy of a shipped engine plugin stays the shipped version) `screens` `localbrowser` `browser-checks` `browser-tidy` `apply-on-start` |
 | **Fixers and issues** | `issues` `cloud-fixer` `fixer-git` `fixer-watch` `bottlenecks` `rule-conflicts` `automation-guard` |
 | **Insight** | `usage` `usage-extra` `efficiency` `efficiency-view` `chat-history` `news` `explain` `why` `starters` (empty-chat prompts) `morning` `graphify` `billion-context` `team-view` `team-folders` `team-group` `team-settings` |
 | **Look** | `brand` `icons` `icons-off` `pwa` `pwa-zip` `png` `raster` (`pwa` → `pwa-zip` → `icons-off` is the one import cycle) |
@@ -139,6 +139,7 @@ Run the named tests with `node --test scripts/<name>.test.mjs`, then the full su
 | 20 | Issues and the fixers; CI | `issues`, `cloud-fixer`, `fixer-git`, `scripts/pr-gate.mjs`, `.github/` (owner territory) | `issues`, `cloud-fixer`, `fixer-git`, `fixer-untrusted`, `pr-gate`, `premerge-check` |
 | 21 | Code by aqeel | `code/` | `cd code && node --test test.mjs *.test.mjs desktop/*.test.mjs` |
 | 22 | First run, address, time zone, brand | `install`, `install-routes`, `tz`, `brand` | `install`, `accounts-brand`, `store-bypass-fixes` |
+| 23 | An engine plugin shipped in `engine/<name>/` | the plugin's files; `plugin-sync` (and `scripts/plugin-sync.mjs`) keeps every copy on a server the shipped version, so never copy a file by hand; a new kind of file a plugin writes into its own folder goes into `SKIP` there | `plugin-sync`, `agent-live`, `billion-context`, the plugin's own `tests/` |
 
 When a test you did not write fails: read what it says before changing it. Existing tests are judged from **main's** copy in the fixer gate; a pull request that must change one needs the owner.
 
