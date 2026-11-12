@@ -125,3 +125,8 @@ test('an alert in Activity is not split mid-word between its title and its text'
  assert.ok(title.length<=140&&/:$/.test(title),title);assert.match(rest,/^1095 changed/);
  assert.equal(cutOf('Short one.\nMore'),'Short one.'.length);
 });
+
+test('dark theme: a switch that is on is blue, not the grey of an off one', ()=>{
+ const c=src('app.css'),off=c.indexOf('.dark .switch{background:#3a4250}'),on=c.indexOf('.dark .switch:checked{background:');
+ assert.ok(off>=0&&on>off,'the dark on-state comes after the dark track, so it wins');
+});
