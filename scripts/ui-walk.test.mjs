@@ -115,3 +115,13 @@ test('a drawer someone typed in asks before Escape, a click outside, Close or Ca
  assert.match(b,/case 'close':askClose\(\);break;/);
  assert.match(b,/\$\('\.palette,\.drawer,\.menu'\)\)askClose\(\);/);
 });
+
+test('an alert in Activity is not split mid-word between its title and its text', ()=>{
+ const s=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8');
+ const i=s.indexOf(String.raw` const line=String(text).split('\n')[0];let cut=`);assert.ok(i>0,'the cut rule is in ownerSend');
+ const code=s.slice(i,s.indexOf('\n',i));const cutOf=new Function('text',code+';return cut');
+ const t='Pixel Agent stopped answering after changing itself, so aqeelOS undid 3 changes: 1095 changed software-development/graphify/SKILL.md; 1094 added .bundled_manifest_92lh8fx2.tmp; 1093 changed';
+ const c=cutOf(t),title=t.slice(0,c).trim(),rest=t.slice(c).trim();
+ assert.ok(title.length<=140&&/:$/.test(title),title);assert.match(rest,/^1095 changed/);
+ assert.equal(cutOf('Short one.\nMore'),'Short one.'.length);
+});

@@ -1030,9 +1030,12 @@ async function ownerChannel(prefer){const ch=await relay.channelsFor('default').
 async function ownerSend(text,prefer){const c=await ownerChannel(prefer);
  // with no channel: a message that needs the owner (the fixer's "needs a person" or "could not fix") is a Bottlenecks
  // item, in the bell's Needs you; anything else is Activity (7 Nov 2026), and the Send test the owner pressed is theirs
- const first=String(text).split('\n')[0].slice(0,140),need=/needs a person|What is needed|could not fix this by itself|What is needed from you/i.test(text);
+ // the title is the first line, cut at a sentence or a word when it is long, and the text goes on from there (UI walk of
+ // 12 Nov 2026: Activity read "...1094 a" over "dded .bundled_manifest...", one word split between the two lines)
+ const line=String(text).split('\n')[0];let cut=line.length;if(cut>140){const b=Math.max(line.lastIndexOf(': ',138),line.lastIndexOf('. ',138)),w=line.lastIndexOf(' ',138);cut=b>60?b+1:w>40?w:140}
+ const first=line.slice(0,cut).trim(),need=/needs a person|What is needed|could not fix this by itself|What is needed from you/i.test(text);
  const bell=why=>(need?bottlenecks.event('alerts',first,String(text)+'\n\n'+why,{topic:'alerts|'+String(text).slice(0,60)}):
-  news.add({aud:'admins',started:/^Test from /.test(text),group:'alerts|'+first.replace(/[0-9]+/g,'#'),icon:'bell',title:first,text:String(text).slice(first.length).trim()+' '+why,go:'/system/teams',label:'Teams'})).catch(()=>{});
+  news.add({aud:'admins',started:/^Test from /.test(text),group:'alerts|'+first.replace(/[0-9]+/g,'#'),icon:'bell',title:first,text:String(text).slice(cut).trim()+' '+why,go:'/system/teams',label:'Teams'})).catch(()=>{});
  if(!c){await bell('No channel to you is set up yet, so this alert waits here. Pick one under Alerts go to on System › Teams.');return {bell:true}}
  try{await relay.sendAs('default',c.owner,c.platform,text,c.chat||null,{toYou:true});return {sent:c.name}}catch(e){await bell('Not sent on '+c.name+': '+e.message);throw e}}
 async function toOwner(text){return ownerSend(text,'whatsapp')}
