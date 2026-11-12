@@ -157,7 +157,7 @@ import {createCatalog} from './price-catalog.mjs';import {createPaymentProviders
 import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
-import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';import {createSchedulesRoutes} from './schedules-routes.mjs';import {createIdentitiesRoutes} from './identities-routes.mjs';import {createHooksRoutes} from './hooks-routes.mjs';   // the routes that used to sit in this file (one module each)
+import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';import {createSchedulesRoutes} from './schedules-routes.mjs';import {createIdentitiesRoutes} from './identities-routes.mjs';import {createHooksRoutes} from './hooks-routes.mjs';import {createOAuthCallbackRoutes} from './oauth-callback-routes.mjs';   // the routes that used to sit in this file (one module each)
 
 delete Object.prototype.__proto__;   // a key named __proto__ from a request is an ordinary key: no lookup reaches Object.prototype (security audit, 12 Nov 2026)
 const here=path.dirname(fileURLToPath(import.meta.url));
@@ -2465,6 +2465,7 @@ const mcpSecretsRoutes=createMcpSecretsRoutes({access,browserAsks,channelList,di
 const schedulesRoutes=createSchedulesRoutes({designGuard,postingLimits,readBody,relay,schedules,send,users});
 const identitiesRoutes=createIdentitiesRoutes({accountsApi,billion,builtins,channels,connect,DASH,DASH_TOKEN,DATA,designGuard,displayName,explain,graphify,HERMES_HOME,keysId,labels,listAgents,listAllProfiles,NAMES,okProfile,ownsAgent,pausedLoad,platCache,readBody,readIds,reconnectOne,restartGateway,runGates,security,send,setChannelOn,setDisplayName,starters,usage,users,waitingNow,withIds,writeIds});
 const hooksRoutes=createHooksRoutes({agentAccess,agentLive,customerTools:()=>customerTools,designGuard,HOOKS,issues,kirimdev,paymentCallbacks,pressKey,proxy,readBody,readRaw,send,smokeWatch,teamView,tebar,versions,WA_CLOUD});
+const oauthCallbackRoutes=createOAuthCallbackRoutes({DASH,DASH_TOKEN,deliverToGateway,esc,gconnect,googleConnected,HERMES_HOME,listAllProfiles,msconnect,NAMES,PUBLIC_URL,security,sharing,signinFlows:()=>signinFlows,writeAgentContext});
 const server=createServer(async(req,res)=>{
  enterRequest(req);const url=new URL(req.url,'http://x');const p=url.pathname;   // the request is what the per-account sign-in limit reads the address and session cookie from
  try{
@@ -2543,48 +2544,13 @@ const server=createServer(async(req,res)=>{
   // a one-purpose PDF link for a WhatsApp document (doc-links.mjs): unguessable, 15 minutes, no sign-in
   {const dm=/^\/doc\/([\w-]{43})\/([^/]+)$/.exec(p);if(dm&&(req.method==='GET'||req.method==='HEAD'))return await docLinks.serve(req,res,dm[1],dm[2])}
   if(p==='/secret'||p.startsWith('/secret/'))return await secretRoute(req,res,p);
-  // MCP sign-in (OAuth) returns here from Slack, Notion…; the engine checks the one-time state. No sign-in needed.
-  // Google sign-ins (Google Workspace skill with a Web-application client) return here, and aqeelOS finishes them:
-  // it finds the agent and account whose pending sign-in has this state and runs the skill's --auth-code step.
-  // Microsoft sign-ins started with Connect Microsoft (microsoft-connect.mjs) come back here; the one-time state is the check
-  if(p==='/microsoft-oauth/callback'&&req.method==='GET'){
-   const page=(t,m)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...security});return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><style>@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/google-sans-flex-digits.woff2') format('woff2');unicode-range:U+30-39}</style><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${t}</h2><p>${m}</p></body>`)};
-   if(!await msconnect.has(url.searchParams.get('state')||''))return page('Not connected','This sign-in link has expired or was already used. Go back to aqeelOS and press Connect Microsoft again.');
-   try{const r=await msconnect.finish(url.search);if(LIVE_APP)writeAgentContext().catch(()=>{});return page('Microsoft account connected',(r.email?'<b>'+esc(r.email)+'</b> is':'Your Microsoft account is')+' connected to '+esc(NAMES[r.agent]||r.agent)+'. You can close this tab and go back to aqeelOS.')}catch(e){return page('Not connected',esc(e.message))}}
-  if(p==='/google-oauth/callback'&&req.method==='GET'){const st=url.searchParams.get('state')||'';
-   const page=(t,m)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...security});return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><style>@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/google-sans-flex-digits.woff2') format('woff2');unicode-range:U+30-39}</style><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${t}</h2><p>${m}</p></body>`)};
-   // a sign-in started in the app (Connect Google): finished here, nothing for an agent to do
-   if(await gconnect.has(st)){try{const r=await gconnect.finish(url.search);googleConnected(r);return page('Google account connected',(r.email?'<b>'+esc(r.email)+'</b> is':'Your Google account is')+' connected to '+esc(NAMES[r.agent]||r.agent)+'. You can close this tab and go back to aqeelOS.')}catch(e){return page('Not connected',esc(e.message))}}
-   if(url.searchParams.get('error'))return page('Not connected','You clicked Cancel (or Google said no). Ask your agent for a new link if you want to connect.');
-   let hit=null;for(const a of await listAllProfiles()){const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
-    for(const fn of await readdir(home).catch(()=>[])){const m=/^google_oauth_pending(?:_(.+))?\.json$/.exec(fn);if(!m)continue;
-     try{const j=JSON.parse(await readFile(path.join(home,fn),'utf8'));if(j.state&&j.state===st){hit={a,home,acct:m[1]||''};break}}catch{}}if(hit)break}
-   if(!hit)return page('This link has expired','A newer link replaced it, or it was already used. Ask your agent for a new Google sign-in link and open it right away.');
-   const py=await sharing.python();const script=path.join(hit.home,'skills','productivity','google-workspace','scripts','setup.py');const {execFile}=await import('node:child_process');
-   const r=await new Promise(done=>execFile(py,[script,...(hit.acct?['--account',hit.acct]:[]),'--auth-code',PUBLIC_URL+'/google-oauth/callback'+url.search],{timeout:90000,env:{...process.env,HERMES_HOME:hit.home}},(e,o,er)=>done({ok:!e,out:String(o||'')+String(er||'')})));
-   if(!r.ok||/ERROR/.test(r.out))return page('Google sign-in did not finish',esc((r.out.trim().split('\n').filter(Boolean).pop()||'Unknown error').slice(0,300))+' Ask your agent for a new link.');
-   return page('Google account connected',(hit.acct?'<b>'+esc(hit.acct)+'</b> is ':'Your Google account is ')+'connected to '+esc(NAMES[hit.a]||hit.a)+'. You can close this tab and go back to aqeelOS.')}
+  if(await oauthCallbackRoutes(req,res,p,url))return;
   if(await codeDeviceRoutes(req,res,p,url))return;
   if(p==='/ui/brand'&&req.method==='GET')return send(res,200,{...await brand.get(),owner:legalOwner(),pwa:await pwa.info().catch(()=>null)});
   if(p==='/ui/brand/logo'&&req.method==='GET'){const l=await brand.logo();if(!l){res.writeHead(302,{location:env.BRAND_LOGO_FALLBACK||'/assets/aqeelos-mark.svg'});return res.end()}res.writeHead(200,{'content-type':l.type,'cache-control':'public, max-age=86400','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'",'x-content-type-options':'nosniff'});return res.end(l.data)}
   if(p==='/aqeelos-login'&&req.method==='GET'){res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer'});return res.end(n8n.page())}
   if(p==='/aqeelos-login/go'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
    try{const set=await n8n.go(b.t,b.b);res.writeHead(200,{'content-type':'application/json','cache-control':'no-store','set-cookie':set});return res.end('{"ok":true}')}catch(e){return send(res,400,{error:e.message})}}
-  if(p.startsWith('/mcp-oauth/api/mcp/oauth/callback/')&&req.method==='GET'){
-   const tool=decodeURIComponent(p.split('/').pop()||'');let r=await fetch(DASH.origin+p.slice('/mcp-oauth'.length)+url.search).catch(()=>null);if(r)await r.text();
-   if(r&&r.status===404&&url.searchParams.get('code')){const g=await deliverToGateway(url.search);if(g)r={ok:true,status:200,viaGateway:true}}
-   // say what really happened: wait for the engine to finish trading the code, then report it plainly
-   let title='Signed in',msg='You can close this tab and go back to aqeelOS.';
-   if(url.searchParams.get('error'))[title,msg]=['Not connected','You clicked Cancel (or the service said no). Go back to aqeelOS and press Sign in again if you want to connect.'];
-   else if(!r)[title,msg]=['aqeelOS is not reachable','Try again in a minute.'];
-   else if(r.status===404)[title,msg]=['This link has expired','It was replaced by a newer one or is older than a few minutes. Go back to aqeelOS, press Sign in (or ask your agent to connect it) and use the newest link right away.'];
-   else if(!r.ok)[title,msg]=['Sign-in did not finish','The service sent back something unexpected. Press Sign in again.'];
-   else{const ids=[...signinFlows.entries()].filter(([k])=>k.endsWith('|'+tool)).map(([,v])=>v);const h={'x-hermes-session-token':DASH_TOKEN};let st=null;
-    for(let i=0;i<20&&ids.length;i++){for(const id of ids){const f=await fetch(DASH.origin+'/api/mcp/oauth/flows/'+encodeURIComponent(id),{headers:h}).then(x=>x.ok?x.json():null).catch(()=>null);if(f&&!/authorization_required|pending|exchang|connecting/i.test(f.status||'')){st=f;break}}if(st)break;await new Promise(x=>setTimeout(x,750))}
-    if(st&&/error|fail/i.test(st.status||''))[title,msg]=['Sign-in did not finish',esc(String(st.error||'The service refused the sign-in.').slice(0,300))+' Press Sign in again; if it keeps happening, ask your agent to connect it with the app’s own API key instead.'];
-    else if(st&&st.tools?.length)msg=`${esc(tool)} is connected with ${st.tools.length} tools. You can close this tab and go back to aqeelOS.`}
-   res.writeHead(r?.status&&r.status<500?200:502,{'content-type':'text/html; charset=utf-8',...security});
-   return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><style>@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/google-sans-flex-digits.woff2') format('woff2');unicode-range:U+30-39}</style><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${title}</h2><p>${msg}</p></body>`)}
   if(p.startsWith('/screen/')){if(!validCookie(req))return send(res,401,'Sign in first.');return screenHttp(req,res)}
   if(p==='/ui/screen/browser'||p.startsWith('/ui/screens')){const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'});if(req.method!=='GET'&&req.headers['x-hui']!=='1')return send(res,403,{error:'Sign in first.'});
    const sm=/^\/ui\/screens\/([^/]+)/.exec(p);if(p==='/ui/screens'&&!users.isAdmin(u))return send(res,200,{screens:[]});
