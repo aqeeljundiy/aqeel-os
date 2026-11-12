@@ -78,10 +78,12 @@ document.addEventListener('click',e=>{
  }
 });
 document.addEventListener('input',e=>{if(e.target.id==='chatSearch'){S.search=e.target.value;const pos=e.target.selectionStart;paintSide();placePills();const i=$('#chatSearch');i.focus();i.setSelectionRange(pos,pos)}});
+// a tab that redraws its page (Models, Usage, Skills…) gets the focus back once the new page is in, so the arrows go on working
+function keepTabFocus(n){const k=n.closest('[data-tabs]')?.dataset.tabs,t=n.dataset.tab;if(!k||!t)return;let i=0;const f=()=>{const a=document.activeElement;if(a&&a!==document.body&&a.isConnected)return;const x=[...document.querySelectorAll('.tabs[data-tabs]')].find(b=>b.dataset.tabs===k)?.querySelector('[data-tab]');const y=x&&[...x.parentElement.children].find(b=>b.dataset?.tab===t);if(y){y.focus({preventScroll:true});return}if(++i<30)setTimeout(f,100)};setTimeout(f,100)}
 document.addEventListener('keydown',e=>{
  // tabs: left/right (Home/End) move to the next tab and choose it, as on every desktop tab bar
  if(e.target.matches?.('.tabs>[role=tab]')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){const bs=[...e.target.parentElement.children].filter(b=>b.matches('[role=tab]:not(:disabled)'));const i=bs.indexOf(e.target);
-  const n=bs[e.key==='Home'?0:e.key==='End'?bs.length-1:(i+(e.key==='ArrowRight'?1:-1)+bs.length)%bs.length];if(n){e.preventDefault();n.focus();n.click()}return}
+  const n=bs[e.key==='Home'?0:e.key==='End'?bs.length-1:(i+(e.key==='ArrowRight'?1:-1)+bs.length)%bs.length];if(n){e.preventDefault();n.focus();n.click();keepTabFocus(n)}return}
  if(e.target.closest?.('[data-menu]')&&(e.key==='Enter'||e.key===' ')){e.preventDefault();openMenu(e.target.closest('[data-menu]'));return}
  const mod=isMac?e.metaKey:e.ctrlKey;if(!S.signedIn)return;
  if(mod&&e.key.toLowerCase()==='k'){e.preventDefault();palette()}
