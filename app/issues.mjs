@@ -347,7 +347,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   // filed again while it waited for a person: they may have done it, so the fixer tries again
   if(i){i.count++;i.updated=now();const newEv=i.cloud&&o.evidence&&evHash(clip(o.evidence,2000))!==i.cloud.ev;
    // MODEL-3b: an issue that waits for a person is run again only when its evidence changed (fingerprint), not because it was reported again
-   const same=i.state==='needs_human'&&fingerprint({missing:i.missing,evidence:o.evidence||i.evidence})===fingerprint(i);if(o.evidence)i.evidence=clip(o.evidence,2000);
+   const same=i.state==='needs_human'&&!!o.evidence&&fingerprint({missing:i.missing,evidence:o.evidence||i.evidence})===fingerprint(i);if(o.evidence)i.evidence=clip(o.evidence,2000);
    // sent to the cloud fixer once; again only on new evidence (after a merged fix: at once; else at most every 6 hours)
    if(i.state==='cloud'&&newEv&&(i.cloud.merged||now()-(i.cloud.sentAt||0)>6*3600e3)){await cloudAgain(i,i.cloud.merged?'':'new evidence came in');await save();return {issue:view(i),again:true}}if(same&&!i.noRetry&&!i.capped){i.heldSame=(i.heldSame||0)+1;await save();return {issue:view(i),again:true,held:'same evidence'}}
    if((i.state==='needs_human'||i.state==='open'&&pol.fixer?.on!==false)&&!i.noRetry&&!i.capped){i.state='queued';i.tries=0}await save();return {issue:view(i),again:true}}
@@ -360,7 +360,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   // MODEL-3b: the same problem again after it got stuck, or came back after a proven fix, within the window: with the same evidence (fingerprint) no new
   // run is spent. A stuck one just counts the report. A fixed one is filed as "needs a person" with a note; Try again (or changed evidence) runs it.
   const win=cameBackMs(pol),prev=db.items.filter(x=>x.key===key&&['stuck','fixed'].includes(x.state)&&now()-(x.state==='fixed'?x.fixed||x.updated||0:x.updated||0)<win).sort((a,b)=>(b.updated||0)-(a.updated||0))[0];
-  const cameBack=prev&&fingerprint({missing:m,evidence:o.evidence})===fingerprint(prev)?prev:null;
+  const cameBack=prev&&o.evidence&&fingerprint({missing:m,evidence:o.evidence})===fingerprint(prev)?prev:null;
   if(cameBack&&cameBack.state==='stuck'){cameBack.count=(cameBack.count||1)+1;cameBack.heldSame=(cameBack.heldSame||0)+1;cameBack.reportedAt=now();await save();log('issue '+cameBack.id+' reported again with the same evidence: no new run');return {issue:view(cameBack),again:true,held:'same evidence'}}
   const by=o.origin||{},p=personOf(pol,by.platform,by.uid);
   i={id:'i'+randomBytes(4).toString('hex'),key,agent:o.agent,source:o.source||(p?'person':'agent'),what:clip(o.what,400),missing:m,evidence:clip(o.evidence,2000),proposed_fix:clip(o.proposed_fix,1000),
