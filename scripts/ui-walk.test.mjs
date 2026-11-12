@@ -100,3 +100,8 @@ test('members are not offered Restart agents or Check for updates in the search 
  assert.match(p,/\.\.\.\(adm\?\[\{g:'Actions',l:'Restart agents'/);
  assert.match(p,/\.\.\.\(adm\?\[\{g:'Actions',l:'Check for updates'/);
 });
+
+test('signed out, an invite or sign-in address opened in the same tab is drawn (Go to sign in on an expired invite did nothing)', ()=>{
+ assert.match(src('account-setup.js'),/addEventListener\('hashchange',\(\)=>\{if\(!S\.signedIn&&\/\^#\\/\?\(reset\|invite\|signin\)\(\\/\|\$\)\/\.test\(location\.hash\)\)render\(\)\}\)/);
+ assert.match(src('people.js'),/href="\/#signin"/,'the link it has to follow');
+});
