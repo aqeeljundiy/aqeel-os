@@ -184,7 +184,10 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   // the owner of aqeelOS is never locked out of an agent, whoever holds it now
   if(u.role==='owner')return null;
   if(isAdmin(u)){const t=agentTarget(p,query,agent||'default');return t&&!level(u,t)&&!(method==='GET'&&/^\/ui\/(identities|avatar\/[^/]+)$/.test(p))?no('This agent is private to its owner. Ask them to share it.'):null}
-  const a=agent||'default';
+  // the engine proxy's agent is never the caller's word: the gateway reads only its /p/<agent>/ path, the dashboard its
+  // /profiles/<agent> path or ?profile= (which the server has made equal to a body's "profile"); ?agent= means nothing there
+  let m;const a=p.startsWith('/gapi/')?agentTarget(p,query):(m=/^\/hapi\/profiles\/([^/]+)/.exec(p))?agent||decodeURIComponent(m[1]):p.startsWith('/hapi/')?(agent&&agent===(query.get('profile')||'default')?agent:null):agent||'default';
+  if(a==null)return no();
   if(p.startsWith('/gapi/')){
    if(!atLeast(u,a,'chat'))return no('That agent is not shared with you.');
    const rest=p.replace(/^\/gapi(\/p\/[^/]+)?/,'');

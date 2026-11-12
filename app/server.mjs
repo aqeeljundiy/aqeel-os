@@ -43,7 +43,7 @@ import {holdWrites,withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent
 import {createSchedules} from './schedules.mjs';
 import {createScreens} from './screens.mjs';
 import {createAgentAdspower} from './agent-adspower.mjs';
-import {createUsers,UNSAFE_TOOLSETS} from './users.mjs';
+import {createUsers,UNSAFE_TOOLSETS} from './users.mjs';import * as proxyAgent from './proxy-agent.mjs';
 import {createStarters} from './starters.mjs';
 import {createMail} from './mail.mjs';
 import {createUsage} from './usage.mjs';
@@ -237,6 +237,7 @@ function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
  const upstreamPath=(prefix==='/hapi'?'/api':'')+url.pathname.slice(prefix.length)+url.search;
  const headers={...req.headers};
  for(const h of ['cookie','host','authorization','x-hermes-session-token','origin','referer','x-forwarded-for','x-forwarded-proto','x-forwarded-host','x-hui'])delete headers[h];
+ for(const h of Object.keys(headers))if(/^x-hermes-/i.test(h))delete headers[h];   // nothing the browser sends may pass for the engine's own headers
  Object.assign(headers,authHeaders,{host:target.host});
  if(body!==undefined){delete headers['transfer-encoding'];headers['content-length']=String(body.length)}
  if(transform)delete headers['accept-encoding'];
@@ -1144,7 +1145,8 @@ const help=createHelp({DATA,root,DASH:DASH.origin,DASH_TOKEN,GATE:GATE.origin,AP
 const starters=createStarters(DATA,{python:enginePython,root});
 const me=async req=>{const id=cookieId(req);return id?await users.user(id):null};
 // The agent a call is for: /gapi/p/<agent>/… or ?profile=<agent> (none = the main agent).
-const agentOf=(p,q)=>{const m=/^\/gapi\/p\/([^/]+)/.exec(p);return m?decodeURIComponent(m[1]):q.get('profile')||q.get('agent')||'default'};
+// for the app's own /ui routes only (screens): the engine proxy decides its agent in proxy-agent.mjs
+const agentOf=(p,q)=>q.get('profile')||q.get('agent')||'default';
 
 /* ---------- a person's call to Hermes: allowed? which chats come back? ---------- */
 // An agent a member just created: they own it, it can chat (plugin, model, gateway key), and unless they
@@ -2142,13 +2144,27 @@ async function privateAddress(u){let url;try{url=new URL(String(u))}catch{return
   return a==='::'||a==='::1'||/^f[cd]/.test(a)||/^fe[89ab]/.test(a)};
  return !addrs.length||addrs.some(x=>bad(x.address))}
 async function hermesCall(req,res,u,url){
- const p=url.pathname,q=url.searchParams,agent=agentOf(p,q);
+ const p=url.pathname,q=url.searchParams;
  if(['profile','path','name','agent'].some(k=>q.getAll(k).length>1))return send(res,400,{error:'Each setting may appear only once.'});
+ // Which agent this call acts on is decided once, from what the engine itself reads (proxy-agent.mjs; audit CR-1/H-1,
+ // 12 Nov 2026): the path, else a JSON body's "profile", else ?profile=. So a dashboard change's body is read up front,
+ // whatever content type it claims; uploads and file calls carry no agent and are left as they are.
+ let body,jb;const ctype=String(req.headers['content-type']||'');
+ if(p.startsWith('/hapi/')&&!['GET','HEAD'].includes(req.method)&&!p.startsWith('/hapi/files')&&!/^multipart\//i.test(ctype)){
+  try{body=await readRaw(req,30e6)}catch{return send(res,413,{error:'That is too large to send.'})}
+  const raw=body.toString('utf8');if(raw.trim()){try{jb=JSON.parse(raw)}catch{if(/json/.test(ctype))return send(res,400,{error:'The request body is not valid JSON.'})}}else if(/json/.test(ctype))jb={}}
+ const dec=proxyAgent.decide(p,q,jb);if(dec.error||dec.agent==='all'&&!(req.method==='GET'&&p==='/hapi/cron/jobs'))return send(res,400,{error:dec.error||'Name one agent.'});
+ const agent=dec.agent;
  // Help's profile only through /ui/help (help.mjs): nobody, admins included, opens its chats or settings here. Its usage
  // totals are the one exception, for admins on System › Usage (numbers per day and model, never what was said; 1 Nov 2026)
  const helpTotals=agent===HELP_AGENT&&users.isAdmin(u)&&req.method==='GET'&&/^\/hapi\/analytics\/(usage|models)$/.test(p);
  if(!helpTotals&&(agent===HELP_AGENT||decodeURIComponent((/^\/hapi\/profiles\/([^/?]+)/.exec(p)||[])[1]||'')===HELP_AGENT))return send(res,403,{error:'Help chats are private to each person.'});
  const no=users.gate(u,p,req.method,q,agent);if(no)return send(res,no.status,{error:no.error});
+ // an admin's call always names its agent to the gate (a body's "profile" too), so one private to its owner stays closed
+ if(users.isAdmin(u)&&u.role!=='owner'&&agent!=='all'&&dec.via!=='none'&&!users.level(u,agent))return send(res,403,{error:'This agent is private to its owner. Ask them to share it.'});
+ // the forwarded request names that one agent and nothing else: every other selector is overwritten or dropped
+ {const rw=proxyAgent.rewrite(p,q,jb,agent);if(rw.changed){jb=rw.body;body=Buffer.from(JSON.stringify(jb))}const qs=q.toString();req.url=p+(qs?'?'+qs:'')}
+ if(jb&&typeof jb==='object'&&!Array.isArray(jb)&&p==='/hapi/profiles'&&jb.name===HELP_AGENT)return send(res,403,{error:'That name is taken by Help.'});
  if(u.role==='owner'&&agent&&users.lockedByOwner(agent)){const o=users.byId(users.agentOwner(String(agent).split('--')[0]));if(o&&o.id!=='owner')teamView.lookedAgent(u.name||'Owner',o.name,agent).catch(()=>{})}
  {const rm=/\/v1\/runs\/([^/]+)/.exec(p);if(rm&&!users.isAdmin(u)){const own=runOwner.get(decodeURIComponent(rm[1]));if(!own||own.user!==u.id)return send(res,403,{error:'That reply is not yours.'})}}
  if(p.startsWith('/gapi/p/')&&agent&&agent!=='default'&&!keyOk.has(agent)){const envF=path.join(HERMES_HOME,'profiles',agent,'.env');const e=await readFile(envF,'utf8').catch(()=>null);
@@ -2168,20 +2184,11 @@ async function hermesCall(req,res,u,url){
    try{return send(res,200,await finishWhatsAppLink(ag,decodeURIComponent(am[1]),b))}catch(e){return send(res,e.status||400,{error:e.message})}}}
  // channel set-up (WhatsApp QR, Telegram bot…) reads the agent from the request BODY, not the address; without it
  // the engine pairs the main agent instead (Husband Mode's WhatsApp "never paired"). Always pass it along.
- let body,addonNote=null;   // addonNote: an app, skill or plugin being added, recorded once the engine says it is done
- // Same for every change the engine scopes by body (pairing approvals, chat import/update…): if the address names the
- // agent and the JSON body doesn't, the body gets it too. Uploads and non-JSON bodies are left alone.
+ let addonNote=null;   // addonNote: an app, skill or plugin being added, recorded once the engine says it is done
  // An engine update starts from the engine's own files: aqeelOS's renames (aqeelOS instead of Hermes in what people
  // read) are put back to the original first, so the update never clashes with them; they are applied again after it.
  // What was true before is kept first, so the same check as a night update runs after it (engine-updates.mjs).
  if(p==='/hapi/hermes/update'&&req.method==='POST'&&users.isAdmin(u)){if(backups.busy())return send(res,409,{error:'A restore is running. Update after it finishes.'});if(await engineUpd.beforeManual().catch(e=>{console.warn('engine update: before',e.message);return true})===false)return send(res,409,{error:'An engine update is already running.'});await engineReset();setTimeout(()=>engineWatch().catch(()=>{}),120000)}
- if(p.startsWith('/hapi/')&&req.method!=='GET'&&q.get('profile')&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){let b=null,raw;
-  // the body is read up front, so a bad one is answered here (passing it on would forward a body that is already gone)
-  try{raw=(await readRaw(req,30e6)).toString('utf8')}catch{return send(res,413,{error:'That is too large to send.'})}try{b=raw?JSON.parse(raw):{}}catch{return send(res,400,{error:'The request body is not valid JSON.'})}
-  if(b&&typeof b==='object'&&!Array.isArray(b)&&(!b.profile||!users.isAdmin(u)))b.profile=q.get('profile');if(b!==null)body=Buffer.from(JSON.stringify(b))}
- // a member's JSON body without ?profile= may not name another agent either
- // and nobody's may name Help's profile (or make an agent with its name)
- if(!q.get('profile')&&p.startsWith('/hapi/')&&req.method!=='GET'&&body===undefined&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){const raw=await readRaw(req,30e6);body=raw;try{const b=JSON.parse(raw.toString('utf8')||'null');if(b&&typeof b==='object'&&!Array.isArray(b)){if(b.profile===HELP_AGENT||p==='/hapi/profiles'&&b.name===HELP_AGENT)return send(res,403,{error:'That name is taken by Help.'});if(!users.isAdmin(u)&&b.profile&&b.profile!==(agent||'default'))return send(res,403,{error:'That agent is not shared with you.'})}}catch{}}
  // a member's file calls must stay in their own folder
  if(!users.isAdmin(u)&&p.startsWith('/hapi/files')){
   // no path would list the engine's own default folder: a member's goes to their home instead
