@@ -52,11 +52,13 @@ test('the member app client: login, this chat own number only, then the PDF; no 
  await assert.rejects(m.make('cove-support','6281234567890',{...CFG,secret:'../x'}),/incomplete/);await assert.rejects(m.make('cove-support','12',CFG),/no customer number/);
  await assert.rejects(m.make('cove-support','6281234567890',{...CFG,baseUrl:'http://member.example'}),/https/)});
 
-test('the sender: PDF, one-purpose link, document message with that link, link dropped after (also when the send fails)',async()=>{
+test('the sender: PDF, one-purpose link, document message with that link; the link stays until the delivery is known, and is dropped at once when the send fails',async()=>{
  const m=await member(),DATA=await mkdtemp(path.join(tmpdir(),'dl-')),docLinks=createDocLinks({DATA,PUBLIC_URL:'https://ai.example'});const sent=[];let fail=false;
  const send=createProtocolSender({make:m.make,docLinks,sendDocument:async(a,to,o)=>{sent.push([a,to,o]);assert.equal(docLinks.count(),1,'the link exists while Kirimdev fetches it');if(fail)throw Error('Kirimdev said no')}});
  assert.deepEqual(await send('cove-support',{phone:'6281234567890'},CFG),{sent:true,filename:'Protokol.pdf'});
- assert.deepEqual([sent[0][1],sent[0][2].filename,sent[0][2].caption],['6281234567890','Protokol.pdf','Ini protokolnya.']);assert.match(sent[0][2].link,/^https:\/\/ai\.example\/doc\//);assert.equal(docLinks.count(),0);
+ assert.deepEqual([sent[0][1],sent[0][2].filename,sent[0][2].caption],['6281234567890','Protokol.pdf','Ini protokolnya.']);assert.match(sent[0][2].link,/^https:\/\/ai\.example\/doc\//);
+ // Kirimdev took the message, WhatsApp has not fetched the file yet: the link is still there (audit M4); it goes when the delivery is known
+ assert.equal(docLinks.count(),1);assert.equal(await docLinks.revokeUrl(sent[0][2].link),true);assert.equal(docLinks.count(),0);assert.equal(await docLinks.revokeUrl('https://ai.example/other'),false);
  fail=true;await assert.rejects(send('cove-support',{phone:'6281234567890'},CFG),/Kirimdev said no/);assert.equal(docLinks.count(),0);
  assert.match((await send('cove-support',{phone:'6280000000008'},CFG)).none,/No member/);assert.equal(sent.length,2,'nothing sent for an unknown number')});
 
@@ -71,3 +73,23 @@ test('the tool: only on a line with the setting, once per run, only to this chat
  assert.equal((await C.call('cove-support',tok,'send_protocol_pdf',{})).isError,true,'once per run');assert.equal(got.length,1);
  const t2=C.begin({agent:'cove-support',line:'1',conversation:'cnv_1',phone:'6281234567890',mode:'live'});boom=true;const y=await C.call('cove-support',t2,'send_protocol_pdf',{});assert.equal(y.isError,true);assert.match(y.text,/hand off/);
  const t3=C.begin({agent:'bay-sales',line:'2',conversation:'c',phone:'6281',mode:'live'});assert.equal((await C.call('bay-sales',t3,'send_protocol_pdf',{})).isError,true)});
+
+// ---- audit 12 Nov 2026, H8a: the protocol as text follows the PDF's rule (one member, or nothing), and the member list must be whole
+import {listWhole} from '../app/protocol-pdf.mjs';
+const PROTO=[{name:'Reta 12 minggu',status:'active',frequency:'weekly',durationWeeks:12,product:{name:'Retatrutide',strength:10,strengthUnit:'mg',format:'vial'},phases:[{weekNumber:2,doseMg:4,units:40},{weekNumber:1,doseMg:2,units:20,notes:'malam'}],instructions:'Suntik di perut',notes:'{"internal":1}'}];
+test('the protocol as text: this chat\'s one member only; two members on one number get nothing, for text and PDF alike',async()=>{
+ const one=await member({protocols:PROTO});const t=await one.make.text('cove-support','0812 3456 7890',CFG);
+ assert.match(t.text,/^Protocol: Reta 12 minggu\nStatus: active\nProduct: Retatrutide 10mg vial\nFrequency: weekly\nDuration: 12 weeks\n  Week 1: 2 mg = 20 units - malam\n  Week 2: 4 mg = 40 units\nInstructions: Suntik di perut$/);assert.doesNotMatch(t.text,/internal|Member/);
+ const two=await member({members:[{id:1,phone:'6281234567890',displayName:'Ani'},{id:2,whatsappNumber:'081234567890',displayName:'Budi'}],protocols:PROTO});
+ for(const f of [two.make,two.make.text]){const r=await f('cove-support','6281234567890',CFG);assert.match(r.none,/More than one member/);assert.equal(r.text,undefined);assert.equal(r.pdf,undefined)}
+ assert.ok(!two.calls.some(c=>/customers\/\d+$/.test(c[1])),'neither member\'s profile was even read');
+ assert.match((await (await member()).make.text('cove-support','6280000000009',CFG)).none,/No member/)});
+test('a member list that came back in part cannot prove "exactly one member": nothing is given',async()=>{
+ for(const raw of [{customers:[{id:7,phone:'081234567890'}],total:240},{data:[{id:7,phone:'081234567890'}],pagination:{totalPages:3}},{customers:[{id:7,phone:'081234567890'}],hasMore:true},{data:[{id:7,phone:'081234567890'}],nextCursor:'abc'}]){
+  const m=await member({members:raw,protocols:PROTO});assert.match((await m.make('cove-support','6281234567890',CFG)).none,/only part of its member list/);assert.match((await m.make.text('cove-support','6281234567890',CFG)).none,/only part/)}
+ const whole=await member({members:{customers:[{id:7,phone:'081234567890'}],total:1},protocols:PROTO});assert.ok((await whole.make.text('cove-support','6281234567890',CFG)).text);
+ assert.equal(listWhole([1,2],[1,2]),true);assert.equal(listWhole({data:[1],meta:{total:1}},[1]),true);assert.equal(listWhole({data:[1],meta:{total:9}},[1]),false)});
+test('the member app password comes from the app\'s own key store when it is there',async()=>{const m=await member();
+ const make=createProtocolPdf({WORK:m.W,keyOf:async(a,n)=>a==='cove-support'&&n==='MEMBER_PW'?'from-the-app':'',fetchFn:async(url,o)=>{if(url.endsWith('/verify-identity')){assert.equal(JSON.parse(o.body).memberCode,'from-the-app');return {ok:true,status:200,headers:{getSetCookie:()=>[]},json:async()=>({})}}return {ok:true,status:200,headers:{getSetCookie:()=>[]},json:async()=>[]}}});
+ assert.match((await make('cove-support','6281234567890',CFG)).none,/No member/);
+ await assert.rejects(createProtocolPdf({WORK:m.W,keyOf:async()=>''})('cove-support','6281234567890',CFG),/password is not saved/)});

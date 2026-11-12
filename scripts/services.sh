@@ -12,7 +12,8 @@
 export PATH=$HOME/.local/bin:$PATH
 if [ -f ~/.hermes/.env ]; then set -a; . ~/.hermes/.env; set +a; fi
 DATA=${UI_DATA_DIR:-$HOME/apps/hermes-ui-data}
-start(){ tmux has-session -t "=$1" 2>/dev/null || tmux new-session -d -s "$1" "cd ~; $2 2>&1 | tee -a /tmp/$1.log" || echo "! services.sh: could not start $1"; return 0; }
+# a service log holds who was answered and parts of held replies: readable by the box user only, not by the agents' own Linux users (audit 12 Nov 2026, M2)
+start(){ tmux has-session -t "=$1" 2>/dev/null || tmux new-session -d -s "$1" "cd ~; touch /tmp/$1.log; chmod 600 /tmp/$1.log; $2 2>&1 | tee -a /tmp/$1.log" || echo "! services.sh: could not start $1"; return 0; }
 # a value from a "name=value" file, without running it
 kv(){ grep -m1 "^$2=" "$1" 2>/dev/null | cut -d= -f2- | tr -d ' \r"'"'"; return 0; }
 # on / off / auto from services.conf

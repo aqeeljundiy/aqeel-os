@@ -7,7 +7,12 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHmac} from 'node:crypto';
 import {createKirimdev} from '../app/kirimdev.mjs';
-import {createCustomerTools} from '../app/customer-tools.mjs';
+import {createCustomerTools as _createCustomerTools} from '../app/customer-tools.mjs';
+// The amount charged is the total line of the confirmed order form (audit 12 Nov 2026, C2). These tests are about limits, repeats and
+// logging on a line without a price list ("prices: form"), so the harness writes the form's total line from the test's order_total.
+const createCustomerTools=o=>{const C=_createCustomerTools({...o,payRules:async a=>({prices:'form',...(o.payRules?await o.payRules(a):{})})}),call=C.call;
+ C.call=(a,t,n,args)=>call(a,t,n,n==='create_payment'&&args?.order_form&&args.order_total!=null&&!/^total/im.test(args.order_form)?{...args,order_form:args.order_form+'\nTotal Pembayaran: Rp'+args.order_total}:args);return C};
+
 import {createPaidLabels} from '../app/paid-labels.mjs';
 
 const SECRET='whsec_test_123';
@@ -65,7 +70,7 @@ test('Test labels testers only; Live labels anyone; Draft proposes with the draf
  let d;d=await make({mode:'draft',agentSays:async ctx=>{const r=await d.k.labelContact('cove-support',{conversationId:ctx.run.conversation,phone:ctx.run.phone,add:['Consult','I-NAD']});assert.equal(r.proposed,true);return 'Halo kak'}});
  await d.post(meta('628123','mau konsultasi NAD'));await d.settle();
  assert.deepEqual(d.names('ctc_A'),[],'Draft: not set');assert.match(d.posts[0][3],/DRAFT #1[\s\S]*Labels, set when it is sent: \+Consult, \+I-NAD/);
- const r=await d.k.draft('cove-support',1,'send','',  'Aqeel');assert.equal(r.labels.set,true);assert.deepEqual(d.names('ctc_A'),['Consult','I-NAD']);
+ const r=await d.k.draft('cove-support',1,'send','',  'Aqeel',{human:true,via:'page'});assert.equal(r.labels.set,true);assert.deepEqual(d.names('ctc_A'),['Consult','I-NAD']);
  assert.match(d.acts[0][2],/A sent draft \(run draft1\)/)});
 
 test('a confirmed payment sets Customer and S- labels and removes Checkout, and nothing else',async()=>{const t=await make();

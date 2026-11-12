@@ -24,7 +24,7 @@
 //   send aqeelOS did not make) pauses the agent there for the line's quiet time (pauseMin, 15 by default)
 // - brands never mix: a line takes only events for its own phoneNumberId, and whatsapp_reply refuses a number that
 //   wrote to another line and not to this one
-import {readFile,writeFile,rename,mkdir,unlink,stat,appendFile} from 'node:fs/promises';
+import {readFile,writeFile,rename,mkdir,unlink,stat,appendFile,readdir} from 'node:fs/promises';
 import {publicUrl} from './install.mjs';   // Your address (System › Settings), read at the moment a webhook is made
 import {createHmac,timingSafeEqual,randomUUID} from 'node:crypto';
 import path from 'node:path';
@@ -78,9 +78,18 @@ export function parseSent(j){const d=j?.data||{},m=d.message||{};
 // (11 Nov 2026, taken into git from fixer issue ie54d1284)
 const LOOSE=/\[\s*(?:(?:kirim(?:kan)?|send|kasih|attach)\s+)?(?:foto|gambar|photo|image|picture|img)\s*[:\-]?\s+([\w./-]+)\s*\]/gi;
 export const normalizeTags=t=>String(t||'').replace(LOOSE,(_,x)=>/^[\w-]+$/.test(x)?'[TEMPLATE: '+x+']':'[FOTO: '+x+']');
+// a text longer than one WhatsApp message (4,096) is cut at a paragraph or line end into several, never dropped (audit L1)
+const TEXT_MAX=3900;
+export function chunkText(t,max=TEXT_MAX){const out=[];let r=String(t||'');
+ while(r.length>max){let i=r.lastIndexOf('\n\n',max);if(i<max/2)i=r.lastIndexOf('\n',max);if(i<max/2)i=r.lastIndexOf(' ',max);if(i<max/2)i=max;out.push(r.slice(0,i).trim());r=r.slice(i).trim()}
+ if(r)out.push(r);return out}
+// at most PARTS_MAX messages for one reply: text beyond that is joined into the last message instead of being dropped
+export const PARTS_MAX=8;
 export function splitReply(out){const t=normalizeTags(String(out||'').replace(FOOTER,'').trim());const parts=[];
- for(const x of t.split(/\n-{3,}\n/))for(const y of x.split(/(\[(?:FOTO|TEMPLATE|VIDEO):[^\]]+\])/))if(y.trim())parts.push(y.trim());
- return parts.slice(0,8)}
+ for(const x of t.split(/\n-{3,}\n/))for(const y of x.split(/(\[(?:FOTO|TEMPLATE|VIDEO):[^\]]+\])/))if(y.trim())parts.push(...(/^\[(?:FOTO|TEMPLATE|VIDEO):/.test(y.trim())?[y.trim()]:chunkText(y.trim())));
+ if(parts.length<=PARTS_MAX)return parts;
+ const head=parts.slice(0,PARTS_MAX-1),rest=parts.slice(PARTS_MAX-1),text=rest.filter(p=>!/^\[(?:FOTO|TEMPLATE|VIDEO):/.test(p)).join('\n\n');
+ return [...head,text?text.slice(0,4096):rest[0]]}
 // a bare picture followed by text goes out as ONE message, the picture with that text as its caption (11 Nov 2026, if734729a):
 // Randy's QRIS went as text, picture, text in the same second and the picture never showed on the customer's phone, while
 // Gilang's helper sends the same Tripay QR as one picture with a caption and it arrives. Run after the reply guard, so the
@@ -89,57 +98,24 @@ export function withCaptions(parts){const out=[];for(let i=0;i<parts.length;i++)
   if(m&&typeof n==='string'&&n.trim()&&!/^\[(?:FOTO|TEMPLATE|VIDEO):/.test(n)&&n.length<=1024){out.push('[FOTO: '+m[1]+' | '+n.trim()+']');i++}else out.push(p)}
  return out}
 
-// aqeelos:kirim-guard: the last check before anything reaches a customer, for every agent on every line.
-// Lines meant for the team (notes, image descriptions, test-mode remarks, file names) never go out, and a
-// reply that promises a payment QR without the picture in the same reply is held for a person instead.
-const INTERNAL=[/(catatan|note)s?\s+(untuk|buat|for)\s+(tim|team)/i,/tidak\s+dikirim\s+ke\s+customer|not\s+(to\s+be\s+)?sent\s+to\s+(the\s+)?customer/i,
- /\b(test\s*mode|mode\s*test|internal\s+note|draft\s+reply|as an ai|language model|LLM)\b/i,/^\s*\(?\s*(answered with|dijawab (dengan|oleh))\b/i,
- /^\s*\S+\.(jpe?g|png|webp|pdf)\s*$/i];
-// signs that the agent's own reasoning or files leaked into the reply: the whole reply is held for a person
-const LEAK=[/\b(rules?\s+tab|decisions?\s+(file|log|tab)|knowledge\s+(sheet|base|file)|hand-?offs?|briefing|soul\.md|\w*_decisions|past_chats|system\s+prompt|my\s+instructions|the\s+customer)\b/i,
- /^\s*(I|I'm|I've|I'll|I\s+will|Let\s+me|Okay|Sure|Based\s+on|Here\s+is|Here's|Now|First|Reply|Draft|Note|Thinking)\b[\s,:']/,
- /\b[\w-]+\.(md|json|txt|py|csv|ya?ml|jpe?g|png|webp|pdf)\b/i];
-// paid: whether the payment tool made a payment in this run (null = unknown, the old QR-picture check only)
-// a reply that says a payment (QRIS, VA, link, invoice) is sent, attached or below needs a real payment from this run
-// (audit 6 Nov: "link Xendit tadi" was never sent; three "Berikut QRIS" had no QRIS)
-const PAY_CLAIM=/\b(qris|virtual account|nomor va|va\s+(bca|bni|bri|mandiri)|link (pembayaran|bayar|xendit|invoice)|payment link|invoice)\b[^\n]{0,60}\b(sudah|telah|udah)?\s*(saya |kami )?(kirim(kan)?|terkirim|berikut|terlampir|di ?bawah|sent|attached|below)\b|\b(berikut|terlampir)\b[^\n]{0,25}\b(qris|va|virtual account|link (pembayaran|bayar)|invoice)\b|\b(sudah|telah|udah)\s+(saya |kami )?(kirim(kan)?|buat(kan)?)\b[^\n]{0,40}\b(qris|va|virtual account|link|invoice)\b/i;
-// a whole line that is only a bracketed note to itself about a picture ("[Send kit photo template nt_kit_basic]", "[Gambar: Basic Kit]"):
-// dropped and logged, and the rest of the reply goes out (8 Nov 2026: one such part held a whole reply whose real tags were there);
-// a picture word anywhere in the brackets counts too ('[tolong kirim foto paket ya]'; 11 Nov 2026, taken into git from fixer issue ie54d1284)
-const STAGE=/^\s*\[(?!FOTO:|TEMPLATE:|VIDEO:)(?:\s*(send|kirim(kan)?|attach|lampir(kan)?)\b|[^\]\n]*\b(gambar|image|foto|photo|picture|img)\b)[^\]\n]*\]\s*$/i;
-// Only explicit reply-to-operator preambles, not ordinary customer-facing delivery statements.
-const REPLY_NOTE=/^\s*(?:ini\s+balasan\s+yang\s+saya\s+siapkan\b|saya\s+belum\s+mengirim\s+apa\s*pun\b|here\s+is\s+the\s+reply\b|draft\s+reply\b|I\s+haven['’]t\s+sent\s+anything\b)[^\n]*[:.!?]\s*$/i;
-// the agent quoting its rules or narrating its plan at the start of a reply (i5e349bf6, 11 Nov 2026: 'Dari rules: ... jadi saya jawab dulu'; taken into git from the box's drift)
-const REASON=/^\s*(?:dari\s+rules?\b|rules?\s*:|aturan(?:nya)?\s*:|(?:thinking|reasoning)\b)|\bjadi\s+saya\s+jawab\b|\bsaya\s+jawab\b[^\n]*\bdulu\b|\blalu\s+minta\s+data\b/i;
-// an error trace or stack line: never for a customer
-const TRACE=/Traceback \(most recent call last\)|^\s*at\s+\S+\s+\(.*:\d+:\d+\)|^\s*File ".*", line \d+|\b(?:TypeError|ReferenceError|SyntaxError|ValueError|KeyError|AttributeError|ECONNREFUSED|ENOENT|EACCES)\b\s*[:(]|UnhandledPromiseRejection/;
-// the one test for "this line is not for a customer": guardReply uses it per line and deliver() on every text that leaves (12 Nov 2026)
-export const internalLine=l=>REPLY_NOTE.test(l)||REASON.test(l)||INTERNAL.some(r=>r.test(l))||TRACE.test(l);
-export const internalText=t=>String(t||'').split('\n').some(internalLine);
-export function guardReply(input,{paid=null,qrPics=[]}={}){const removed=[];const keep=[],dropped=[],parts=[];let leading=true;
- for(const p of input){if(/^\[(FOTO|TEMPLATE|VIDEO):/.test(p)){leading=false;parts.push(p);continue}
-  const t=p.split('\n').filter(l=>{if(STAGE.test(l)){dropped.push(l.trim());return false}if(!l.trim())return true;
-   if(REPLY_NOTE.test(l)||REASON.test(l)){if(leading){dropped.push(l.trim());return false}removed.push(l.trim())}
-   leading=false;return true}).join('\n').trim();if(t)parts.push(t)}
- // nothing but notes: there is no reply to send, a person sees what the agent wrote
- if(!parts.length&&dropped.length)return {parts:input,removed:dropped,dropped:[],hold:'The reply was only notes, with nothing for the customer: '+dropped.join(' | ').slice(0,300)};
- for(const p of parts){if(/^\[(FOTO|TEMPLATE|VIDEO):/.test(p)){keep.push(p);continue}
-  for(const l of p.split('\n'))if(INTERNAL.some(r=>r.test(l))||LEAK.some(r=>r.test(l)))removed.push(l.trim());keep.push(p)}
- if(removed.length)return {parts:keep,removed,dropped,hold:'The reply had text meant for the team, not the customer: '+removed.join(' | ').slice(0,300)};
- // a QR is promised only when the text says the QRIS itself is here/attached; QRIS listed as a payment option
- // (order form, 'pilih metode') is not a promise (false hold, 6 Nov)
- const QR_PROMISE=/(berikut|ini|terlampir|di ?bawah|kami kirim(kan)?|saya kirim(kan)?|here is|attached)[^\n]{0,25}\bQRIS\b|\bQRIS(-?nya)?\b[^\n]{0,15}(terlampir|di ?bawah|berikut|attached)/i;
- const promisesQr=keep.some(p=>QR_PROMISE.test(p)&&!/metode pembayaran|pilih (salah satu|metode)|payment method/i.test(p));
- const hasPic=keep.some(p=>/^\[FOTO:/i.test(p));
- // the run made the QRIS but the reply forgot its [FOTO:] tag: attach the picture the payment tool made (i49f4e694)
- if(promisesQr&&!hasPic&&qrPics.length){keep.push(...qrPics);return {parts:keep,removed,dropped,hold:null,attached:qrPics}}
- if(promisesQr&&!hasPic)return {parts:keep,removed,dropped,hold:'The reply says a QRIS is attached, but no QR picture was made. Create the QRIS with the payment tool, then send it.'};
- // a payment is claimed only by one sentence that says it is sent/here now; a question, a future or conditional step
- // ('nanti/setelah/sebelum ... saya kirimkan'), or the order form being sent is not a claim (i1b25ec10, 10 Nov 2026)
- const ASKS_METHOD=p=>!p.split(/(?<=[.!?\n])\s*/).some(x=>PAY_CLAIM.test(x)&&!/\?\s*$/.test(x)&&!/\b(nanti|setelah|sebelum|akan|kalau|jika|bisa|mau|form)\b/i.test(x));
- const claims=keep.some(p=>!/^\[(FOTO|TEMPLATE|VIDEO):/.test(p)&&PAY_CLAIM.test(p)&&!/metode pembayaran|pilih (salah satu|metode)|payment method/i.test(p)&&!ASKS_METHOD(p));
- // a reply that carries the QR picture itself (a still-valid QRIS sent again) is not an empty claim (ia70188f1, 9 Nov 2026)
- return {parts:keep,removed,dropped,hold:paid===false&&claims&&!hasPic?'The reply says a payment (QRIS, VA, link or invoice) was sent, but no payment was made in this run. Make it with create_payment first, or hand off.':null}}
+// the exit guard (kirim-guard.mjs): what may never reach a customer. guardReply checks what the agent wrote for a turn, leaks() every text in deliver()
+import {guardReply,leaks,leakWords,internalLine,internalText,langOf} from './kirim-guard.mjs';
+export {guardReply,leaks,internalLine,internalText};
+
+// What a team member's Telegram message says about a draft (audit H5). Only these count: "ok" (also oke, okay, ya, yes, kirim, send, setuju,
+// approve, 👍, ✅), "no" (tidak, jangan, drop, batal, discard, ❌, 👎), or a text to send instead, which must be marked: "kirim: <text>"
+// (send:, edit:, ganti:). "ok nanti saya cek" is none of them and sends nothing. The draft's number comes from "#12" in the message or from
+// the post it answers (the engine quotes it as [Replying to …: "…DRAFT #12…"]). cut: the hook's 500 characters were used up, so the end is unknown.
+export function parseApproval(raw){const full=String(raw||''),cut=full.length>=500;let t=full,id=null;
+ const q=/^\[Replying to[^\n]*?:\s*"([\s\S]*?)"\]\s*\n\n?/.exec(t);if(q){const m=/DRAFT\s*#(\d+)/.exec(q[1]);if(m)id=Number(m[1]);t=t.slice(q[0].length)}
+ else if(/^\[Replying to/.test(t))return cut?{action:'send',id:(/DRAFT\s*#(\d+)/.exec(t)||[])[1]?Number(/DRAFT\s*#(\d+)/.exec(t)[1]):null,cut:true}:null;
+ t=t.replace(/^@\w+\s+/,'').trim();
+ const num=/(?:^|\s)#(\d{1,9})\b/.exec(t);if(num){id=Number(num[1]);t=(t.slice(0,num.index)+' '+t.slice(num.index+num[0].length)).trim()}
+ const tx=/^(?:kirim|send|edit|ganti|ubah)\s*:\s*([\s\S]+)$/i.exec(t);if(tx){const text=tx[1].trim();return text.length>=2?{action:'text',text,id,...(cut?{cut:true}:{})}:null}
+ const w=t.replace(/[.!,\s]+$/,'').toLowerCase();
+ if(/^(ok|oke|okay|okey|ya|iya|yes|y|kirim|send|setuju|approve|approved|acc|👍|✅)$/.test(w))return {action:'send',id};
+ if(/^(no|tidak|nggak|jangan|drop|batal|discard|skip|hapus|❌|👎)$/.test(w))return {action:'discard',id};
+ return null}
 
 import {conversationSession} from './kirimdev-agent.mjs';
 import {providerUnavailable,retryAt} from './provider-limits.mjs';
@@ -162,7 +138,7 @@ export const BRIDGE={url:process.env.WHATSAPP_BRIDGE_URL||'http://127.0.0.1:3000
   // the running bridge loaded probe_watch.js: the file is there and the bridge started after it was written
  async ready(){try{const f=await stat(path.join(HH(),'hermes-agent','scripts','whatsapp-bridge','probe_watch.js'));const h=await (await fetch(BRIDGE.url+'/health',{signal:AbortSignal.timeout(5000)})).json();return Date.now()-Number(h.uptime||0)*1000>f.mtimeMs}catch{return false}},
  async result(id){try{return JSON.parse(await readFile(path.join(HH(),'platforms','whatsapp','probes',id+'.json'),'utf8'))}catch{return null}}};
-export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
+export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,mediaLink=null,receiptFinal=()=>{},echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
  const pub=()=>String(PUBLIC_URL??publicUrl()).replace(/\/+$/,'');   // the address given (tests) or the install's current one
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
@@ -170,15 +146,31 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  const put=async(f,v,mode=0o600)=>{await mkdir(DATA,{recursive:true});const t=f+'.'+process.pid+'.'+randomUUID().slice(0,8)+'.tmp';await writeFile(t,JSON.stringify(v,null,1),{mode});await rename(t,f)};
  let st=null,loading=null,chain=Promise.resolve();const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
  const state=async()=>st||(loading||=readState());
- const readState=async()=>st=Object.assign({seen:[],cut:{},recent:{},pending:{},turns:{},outbox:{},last:{},testerNums:{},ours:{},paused:{},human:{},proposed:{},drafts:{},handoffs:{},asked:{},images:{},waits:{},seq:0},await readJson(ST,{}));
+ const readState=async()=>st=Object.assign({seen:[],cut:{},recent:{},pending:{},turns:{},outbox:{},last:{},testerNums:{},ours:{},paused:{},human:{},proposed:{},drafts:{},handoffs:{},asked:{},images:{},waits:{},known:{},holds:{},alerts:{},modes:{},noreply:{},lastReply:{},seq:0},await readJson(ST,{}));
  const saveState=()=>queue(async()=>{await state();st.seen=st.seen.slice(-3000);const t=now();
   for(const [k,v] of Object.entries(st.recent))if(t-v>48*3600e3)delete st.recent[k];
   for(const [k,v] of Object.entries(st.ours))if(t-v>48*3600e3)delete st.ours[k];
   for(const [k,v] of Object.entries(st.paused))if(v<t)delete st.paused[k];
   for(const [k,v] of Object.entries(st.human))if(t-v>48*3600e3)delete st.human[k];
+  // a send that is finished (delivered, read, failed, cancelled, held) is kept 48 hours, anything else a week (audit M3: 1,840 entries, never pruned)
+  for(const [k,o] of Object.entries(st.outbox)){const age=t-(o.at||0),done=['delivered','read','failed'].includes(o.receipt?.status)||['cancelled','held'].includes(o.status);if(done&&age>48*3600e3||age>7*86400e3)delete st.outbox[k]}
+  for(const [k,v] of Object.entries(st.known))if(t-(v.at||0)>7*86400e3)delete st.known[k];
+  for(const [k,v] of Object.entries(st.alerts))if(t-v>24*3600e3)delete st.alerts[k];
+  for(const [k,v] of Object.entries(st.holds))if((v.until||0)<t)delete st.holds[k];
+  for(const [k,v] of Object.entries(st.lastReply))if(t-(v.at||0)>3600e3)delete st.lastReply[k];
   for(const [k,d] of Object.entries(st.drafts))if(d.status!=='waiting'&&t-(d.doneAt||d.at)>7*86400e3||t-d.at>3*86400e3)delete st.drafts[k];
   await put(ST,st)});
- const lines=async()=>(await readJson(CONF,{lines:{}})).lines||{};
+ // The mode is what a person set on the Kirimdev page (setMode, written down in the state with who and when). A kirimdev.json whose mode
+ // was changed any other way (a hand edit, the fixer, an agent) is not believed: the stricter of the two applies and Health says so (audit M6).
+ const STRICT={test:0,draft:1,live:2};const modeTold=new Set();
+ const lines=async()=>{const L=(await readJson(CONF,{lines:{}})).lines||{};await state();
+  for(const [a,l] of Object.entries(L)){const file=MODES.includes(l?.mode)?l.mode:'test',rec=st.modes[a]?.mode;
+   if(!rec){st.modes[a]={mode:file,at:now(),by:'as found'};continue}
+   if(rec!==file){l.mode=STRICT[rec]<STRICT[file]?rec:file;
+    if(!modeTold.has(a+'|'+file)){modeTold.add(a+'|'+file);log('kirimdev '+a+': kirimdev.json says mode '+file+' but the page last set '+rec+'; '+l.mode+' applies');
+     Promise.resolve(problem?.(a,'kirimdev|mode','Kirimdev line ('+(l.persona||a)+'): its mode was changed outside the Kirimdev page','The settings file says '+file+', the page last set '+rec+' ('+(st.modes[a].by||'?')+'). The stricter one, '+l.mode+', applies until a person sets the mode on Channels › Kirimdev.')).catch(()=>{})}}
+   else if(modeTold.size){for(const k of [...modeTold])if(k.startsWith(a+'|')){modeTold.delete(k);Promise.resolve(solved?.(a,'kirimdev|mode')).catch(()=>{})}}}
+  return L};
  const lineOf=async agent=>AGENT.test(agent)?(await lines())[agent]||null:null;
  const secretsOf=async agent=>((await readJson(SEC,{}))[agent]?.secrets)||[];
  const modeOf=line=>MODES.includes(line?.mode)?line.mode:'test';
@@ -242,6 +234,9 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   await saveKey(key,Object.keys(await lines()));return check()}
 
  const isTester=(line,m)=>(line.testers||[]).some(t=>t.conversationId&&t.conversationId===m.conversationId||t.phone&&String(t.phone).replace(/\D/g,'')===m.from);
+ // who is a tester NOW (audit C2): the line's list, every time. testerNums only remembers which number a tester known by their chat writes
+ // from (its value is that chat's id) and counts only while the line still lists that chat; a removed tester is a customer again.
+ const testerNow=(agent,line,num,conv='')=>{if(isTester(line,{from:String(num||''),conversationId:conv}))return true;const v=st.testerNums[agent+'|'+num];return typeof v==='string'&&!!v&&(line.testers||[]).some(t=>t.conversationId===v)};
  const testerName=(line,m)=>(line.testers||[]).find(t=>t.conversationId===m.conversationId||String(t.phone||'').replace(/\D/g,'')===m.from)?.who||m.name||'customer';
  const within24h=(agent,num)=>{const s=st.recent[agent+'|'+num];return !!s&&now()-s<=24*3600e3};
  const pausedUntil=(agent,cnv,num)=>Math.max(cnv&&st.paused[agent+'|'+cnv]||0,num&&st.paused[agent+'|'+num]||0);
@@ -268,13 +263,18 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  // onEvent (design-guard.mjs EVENTS): 'whatsapp.received' once per batch of customer messages, 'whatsapp.unanswered' when a handoff waited ASK_MIN minutes.
  // Told after the fact and never awaited: an event hook or an event-started run must not hold up or break the line.
  const emit=(agent,type)=>{Promise.resolve().then(()=>onEvent(agent,{type,data:{}})).catch(()=>{})};
+ const holdOf=(agent,num)=>{const h=st.holds[agent+'|'+num];return h&&h.until>now()?h:null};
  async function ingest(agent,line,ms){let told=false;if(ms.length)st.last[agent]={at:now(),from:ms[0].from};
   const mode=modeOf(line);
-  for(const m of ms){st.recent[agent+'|'+m.from]=now();
+  for(const m of ms){const rk=agent+'|'+m.from;
+   // WhatsApp's 24-hour window opens when the customer wrote, not when aqeelOS heard of it, and never for a made-up test event
+   // (scripts/kirimdev-test-message.mjs, ids "wamid.aqtest-…"): 41 sends were refused as outside the window after such events (audit M8)
+   if(!/^wamid\.aqtest-/.test(String(m.id||''))){const at=Math.min(now(),m.ts?m.ts*1000:now());if(at>(st.recent[rk]||0))st.recent[rk]=at}
+   st.known[rk]={name:String(m.name||'').slice(0,80),conv:m.conversationId||st.known[rk]?.conv||'',at:now()};
    // a delivery check's own message (it only opens WhatsApp's 24-hour window): never answered
    if(PROBE.test(String(m.text||''))){log('kirimdev '+agent+': delivery check message from '+tail(m.from)+' (not answered)');continue}
    const tester=isTester(line,m);
-   if(tester)st.testerNums[agent+'|'+m.from]=true;
+   if(tester&&m.conversationId&&(line.testers||[]).some(t=>t.conversationId===m.conversationId))st.testerNums[rk]=m.conversationId;else if(!tester)delete st.testerNums[rk];
    if(mode==='test'&&!tester){log('kirimdev '+agent+': a message from a number that is not a tester (Test mode), not answered');continue}
    if(!told){told=true;emit(agent,'whatsapp.received')}
    const key=agent+'|'+line.phoneNumberId+'|'+(m.conversationId||m.from);
@@ -284,15 +284,26 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    const same=m.conversationId&&m.ts?'in|'+agent+'|'+m.conversationId+'|'+m.ts+'|'+String(m.text||'').slice(0,40):'';
    if(same&&st.seen.includes(same))continue;if(same)st.seen.push(same);
    if(tester&&isReset(line,m.text.trim())){st.cut[key]=new Date((m.ts||now()/1000)*1000+1000).toISOString();delete st.pending[key];delete st.turns[key];cancelOutbound(agent,m.from);
-    // a reset starts the test over: no pause left from earlier test traffic may hold the confirmation or the next question (7 Nov 2026)
-    delete st.paused[agent+'|'+m.from];if(m.conversationId)delete st.paused[agent+'|'+m.conversationId];
+    // a reset starts the test over: no pause or handoff left from earlier test traffic may hold the confirmation or the next question (7 Nov 2026)
+    delete st.paused[agent+'|'+m.from];if(m.conversationId)delete st.paused[agent+'|'+m.conversationId];release(agent,m.from,'reset');
     await send(agent,line,m.from,line.resetText||'✅ Test reset. Start again as a new customer.').catch(e=>log('kirimdev reset reply: '+e.message));continue}
-   const until=pausedUntil(agent,m.conversationId,m.from);
+   const until=pausedUntil(agent,m.conversationId,m.from),hold=holdOf(agent,m.from);
    // a message during a team member's pause is kept, not dropped (audit 6 Nov: "mau pakai CC" was never answered): it waits
    // for the pause to end, and is answered then unless the team answered it meanwhile
    const paused=until>now();if(paused)log('kirimdev '+agent+': '+tail(m.from)+' wrote while a team member is answering; kept until '+new Date(until).toISOString());
-   st.pending[key]={agent,from:m.from,conversationId:m.conversationId,name:testerName(line,m),at:st.pending[key]?.at||now(),token:randomUUID(),messages:[...(st.pending[key]?.messages||[]),m.text],...(paused||st.pending[key]?.waited?{waited:true}:{})};
+   st.pending[key]={agent,from:m.from,conversationId:m.conversationId,name:testerName(line,m),at:st.pending[key]?.at||now(),token:randomUUID(),messages:[...(st.pending[key]?.messages||[]),m.text],...(paused||hold||st.pending[key]?.waited?{waited:true}:{})};
+   // handed to the team (audit H4): the agent stays silent in this chat. The message is kept, the team's alert is refreshed, and the
+   // customer gets the line's wait text at most once an hour. A person's reply, a release on the page or the long timeout ends it.
+   if(hold){log('kirimdev '+agent+': '+tail(m.from)+' wrote while the chat is with the team; the agent stays silent');await nudgeHold(agent,line,hold,m.text);schedule(key,{debounceSec:Math.ceil((Math.max(hold.until,until)-now())/1000)+5});continue}
    schedule(key,paused?{debounceSec:Math.ceil((until-now())/1000)+5}:line)}}
+ // the chat is the team's again → the agent's: a person answered, the team's answer was relayed, a tester reset, a release on the page
+ function release(agent,num,why=''){const k=agent+'|'+num,h=st.holds[k];if(!h)return false;delete st.holds[k];for(const [id,w] of Object.entries(st.waits||{}))if(w.agent===agent&&w.from===String(num))delete st.waits[id];
+  log('kirimdev '+agent+': the chat with '+tail(num)+' is no longer held for the team'+(why?' ('+why+')':''));return true}
+ async function nudgeHold(agent,line,h,text){h.n=(h.n||0)+1;const mins=Math.round((now()-h.at)/60e3);
+  if(now()-(h.nudged||0)>=10*60e3){h.nudged=now();const t=await target(agent);
+   if(t)await telegram(agent,t.chatId,t.threadId,'🔁 STILL WAITING ('+line.persona+', '+(h.name||'customer')+', +'+h.from+')\nThe customer wrote again: '+String(text||'(a photo or file)').slice(0,300)+'\n\nHanded to the team '+mins+' min ago. '+line.persona+' stays silent in this chat until a person answers.\nChat: '+chatLink(line,h)+(t.mention?'\n'+t.mention:'')).catch(()=>false)}
+  if(line.humanWaitText&&modeOf(line)!=='draft'&&now()-(h.wait||0)>=3600e3&&within24h(agent,h.from)&&pausedUntil(agent,h.conversationId,h.from)<=now()){h.wait=now();
+   await send(agent,line,h.from,line.humanWaitText).catch(e=>log('kirimdev '+agent+': the wait text was not sent: '+e.message))}}
 
  // an outbound message on this line: ours (aqeelOS sent it) or a person's, which pauses the agent in that conversation
  const inflight=new Map();
@@ -310,9 +321,13 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   if(s.conversationId)st.human[agent+'|'+s.conversationId]=now();if(s.to)st.human[agent+'|'+s.to]=now();
   // a real team reply ends the wait after a handoff: the agent does not resume on its own (11 Nov 2026, taken into git from fixer issue i87fbcb7b)
   for(const [id,w] of Object.entries(st.waits||{}))if(w.agent===agent&&(w.from===String(s.to)||s.conversationId&&w.conversationId===s.conversationId))delete st.waits[id];
+  const freed=s.to?release(agent,s.to,'a person answered'):false;
   // a tester's chat is test traffic: it never pauses, so the tester's next test message is answered at once
   // (only customer chats wait the quiet time for a person); a handoff there still counts as answered
-  if(isTester(line,{from:s.to,conversationId:s.conversationId})||st.testerNums[agent+'|'+s.to]){log('kirimdev '+agent+': a person wrote to the tester '+tail(s.to)+' ('+(s.source||'?')+'); test chats do not pause');if(s.to)await answered(agent,s.to);return {tester:true}}
+  if(testerNow(agent,line,s.to,s.conversationId)){log('kirimdev '+agent+': a person wrote to the tester '+tail(s.to)+' ('+(s.source||'?')+'); test chats do not pause');if(s.to)await answered(agent,s.to);
+   // what the tester wrote while the chat was held is answered now
+   if(freed)for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===s.to)schedule(k,{debounceSec:5});
+   return {tester:true}}
   const min=Math.max(0,Number(line.pauseMin??DEFAULT_PAUSE));if(!min)return {paused:false};const until=now()+min*60e3;
   if(s.conversationId)st.paused[agent+'|'+s.conversationId]=until;if(s.to)st.paused[agent+'|'+s.to]=until;
   cancelOutbound(agent,s.to);
@@ -320,7 +335,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   log('kirimdev '+agent+': a team member replied to '+tail(s.to)+' ('+(s.source||'?')+'); the agent waits '+min+' min');if(s.to)await answered(agent,s.to);return {paused:until}}
 
  // a burst of messages is answered once: the run starts a few seconds after the last one
- const FAIL_MAX=3,FAIL_WAIT=[60,300],FAIL_WINDOW=30*60e3,PROV_WAIT=[120,300,600,900];
+ const FAIL_MAX=3,FAIL_WAIT=[60,300],FAIL_WINDOW=30*60e3,PROV_WAIT=[120,300,600,900],TURN_MAX=2*3600e3;
  const timers=new Map(),running=new Set();let active=0;
  // setTimer/clearTimer are injectable so tests drive the burst window themselves instead of racing a 0 s timer
  function schedule(key,line){clearTimer(timers.get(key));timers.set(key,setTimer(()=>{timers.delete(key);return run(key).catch(e=>log('kirimdev '+key+': '+e.message))},(line.debounceSec??8)*1000))}
@@ -329,6 +344,13 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   try{while(active>=maxRuns)await wait(1000);active++;acquired=true;
    await state();const p=st.turns[key]||st.pending[key];if(!p)return;st.turns[key]=p;const line=await lineOf(p.agent);if(!line)return;
    const pu=pausedUntil(p.agent,p.conversationId,p.from);if(pu>now()){later=true;delete st.turns[key];schedule(key,{debounceSec:Math.ceil((pu-now())/1000)+5});return}
+   const hd=holdOf(p.agent,p.from);if(hd&&!p.outbound){later=true;delete st.turns[key];schedule(key,{debounceSec:Math.ceil((hd.until-now())/1000)+5});return}
+   // waited so long that an answer would come out of the blue (a provider outage, a long hold): past WhatsApp's 24 hours it is let go,
+   // past 2 hours a person gets it instead of a late answer from the agent (audit M7)
+   if(!p.outbound&&now()-p.at>24*3600e3){log('kirimdev '+p.agent+': a message from '+tail(p.from)+' waited more than 24 hours; let go');if(st.pending[key]?.token===p.token)delete st.pending[key];delete st.turns[key];await saveState();return}
+   if(!p.outbound&&now()-p.at>TURN_MAX&&!p.late){p.late=true;const lastQ=(p.messages||[]).slice(-1)[0]||'-';if(st.pending[key]?.token===p.token)delete st.pending[key];delete st.turns[key];
+    log('kirimdev '+p.agent+': a message from '+tail(p.from)+' waited '+Math.round((now()-p.at)/60e3)+' min; handed to the team instead of a late answer');
+    await postHandoff({id:'h'+(++st.seq),agent:p.agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why:'This message waited '+Math.round((now()-p.at)/60e3)+' minutes without an answer (the agent could not run, or the chat was paused), so the agent did not answer it late. A person needs to.',notify:false,kind:'late',hold:false,tries:0,at:now()},line);await saveState();return}
    // kept during a pause: the team may have answered it since; then it is done
    if(p.waited&&p.conversationId){const l=((await api(line.phoneNumberId+'/messages?'+new URLSearchParams({conversation_id:p.conversationId,limit:'5'}))).data||[]).filter(m=>m.type!=='reaction').sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
     if(l[0]?.direction==='outbound'&&Date.parse(l[0].created_at)>p.at){log('kirimdev '+p.agent+': the team answered '+tail(p.from)+' during the pause; nothing more to send');if(st.pending[key]?.token===p.token)delete st.pending[key];delete st.turns[key];await saveState();return}}
@@ -347,8 +369,8 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
     // the loop breaker (12 Nov 2026: two chats retried every few seconds, about 290 times a day): nothing is retried any more; a person gets the chat once
     delete st.fails[key];if(st.pending[key]?.token===p.token)delete st.pending[key];delete st.turns[key];(st.stopped||={})[key]=1;
     const lastQ=(p.messages||[]).slice(-1)[0]||'-';log('kirimdev '+p.agent+': the agent stopped '+n+' times on '+tail(p.from)+'; the chat was handed to the team');
-    await postHandoff({id:'h'+(++st.seq),agent:p.agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why:'The agent stopped '+n+' times in a row on this chat ('+e.message+'). Nothing was sent to the customer, so a person needs to answer.',notify:false,tries:0,at:now()},line);
-    await problem?.(p.agent,'stopped|'+key,'Kirimdev line ('+line.persona+'): the agent keeps stopping on one chat','The agent stopped '+n+' times in a row on the chat with +'+p.from+' ('+e.message+'). It is not tried again by itself; the chat is in the Questions topic. Its next message from the customer starts a fresh try.').catch(()=>{});await saveState();return}
+    await postHandoff({id:'h'+(++st.seq),agent:p.agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why:'The agent stopped '+n+' times in a row on this chat ('+e.message+'). Nothing was sent to the customer, so a person needs to answer.',notify:false,kind:'stopped',hold:false,tries:0,at:now()},line);
+    await problem?.(p.agent,'stopped|'+key,'Kirimdev line ('+line.persona+'): the agent keeps stopping on one chat','The agent stopped '+n+' times in a row on the chat with …'+String(p.from).slice(-4)+' ('+e.message+'). It is not tried again by itself; the chat is in the Questions topic. Its next message from the customer starts a fresh try.').catch(()=>{});await saveState();return}
    if(st.provider?.[p.agent]){delete st.provider[p.agent];await solved?.(p.agent,'kirimdev|provider').catch(()=>{})}
    if(st.stopped?.[key]){delete st.stopped[key];await solved?.(p.agent,'stopped|'+key).catch(()=>{})}
    delete st.fails?.[key];
@@ -379,53 +401,89 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
 
  async function answer(agent,line,p,key){if(p.outbound){for(const id of p.outbound)await deliver(id);return}const epoch=st.cut[key]||'';const hist=await history(agent,line,p,key);const mode=modeOf(line);
   const who=mode==='test'?'WHATSAPP TEST CHAT (customer = a team tester, treat them exactly like a real customer).':'WHATSAPP CHAT with a customer.';
-  const q=who+' You are '+line.persona+' for '+line.business+'. Customer WhatsApp number: '+((line.localPrefix?String(p.from||'').replace(new RegExp('^'+String(line.localPrefix.country||'').replace(/\D/g,'')),String(line.localPrefix.local??'')):String(p.from||''))||'unknown')+' (use it for the phone field of the order form; never ask the customer for it). In customer chats you have no shell and no files: read your knowledge sheet with read_sheet and your decisions, briefing and template files with read_file (list_files shows them), this chat with conversation, and make a payment only with create_payment (never .tools/sheet, cat, .tools/kirim, .tools/qris or .tools/pay here). When the customer says they paid, asks if it arrived, or sends a receipt, use check_payment and answer from it: PAID means confirmed, anything else means the team is still checking; never hand that off and never ask for the receipt again. A line like [customer photo: …] is a description of a picture they sent, and a picture never proves a payment. Read your knowledge sheet tabs + decisions file first; for anything they do not cover (product facts, how something works), search your own line\'s past chats with past_chats before you hand off. Conversation so far (oldest first):\n\n'+hist+
+  const q=who+' You are '+line.persona+' for '+line.business+'. Customer WhatsApp number: '+((line.localPrefix?String(p.from||'').replace(new RegExp('^'+String(line.localPrefix.country||'').replace(/\D/g,'')),String(line.localPrefix.local??'')):String(p.from||''))||'unknown')+' (use it for the phone field of the order form; never ask the customer for it). In customer chats you have no shell and no files: read your knowledge sheet with read_sheet and your decisions, briefing and template files with read_file (list_files shows them), this chat with conversation, and make a payment only with create_payment (never .tools/sheet, cat, .tools/kirim, .tools/qris or .tools/pay here). Prices are never yours to set: quote_order gives the total of an order from the price list aqeelOS holds, and create_payment charges that total. When the customer says they paid, asks if it arrived, or sends a receipt, use check_payment and answer from it: PAID means confirmed, anything else means the team is still checking; never hand that off and never ask for the receipt again. A line like [customer photo: …] is a description of a picture they sent, and a picture never proves a payment. Read your knowledge sheet tabs + decisions file first; for anything they do not cover (product facts, how something works), look up how the team answered it before with past_chats (scope answers) before you hand off. Never give one customer another person\'s name, number, address or order. Conversation so far (oldest first):\n\n'+hist+
    '\n\nNew inbound messages (authoritative even if provider history is delayed):\n'+(p.messages||[]).map(t=>'CUSTOMER: '+(t||'(a photo or file, shown in the conversation above)')).join('\n')+
-   '\n\nWrite ONLY the WhatsApp reply text to send next ('+(line.language?'in '+line.language:'in the customer\'s own language')+', WhatsApp formatting with *bold*, short paragraphs). Do NOT send anything yourself. Output only the message addressed to the customer, never an operator preface, draft commentary, or a statement that you have not sent it. '+
+   '\n\nWrite ONLY the WhatsApp reply text to send next ('+(line.language?'in '+line.language+', or in the customer\'s own language when they write another':'in the customer\'s own language')+', WhatsApp formatting with *bold*, short paragraphs). Do NOT send anything yourself. Output only the message addressed to the customer, never an operator preface, draft commentary, or a statement that you have not sent it. Never only ask the customer to wait: nothing brings you back to this chat later, so answer now or hand off. '+
    'If several messages are needed, separate them with a line containing only ---. If this must go to a human (handoff rules), reply exactly: HANDOFF: <reason, and what you already checked (sheet, past chats) and found>';
-  // the team did not answer a handoff in time (resumeWaits): the agent goes on itself and does not hand off again
-  const qq=p.resume?q+'\n\nNOTE: you handed this chat to the team and nobody from the team answered yet. Do not hand off again: continue helping the customer yourself with their open question.':q;
-  log('kirimdev '+agent+': answering '+p.name+(p.resume?' (no team reply after the handoff)':''));const runAt=now();let out=String(await runAgent(agent,qq,{session:conversationSession(agent,line.phoneNumberId,p.conversationId||p.from,epoch),run:{since:epoch,line:line.phoneNumberId,conversation:p.conversationId||'',phone:p.from,mode,tester:isTester(line,{from:p.from,conversationId:p.conversationId||''})||!!st.testerNums[agent+'|'+p.from]}})||'').replace(FOOTER,'').trim();
-  if(!out){log('kirimdev '+agent+': the agent wrote nothing');return}
-  // a team member replied while the agent was thinking: theirs stands
-  await state();if((st.cut[key]||'')!==epoch||pausedUntil(agent,p.conversationId,p.from)>now()||humanAt(agent,p.conversationId,p.from)>=runAt){log('kirimdev '+agent+': conversation reset or a team member answered meanwhile; the agent\'s reply was not sent');return}
-  // on a resume a second HANDOFF is dropped, and the reply starts with the line's humanWaitText
-  if(p.resume){if(/^HANDOFF\b/.test(out))out='';if(line.humanWaitText)out=line.humanWaitText+(out?'\n---\n'+out:'');if(!out){log('kirimdev '+agent+': the agent handed off again on resume; nothing sent');return}}
-  if(/^HANDOFF\b/.test(out)){const why=out.replace(/^HANDOFF:?\s*/,'').trim();const lastQ=hist.split('\n').filter(l=>l.startsWith('CUSTOMER: ')).pop()?.slice(10)||'-';
-   const h={id:'h'+(++st.seq),agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why,notify:mode!=='draft',tries:0,at:now()};
-   await postHandoff(h,line);return}
+  const ctxRun={session:conversationSession(agent,line.phoneNumberId,p.conversationId||p.from,epoch),run:{since:epoch,line:line.phoneNumberId,conversation:p.conversationId||'',phone:p.from,mode,tester:testerNow(agent,line,p.from,p.conversationId||'')}};
+  const ask=async note=>String(await runAgent(agent,note?q+note:q,ctxRun)||'').replace(FOOTER,'').trim();
+  // the log is readable on the box: the chat is named by its last four digits, never by the customer's name (audit M2)
+  log('kirimdev '+agent+': answering '+tail(p.from));const runAt=now();let out=await ask('');
+  const lastQ=hist.split('\n').filter(l=>l.startsWith('CUSTOMER: ')).pop()?.slice(10)||(p.messages||[]).slice(-1)[0]||'-';
+  const handoff=(why,o={})=>postHandoff({id:'h'+(++st.seq),agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why,notify:mode!=='draft',tries:0,at:now(),...o},line);
+  // a team member replied while the agent was thinking: theirs stands (no alert: a person answered)
+  const stale=async()=>{await state();if((st.cut[key]||'')!==epoch||pausedUntil(agent,p.conversationId,p.from)>now()||humanAt(agent,p.conversationId,p.from)>=runAt){log('kirimdev '+agent+': conversation reset or a team member answered meanwhile; the agent\'s reply was not sent');return true}return false};
+  if(await stale())return;
+  // nothing written: the customer would never hear back and nobody would know (audit H7). A person gets the chat.
+  if(!out){log('kirimdev '+agent+': the agent wrote nothing; the team was told');await alertTeam(agent,line,{key:'empty|'+p.from,title:'the agent wrote nothing for a customer message',detail:'Customer wrote: '+String(lastQ).slice(0,300)+'\nNothing was sent. Answer in Kirimdev if it needs an answer.',from:p.from,conversationId:p.conversationId,name:p.name});return}
+  if(/^HANDOFF\b/.test(out))return handoff(out.replace(/^HANDOFF:?\s*/,'').trim()||'(no reason given)');
   // pictures the agent should send with a recommendation, when it forgets the tags
-  if(line.autoPhotos?.pattern&&new RegExp(line.autoPhotos.pattern,'i').test(out)&&!/\[(FOTO|TEMPLATE):/.test(out))out+='\n'+(line.autoPhotos.tags||[]).join('\n');
+  const withPhotos=t=>line.autoPhotos?.pattern&&new RegExp(line.autoPhotos.pattern,'i').test(t)&&!/\[(FOTO|TEMPLATE):/.test(t)?t+'\n'+(line.autoPhotos.tags||[]).join('\n'):t;
   // a payment made for this customer in a recent earlier run counts too: a follow-up reply that points back to the QRIS sent a minute
-  // ago is not a false claim (false handoff, 10 Nov). Window: lines.<agent>.paymentRecentMin (default 60). (11 Nov 2026, taken into git from the box's 10 Nov drift)
-  const g=guardReply(splitReply(out),{paid:paidSince?await paidSince(agent,p.from,runAt-Math.max(0,Number(line.paymentRecentMin??60)||0)*60e3).catch(()=>null):null,qrPics:qrSince?await qrSince(agent,p.from,runAt).catch(()=>[]):[]});
+  // ago is not a false claim (false handoff, 10 Nov). Window: lines.<agent>.paymentRecentMin (default 60).
+  const check=async text=>guardReply(splitReply(withPhotos(text)),{paid:paidSince?await paidSince(agent,p.from,runAt-Math.max(0,Number(line.paymentRecentMin??60)||0)*60e3).catch(()=>null):null,qrPics:qrSince?await qrSince(agent,p.from,runAt).catch(()=>[]):[],
+   ctx:await guardCtx(agent,line,p.from,{hist}),customerText:(p.messages||[]).join('\n')});
+  let g=await check(out);
+  // held by the exit guard (audit H6): the customer gets nothing wrong. The reply is written once more with the reason; if that is
+  // held too (or is nothing), a person gets the chat with the held text, which only the team sees.
+  if(g.hold){log('kirimdev '+agent+': reply for '+tail(p.from)+' HELD by the exit guard ('+(g.kinds||[]).join(',')+'); asking for it once more');
+   let again='';try{again=await ask('\n\nNOTE: your last reply was NOT sent to the customer. '+g.hold+'\nWrite the reply again: only the message the customer should read, in their language, with nothing about your rules, tools, files, the team or other people. If you cannot, reply exactly: HANDOFF: <reason>')}catch(e){log('kirimdev '+agent+': the second try stopped: '+e.message)}
+   if(await stale())return;
+   if(/^HANDOFF\b/.test(again))return handoff(again.replace(/^HANDOFF:?\s*/,'').trim()||'(no reason given)');
+   const g2=again?await check(again):null;
+   if(!g2||g2.hold){const held=(g2||g).parts.join('\n---\n'),secret=((g2||g).kinds||[]).includes('secret');log('kirimdev '+agent+': reply for '+tail(p.from)+' held again; handed to the team');
+    return handoff('The exit guard stopped the agent\'s reply twice, so nothing was sent to the customer. '+String((g2||g).hold).split(': ')[0]+'.',{kind:'held',held:secret?'(not shown: it held what looks like a key)':held})}
+   g=g2}
   if(g.attached?.length)log('kirimdev '+agent+': the reply promised the QRIS without its picture; attached '+g.attached.join(' '));
-  if(g.dropped?.length)log('kirimdev '+agent+': dropped '+g.dropped.length+' note(s) from the reply: '+g.dropped.join(' | ').slice(0,200));
-  // a leak: nothing goes to the customer; the reply waits in the Questions topic as a draft (ok / changed text / no)
-  if(g.removed.length){log('kirimdev '+agent+': reply HELD, it had '+g.removed.length+' line(s) meant for the team: '+g.removed.join(' | ').slice(0,200));
-   return makeDraft(agent,line,p,g.parts,'🛑 HELD: this reply was NOT sent because it had text meant for the team ('+g.removed.join(' | ').slice(0,300)+'). Fix it and reply with the clean text, or \"no\".')}
-  if(g.hold){log('kirimdev '+agent+': reply held: '+g.hold);const lastQ=hist.split('\n').filter(l=>l.startsWith('CUSTOMER: ')).pop()?.slice(10)||'-';
-   await postHandoff({id:'h'+(++st.seq),agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why:g.hold,notify:false,tries:0,at:now()},line);return}
+  if(g.dropped?.length)log('kirimdev '+agent+': dropped '+g.dropped.length+' note(s) from the reply');
   if(mode==='draft')return makeDraft(agent,line,p,g.parts);
-  p.outbound=[];for(const part of withCaptions(g.parts))p.outbound.push(await prepare(agent,line,p.from,part));await saveState();
+  p.outbound=[];for(const part of withCaptions(g.parts)){const id=await prepare(agent,line,p.from,part);if(id)p.outbound.push(id)}await saveState();
+  // every part was a picture tag aqeelOS has no picture for: nothing to send, and the customer must not be left with silence (audit H7)
+  if(!p.outbound.length){delete p.outbound;await alertTeam(agent,line,{key:'empty|'+p.from,title:'the agent\'s reply was only pictures aqeelOS does not have',detail:'Customer wrote: '+String(lastQ).slice(0,300)+'\nThe reply: '+g.parts.join(' ').slice(0,200)+'\nNothing was sent.',from:p.from,conversationId:p.conversationId,name:p.name});return}
   for(const id of p.outbound){await deliver(id);await wait(2500)}}
 
- // a handoff is posted first; the customer hears it was passed on only once Telegram confirmed the post
- async function postHandoff(h,line){const t=await target(h.agent);
-  const post='❓ HANDOFF ('+line.persona+', '+h.name+', +'+h.from+')\nCustomer asked: '+h.lastQ+'\n\nWhy: '+h.why+'\n\n'+(t?.mention?t.mention+' ':'')+'reply here with the answer and '+line.persona+' sends it to the customer.';
+ // where the team opens the chat: the line's own link (lines.<agent>.chatLink with {phone} and {conversation}), else WhatsApp itself
+ const chatLink=(line,h)=>line?.chatLink?String(line.chatLink).replace('{phone}',h.from||'').replace('{conversation}',h.conversationId||''):'https://wa.me/'+String(h.from||'');
+ // the same text accepted for the same number in the last 10 minutes is not sent again (audit M5: the handoff line went out again 18 times)
+ const sentLately=(agent,to,text,ms=10*60e3)=>Object.values(st.outbox).some(o=>o.agent===agent&&o.to===to&&o.receipt?.id&&now()-o.at<ms&&bodyText(o.body)===String(text).trim());
+ // counted for System › Health: customer messages that ended with no reply from the agent
+ const countNoReply=agent=>{const c=(st.noreply||={})[agent]||={n:0,day:''},day=new Date(now()).toISOString().slice(0,10);if(c.day!==day){c.day=day;c.n=0}c.n++;c.total=(c.total||0)+1;c.last=now()};
+ // ONE alert for the team, in the line's Questions topic, with the chat link (audit H7): every case where a customer's message ends with no
+ // delivered reply and no handoff post covers it. Also one Health line of kind "customer": shown and counted on System › Health, never
+ // given to the agent or the code fixer (neither can answer a customer). The bell only when Telegram did not take the post.
+ async function alertTeam(agent,line,{key,topic,title,detail='',from='',conversationId='',name=''}){await state();const k=agent+'|'+key;if(st.alerts[k]&&now()-st.alerts[k]<6*3600e3)return false;st.alerts[k]=now();countNoReply(agent);
+  const who=line?.persona||agent,t=await target(agent);
+  const post='⚠️ NO REPLY SENT ('+who+(name?', '+name:'')+(from?', +'+from:'')+')\n'+title+(detail?'\n'+detail:'')+(from?'\n\nChat: '+chatLink(line,{from,conversationId}):'')+(t?.mention?'\n'+t.mention:'');
+  const mid=t?await telegram(agent,t.chatId,t.threadId,post).catch(()=>false):false;
+  await Promise.resolve(problem?.(agent,topic||'customer|'+key,'Kirimdev line ('+who+'): '+title,(from?'Chat with …'+String(from).slice(-4)+'. ':'')+(mid?'The team was told in their Questions topic.':'The team could NOT be told in Telegram (no team group, or the post failed): tell them.'))).catch(()=>{});
+  if(!mid)await tell('Kirimdev line ('+who+'): '+title,(from?'Chat with …'+String(from).slice(-4)+'. ':'')+'The team could not be told in Telegram.').catch(()=>{});
+  await saveState();return !!mid}
+ // a handoff is posted first; the customer hears it was passed on only once Telegram confirmed the post.
+ // One open handoff per chat (audit H4, M5): a second request refreshes the team's alert and is never dropped; the customer is not told twice.
+ async function postHandoff(h,line){const t=await target(h.agent),hk=h.agent+'|'+h.from;
+  const open=Object.entries(st.asked||{}).find(([,a])=>a.agent===h.agent&&a.from===h.from),again=!!open&&!h.tries;
+  const post=(again?'🔁 HANDOFF AGAIN (':'❓ HANDOFF (')+line.persona+', '+h.name+', +'+h.from+')\nCustomer asked: '+h.lastQ+'\n\nWhy: '+h.why+(h.held?'\n\nHeld text (NOT sent to the customer):\n'+String(h.held).slice(0,1200):'')+'\n\nChat: '+chatLink(line,h)+'\n\n'+(t?.mention?t.mention+' ':'')+(again?'still waiting for a person: answer the customer in Kirimdev, or reply here with the answer. '+line.persona+' stays silent in this chat until then.':'reply here with the answer and '+line.persona+' sends it to the customer.');
   const mid=t?await telegram(h.agent,t.chatId,t.threadId,post).catch(()=>false):false;h.tries++;
-  if(mid){delete st.handoffs[h.id];log('kirimdev '+h.agent+': handoff posted'+(h.tries>1?' (try '+h.tries+')':''));if(h.tries>1)await solved(h.agent,'handoff|'+h.id).catch(()=>{});
-   if(h.notify&&within24h(h.agent,h.from)&&pausedUntil(h.agent,h.conversationId,h.from)<=now())
-    await send(h.agent,line,h.from,line.handoff?.customerText||'Thanks, I am passing this question to our team. They will get back to you shortly.').catch(e=>log('kirimdev '+h.agent+': sending failed: '+e.message));
-   // waiting for the team's answer: System › Health shows it when nobody answered within ASK_MIN minutes
-   st.asked[h.id]={agent:h.agent,from:h.from,name:h.name,lastQ:h.lastQ,at:now()};
-   // no team reply within lines.<agent>.humanWaitMin minutes (default 5, 0 = never): the agent continues, starting with humanWaitText
-   // (11 Nov 2026, taken into git from fixer issue i87fbcb7b)
-   const wm=Math.max(0,Number(line.humanWaitMin??5)||0);if(h.notify&&wm)(st.waits||={})[h.id]={agent:h.agent,from:h.from,conversationId:h.conversationId,name:h.name,at:now(),due:now()+wm*60e3};
+  if(mid){delete st.handoffs[h.id];log('kirimdev '+h.agent+': handoff '+(again?'refreshed':'posted')+(h.tries>1?' (try '+h.tries+')':''));if(h.tries>1)await solved(h.agent,'handoff|'+h.id).catch(()=>{});
+   if(h.kind)countNoReply(h.agent);
+   // nothing else the agent queued goes to this chat any more: a send still waiting for a retry would arrive after "passed to the team" (audit M7)
+   cancelOutbound(h.agent,h.from);
+   const text=line.handoff?.customerText||'Thanks, I am passing this question to our team. They will get back to you shortly.';
+   const tellIt=!again&&h.notify&&within24h(h.agent,h.from)&&pausedUntil(h.agent,h.conversationId,h.from)<=now()&&!sentLately(h.agent,h.from,text);
+   if(tellIt)await send(h.agent,line,h.from,text).catch(e=>log('kirimdev '+h.agent+': sending failed: '+e.message));
+   // waiting for the team's answer: the team is told again when nobody answered within ASK_MIN minutes
+   if(again){const a=open[1];a.again=(a.again||0)+1;a.lastQ=h.lastQ}
+   else st.asked[h.id]={agent:h.agent,from:h.from,conversationId:h.conversationId,name:h.name,lastQ:h.lastQ,at:now()};
+   // the agent stays silent in this chat (audit H4) until a person answers, someone releases it on the Kirimdev page, or
+   // lines.<agent>.handoff.releaseMin minutes pass (default 720 = 12 hours)
+   const rel=Math.max(5,Number(line.handoff?.releaseMin??720)||720),old=holdOf(h.agent,h.from);
+   if(h.hold!==false)st.holds[hk]={id:old?.id||h.id,agent:h.agent,from:h.from,conversationId:h.conversationId,name:h.name,at:old?.at||now(),until:now()+rel*60e3,wait:old?.wait||0,nudged:now(),n:old?.n||0};
+   // no team reply within lines.<agent>.humanWaitMin minutes (default 5, 0 = never): the customer gets humanWaitText once; the agent does NOT take the chat back
+   const wm=Math.max(0,Number(line.humanWaitMin??5)||0);if(tellIt&&wm&&line.humanWaitText)(st.waits||={})[h.id]={agent:h.agent,from:h.from,conversationId:h.conversationId,name:h.name,at:now(),due:now()+wm*60e3};
    await saveState();return true}
-  if(now()-h.at>24*3600e3){delete st.handoffs[h.id];await tell(line.persona+' gave up posting a handoff in Telegram','After a day of tries. The customer (+'+h.from+') was not told anything. Their question: '+h.lastQ).catch(()=>{});await saveState();return false}
+  if(now()-h.at>24*3600e3){delete st.handoffs[h.id];await tell(line.persona+' gave up posting a handoff in Telegram','After a day of tries. The customer (…'+String(h.from).slice(-4)+') was not told anything.').catch(()=>{});await saveState();return false}
   h.next=now()+RETRY_MIN[Math.min(h.tries-1,RETRY_MIN.length-1)]*60e3;st.handoffs[h.id]=h;
-  if(h.tries===1){const title=line.persona+' could not post a handoff in Telegram',detail=(t?'':'No team group is set for '+line.persona+' (Channels › Kirimdev, Team group). ')+'The customer (+'+h.from+') was not told it was passed on. aqeelOS tries again in 1, 5, 15 and 30 minutes, then hourly.\n\n'+post.slice(0,500);
+  if(h.tries===1){const title=line.persona+' could not post a handoff in Telegram',detail=(t?'':'No team group is set for '+line.persona+' (Channels › Kirimdev, Team group). ')+'The customer (…'+String(h.from).slice(-4)+') was not told it was passed on. aqeelOS tries again in 1, 5, 15 and 30 minutes, then hourly.';
    // System › Health and one Telegram alert to the owner (agent-health.mjs) when that is there; the bell otherwise
    await (problem?problem(h.agent,'handoff|'+h.id,'Kirimdev line ('+line.persona+'): '+title.replace(line.persona+' ',''),detail):tell(title,detail)).catch(()=>{});log('kirimdev '+h.agent+': handoff not posted; the owner was told')}
   await saveState();return false}
@@ -473,52 +531,75 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   let res=null;for(let i=0;i<36&&!res;i++){await wait(5000);res=await bridge.result(id)}
   if(!res)return done('Sent and accepted by Kirimdev, but nothing reached the main WhatsApp within 3 minutes.');
   out.arrived=true;out.picture=!!res.ok;out.bytes=res.bytes||0;return done(res.ok?null:'A message arrived but its picture did not download'+(res.error?' ('+res.error+')':'')+'.')}
- // a handoff the customer was told about, past its humanWaitMin with no team reply: the agent continues the chat once (pending with
- // resume:true); skipped in Draft, during a team member's pause, or when a person wrote there since (11 Nov 2026, taken into git from fixer issue i87fbcb7b)
- async function resumeWaits(){for(const [id,w] of Object.entries(st.waits||{})){if(w.due>now())continue;delete st.waits[id];const line=await lineOf(w.agent);if(!line||modeOf(line)==='draft')continue;
-   if(humanAt(w.agent,w.conversationId,w.from)>(w.at||0)||pausedUntil(w.agent,w.conversationId,w.from)>now())continue;
-   const key=w.agent+'|'+line.phoneNumberId+'|'+(w.conversationId||w.from);log('kirimdev '+w.agent+': no team reply to '+tail(w.from)+' after the handoff; the agent continues');
-   st.pending[key]={agent:w.agent,from:w.from,conversationId:w.conversationId,name:w.name,at:now(),token:randomUUID(),messages:[...(st.pending[key]?.messages||[])],resume:true};await saveState();schedule(key,{debounceSec:0})}}
- // a handoff the team has not answered after ASK_MIN minutes: one Health problem (and one alert); after a day it is let go
+ // a handoff the customer was told about, past its humanWaitMin with no team reply: the customer gets the line's humanWaitText, once, and
+ // the chat stays with the team. The agent is never asked to answer the handed-off question itself (audit H4: it did, 13 times, among them
+ // medical questions at night). Skipped in Draft, during a team member's pause, or when a person wrote there since.
+ async function resumeWaits(){for(const [id,w] of Object.entries(st.waits||{})){if(w.due>now())continue;delete st.waits[id];const line=await lineOf(w.agent);if(!line||modeOf(line)==='draft'||!line.humanWaitText)continue;
+   const h=holdOf(w.agent,w.from);if(!h||humanAt(w.agent,w.conversationId,w.from)>(w.at||0)||pausedUntil(w.agent,w.conversationId,w.from)>now()||!within24h(w.agent,w.from))continue;
+   h.wait=now();log('kirimdev '+w.agent+': no team reply to '+tail(w.from)+' after the handoff; the customer gets the wait text, the agent stays silent');
+   await send(w.agent,line,w.from,line.humanWaitText).catch(e=>log('kirimdev '+w.agent+': the wait text was not sent: '+e.message));await saveState()}}
+ // a handoff the team has not answered after ASK_MIN minutes: the team is told once more in their topic, and Health shows it (kind
+ // "customer": for people, never for the agent or the code fixer); after a day it is let go
  async function unanswered(){let ch=false;for(const [id,a] of Object.entries(st.asked||{})){const age=now()-a.at;
    if(age>24*3600e3){delete st.asked[id];ch=true;if(a.told)await solved?.(a.agent,'unanswered|'+id).catch(()=>{});continue}
-   if(a.told||age<ASK_MIN*60e3)continue;const line=await lineOf(a.agent);const who=line?.persona||a.agent;
-   await (problem?problem(a.agent,'unanswered|'+id,'Kirimdev line ('+who+'): a handoff has no answer after '+ASK_MIN+' minutes','Customer '+a.name+' (+'+a.from+') asked: '+String(a.lastQ||'').slice(0,300)+'\n\nReply to the HANDOFF post in the team group, or answer the customer in Kirimdev; this goes away by itself then.'):tell('A handoff from '+who+' has no answer',String(a.lastQ||''))).catch(()=>{});
+   if(a.told||age<ASK_MIN*60e3)continue;const line=await lineOf(a.agent);
+   await alertTeam(a.agent,line,{key:'unanswered|'+id,topic:'unanswered|'+id,title:'a handoff has no answer after '+ASK_MIN+' minutes',detail:'Customer asked: '+String(a.lastQ||'').slice(0,300)+'\nAnswer the customer in Kirimdev, or reply to the HANDOFF post.',from:a.from,conversationId:a.conversationId,name:a.name});
    a.told=now();ch=true;emit(a.agent,'whatsapp.unanswered')}
   if(ch)await saveState()}
 
- // Draft: the reply waits in the Questions topic (and on the Channels page) for a person to approve it
+ // Draft: the reply waits in the Questions topic (and on the Channels page) for a PERSON to approve it (audit H5). The draft is one post; a
+ // short second post is the one to answer ("ok", "no", "kirim: <your text>"), so the engine's hook sees the whole answer (teamMessage below).
  async function makeDraft(agent,line,p,parts,why=''){if(!parts.length)return;const id=++st.seq;
   const d={id,agent,from:p.from,conversationId:p.conversationId,name:p.name,parts,at:now(),status:'waiting',held:!!why};st.drafts[id]=d;
   // labels the agent asked for in Draft are not set: they ride with the draft and are set when a person sends it
   const pk=agent+'|'+p.conversationId,pl=st.proposed[pk];if(pl){delete st.proposed[pk];if(pl.add.length||pl.remove.length)d.labels=pl}
   const t=await target(agent);
-  const post=(why?why+'\n\n':'')+'📝 DRAFT #'+id+' ('+line.persona+', '+p.name+', +'+p.from+')\n\n'+parts.join('\n---\n')+(d.labels?'\n\n🏷 Labels, set when it is sent: '+labelWords(d.labels):'')+'\n\n'+(t?.mention?t.mention+' ':'')+'reply "ok" to send it to the customer, reply with the changed text to send that instead, or "no" to drop it.';
+  const post='📝 DRAFT #'+id+' ('+line.persona+', '+p.name+', +'+p.from+')'+(why?'\n'+why:'')+'\n\n'+parts.join('\n---\n')+(d.labels?'\n\n🏷 Labels, set when it is sent: '+labelWords(d.labels):'');
   const mid=t?await telegram(agent,t.chatId,t.threadId,post).catch(()=>false):false;d.posted=!!mid;
+  if(mid){d.mid=mid;const ask=await telegram(agent,t.chatId,t.threadId,'✋ DRAFT #'+id+' waits for a person. '+(t.mention?t.mention+' ':'')+'Reply to THIS message: "ok" sends it, "kirim: <your text>" sends your text instead, "no" drops it. Or open '+pub()+'/channels/kirimdev').catch(()=>false);if(ask)d.ask=ask}
   if(!mid)await tell(line.persona+' wrote a draft that could not be posted in Telegram',(t?'':'No team group is set (Channels page, Team group). ')+'It waits on the Channels page, where you can send or drop it.').catch(()=>{});
-  log('kirimdev '+agent+': draft #'+id+' for '+p.name+(mid?' posted':' kept on the Channels page'));await saveState();return d}
- // send (as written or changed) or drop a draft: whatsapp_draft for the agent, the Channels page for a person
- async function draft(agent,id,action,text,by){await state();const d=st.drafts[Number(id)];
+  log('kirimdev '+agent+': draft #'+id+' for '+tail(p.from)+(mid?' posted':' kept on the Channels page'));await saveState();return d}
+ // send (as written or changed) or drop a draft. approval {human:true, via, …} is given only by the Channels page (a signed-in admin) and by
+ // teamMessage (a Telegram message from someone on the line's approvers list). No agent tool can give it: an agent never approves its own draft.
+ async function draft(agent,id,action,text,by,approval=null){await state();const d=st.drafts[Number(id)];
   if(!d||d.agent!==agent)throw Error('There is no draft #'+id+' for this agent.');
+  if(approval?.human!==true)throw Error('Only a person on the team sends or drops a draft: they answer the "DRAFT #'+id+' waits" message in the team topic, or use the Channels page. Nothing was sent.');
   if(d.status!=='waiting')throw Error('Draft #'+id+' was already '+(d.status==='sent'?'sent':'dropped')+'.');
-  if(action==='discard'||action==='drop'){d.status='dropped';d.doneAt=now();d.by=String(by||'');await saveState();return {dropped:true}}
+  if(action==='discard'||action==='drop'){d.status='dropped';d.doneAt=now();d.by=String(by||'');d.via=approval.via||'';await saveState();log('kirimdev '+agent+': draft #'+id+' dropped by '+d.by);return {dropped:true}}
   if(action!=='send')throw Error('The action is send or discard.');
   const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
   if(!within24h(agent,d.from))throw Error('The customer last wrote more than 24 hours ago, so WhatsApp does not allow a reply.');
-  if(d.held&&!(text&&String(text).trim()))throw Error('Draft #'+id+' was held because it had text meant for the team. Reply with the clean text to send instead.');
+  if(d.held&&!(text&&String(text).trim()))throw Error('Draft #'+id+' was held because it had text meant for the team. Send the clean text instead.');
   const parts=text&&String(text).trim()?splitReply(text):d.parts;if(!parts.length)throw Error('Write the text to send.');
-  d.by=String(by||'');d.edited=!!(text&&String(text).trim());
-  if(!d.outbound){d.outbound=[];for(const p of withCaptions(parts)){const op=await prepare(agent,line,d.from,p);if(op)st.outbox[op].approved=true;d.outbound.push(op)}await saveState()}
-  const sent=[];for(const id of d.outbound){sent.push(await deliver(id));await wait(1500)}d.status='sent';d.doneAt=now();await saveState();
+  d.by=String(by||'');d.via=approval.via||'';d.edited=!!(text&&String(text).trim());
+  if(!d.outbound){d.outbound=[];for(const p of withCaptions(parts)){const op=await prepare(agent,line,d.from,p);if(op){st.outbox[op].approved=true;st.outbox[op].human=d.by||'a person';d.outbound.push(op)}}await saveState()}
+  const sent=[];for(const id of d.outbound){sent.push(await deliver(id));await wait(1500)}d.status='sent';d.doneAt=now();release(agent,d.from,'a person sent a draft');await saveState();log('kirimdev '+agent+': draft #'+id+' sent, approved by '+d.by);
   let labels=null;if(d.labels&&!d.labelsSet){labels=await labelContact(agent,{conversationId:d.conversationId,phone:d.from,...d.labels,source:'approved',run:'draft'+d.id}).catch(e=>({set:false,why:e.message}));if(labels.set){d.labelsSet=true;await saveState()}}
   return {sent:sent.filter(Boolean).length,...(labels?{labels}:{})}}
-
+ // A message a PERSON wrote in the team's topic, handed over by the engine's gateway hook (engine/hooks/aqeelos-team) with the sender's
+ // Telegram id. Checked here in code: it is the line's own team group, the sender is on the line's approvers list
+ // (lines.<agent>.approvers: [{who, telegramId}]), and the text is exactly an approval for one waiting draft. Anything else changes nothing.
+ async function teamMessage(agent,{chatId,threadId,userId,text}={}){await state();const line=await lineOf(agent);if(!line)return {handled:false,why:'no line'};
+  const t=await target(agent);if(!t||String(t.chatId)!==String(chatId))return {handled:false,why:'not the team group'};
+  if(t.threadId&&threadId&&String(t.threadId)!==String(threadId))return {handled:false,why:'not the Questions topic'};
+  const waiting=Object.values(st.drafts).filter(d=>d.agent===agent&&d.status==='waiting');if(!waiting.length)return {handled:false,why:'no draft is waiting'};
+  const a=parseApproval(text);if(!a)return {handled:false,why:'not an approval'};
+  const ap=(line.approvers||[]).find(x=>String(x?.telegramId||'')===String(userId||'')&&String(userId||''));
+  const say=m=>telegram(agent,t.chatId,t.threadId,m).catch(()=>false);
+  if(!ap){log('kirimdev '+agent+': an approval in the team topic from someone who is not on the approvers list; nothing sent');await say('✋ Not sent: this Telegram account is not on '+line.persona+'’s approvers list. An admin adds it on Channels › Kirimdev, or approves the draft there.');return {handled:false,why:'not an approver'}}
+  const d=a.id?waiting.find(x=>x.id===a.id):waiting.length===1?waiting[0]:null;
+  if(!d){await say(a.id?'✋ There is no waiting draft #'+a.id+'.':'✋ '+waiting.length+' drafts are waiting ('+waiting.map(x=>'#'+x.id).join(', ')+'): say which, like "ok #'+waiting[0].id+'".');return {handled:false,why:'which draft'}}
+  if(a.cut){await say('✋ Draft #'+d.id+' not sent: your text is too long to be checked here. Send it from the Channels page.');return {handled:false,why:'too long'}}
+  const by=(ap.who||'a team member')+' (Telegram '+userId+')';
+  try{const r=await draft(agent,d.id,a.action==='discard'?'discard':'send',a.action==='text'?a.text:'',by,{human:true,via:'telegram',userId:String(userId)});
+   await say(r.dropped?'🗑 Draft #'+d.id+' dropped by '+(ap.who||'the team')+'. Nothing was sent.':'✅ Draft #'+d.id+' sent to the customer ('+r.sent+' message'+(r.sent===1?'':'s')+'), approved by '+(ap.who||'the team')+'.');return {handled:true,draft:d.id,...r}}
+  catch(e){await say('⚠️ Draft #'+d.id+' was not sent: '+e.message);return {handled:false,why:e.message,draft:d.id}}}
  // one part: text, or a picture from the agent's media/staff (urls.txt for [FOTO], templates.json for [TEMPLATE])
  // a document (the member's protocol PDF) to the chat's own number: same rules as a reply (24 hours, Test only testers); Draft lines never send by themselves (12 Nov 2026, issue i19b649d9). link: a public https link, which Kirimdev's document message needs (never bytes)
  async function sendDocument(agent,to,{link,filename,caption}={}){const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');await state();
   const num=String(to||'').replace(/\D/g,'');if(!num||!within24h(agent,num))throw Error('That number has not written to this Kirimdev line in the last 24 hours, so WhatsApp does not allow a file.');
   if(modeOf(line)==='draft')throw Error('This line is in Draft: the team sends files.');
-  if(modeOf(line)==='test'&&!isTester(line,{from:num,conversationId:''})&&!st.testerNums[agent+'|'+num])throw Error('This line is in Test, so it only answers its testers.');
+  if(modeOf(line)==='test'&&!testerNow(agent,line,num))throw Error('This line is in Test, so it only answers its testers.');
   if(!/^https:\/\//.test(String(link||'')))throw Error('The file needs a public https link.');
   const id=randomUUID();st.outbox[id]={id,agent,pid:String(line.phoneNumberId),to:num,body:{messaging_product:'whatsapp',recipient_type:'individual',to:num,type:'document',document:{link,filename:String(filename||'file.pdf').slice(0,200),...(caption?{caption:String(caption).slice(0,1024)}:{})}},at:now(),status:'pending'};await saveState();
   return deliver(id)}
@@ -527,49 +608,85 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   const tm=/^\[TEMPLATE:\s*([\w-]+)\s*\]$/.exec(part),fm=/^\[FOTO:\s*(?:media\/staff\/)?([^\]|]+?)\s*(?:\|\s*([\s\S]*?)\s*)?\]$/.exec(part);
   if(tm){const tp=(await readJson(path.join(WORK,agent,'media','staff','templates.json'),{}))[tm[1]];if(!tp){log('kirimdev '+agent+': no picture for template '+tm[1]);return null}body={...base,type:'image',image:tp}}
   const vm=/^\[VIDEO:\s*(?:media\/staff\/)?([^\]|]+?)\s*(?:\|\s*([^\]]*?)\s*)?\]$/.exec(part);
-  if(tm){}else if(fm||vm){const name=(fm||vm)[1].trim(),urls=(await readFile(path.join(WORK,agent,'media','staff','urls.txt'),'utf8').catch(()=>'')).split(/\s+/).filter(Boolean);
+  if(tm){}else if(fm||vm){const name=(fm||vm)[1].trim(),own=mediaLink?await Promise.resolve(mediaLink(agent,name)).catch(()=>null):null,urls=((own?own+'\n':'')+(await readFile(path.join(WORK,agent,'media','staff','urls.txt'),'utf8').catch(()=>''))).split(/\s+/).filter(Boolean);
    // [VIDEO: name] may omit the extension; any .mp4/.mov file is sent as a video, never as a picture
-   const u=urls.find(x=>x.split('/').pop()===name)||urls.find(x=>decodeURIComponent(x.split('?')[0].split('/').pop())===name)||(vm&&urls.find(x=>/\.(mp4|mov)$/i.test(x.split('?')[0])&&decodeURIComponent(x.split('?')[0].split('/').pop()).replace(/\.(mp4|mov)$/i,'')===name));
+   const u=(own&&/^https:\/\//.test(own)?own:null)||urls.find(x=>x.split('/').pop()===name)||urls.find(x=>decodeURIComponent(x.split('?')[0].split('/').pop())===name)||(vm&&urls.find(x=>/\.(mp4|mov)$/i.test(x.split('?')[0])&&decodeURIComponent(x.split('?')[0].split('/').pop()).replace(/\.(mp4|mov)$/i,'')===name));
    if(!u){log('kirimdev '+agent+': no '+(vm?'video':'picture')+' called '+name+' in media/staff/urls.txt; tag dropped');return null}
    if(vm||/\.(mp4|mov)$/i.test(u.split('?')[0])){const cap=vm?.[2]?.trim();body={...base,type:'video',video:{link:u,...(cap?{caption:cap.slice(0,1024)}:{})}}}
    // the "f=/<name>" marker only lets urls.txt match the tag; WhatsApp gets the provider's own link (if734729a)
    else{const link=u.replace(/([?&])f=\/[^&#]*(&|$)/,(m,a,b)=>b?a:'').replace(/[?&]$/,'');if(link!==u)log('kirimdev '+agent+': picture '+name+' sent as its plain link');const cap=fm?.[2]?.trim();body={...base,type:'image',image:{link,...(cap?{caption:cap.slice(0,1024)}:{})}}}}
   else{const text=part.replace(FOOTER,'').trim().slice(0,4096);if(!text)return null;body={...base,type:'text',text:{body:text,preview_url:false}}}
   const id=randomUUID();st.outbox[id]={id,agent,pid:String(line.phoneNumberId),to,body,at:now(),status:'pending'};return id}
+ // what this chat itself holds: the exit guard lets a number, name or address through only when it is the customer's own (audit C1)
+ const ownCache=new Map();
+ async function ownText(agent,line,num){const k=agent+'|'+num,c=ownCache.get(k);if(c&&now()-c.at<20e3)return c.t;const conv=st.known[k]?.conv;let t='';
+  if(conv){try{t=((await api(line.phoneNumberId+'/messages?'+new URLSearchParams({conversation_id:conv,limit:'60'}))).data||[]).map(m=>String(m.content||'')).join('\n')}catch(e){log('kirimdev '+agent+': the chat\'s own text could not be read for the exit guard ('+e.message+'); it checks without')}}
+  for(const p of Object.values(st.pending))if(p.agent===agent&&p.from===num)t+='\n'+(p.messages||[]).join('\n');
+  ownCache.set(k,{at:now(),t});if(ownCache.size>300)ownCache.delete(ownCache.keys().next().value);return t}
+ const secretList=async agent=>[await apiKey().catch(()=>null),...await secretsOf(agent).catch(()=>[])].filter(Boolean);
+ // settings a line may add (kirimdev.json lines.<agent>.guard): allow [phrases that are fine, e.g. the shop's own address], phones [the team's
+ // own numbers customers may be given], names [people customers may be told about], blockedHosts [more internal sites]
+ async function guardCtx(agent,line,num,{hist=null}={}){const g=line.guard||{},kn=st.known[agent+'|'+num]||{};
+  return {appHost:pub(),blockedHosts:g.blockedHosts||[],allow:g.allow||[],secrets:await secretList(agent),
+   own:{phones:[num,line.phone,...(g.phones||[])].filter(Boolean),names:[kn.name,line.persona,line.business,...(g.names||[])].filter(Boolean),text:(hist||'')+'\n'+await ownText(agent,line,num)+'\n'+(g.allow||[]).join('\n')}}}
  // Persist intent before I/O; never replay beyond the provider's bounded idempotency cache.
  function cancelOutbound(agent,to){for(const o of Object.values(st.outbox))if(o.agent===agent&&o.to===to&&!o.receipt)o.status='cancelled'}
  const delivering=new Map();
  async function deliver(id){if(!id)return null;if(delivering.has(id))return delivering.get(id);
   const task=(async()=>{const o=st.outbox[id];if(!o)throw Error('Missing outbound operation');if(o.receipt?.id)return o.receipt;if(o.status==='cancelled'||o.status==='held')throw Error('Outbound '+o.status);
    const line=await lineOf(o.agent);
-   if(!line||String(line.phoneNumberId)!==o.pid||!within24h(o.agent,o.to)||pausedUntil(o.agent,'',o.to)>now()||modeOf(line)==='draft'&&!o.approved||modeOf(line)==='test'&&!isTester(line,{from:o.to})&&!st.testerNums[o.agent+'|'+o.to])throw Error('Outbound held by current line policy');
+   if(!line||String(line.phoneNumberId)!==o.pid||!within24h(o.agent,o.to)||pausedUntil(o.agent,'',o.to)>now()||modeOf(line)==='draft'&&!o.approved||modeOf(line)==='test'&&!testerNow(o.agent,line,o.to))throw Error('Outbound held by current line policy');
    if(o.firstAttempt&&now()-o.firstAttempt>=23*3600e3){o.status='held';await saveState();await tell('Kirimdev line: a send needs checking by hand',o.agent+': ambiguous send older than safe replay window; not resent').catch(()=>{});throw Error('Outbound ambiguous beyond safe idempotency window; reconcile manually')}
-   // the single place a customer's message leaves: whatever path made it (reply guard, whatsapp_reply, a draft, a handoff text), internal notes, the agent's reasoning and error traces stop here (12 Nov 2026)
+   // the single place a customer's message leaves: whatever path made it (a reply, whatsapp_reply, a handoff or wait text, a document
+   // caption), kirim-guard.mjs leaks() checks it here. What a person on the team wrote or approved (o.human) is checked for keys only.
    {const txt=String(o.body?.text?.body??o.body?.image?.caption??o.body?.video?.caption??o.body?.document?.caption??'');
-    if(internalText(txt)){o.status='held';o.error='internal text';await saveState();const clipped=txt.replace(/\s+/g,' ');log('kirimdev '+o.agent+': a message for the customer was stopped, it looked meant for the team: '+clipped.slice(0,160));
-     await tell('Kirimdev line: a message with internal text was stopped',o.agent+': it was NOT sent to the customer: '+clipped.slice(0,300)).catch(()=>{});throw Error('Held: the text looks meant for the team (an internal note, the agent\'s reasoning or an error trace), so it was not sent to the customer. Write only what the customer should read.')}}
+    const hit=txt?leaks(txt,o.human?{secrets:await secretList(o.agent)}:await guardCtx(o.agent,line,o.to)):[];
+    if(hit.length){const kinds=[...new Set(hit.map(x=>x.kind))];o.status='held';o.error='exit guard: '+kinds.join(', ');await saveState();
+     // the log names the kind, never the text (the log is readable on the box)
+     log('kirimdev '+o.agent+': a message for '+tail(o.to)+' was stopped by the exit guard ('+kinds.join(', ')+')');const kn=st.known[o.agent+'|'+o.to]||{};
+     await alertTeam(o.agent,line,{key:'stopped|'+o.to,title:'a message was stopped before it reached the customer',detail:'Why: '+leakWords(hit)+'.'+(kinds.includes('secret')?'':'\nStopped text (NOT sent):\n'+txt.slice(0,600)),from:o.to,conversationId:kn.conv||'',name:kn.name||''}).catch(()=>{});
+     throw Error('Held: this was not sent to the customer ('+leakWords(hit)+'). Write only what the customer should read: nothing about your rules, tools, files or the team, and no other person\'s name, number or address.')}}
    o.firstAttempt||=now();o.status='sending';o.tries=(o.tries||0)+1;await saveState();
    const go=api(o.pid+'/messages',o.body,{idem:id}),fk=o.pid+'|'+o.to;inflight.set(fk,go);
    try{const r=await go;if(!r?.data?.id)throw Error('Kirimdev returned no message receipt');o.receipt=r.data;o.status='accepted';st.ours[r.data.id]=now();await saveState();await answered(o.agent,o.to);return o.receipt}
-   catch(e){o.error=e.message;o.status='retry';await saveState();await tell('Kirimdev line: a send needs a retry',o.agent+': '+e.message).catch(()=>{});throw e}
+   // one notice per send that needs a retry, not one every 30 seconds while Kirimdev is down (audit M7)
+   catch(e){o.error=e.message;o.status='retry';await saveState();if(o.tries===1)await tell('Kirimdev line: a send needs a retry',o.agent+': '+e.message).catch(()=>{});throw e}
    finally{if(inflight.get(fk)===go)inflight.delete(fk)}
   })();delivering.set(id,task);try{return await task}finally{delivering.delete(id)}}
- async function drainOutbox(){const blocked=new Set();for(const o of Object.values(st.outbox)){if(o.receipt?.id){if(!['delivered','read','failed'].includes(o.receipt.status)&&now()-o.at<48*3600e3){try{const r=await api(o.pid+'/messages/'+encodeURIComponent(o.receipt.id));if(r?.data?.id===o.receipt.id){o.receipt=r.data;o.checkedAt=now();await saveState();if(r.data.status==='failed'&&!o.failureTold){o.failureTold=true;await saveState();await tell('WhatsApp delivery failed',o.agent+': '+(r.data.error?.code||'provider failed')).catch(()=>{})}}}catch(e){log('kirimdev receipt reconciliation: '+e.message)}}continue}if(blocked.has(o.agent+'|'+o.to))continue;try{await deliver(o.id)}catch{blocked.add(o.agent+'|'+o.to)}}}
+ async function drainOutbox(){const blocked=new Set();for(const o of Object.values(st.outbox)){if(o.receipt?.id){if(!['delivered','read','failed'].includes(o.receipt.status)&&now()-o.at<48*3600e3){try{const r=await api(o.pid+'/messages/'+encodeURIComponent(o.receipt.id));if(r?.data?.id===o.receipt.id){o.receipt=r.data;o.checkedAt=now();await saveState();
+      // delivered, read or failed: whoever waits for the end of this send hears it (a file link is kept alive until here, audit M4)
+      if(['delivered','read','failed'].includes(r.data.status))Promise.resolve().then(()=>receiptFinal(o)).catch(()=>{});
+      if(r.data.status==='failed'&&!o.failureTold){o.failureTold=true;await saveState();const line=await lineOf(o.agent),kn=st.known[o.agent+'|'+o.to]||{};
+       // WhatsApp did not deliver it: the customer has nothing, so the team hears it in their topic, not only the bell (audit H7)
+       await alertTeam(o.agent,line,{key:'failed|'+o.id,title:'WhatsApp did not deliver a message',detail:'Kirimdev reports: '+String(r.data.error?.code||r.data.error?.message||'failed').slice(0,120)+'. The customer did not get it.',from:o.to,conversationId:kn.conv||'',name:kn.name||''}).catch(()=>{})}}}catch(e){log('kirimdev receipt reconciliation: '+e.message)}}continue}if(o.status==='cancelled'||o.status==='held'||blocked.has(o.agent+'|'+o.to))continue;try{await deliver(o.id)}catch{blocked.add(o.agent+'|'+o.to)}}}
  // a handoff counts as answered once anything else reaches that customer on this line
- async function answered(agent,to){await state();for(const [id,a] of Object.entries(st.asked||{}))if(a.agent===agent&&a.from===String(to)&&now()-a.at>5000){delete st.asked[id];if(a.told)await solved?.(agent,'unanswered|'+id).catch(()=>{})}}
+ async function answered(agent,to){await state();for(const k of ['stopped|'+to])if(st.alerts[agent+'|'+k]){delete st.alerts[agent+'|'+k];await solved?.(agent,'customer|'+k).catch(()=>{})}for(const [id,a] of Object.entries(st.asked||{}))if(a.agent===agent&&a.from===String(to)&&now()-a.at>5000){delete st.asked[id];if(a.told)await solved?.(agent,'unanswered|'+id).catch(()=>{})}}
 
- // the agent's whatsapp_reply tool: only to someone who wrote to its own line in the last 24 hours (a tester in Test)
+ // the agent's whatsapp_reply tool: only to someone who wrote to its own line in the last 24 hours (a tester in Test). Never in Draft
+ // (audit H5): there only a person sends. The same text is not sent twice within 10 minutes (audit M5: a turn run again after a restart).
  async function reply(agent,to,text){const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
   const num=String(to||'').replace(/\D/g,'');await state();
+  if(modeOf(line)==='draft')throw Error('This line is in Draft: only a person on the team sends messages to customers (they approve your DRAFT posts, or write in Kirimdev). Nothing was sent.');
   if(num&&!within24h(agent,num)){const other=Object.keys(st.recent).find(k=>k.endsWith('|'+num)&&k.split('|')[0]!==agent&&now()-st.recent[k]<=24*3600e3);
    if(other)throw Error('That number wrote to another Kirimdev line ('+other.split('|')[0]+'), not to yours. Never answer another brand\'s customers; that agent answers them.')}
   if(!num||!within24h(agent,num))throw Error('That number has not written to this Kirimdev line in the last 24 hours, so WhatsApp does not allow a reply. Ask the team to contact them another way.');
-  // the team's answer relayed from the Questions topic ends the wait after a handoff too (11 Nov 2026, taken into git from fixer issue i87fbcb7b)
-  for(const [id,w] of Object.entries(st.waits||{}))if(w.agent===agent&&w.from===num)delete st.waits[id];
-  if(modeOf(line)==='test'&&!isTester(line,{from:num,conversationId:''})&&!st.testerNums[agent+'|'+num])throw Error('This line is in Test, so it only answers its testers.');
+  if(modeOf(line)==='test'&&!testerNow(agent,line,num))throw Error('This line is in Test, so it only answers its testers.');
   const parts=splitReply(text);if(!parts.length)throw Error('Write the text to send.');const sent=[];
-  const ops=[];for(const p of withCaptions(parts)){const id=await prepare(agent,line,num,p);if(id)st.outbox[id].approved=true;ops.push(id)}await saveState();
-  for(const id of ops){sent.push(await deliver(id));await wait(1500)}return sent.filter(Boolean)}
+  const sig=parts.join('\n---\n'),last=st.lastReply[agent+'|'+num];
+  if(last&&last.text===sig&&now()-last.at<10*60e3)throw Error('That exact message was already sent to this customer '+Math.max(1,Math.round((now()-last.at)/60e3))+' minute(s) ago. It was not sent again.');
+  const ops=[];for(const p of withCaptions(parts)){const id=await prepare(agent,line,num,p);if(id)ops.push(id)}await saveState();
+  if(!ops.length)throw Error('Nothing to send: aqeelOS has no picture for those tags.');
+  for(const id of ops){sent.push(await deliver(id));await wait(1500)}
+  st.lastReply[agent+'|'+num]={text:sig,at:now()};
+  // the team's answer relayed from the Questions topic ends the wait after a handoff: the chat is the agent's again
+  if(release(agent,num,'the team\'s answer was sent'))for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===num){delete st.pending[k];delete st.turns[k];clearTimer(timers.get(k));timers.delete(k)}
+  for(const [id,w] of Object.entries(st.waits||{}))if(w.agent===agent&&w.from===num)delete st.waits[id];
+  await saveState();return sent.filter(Boolean)}
+ // a send aqeelOS did not make itself but knows about (a payment helper that sends its own QR, Test only): while it runs, its echo from
+ // Kirimdev waits, and the message ids it reports are ours, so the echo is not taken for a team member's reply (audit H2: 31 of 38 replies dropped)
+ async function external(agent,to,promise){const line=await lineOf(agent);if(!line)return promise;await state();const fk=String(line.phoneNumberId)+'|'+String(to||'').replace(/\D/g,'');
+  const p=Promise.resolve(promise).then(async r=>{for(const id of r?.ids||[])st.ours[id]=now();if(r?.ids?.length)await saveState();return r});inflight.set(fk,p);
+  try{return await p}finally{if(inflight.get(fk)===p)inflight.delete(fk)}}
 
  // connect: one Kirimdev webhook for this line (Kirimdev makes the secret and shows it once)
  async function connect(agent){const line=await lineOf(agent);if(!line)throw Error('No line for '+agent+'.');
@@ -591,10 +708,16 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
     paused:Object.entries(st.paused).filter(([k,v])=>k.startsWith(agent+'|')&&v>t&&/^\d+$/.test(k.split('|')[1])).map(([k,v])=>({who:tail(k.split('|')[1]),until:v})).filter(x=>!seen.has(x.who)&&seen.add(x.who)),
     drafts:Object.values(st.drafts).filter(d=>d.agent===agent&&d.status==='waiting').sort((a,b)=>a.id-b.id).map(d=>({id:d.id,name:d.name,who:tail(d.from),text:d.parts.join('\n\n'),at:d.at,posted:!!d.posted,canSend:within24h(agent,d.from)})),
     handoffsWaiting:Object.values(st.handoffs).filter(h=>h.agent===agent).length,phoneNumberId:String(l.phoneNumberId||''),health:health().lines[agent]||null,
+    holds:Object.values(st.holds).filter(h=>h.agent===agent&&h.until>t).map(h=>({who:tail(h.from),since:h.at,until:h.until,wrote:h.n||0})),noReply:{today:st.noreply?.[agent]?.day===new Date(t).toISOString().slice(0,10)?st.noreply[agent].n:0,last:st.noreply?.[agent]?.last||null},modeSet:st.modes[agent]||null,
     delivery:pollsNow(agent,l,sec)?'poll':'webhook',polledAt:st.poll?.[agent]?.at||null,pollError:st.poll?.[agent]?.error||null,
     settings:{persona:l.persona||'',business:l.business||'',language:l.language||'',pauseMin:Number(l.pauseMin??DEFAULT_PAUSE),resetWords:l.resetWords||['reset'],resetText:l.resetText||'',
-     testers:(l.testers||[]).map(t=>({who:t.who||'',phone:String(t.phone||''),chat:!!t.conversationId})),payment:l.payment||null,orders:l.orders||null,labels:l.labels?.allowed||[]}}}))}
- async function setMode(agent,mode){if(!MODES.includes(mode))throw Error('Mode is test, draft or live.');const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');c.lines[agent].mode=mode;await put(CONF,c,0o644);return true}
+     testers:(l.testers||[]).map(t=>({who:t.who||'',phone:String(t.phone||''),chat:!!t.conversationId})),payment:l.payment||null,orders:l.orders||null,labels:l.labels?.allowed||[],approvers:(l.approvers||[]).map(a=>({who:a.who||'',telegramId:String(a.telegramId||'')}))}}}))}
+ // a mode change is always a person's, on the page: written down with who and when, shown in the bell, logged (audit M6)
+ async function setMode(agent,mode,by=''){if(!MODES.includes(mode))throw Error('Mode is test, draft or live.');const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');await state();
+  const was=st.modes[agent]?.mode||c.lines[agent].mode||'test';c.lines[agent].mode=mode;await put(CONF,c,0o644);st.modes[agent]={mode,at:now(),by:String(by||'an admin'),was};await saveState();
+  log('kirimdev '+agent+': mode '+was+' → '+mode+' by '+(by||'an admin'));
+  await activity(agent,(c.lines[agent].persona||agent)+'’s Kirimdev line is now '+mode[0].toUpperCase()+mode.slice(1),'Was '+was+'. Changed by '+(by||'an admin')+'. '+(mode==='live'?'It answers every customer by itself.':mode==='draft'?'It writes replies; a person approves each one.':'It answers only its testers.')).catch(()=>{});
+  await solved?.(agent,'kirimdev|mode').catch(()=>{});return true}
  async function setPause(agent,min){const n=Number(min);if(!Number.isInteger(n)||n<0||n>1440)throw Error('The quiet time is a whole number of minutes, 0 to 1440.');const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');c.lines[agent].pauseMin=n;await put(CONF,c,0o644);return n}
 
  // ---- Plug and play (7 Nov 2026, the owner: "If it's a clean OS, the user inserts the key, then how does the number
@@ -626,6 +749,9 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
     // a tester known by their chat only (no number, 8 Nov 2026: Aqeel on Randy's and Gilang's lines) stays as they are
     const chat=!phone&&old.find(o=>o.who===who&&!o.phone&&o.conversationId);if(chat)return {who,conversationId:chat.conversationId};if(!/^\d{6,16}$/.test(phone))throw Error('The number for '+who+' is not a phone number (country code first, like 6281234567890).');
     const was=old.find(o=>String(o.phone||'').replace(/\D/g,'')===phone)||old.find(o=>o.who===who&&!o.phone);return {who,phone,...(was?.conversationId?{conversationId:was.conversationId}:{})}}).filter(Boolean)}
+  // who may approve drafts from Telegram (audit H5): a name and the person's Telegram user id (a number)
+  if('approvers' in b){const A=Array.isArray(b.approvers)?b.approvers:[];if(A.length>20)throw Error('Twenty approvers at most.');
+   l.approvers=A.map(a=>{const who=str(a?.who,40),id=String(a?.telegramId??'').trim();if(!who&&!id)return null;if(!/^\d{4,15}$/.test(id))throw Error('The Telegram id of '+(who||'an approver')+' is a number (their user id, not their @name).');return {who:who||id,telegramId:id}}).filter(Boolean);if(!l.approvers.length)delete l.approvers}
   if('resetWords' in b){const W=(Array.isArray(b.resetWords)?b.resetWords:String(b.resetWords||'').split(',')).map(w=>str(w,30)).filter(Boolean).slice(0,5);l.resetWords=W.length?W:['reset']}
   if('resetText' in b){const v=str(b.resetText,300);if(v)l.resetText=v;else delete l.resetText}
   if('payment' in b){const p=b.payment;if(!p||p.helper==null&&!p.card&&!p.currency&&!p.min&&!p.max)delete l.payment;else{const o={};
@@ -670,7 +796,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    if(source==='payment'){if(!(add.includes(n)&&(n==='Customer'||/^S-/.test(n))||remove.includes(n)&&n==='Checkout'))throw Error('A payment sets Customer and S- labels and removes Checkout only, not '+n+'.')}
    else{if(LABEL_NEVER.test(n))throw Error('"'+n+'" is never yours to set: '+(/^s-|^customer$/i.test(n)?'aqeelOS sets Customer and S- labels itself once a payment is confirmed.':'only a person sets it.'));
     if(!allowed.has(n))throw Error('"'+n+'" is not one of the labels you may set'+(allowed.size?': '+[...allowed].join(', '):' (this line allows none yet)')+'.')}}
-  const mode=modeOf(line),tester=isTester(line,{from:phone,conversationId})||!!(phone&&st.testerNums[agent+'|'+phone]),who=phone?tail(phone):conversationId;
+  const mode=modeOf(line),tester=testerNow(agent,line,phone,conversationId),who=phone?tail(phone):conversationId;
   if(mode==='test'&&!tester){log('kirimdev '+agent+': labels '+labelWords({add,remove})+' for '+who+' not set (Test: testers only)');return {set:false,why:'The line is in Test: labels are set on the testers only.'}}
   if(mode==='draft'&&source==='agent'){const k=agent+'|'+conversationId,pr=st.proposed[k]||{add:[],remove:[]};
    pr.add=[...new Set([...pr.add.filter(x=>!remove.includes(x)),...add])];pr.remove=[...new Set([...pr.remove.filter(x=>!add.includes(x)),...remove])];st.proposed[k]=pr;await saveState();
@@ -709,7 +835,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   if(w?.id){try{await api('webhook_subscriptions/'+encodeURIComponent(w.id),null,{method:'DELETE'});webhook='deleted'}
    catch(e){if(e.status===404)webhook='gone';else throw Error('Kirimdev did not delete the webhook ('+e.message+'). Nothing changed; try again.')}}
   delete sec[agent];await put(SEC,sec);c.disconnected={...(c.disconnected||{}),[agent]:{...line,at:now()}};delete c.lines[agent];await put(CONF,c,0o644);accCache=null;
-  await state();if(st.poll)delete st.poll[agent];const h=st.health?.lines?.[agent];for(const k of Object.keys(h?.told||{}))await solved(agent,k).catch(()=>{});if(st.health?.lines)delete st.health.lines[agent];
+  await state();if(st.poll)delete st.poll[agent];delete st.modes[agent];const h=st.health?.lines?.[agent];for(const k of Object.keys(h?.told||{}))await solved(agent,k).catch(()=>{});if(st.health?.lines)delete st.health.lines[agent];
   await saveState();log('kirimdev '+agent+': disconnected (webhook '+webhook+'), history kept');return {webhook}}
  // Renew webhook secret: Kirimdev makes a new one, aqeelOS keeps it, then the old ones are revoked in Kirimdev
  async function renewSecret(agent){const w=(await readJson(SEC,{}))[agent];if(!w?.id)throw Error('This line has no webhook, so there is no secret to renew.');
@@ -757,11 +883,16 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  async function fixQuiet(){await state();if(st.fixedQuiet)return;const c=await readJson(CONF,{lines:{}});let n=0;
   for(const l of Object.values(c.lines||{}))if(Number(l.pauseMin)===0){l.pauseMin=DEFAULT_PAUSE;n++}
   if(n)await put(CONF,c,0o644);st.fixedQuiet=now();await saveState();if(n)log('kirimdev: quiet time 0 set to '+DEFAULT_PAUSE+' min on '+n+' line(s)')}
+ // a run's query file (the whole prompt: the conversation and the run key) is deleted when the run ends; one left by a killed run is
+ // removed here once it is 15 minutes old (audit M3: about 30 were left since 7 Nov)
+ async function sweepQueries(){let n=0;for(const f of await readdir(DATA).catch(()=>[])){if(!/^kirimdev-(query|q)-[\w-]+\.txt$/.test(f)&&!/^kirimdev-state\.json\.\d+\.[\w-]+\.tmp$/.test(f))continue;const p=path.join(DATA,f),s=await stat(p).catch(()=>null);if(s&&now()-s.mtimeMs>15*60e3){await unlink(p).catch(()=>{});n++}}
+  if(n)log('kirimdev: removed '+n+' left-over run file(s)');return n}
  async function resume(){await state();for(const [k,p] of Object.entries(st.pending)){const l=await lineOf(p.agent);if(l)schedule(k,l)}
+  await sweepQueries().catch(e=>log('kirimdev sweep: '+e.message));
   if(!iv){iv=setInterval(()=>tick().catch(e=>log('kirimdev retry: '+e.message)),30000);iv.unref?.()}
   // the Kirimdev API check: a minute after start, then every 10 minutes
   if(!piv){piv=setInterval(()=>poll().catch(e=>log('kirimdev poll: '+e.message)),pollEvery);piv.unref?.()}
   await fixQuiet().catch(e=>log('kirimdev quiet time: '+e.message));
   if(!civ){civ=setInterval(()=>check().catch(e=>log('kirimdev check: '+e.message)),checkEvery);civ.unref?.();setTimer(()=>check().catch(e=>log('kirimdev check: '+e.message)),60e3)?.unref?.()}
   for(const a of Object.keys(await lines()))await ensureEvents(a).catch(e=>log('kirimdev '+a+': could not add message.sent to the webhook: '+e.message))}
- return {msgText,teamPost:telegram,receive,reply,sendDocument,deliveryCheck,draft,labelContact,labelList,connect,webhook,ensureEvents,status,check,health,setKey,numbers,saveLine,connectWebhook,disconnect,renewSecret,testSend,poll,fixQuiet,account:async()=>{await state();return health().account},setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}
+ return {msgText,teamPost:telegram,receive,reply,teamMessage,external,alertTeam,sweepQueries,release:async(agent,num,by='')=>{await state();const r=release(agent,String(num||'').replace(/\D/g,''),'released by '+(by||'an admin'));if(r){for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===String(num).replace(/\D/g,''))schedule(k,{debounceSec:5});await saveState()}return r},sendDocument,deliveryCheck,draft,labelContact,labelList,connect,webhook,ensureEvents,status,check,health,setKey,numbers,saveLine,connectWebhook,disconnect,renewSecret,testSend,poll,fixQuiet,account:async()=>{await state();return health().account},setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}
