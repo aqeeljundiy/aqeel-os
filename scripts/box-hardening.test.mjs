@@ -96,6 +96,15 @@ test('CR-6: a box where the rules cannot be set says so in its log and files one
 test('H-10: an agent\'s screen listens on its socket only: no VNC port on any address',()=>{
  const src=readFileSync(AU,'utf8');assert.match(src,/-SecurityTypes None -rfbport -1 -localhost -rfbunixpath '\$sd\/rfb\.sock' -rfbunixmode 0660/);assert.equal(/-rfbport 0\b/.test(src),false)});
 
+test('H-15: a headless Chrome left running with a profile under /tmp and an open debugging port counts as a leftover',()=>{
+ const b=fwBox();const ps=['2055083 1 claude 45778 /home/claude/.hermes/tools/chromium-1208/chrome-linux64/chrome --headless=new --no-sandbox --disable-gpu --user-data-dir=/tmp/probe-chrome --remote-debugging-port=9827 --window-size=1440,900 about:blank',
+  '2055090 2055083 claude 45778 /home/claude/.hermes/tools/chromium-1208/chrome-linux64/chrome --type=renderer --headless=new --user-data-dir=/tmp/probe-chrome --remote-debugging-port=9827',
+  '4127845 1 claude 494 /home/claude/.hermes/tools/chromium-1208/chrome-linux64/chrome --remote-debugging-port=0 --no-first-run',
+  '3847248 1 ag-a1 948 /opt/aqeelos/chrome/chrome --no-sandbox --user-data-dir=/home/claude/workspaces/a1/.browser --remote-debugging-port=19601'].join('\n');
+ writeFileSync(b.H+'/ps.txt',ps+'\n');const r=b.run(`orphan_kinds claude < '${b.H}/ps.txt'`);
+ assert.equal(r.out,'2055083 1 claude 45778 probe');
+ assert.equal(b.run('ORPH_WATCH=900; orphan_step probe 90000 86400 900 0 0').out,'stop');assert.equal(b.run('orphan_step probe 45778 100 900 0 0').out,'none')});
+
 // ---------- auto-update and engine patches ----------
 test('L5: a version is given up on at once after a failed check or go-live, and only after three tries when the server was busy or the deploy ran out of time',()=>{
  const s=read('auto-update.mjs');const m=/function giveUp\(v,passing\)\{[\s\S]*?\n[^\n]*\}/.exec(s);assert.ok(m);

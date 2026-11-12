@@ -1019,6 +1019,9 @@ orphan_kinds(){
     k=="" && a ~ /^next-server [(]v[0-9]/ {k="app"}
     k=="" && a ~ /^node .*[/]hermes-ui-staging[/]app[/]server[.]mjs( |$)/ {k="stage"}
     k=="" && a ~ /^node .*[/]tmp[/]aq-stage[/]app[/]server[.]mjs( |$)/ {k="check"}
+    # H-15: a headless Chrome somebody started by hand for a look (profile under /tmp, an open debugging port) and left
+    # running: pnp-box had one for 13 hours. Treated like a leftover app: stopped after 24 h without a client on its port.
+    k=="" && a ~ /[/]chrome .*--headless/ && a ~ /--user-data-dir=[/]tmp[/]/ && a ~ /--remote-debugging-port[=]/ && a !~ /--type=/ {k="probe"}
     k!="" {print $1, $2, $3, $4, k}'
 }
 # the ports process $1 listens on, from `ss -Htlnp` lines on stdin
