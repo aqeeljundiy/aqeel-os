@@ -226,6 +226,7 @@ lock_home(){
   local n uid acl="" d
   while read -r n; do
     ok_name "$n" || continue
+    handover_failed "$n" && continue
     uid=$(awk -v n="$n" '$1==n && $2 ~ /^[0-9]+$/ {print $2; exit}' "$UIDS" 2>/dev/null)
     [ -n "$uid" ] && [ "$uid" -ge 2001 ] && acl="$acl,u:$uid:--x"
   done < "$REQ"
@@ -271,10 +272,12 @@ ws_top(){
 # Refused while any process of the agent's user ($3, a name or a number) runs: with none, nothing can swap a name under
 # the walk. chown -h changes a link, never its target; a file with a second name elsewhere (a hard link) is left alone.
 hand_tree(){
-  local own=$1 ws=$2 u=$3 acl=${4:-}
+  local own=$1 ws=$2 u=$3 acl=${4:-} strip=${5:-}
   [ -d "$ws" ] && [ ! -L "$ws" ] || return 1
   pgrep -u "$u" >/dev/null 2>&1 && { echo "agent users: $ws not handed over: processes of $u still run" >&2; return 1; }
   find "$ws" -xdev \( -type f -links +1 \) -o -exec chown -h -- "$own" {} +
+  # $5: a user number whose access-list entries go (the way back of a move to its own user)
+  [[ "$strip" =~ ^[0-9]{4,9}$ ]] && { setfacl -R -P -x "u:$strip" "$ws" 2>/dev/null; setfacl -R -P -x "d:u:$strip" "$ws" 2>/dev/null; }
   [ -n "$acl" ] || return 0
   find "$ws" -xdev -type d -exec chmod 2770 {} + 2>/dev/null
   find "$ws" -xdev -type f -links 1 -exec chmod ug+rw,o-rwx {} + 2>/dev/null
@@ -295,6 +298,118 @@ make_user(){
   ws_top "$u" "$ws" || return 1
   if [ -f "$PUB" ]; then install -m 644 "$PUB" "$KEYS/$u"; fi
   echo "$u"
+}
+
+# Giving an agent that has run as the owner until now its own user (the "Trusted: off" switch; scripts/own-user.sh). A new
+# agent has nothing running; this one has an engine screen (display and Chrome as the owner) holding its folder, and its
+# real browser sign-ins sit in the engine screen's profile (.screen/browser-profile), not in the .browser the own user's
+# Chrome uses (found on 12 Nov 2026 for one such agent: its .browser was 5 days old). So a move is: record how it was,
+# stop only that agent's old screen, make the user and hand the folder over, carry the sign-ins over, bring the screen up,
+# check, and undo everything when the check fails (the app flips the agent's terminal to its user only once the user is in
+# .done, so a move that is undone changes nothing for the agent). Root's own folder $HAND keeps the record: <agent>.prev
+# (owner, mode, time), <agent>.acl (the folder's access list before) and, after a failed move, <agent>.failed (no new try
+# until that file is removed: rm /var/lib/aqeelos/handover/<agent>.failed).
+HAND=${AQ_HANDOVER:-/var/lib/aqeelos/handover}
+handover_failed(){ [ -f "$HAND/$1.failed" ]; }
+# a move, not a new agent: no user yet, and the folder is the owner's
+handover_needed(){
+  local n=$1 u ws="$HOMEC/workspaces/$1"
+  ok_name "$n" || return 1
+  u="ag-$n"; u=${u:0:32}
+  id "$u" >/dev/null 2>&1 && return 1
+  [ -d "$ws" ] && [ ! -L "$ws" ] || return 1
+  [ "$(stat -c %u "$ws" 2>/dev/null)" = "$(id -u "$OWNER" 2>/dev/null)" ]
+}
+handover_record(){
+  local n=$1 ws="$HOMEC/workspaces/$1"
+  mkdir -p "$HAND" && chmod 700 "$HAND"
+  printf 'agent=%s\nat=%s\nowner=%s\nmode=%s\n' "$n" "$(date +%s)" "$(stat -c %u:%g "$ws")" "$(stat -c %a "$ws")" > "$HAND/$n.prev"
+  getfacl -p "$ws" > "$HAND/$n.acl" 2>/dev/null
+}
+# only the old engine screen of this agent (display and Chrome run by the owner): its display on the profile's own socket,
+# its Chrome on the engine screen's profile. Nothing else of the owner's, and never the agent's gateway.
+legacy_screen_stop(){
+  local n=$1 ws="$HOMEC/workspaces/$1" sig p
+  local pats=("^Xvnc :[0-9]+ .*-rfbunixpath $HOMEC/.hermes/profiles/$n/bot-desktop/" "--user-data-dir=$ws/\\.screen/browser-profile( |\$)")
+  for sig in TERM KILL; do
+    for p in "${pats[@]}"; do pkill -"$sig" -u "$OWNER" -f -- "$p" 2>/dev/null; done
+    sleep 1
+  done
+  for p in "${pats[@]}"; do pgrep -u "$OWNER" -f -- "$p" >/dev/null 2>&1 && return 1; done
+  return 0
+}
+# the sign-ins: the engine screen's profile becomes the own user's .browser (the one it had is kept beside it), once, as the
+# agent's user; the engine screen's profile stays where it is for the way back
+adopt_profile(){
+  local n=$1 u=$2 ws="$HOMEC/workspaces/$1"
+  as_user "$u" sh -c 'ws=$1; src=$ws/.screen/browser-profile
+    [ -d "$src/Default" ] && [ ! -e "$ws/.browser/.aq-adopted" ] || exit 0
+    [ ! -e "$ws/.browser" ] || mv -- "$ws/.browser" "$ws/.browser.before-own-user" || exit 1
+    cp -a -- "$src" "$ws/.browser" || { rm -rf -- "$ws/.browser"; [ ! -e "$ws/.browser.before-own-user" ] || mv -- "$ws/.browser.before-own-user" "$ws/.browser"; exit 1; }
+    rm -f -- "$ws/.browser/SingletonLock" "$ws/.browser/SingletonSocket" "$ws/.browser/SingletonCookie"
+    : > "$ws/.browser/.aq-adopted"' sh "$ws" </dev/null
+}
+# the user runs a command, aqeelOS's key gets in over SSH (what its terminal and the nightly backup use), and its Chrome starts
+handover_check(){
+  local n=$1 u=$2 ws="$HOMEC/workspaces/$1" key="$HOMEC/.hermes/agent-ssh/id_ed25519" got
+  [ "$(as_user "$u" id -un </dev/null 2>/dev/null)" = "$u" ] || { echo "a command as $u does not run"; return 1; }
+  if [ "${AQ_NOSSH:-0}" != 1 ]; then
+    got=$(as_user "$OWNER" ssh -i "$key" -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$u@127.0.0.1" id -un </dev/null 2>/dev/null)
+    [ "$got" = "$u" ] || { echo "SSH as $u from aqeelOS is refused"; return 1; }
+  fi
+  if [ -x "$CHROME" ]; then
+    as_user "$u" sh -c 'cd "$1"; export HOME="$1"; d=$(mktemp -d "$1/.aq-chk.XXXXXX") || exit 1
+      timeout 40 "$2" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --user-data-dir="$d" --dump-dom about:blank >/dev/null 2>&1; rc=$?; rm -rf -- "$d"; exit $rc' sh "$ws" "$CHROME" </dev/null \
+      || { echo "Chrome does not start as $u"; return 1; }
+  fi
+  return 0
+}
+# the way back, from what the record says: the user, its key and its rules go, the folder goes back to its owner and its
+# access list loses the user's entries (the rest is left as it was)
+ws_back(){
+  local n=$1 u=$2 ws="$HOMEC/workspaces/$1" uid own
+  uid=$(id -u "$u" 2>/dev/null); own=$(sed -n 's/^owner=//p' "$HAND/$n.prev" 2>/dev/null | head -1)
+  [[ "$own" =~ ^[0-9]+:[0-9]+$ ]] || own="$(id -u "$OWNER"):$(id -g "$OWNER")"
+  hand_tree "$own" "$ws" "$u" "" "$uid" || return 1
+  [ -n "$uid" ] && setfacl -x "u:$uid" "$HOMEC" 2>/dev/null
+  chown -h "$own" "$ws"
+  return 0
+}
+handover_undo(){
+  local n=$1 u=$2 line cdp
+  pkill -KILL -u "$u" 2>/dev/null; sleep 1
+  line=$(port_line "$n"); cdp=$(echo "$line" | cut -d' ' -f3)
+  [ -n "$cdp" ] && iptables -D OUTPUT -o lo -p tcp --dport "$cdp" -m owner ! --uid-owner "$OWNER" -m owner ! --uid-owner "$u" -j REJECT 2>/dev/null
+  [ -n "$cdp" ] && iptables -D OUTPUT -o lo -p tcp --dport "$((cdp+10000))" -m owner ! --uid-owner "$OWNER" -m owner ! --uid-owner "$u" -m owner ! --uid-owner aq-wake -j REJECT 2>/dev/null
+  rm -f -- "$KEYS/$u"
+  ws_back "$n" "$u" || return 1
+  userdel "$u" 2>/dev/null; groupdel "$u" 2>/dev/null
+  return 0
+}
+# the whole move for one agent; prints the user's name when it worked (what make_user prints), nothing when it did not
+handover(){
+  local n=$1 u why="" r
+  ok_name "$n" || return 1
+  u="ag-$n"; u=${u:0:32}
+  handover_record "$n" || { report "$n" "own-user" "could not record how its folder was, so it was not moved to its own user. Nothing changed." "Own user not made"; return 1; }
+  if ! legacy_screen_stop "$n"; then
+    report "$n" "own-user" "its old screen would not stop, so it was not moved to its own user yet. Nothing changed; it is tried again at the next start of the box script." "Own user not made"; return 1
+  fi
+  r=$(make_user "$n") && [ -n "$r" ] || { handover_undo "$n" "$u"; report "$n" "own-user" "its user could not be made, so it stays as it was." "Own user not made"; return 1; }
+  if adopt_profile "$n" "$u"; then
+    [ -x "$CHROME" ] && { screen_up "$n" "$u" >/dev/null 2>&1; }
+    why=$(handover_check "$n" "$u") && { echo "agent users: $n moved to its own user $u" >&2; echo "$r"; return 0; }
+  else
+    why="its browser sign-ins could not be carried over"
+  fi
+  if handover_undo "$n" "$u"; then
+    : > "$HAND/$n.failed"
+    report "$n" "own-user" "moving it to its own user failed ($why), so everything was put back: its folder is the main user's again and it runs as before. Not tried again until $HAND/$n.failed is removed." "Own user not made"
+  else
+    : > "$HAND/$n.failed"
+    report "$n" "own-user" "moving it to its own user failed ($why) and going back stopped part way: look at its folder's owner and the user $u." "Own user: move stuck"
+  fi
+  return 1
 }
 
 # a display and a Chrome port that stay the same for each agent (kept in $PORTS)
@@ -781,6 +896,8 @@ once(){
   local out="" n r
   while read -r n; do
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
+    handover_failed "$n" && continue
+    if handover_needed "$n"; then r=$(handover "$n") && [ -n "$r" ] && out="$out$r"$'\n'; continue; fi
     r=$(make_user "$n") && out="$out$r"$'\n'
   done < "$REQ"
   printf '%s' "$out" | own_put "$DONE"
