@@ -93,3 +93,10 @@ test('an agent card is not a button with buttons inside: its Chat is the button'
  assert.match(p,/ACT\['agent-card-go'\]=/);
  assert.ok(!/\.ag-list \.agent-foot>\.agent-go\{display:none\}/.test(src('app.css')),'in the list it is out of sight, still reachable by keyboard');
 });
+
+test('members are not offered Restart agents or Check for updates in the search (the server refuses both)', ()=>{
+ const p=fn('core.js','palette');
+ assert.match(p,/const adm=S\.me\?\.admin!==false;/);
+ assert.match(p,/\.\.\.\(adm\?\[\{g:'Actions',l:'Restart agents'/);
+ assert.match(p,/\.\.\.\(adm\?\[\{g:'Actions',l:'Check for updates'/);
+});
