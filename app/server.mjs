@@ -2021,7 +2021,7 @@ if(LIVE_APP){rec.add('graphify',{run:()=>graphify.ensure(),reads:['skills','cfg'
 // each agent's own map and its small search tool, and the size of what it sends on every call (agent-graph.mjs, 11 Nov 2026).
 // One agent per pass, never one that is replying (a reply here, or a session the engine reports running; no answer counts as running)
 const graphBusy=async a=>{if([...LIVE].some(([k,r])=>!r.done&&String(k).split('|')[0]===a))return true;const s=await engineSessions(a).catch(()=>null);return !s||!!s.active};
-const agentGraph=createAgentGraph({HERMES_HOME,DATA,readConfig,setKey,pick,agents:()=>agentNames(),skip:a=>LIVE_APP?isTestAgent(a):false,busy:graphBusy,
+const agentGraph=createAgentGraph({HERMES_HOME,DATA,readConfig,setKey,pick,agents:()=>agentNames(),skip:async a=>LIVE_APP?isTestAgent(a):false,busy:graphBusy,
  paused:()=>engineUpd.busy()||!!gwRestarting||backups.busy(),writeSoul:(a,t,m)=>instructions.write(a,t,m)});
 if(LIVE_APP){const gTick=()=>agentGraph.tick().then(async r=>{if(r?.changed?.length)restartLater('graph search tool for '+r.changed.length+' agent(s)');
   for(const a of await agentNames())if(!await isTestAgent(a).catch(()=>false))await agentGraph.propose(a).catch(()=>{})}).catch(e=>console.warn('agent graph',e.message));
