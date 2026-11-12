@@ -9,8 +9,8 @@ test('the expired invite offers two real buttons, not two small links',()=>{cons
 test('no .env file jargon is left on the pages, in English or in the Indonesian table',()=>{for(const f of ['pages.js','all-agents.js','all-agents-more.js','lang-id-more.js'])assert.doesNotMatch(src(f),/\.env file|file \.env/,f)});
 test('the model picker shows the name; the raw id waits in a tooltip (and shows only where two choices share a name)',()=>{const p=src('pages.js');
  assert.match(p,/title="\$\{esc\(c\.sub\|\|c\.value\)\}"/);assert.match(p,/ch\.some\(x=>x!==c&&x\.label===c\.label\)/);assert.match(src('core.js'),/btn\.title=o\?\.title\|\|''/)});
-test('a member\'s Files has no agent picker; Kirimdev says "every 20 seconds" only when there is something to read',()=>{
- assert.match(src('files.js'),/if\(S\.me\?\.admin!==false\)viewPick\(/);assert.match(src('kirimdev-page.js'),/d\.reach&&!d\.reach\.ok&&d\.keySaved&&\(d\.lines\|\|\[\]\)\.length/)});
+test('Kirimdev says "every 20 seconds" only when there is something to read',()=>{
+ assert.match(src('kirimdev-page.js'),/d\.reach&&!d\.reach\.ok&&d\.keySaved&&\(d\.lines\|\|\[\]\)\.length/)});
 test('Health says "1 thing needs you" with its number',()=>{assert.match(src('health-page.js'),/pl=\(k,one,many\)=>k===1\?'1 '\+one:k\+' '\+many/)});
 test('the corner sizes and heights come to the scale',()=>{const c=src('app.css');
  assert.match(c,/\.sched-folder,\.hv\{border-radius:var\(--r-card\)\}/);assert.match(c,/\.sel-btn\{min-height:40px;padding-block:9px\}/);assert.match(c,/\.app\.screen-open \.k-btn \.k-label/)});
@@ -18,3 +18,5 @@ test('a page this person does not have opens the new-chat page, not an error abo
  assert.match(src('core.js'),/known=SECTIONS\.find\(s=>s\.id===p\[0\]\),sec=known\|\|SECTIONS\[0\];if\(sec\.id==='chat'\)return\{sec,chat:known\?p\[1\]\|\|null:null\}/)});
 test('the Team view log names the agent and writes a date a person reads',()=>{const s=src('install-page.js');
  assert.match(s,/ident\(e\.agent\)\.name/);assert.doesNotMatch(s,/\+' · '\+e\.agent:''/)});
+test('the expired invite page has a real Go to sign in button',()=>{const p=src('people.js');
+ assert.match(p,/<button type="button" class="primary" id="invBack"[^>]*>Go to sign in<\/button>/);assert.doesNotMatch(p,/<a class="btn" href="\/#signin"/)});

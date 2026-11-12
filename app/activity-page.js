@@ -27,8 +27,9 @@ PAGES.activity=async(p,el)=>{const gone=pageTok(el);setActions('');
  let d,iss=null;try{[d,iss]=await Promise.all([UI('/ui/activity'),S.me?.admin===false?null:UI('/ui/health/issues').catch(()=>null)])}catch(e){if(!gone())el.querySelector('#actList').innerHTML=alertBox(esc(e.message));return}if(gone())return;
  const l=d.items||[],box=el.querySelector('#actList');
  // the summary line counts what Health's Needs you counts (the same needGroups) plus the rows here that ask you to act, so it matches the list
- {const n=(iss?HealthIssues.needGroups(iss.items||[]).length:0)+l.filter(x=>x.ask).length,sub=document.querySelector('.page-head p');
-  if(sub)sub.textContent='What happened by itself: runs, fixes, restarts. '+(n?(n===1?'1 thing here asks you to act':n+' things ask you to act')+', see Needs you on System › Health.':'Nothing here needs you right now.')}
+ {const h=iss?HealthIssues.needGroups(iss.items||[]).length:0,m=l.filter(x=>x.ask).length,n=h+m,sub=document.querySelector('.page-head p');
+  const where=m&&h?'the ones marked below, and '+h+' on System › Health':m?'marked below':'on System › Health';
+  if(sub)sub.textContent='What happened by itself: runs, fixes, restarts. '+(n?(n===1?'1 thing asks you to act, ':n+' things ask you to act: ')+where+'.':'Nothing here needs you right now.')}
  if(!l.length){box.innerHTML='<div class="empty">'+icon('check',22)+'<b>Nothing yet</b><span>Runs, fixes and restarts that need nobody show up here.</span></div>';return}
  let last='',h='',k=0;for(const x of l){const g=Activity.day(x.t);if(g!==last){if(h)h+='</div>';h+='<div class="group-label">'+esc(g)+'</div><div class="card list">';last=g}h+=Activity.row(x,k++)}
  box.innerHTML=h+'</div>';
