@@ -1005,7 +1005,7 @@ if(LIVE_APP)setInterval(()=>browserChecks.tick().catch(e=>console.warn('browser 
 // after a key rotation (scripts/rotate-secrets.mjs): every old signature in the agents' settings and aqeelOS's scripts becomes the new one, first thing
 if(relayKeys.old&&LIVE_APP)setTimeout(async()=>{try{const names=new Set(['default',...await listAgents().catch(()=>[])]);for(const p of await readdir(path.join(HERMES_HOME,'profiles')).catch(()=>[]))names.add(p);
   const ch=await reissueSigned({HERMES_HOME,agents:[...names],cur:relayKeys.cur,old:relayKeys.old,log:m=>console.warn(m)});relayKeys.done();console.log('relay keys: re-issued the agents\' signed addresses after a rotation ('+ch.length+' files). Reload the agents once nothing is running.');
-  if(ch.length)restartLater('the agents\' tool addresses were re-issued')}catch(e){console.warn('relay keys: re-issue failed: '+e.message)}},3000);
+  if(ch.length)restartLater('tool addresses of the agents were re-issued')}catch(e){console.warn('relay keys: re-issue failed: '+e.message)}},3000);
 if(LIVE_APP)setInterval(async()=>{const f=path.join(DATA,'auto-update.json');let a;try{a=JSON.parse(await readFile(f,'utf8'))}catch{return}const l=a.last;if(!l||!/failed|refused/.test(l.result)||a.told===l.at)return;a.told=l.at;await writeFile(f,JSON.stringify(a,null,1)).catch(()=>{});await bottlenecks.event('update',l.result==='refused'?'An automatic update was skipped':'An automatic update failed',l.why).catch(()=>{})},5*60000).unref();
 // The desktop app for everyone: the public GitHub release (.github/workflows/desktop-app.yml). DESKTOP_RELEASES points elsewhere for a
 // private build; files in DATA/desktop are used when they are newer, or when no release can be reached.
