@@ -174,7 +174,7 @@ local_fw(){
 #   outer port (the wake proxy, aq-wake): the agent's user;   inner port (its Chrome): the agent's user and the wake proxy.
 # A port of an agent held by another user (someone listening on it while the agent's Chrome sleeps) is that user's alone, so the
 # wake proxy cannot be led to it, and is reported. Looked at every pass of the watcher (5 s); a change is applied at once.
-DEVTOOLS_RX=${AQ_DEVTOOLS_RX:-'--remote-debugging-port=|/agent-browser|adspower_global|SunBrowser|adspower-bridge[.]mjs|wake-proxy[.]mjs'}
+DEVTOOLS_RX=${AQ_DEVTOOLS_RX:-'--remote-debugging-[p]ort=|/agent-browser|adspower_global|SunBrowser|adspower-bridge[.]mjs|wake-proxy[.]mjs'}
 # what listens, one "<port> <uid> <lo|any> <command line>" per TCP listener (root sees every process)
 devtools_scan(){
   ss -Hltnpe 2>/dev/null | awk '{a=$4; u=0; p=""
