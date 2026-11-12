@@ -17,8 +17,8 @@ test('a file link: one PDF, an unguessable token, 15 minutes, a few downloads, t
  const DATA=await mkdtemp(path.join(tmpdir(),'dl-'));let t=1e12;const L=createDocLinks({DATA,PUBLIC_URL:'https://ai.example',now:()=>t});
  await assert.rejects(L.put({buffer:Buffer.from('<html>'),name:'a.pdf'}),/not a PDF/);
  await assert.rejects(createDocLinks({DATA,PUBLIC_URL:'http://ai.example'}).put({buffer:PDF,name:'a.pdf'}),/https/);
- const a=await L.put({buffer:PDF,name:'Protokol Continue.pdf'}),b=await L.put({buffer:PDF,name:'Protokol Continue.pdf'});
- assert.match(a.url,/^https:\/\/ai\.example\/doc\/[\w-]{43}\/Protokol%20Continue\.pdf$/);assert.notEqual(tokenOf(a.url),tokenOf(b.url));assert.equal(a.exp,t+DOC_TTL);
+ const a=await L.put({buffer:PDF,name:'Protocol.pdf'}),b=await L.put({buffer:PDF,name:'Protocol.pdf'});
+ assert.match(a.url,/^https:\/\/ai\.example\/doc\/[\w-]{43}\/Protocol.pdf$/);assert.notEqual(tokenOf(a.url),tokenOf(b.url));assert.equal(a.exp,t+DOC_TTL);
  const get=async(url,method='GET')=>{const r=res();await L.serve({method},r,tokenOf(url),url.split('/').pop());return r};
  const ok=await get(a.url);assert.equal(ok.code,200);assert.equal(ok.head['content-type'],'application/pdf');assert.deepEqual(ok.body,PDF);assert.equal(ok.head['cache-control'],'no-store');
  const wrong=res();await L.serve({method:'GET'},wrong,tokenOf(a.url),'other.pdf');assert.equal(wrong.code,404,'wrong name');
@@ -38,13 +38,13 @@ async function member({members=[{id:7,phone:'0812-3456-7890'}],protocols=[{name:
   if(u.pathname==='/api/auth/verify-identity')return ok({ok:true});if(u.pathname==='/api/admin/customers')return ok(members);
   if(/^\/api\/admin\/customers\/\d+$/.test(u.pathname))return ok({protocols});if(u.pathname==='/api/protocols/export-all.pdf')return ok(null);return {ok:false,status:404}};
  return {W,calls,make:createProtocolPdf({WORK:W,fetchFn})}}
-const CFG={baseUrl:'https://member.example',email:'admin@x.id',secret:'MEMBER_PW',lang:'id',filename:'Protokol.pdf',caption:'Ini protokolnya.'};
+const CFG={baseUrl:'https://member.example',email:'admin@example.com',secret:'MEMBER_PW',lang:'id',filename:'Protokol.pdf',caption:'Ini protokolnya.'};
 
 test('the member app client: login, this chat own number only, then the PDF; no member, two members or no protocol send nothing',async()=>{
  const m=await member();const r=await m.make('cove-support','+62 812-3456-7890',CFG);
  assert.deepEqual([r.pdf.equals(PDF),r.filename,r.caption],[true,'Protokol.pdf','Ini protokolnya.']);
- assert.equal(m.calls[0][3],JSON.stringify({emailOrPhone:'admin@x.id',memberCode:'s3cret'}));assert.match(m.calls.at(-1)[1],/export-all\.pdf\?customerId=7&lang=id/);assert.equal(m.calls.at(-1)[2],'sid=abc','the session cookie is kept');
- assert.match((await m.make('cove-support','628999000111',CFG)).none,/No member/);
+ assert.equal(m.calls[0][3],JSON.stringify({emailOrPhone:'admin@example.com',memberCode:'s3cret'}));assert.match(m.calls.at(-1)[1],/export-all\.pdf\?customerId=7&lang=id/);assert.equal(m.calls.at(-1)[2],'sid=abc','the session cookie is kept');
+ assert.match((await m.make('cove-support','6280000000008',CFG)).none,/No member/);
  assert.match((await (await member({members:[{id:1,phone:'6281234567890'},{id:2,whatsappNumber:'081234567890'}]})).make('cove-support','6281234567890',CFG)).none,/More than one/);
  assert.match((await (await member({protocols:[]})).make('cove-support','6281234567890',CFG)).none,/no protocol/);
  await assert.rejects((await member({pdf:Buffer.from('<html>')})).make('cove-support','6281234567890',CFG),/did not return a PDF/);
@@ -60,7 +60,7 @@ test('the sender: PDF, one-purpose link, document message with that link; the li
  // Kirimdev took the message, WhatsApp has not fetched the file yet: the link is still there (audit M4); it goes when the delivery is known
  assert.equal(docLinks.count(),1);assert.equal(await docLinks.revokeUrl(sent[0][2].link),true);assert.equal(docLinks.count(),0);assert.equal(await docLinks.revokeUrl('https://ai.example/other'),false);
  fail=true;await assert.rejects(send('cove-support',{phone:'6281234567890'},CFG),/Kirimdev said no/);assert.equal(docLinks.count(),0);
- assert.match((await send('cove-support',{phone:'628999000111'},CFG)).none,/No member/);assert.equal(sent.length,2,'nothing sent for an unknown number')});
+ assert.match((await send('cove-support',{phone:'6280000000008'},CFG)).none,/No member/);assert.equal(sent.length,2,'nothing sent for an unknown number')});
 
 test('the tool: only on a line with the setting, once per run, only to this chat number, failures tell the agent to hand off',async()=>{
  assert.equal(TOOLS('qris',{},{},false,false,false,false,false).some(t=>t.name==='send_protocol_pdf'),false);assert.ok(TOOLS('qris',{},{},false,false,false,false,true).some(t=>t.name==='send_protocol_pdf'));

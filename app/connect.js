@@ -123,7 +123,7 @@ const Connect={
   const q=list.find(x=>x.key&&!x.custom&&'p:'+x.key.slug===key);if(q)return Connect.key(d,q,{name,key});
   const cu=((await UI('/ui/connect/custom').catch(()=>({})))?.endpoints||[]).find(e=>'p:'+e.id===key);if(!d.isConnected)return;
   if(cu)return Connect.key(d,list.find(x=>x.custom)||{id:'custom',name,custom:true,key:{slug:'custom'}},{name,key,id:cu.id});
-  Connect.view(d,'Reconnect '+name,alertBox(esc(name)+' is not one aqeelOS can connect from here any more. Remove it, then add it again.',{act:''}),`<button class="ghost" data-act="close">Close</button>`)},
+  Connect.view(d,'Reconnect '+name,alertBox(esc(name)+' is not one aqeelOS can sign in to from here any more. Add it again as a new account; the old one can then be removed.',{act:'acct-new',label:'Add an account',ic:'plus'}),`<button class="ghost" data-act="close">Close</button>`)},
  // a provider's key from System › Keys: the same key step
  async forKey(slug,label,set){const d=Connect.open((set?'Reconnect ':'Connect ')+label);let list=[];try{list=await Connect.list()}catch{}if(!d.isConnected)return;
   const p=list.find(x=>x.key?.slug===slug)||{id:slug,name:label,key:{slug}};Connect.key(d,p,set?{name:p.name,key:'p:'+slug}:null)}};

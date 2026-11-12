@@ -1,0 +1,19 @@
+#!/bin/sh
+# Refuses a push that carries a secret or private data (12 Nov 2026, secrets audit). Switch it on once per clone:
+#   git config core.hooksPath scripts/hooks
+# It runs gitleaks over the commits being pushed (when gitleaks is installed; without it a warning is printed, and CI still scans) and the repo's privacy test.
+# Skip it only when you must: git push --no-verify (CI runs the same checks and fails the push to main anyway).
+ROOT=$(git rev-parse --show-toplevel) || exit 1
+cd "$ROOT" || exit 1
+z=0000000000000000000000000000000000000000
+if command -v gitleaks >/dev/null 2>&1; then
+ while read -r lref lsha rref rsha; do
+  [ "$lsha" = "$z" ] && continue
+  if [ "$rsha" = "$z" ]; then range="$lsha --not --remotes"; else range="$rsha..$lsha"; fi
+  gitleaks git . --redact --no-banner --log-opts="$range" || { echo "pre-push: gitleaks found a secret in the commits being pushed; push refused."; exit 1; }
+ done
+else
+ echo "pre-push: gitleaks is not installed, skipping the secret scan (CI will still run it): https://github.com/gitleaks/gitleaks"
+fi
+node --test scripts/repo-privacy.test.mjs >/dev/null 2>&1 || { echo "pre-push: the privacy test fails; run: node --test scripts/repo-privacy.test.mjs"; exit 1; }
+exit 0

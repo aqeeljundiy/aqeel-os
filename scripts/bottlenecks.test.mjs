@@ -30,7 +30,7 @@ await t('a system report never shows: the fixer has it and sends the one message
  assert.equal(personNeed(rep('a1','Check the model subscription usage limit, add an API key',{system:true})),null)});
 await t('each need once: app sign-ins merged across agents, a group with its reports, the same report from two agents',()=>{
  const items=[rep('sela','A sign-in for figma, notion and slack. They have no saved tokens'),rep('cove-social','A sign-in for Notion and for Slack (OAuth)'),rep('bay-sales','Sign-in for figma, notion and slack; no cached tokens exist'),rep('default','Customer runs need a payment label tool',{system:true}),
-  {id:'event|g1',kind:'group',agent:'cove-social',agentName:'cove-social',topic:'health|cove-social|group|-5390379831',title:'Removed from the Telegram group Continue - Socials'},
+  {id:'event|g1',kind:'group',agent:'cove-social',agentName:'cove-social',topic:'health|cove-social|group|-5000000001',title:'Removed from the Telegram group Continue - Socials'},
   rep('cove-social','The bot was removed from the group Continue - Socials (Telegram says the bot is left). A bot cannot add itself back.'),
   rep('a1','A new API key for Xendit'),rep('a2','A new API key for Xendit'),...SHOT];
  const p=forPopup(items);assert.deepEqual(p.map(x=>x.kind),['apps','apps','group','report'],JSON.stringify(p.map(x=>x.title)));
@@ -41,11 +41,11 @@ await t('a skill shared by two agents is one problem: same skill and files, what
  assert.equal(skillKey({skill:'creative/continue-vial-labels',missing:['assets/texture.png']}),skillKey({skill:'continue-vial-labels',missing:['assets/texture.png']}));
  assert.notEqual(skillKey({skill:'a/x',missing:['assets/1.png']}),skillKey({skill:'a/x',missing:['assets/2.png']}))});
 await t('a group counts only when it is in the agent\'s settings: its team group, or an id in its config or .env',()=>{
- const tg={groups:{'cove-support':{chatId:-1003999095054},'bay-sales':{chatId:-1003989506863}}};
- const bio=configuredGroups('bay-sales',{teamGroups:tg,texts:['telegram:\n  allowed_chats: [-1003989506863]','TELEGRAM_BOT_TOKEN=123:abc']});
- assert.deepEqual([...bio],['-1003989506863']);assert.equal(bio.has('-1003999095054'),false,'another agent\'s team group is not its own');
+ const tg={groups:{'cove-support':{chatId:-1001000000001},'bay-sales':{chatId:-1001000000002}}};
+ const bio=configuredGroups('bay-sales',{teamGroups:tg,texts:['telegram:\n  allowed_chats: [-1001000000002]','TELEGRAM_BOT_TOKEN=123:abc']});
+ assert.deepEqual([...bio],['-1001000000002']);assert.equal(bio.has('-1001000000001'),false,'another agent\'s team group is not its own');
  assert.deepEqual([...configuredGroups('cove-social',{teamGroups:tg,texts:['model: x','PORT=4400']})],[],'a group it only chatted in once is history');
- assert.deepEqual([...configuredGroups('x',{texts:['HOME_CHANNEL=-5390379831']})],['-5390379831']);
+ assert.deepEqual([...configuredGroups('x',{texts:['HOME_CHANNEL=-5000000001']})],['-5000000001']);
  assert.deepEqual([...configuredGroups('default',{texts:['#     # allowed_chats: ["-1001234567890"]','telegram:\n  # home: -1009876543210','x: 1']})],[],'commented examples are not settings')});
 await t('an app with its own sign-in item takes the agents\' reports about it; that item\'s button opens the sign-in',()=>{
  const p=forPopup([{id:'signin|a|slack',kind:'signin',agent:'a',agentName:'a',title:'Slack needs signing in',signin:{name:'slack'}},rep('sela','A sign-in for Slack (OAuth), no tokens')]);

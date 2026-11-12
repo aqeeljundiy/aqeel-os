@@ -2,7 +2,7 @@
 // script of the Continue support agent. Same calls, now in aqeelOS: log in to the member app as the line's admin user, find the member
 // by THIS chat's own number (never one from the model), refuse when two members share it or none has a protocol, and give the
 // protocols as plain text or download "all protocols" as one PDF. Setting, per line in kirimdev.json:
-//   "protocolPdf": {"baseUrl":"https://member.continuelife.id","email":"randy@admin.com","secret":"CONTINUE_MEMBER_RANDY_PASSWORD","lang":"id","filename":"Protokol Continue.pdf","caption":"Ini protokolnya, kak."}
+//   "protocolPdf": {"baseUrl":"https://member.example.com","email":"admin@example.com","secret":"MEMBER_ADMIN_PASSWORD","lang":"id","filename":"Protocol.pdf","caption":"Ini protokolnya, kak."}
 // secret = the NAME of a key (agent-keys.mjs: the app's own store, else the agent's .secrets), never the value.
 // Audit 12 Nov 2026, H8a: the text script on the box printed EVERY member who shares the number (a couple, a parent and child, each
 // saw the other's protocol and dose), while the PDF path refused. One rule now for both, here: exactly one member, or hand off.

@@ -2,7 +2,7 @@
 // account, a revoked sign-in or no model reachable?" (12 Nov 2026, server audit). Such a result says nothing about the thing
 // that was being checked, so it is INCONCLUSIVE: auto-rollback does not undo anything, the fixer's proof and fix runs and the
 // deploy live test do not count it as a failure, and everything is tried again after the account's reset time if it is known.
-// Before this, one used-up Claude account on pnp-box undid good changes on 6 agents and opened "Automatic rollback" issues,
+// Before this, one used-up Claude account on one box undid good changes on 6 agents and opened "Automatic rollback" issues,
 // Elkiya started 372 proof runs in a day, and agents moved 148 times between accounts that were all used up.
 // The strings are the real ones from the two servers' logs and agent answers (errors.log, ui.log, issues.json):
 //   "You've hit your session limit · resets 6pm (UTC)"            (Claude subscription, HTTP 429)
