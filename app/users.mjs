@@ -9,6 +9,7 @@ import path from 'node:path';
 import {readPicture,emojiSlugs,AVATAR_TYPES} from './avatar-file.mjs';
 import {HELP_AGENT} from './agentops.mjs';
 import {addonDecision} from './addons.mjs';
+import {createAccountLimiter,safeEq} from './account-limit.mjs';
 
 export const LEVELS=['chat','edit','owner'];           // per-agent share levels, weakest first
 // What a member may do beyond chatting. Admins can do everything. Each one only ever applies to agents
@@ -35,7 +36,7 @@ const PEOPLE_DIR=path.join(homedir(),'people');      // members' own folders: ~/
 // next time; an account with no email keeps signing in by username until it adds one (the app asks at sign-in), so nobody
 // is locked out. relaxed: a test copy (deploy checks), where the owner may still sign in with the password alone.
 const AGENT_ID={test:a=>/^[a-z0-9][a-z0-9_-]{0,63}$/.test(String(a))&&!(String(a) in Object.prototype)};   // an agent's id in an address or a body: never a name every object has (constructor, __proto__)
-export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=async()=>'aqeelOS',relaxed=true,ownerSeesAll=()=>false}={}){
+export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=async()=>'aqeelOS',relaxed=true,ownerSeesAll=()=>false,limiter=createAccountLimiter()}={}){
  const hooks={};   // onJoin(person): the server makes their lead agent
  const FILE=path.join(DATA,'users.json');
  let db=null;
@@ -148,17 +149,24 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   const what=purpose==='login'?'sign in to aqeelOS':'confirm this email for aqeelOS';
   await mail.deliver(email,code+' is your aqeelOS code',`Hi ${u.name},\n\nYour code to ${what} is:\n\n    ${code}\n\nIt works for 10 minutes. If you didn't ask for it, you can ignore this email.\n\naqeelOS`);
   return key}
+ // per account too (not only per code: a new code is one password away): wrong codes for one account make it wait longer each time
  function checkCode(key,code,purpose){const v=codes.get(key);if(!v||v.purpose!==purpose||v.exp<Date.now()){codes.delete(key);return {error:'That code expired. Ask for a new one.'}}
-  if(++v.tries>5){codes.delete(key);return {error:'Too many tries. Ask for a new code.'}}
-  if(!check(String(code||'').trim(),v.hash))return {error:'That code is not right.'};codes.delete(key);return {ok:true,uid:v.uid,email:v.email}}
+  const lk=purpose+':'+v.uid,w=limiter.wait(lk);if(w)return {error:limiter.text(w),wait:w};
+  if(++v.tries>5){codes.delete(key);limiter.fail(lk);return {error:'Too many tries. Ask for a new code.'}}
+  if(!check(String(code||'').trim(),v.hash)){limiter.fail(lk);return {error:'That code is not right.'}}codes.delete(key);limiter.ok(lk);return {ok:true,uid:v.uid,email:v.email}}
  /* ---------- signing in ---------- */
  const GRACE=14*864e5;
  const graceOn=()=>Date.now()<(db.emailLoginSince||0)+GRACE;
  // email (any case, spaces trimmed) for everyone; a username or name only in the 14 days, or while that account has no email
- async function login(name,pw,ownerCheck){await load();if(ownerCheck)envOwnerCheck=ownerCheck;const n=norm(name);let x=null;
+ const findLogin=n=>{let x=null;
   if(n.includes('@'))x=[owner(),...db.users].find(y=>y.email&&norm(y.email)===n)||null;
   else if(!n)x=relaxed||graceOn()||!db.ownerEmail?owner():null;
   else{x=n===norm(db.ownerName)||n===norm(db.ownerUsername||'owner')?owner():db.users.find(y=>norm(y.username)===n||norm(y.name)===n)||null;if(x?.email&&!graceOn())x=null}
+  return x};
+ // the key the per-account limit counts a sign-in try under: the account the name leads to, else the name itself (so a made-up name
+ // is limited like a real one and nothing tells them apart)
+ async function loginKey(name){await load();const n=norm(name),x=findLogin(n);return 'pw:'+(x?x.id:'name:'+n.slice(0,120))}
+ async function login(name,pw,ownerCheck){await load();if(ownerCheck)envOwnerCheck=ownerCheck;const n=norm(name);const x=findLogin(n);
   if(!x)return null;if(x.id==='owner')return ownerPwOk(pw)?owner():null;
   if(x.disabled||!check(pw,x.pw))return null;x.last=Date.now();await save();return x}
  // after a sign-in: the quiet note when they used the old username
@@ -279,11 +287,14 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   await load();
   const body=async()=>{try{return JSON.parse(await readBody(req,8192))}catch{return {}}};
   if(p==='/ui/me'&&req.method==='GET'){const shares={};for(const a of new Set([...Object.keys(db.shares),...Object.keys(db.agentOwners)])){const l=level(u,a);if(l)shares[a]=l}return send(res,200,{...pub(u),admin:isAdmin(u),caps:isAdmin(u)?Object.keys(CAPS):eff(u).caps,role_name:isAdmin(u)?null:(eff(u).role==='custom'?'Custom':db.roles[eff(u).role]?.name),home:isAdmin(u)?homedir():home(u),...(u.role==='owner'?{recovery:!!db.ownerRecovery}:{}),...(isAdmin(u)?{hermes_home:process.env.HERMES_HOME||path.join(homedir(),'.hermes'),workspaces:path.join(homedir(),'workspaces')}:{}),agents:shares,canMake:isAdmin(u)||can(u,'create')&&ownCount(u)<eff(u).maxAgents,lead:(l=>l&&(isAdmin(u)||shares[l])?l:null)(leadOf(u.id))})}   // lead: their own lead agent, once it is made (pages fall back to it)
+  // "your current password" is a password guess too: same per-account count as signing in (a stolen session must not be able to try without end)
+  const pwKey='pw:'+u.id,pwOkCounted=good=>{if(good)limiter.ok(pwKey);else limiter.fail(pwKey);return good};
   if(p==='/ui/me/password'&&req.method==='PUT'){const b=await body();const x=u.role==='owner'?null:db.users.find(y=>y.id===u.id);
-   if(u.role==='owner'?!ownerPwOk(b.current):!x||!check(b.current,x.pw))return send(res,400,{error:'Your current password is not right.'});if(String(b.next||'').length<8)return send(res,400,{error:'Use at least 8 characters.'});
+   const lw=limiter.wait(pwKey);if(lw)return send(res,429,{error:limiter.text(lw)});
+   if(!pwOkCounted(u.role==='owner'?ownerPwOk(b.current):!!x&&check(b.current,x.pw)))return send(res,400,{error:'Your current password is not right.'});if(String(b.next||'').length<8)return send(res,400,{error:'Use at least 8 characters.'});
    if(x)x.pw=hash(b.next);else db.ownerPw=hash(b.next);await save();return send(res,200,{ok:true})}
   // turning two-step off and changing or clearing a set email (which turns it off) take the current password, like a new password does
-  const pwOk=pw=>u.role==='owner'?ownerPwOk(pw):check(pw,db.users.find(y=>y.id===u.id)?.pw);const PW_BAD={error:'Your current password is not right.'};
+  const pwOk=pw=>!limiter.wait(pwKey)&&pwOkCounted(u.role==='owner'?ownerPwOk(pw):check(pw,db.users.find(y=>y.id===u.id)?.pw));const PW_BAD={error:'Your current password is not right.'};
   if(p==='/ui/me/email'&&req.method==='PUT'){const b=await body();const email=String(b.email||'').trim().toLowerCase();if(byId(u.id)?.email&&!pwOk(b.current))return send(res,400,PW_BAD);
    if(!email)return send(res,400,{error:'You sign in with your email, so it can be changed but not removed.'});
    if(!EMAIL.test(email))return send(res,400,{error:'That email address does not look right.'});if([owner(),...db.users].some(x=>x.id!==u.id&&norm(x.email)===email))return send(res,400,{error:'Someone already uses that email.'});
@@ -387,8 +398,8 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   return send(res,404,{error:'Not found'})}
 
  /* ---------- accepting an invite (no sign-in yet) ---------- */
- async function inviteInfo(code){await load();const i=db.invites.find(x=>x.code===code&&!x.used&&x.expires>Date.now());return i?{name:i.name,role:i.role,username:slugName(i.name),email:i.email||''}:null}
- async function accept(code,name,pw,username,email){await load();const i=db.invites.find(x=>x.code===code&&!x.used&&x.expires>Date.now());if(!i)throw new Error('This invite link has expired or was already used.');
+ async function inviteInfo(code){await load();const i=db.invites.find(x=>safeEq(x.code,code)&&!x.used&&x.expires>Date.now());return i?{name:i.name,role:i.role,username:slugName(i.name),email:i.email||''}:null}
+ async function accept(code,name,pw,username,email){await load();const i=db.invites.find(x=>safeEq(x.code,code)&&!x.used&&x.expires>Date.now());if(!i)throw new Error('This invite link has expired or was already used.');
   name=String(name||i.name||'').trim().slice(0,60);if(!name)throw new Error('Tell us your name.');if(String(pw||'').length<8)throw new Error('Use a password of at least 8 characters.');
   if(norm(name)===norm(db.ownerName)||db.users.some(u=>norm(u.name)===norm(name)))throw new Error('That name is taken. Try another.');
   const em=norm(email);if(em&&!EMAIL.test(em))throw new Error('That email address does not look right.');if(em&&!emailFree(em,null))throw new Error('Someone already uses that email. Sign in instead.');
@@ -423,7 +434,8 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  const rcNorm=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'').replace(/(.{5})(?=.)/g,'$1-');
  async function makeRecovery(){await load();const c=newRecovery();await save();return c}
  // a right code sets the new password, turns two-step off (the email may be what is lost) and is used up
- async function recoverOwner(code,pw){await load();if(!db.ownerRecovery||!check(rcNorm(code),db.ownerRecovery))return {error:'That recovery code is not right.'};
+ async function recoverOwner(code,pw){await load();const w=limiter.wait('recover:owner');if(w)return {error:limiter.text(w),wait:w,keep:true};
+  if(!db.ownerRecovery||!check(rcNorm(code),db.ownerRecovery)){limiter.fail('recover:owner');return {error:'That recovery code is not right.'}}limiter.ok('recover:owner');
   if(String(pw||'').length<8)return {error:'Use a password of at least 8 characters.',keep:true};
   db.ownerPw=hash(pw);db.ownerTwoStep=false;const next=newRecovery();await save();return {ok:true,user:owner(),recovery:next}}
  /* ---------- "Forgot password": a one-hour link to a confirmed email ---------- */
@@ -436,9 +448,9 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   if(db.resets.filter(r=>r.uid===x.id).length>=3)return;
   const tok=randomBytes(24).toString('base64url');db.resets.push({h:tokHash(tok),uid:x.id,exp:Date.now()+3600e3});await save();const bn=await brandName();
   await mail.deliver(x.email,'Reset your '+bn+' password',`Hi ${x.name},\n\nSomeone asked to reset your ${bn} password. Open this link to pick a new one:\n\n${link(tok)}\n\nIt works once, for one hour. If you didn't ask, you can ignore this email: your password stays as it is.\n\n${bn}`)}
- async function resetInfo(tok){await load();sweep();const r=db.resets.find(y=>y.h===tokHash(tok));const x=r&&byId(r.uid);return x&&!x.disabled?{name:x.name,username:x.username||''}:null}
- async function finishReset(tok,pw){await load();sweep();const r=db.resets.find(y=>y.h===tokHash(tok));const x=r&&byId(r.uid);if(!x||x.disabled)return {error:'This reset link has expired or was already used. Ask for a new one.'};
+ async function resetInfo(tok){await load();sweep();const r=db.resets.find(y=>safeEq(y.h,tokHash(tok)));const x=r&&byId(r.uid);return x&&!x.disabled?{name:x.name,username:x.username||''}:null}
+ async function finishReset(tok,pw){await load();sweep();const r=db.resets.find(y=>safeEq(y.h,tokHash(tok)));const x=r&&byId(r.uid);if(!x||x.disabled)return {error:'This reset link has expired or was already used. Ask for a new one.'};
   if(String(pw||'').length<8)return {error:'Use a password of at least 8 characters.'};
   if(x.id==='owner')db.ownerPw=hash(pw);else db.users.find(y=>y.id===x.id).pw=hash(pw);db.resets=db.resets.filter(y=>y.uid!==x.id);await save();return {ok:true,user:byId(x.id)}}
- return {needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,memberChat,lockedByOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginNote,emailOnly,applyEmailMoves,loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent,addonCheck};
+ return {limits:limiter,loginKey,needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,memberChat,lockedByOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginNote,emailOnly,applyEmailMoves,loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent,addonCheck};
 }

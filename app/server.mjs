@@ -3061,17 +3061,19 @@ const server=createServer(async(req,res)=>{
   if(p==='/auth/login'&&req.method==='POST'){
    const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+   // per account, whatever the address (account-limit.mjs): while it waits the password is not even looked at
+   const lk=await users.loginKey(b.name),lw=users.limits.wait(lk);if(lw)return send(429,{error:users.limits.text(lw),wait:lw});
    const u=await users.login(b.name,b.password||'',pw=>!!PW_HASH&&checkPassword(pw));
-   if(!u){(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());const nm=String(b.name||'').trim();return send(res,401,{error:!nm?'Enter your email.':!nm.includes('@')&&users.emailOnly()?'Sign in with your email address.':'That email and password do not match.'})}
+   if(!u){users.limits.fail(lk);(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());const nm=String(b.name||'').trim();return send(res,401,{error:!nm?'Enter your email.':!nm.includes('@')&&users.emailOnly()?'Sign in with your email address.':'That email and password do not match.'})}
    const note=users.loginNote(u,b.name);
-   attempts.delete(ip);
+   attempts.delete(ip);users.limits.ok(lk);
    // two-step: the password was right; now a code goes to their confirmed email
    if(u.twoStep&&u.emailVerified){try{return send(res,200,{needCode:true,key:await users.loginCode(u),to:u.email.replace(/^(.).*(@.*)$/,'$1•••$2'),note})}catch(e){return send(res,502,{error:'Your sign-in code could not be sent: '+e.message})}}
    return send(res,200,{ok:true,note},{'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)});
   }
   if(p==='/auth/code'&&req.method==='POST'){const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const v=users.finishLogin(b.key,b.code);
-   if(v.error){(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());return send(res,401,{error:v.error})}
+   if(v.error){(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());return send(v.wait?429:401,{error:v.error})}
    return send(res,200,{ok:true},{'set-cookie':'hui='+makeCookie(v.user.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}
   if(p==='/auth/logout'&&req.method==='POST')return send(res,200,{ok:true},{'set-cookie':'hui=; '+cookieAttrs(0)});
   if(p==='/auth/logout-all'&&req.method==='POST'){const id=cookieId(req);if(!id)return send(res,401,{error:'Sign in first.'});await revokeSessions(id);console.log('signed out everywhere:',id);return send(res,200,{ok:true},{'set-cookie':'hui=; '+cookieAttrs(0)})}
