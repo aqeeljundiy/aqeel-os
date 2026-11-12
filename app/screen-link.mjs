@@ -68,7 +68,8 @@ export function pipeWs(sock,up,head,onEnd){let done=false;
  up.on('data',d=>{if(!sock.write(wsFrame(d)))up.pause()});
  // the upgraded socket comes paused from the HTTP server: a 'data' listener alone does not start it
  sock.on('data',read);if(head?.length)read(head);sock.resume();
- up.on('close',()=>end(1000));sock.on('close',()=>end());up.on('error',()=>end(1011));sock.on('error',()=>end());
+ // 'end' too: the HTTP server's sockets are half-open ones, so a viewer that goes away ends its side and is never closed by itself
+ up.on('close',()=>end(1000));sock.on('end',()=>end());sock.on('close',()=>end());up.on('error',()=>end(1011));sock.on('error',()=>end());
  return end}
 
 /* ---------- the routes: the live connection (an upgrade) and noVNC's own page ---------- */
