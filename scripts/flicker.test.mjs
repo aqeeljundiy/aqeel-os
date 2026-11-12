@@ -245,12 +245,14 @@ test('Stage: a page whose reads keep answering is shown whole; one whose reads w
  x=mk();await x.open([300]);await x.clock.adv(350);assert.equal(x.shown.length,1)});
 
 test('a part that lands late keeps the space it took last time (Keep): Usage\'s Spending overview no longer drops the page under it',()=>{
- const mem=new Map(),store={get:(k,d)=>mem.has(k)?mem.get(k):d,set:(k,v)=>mem.set(k,v)};
- const Keep=new Function('store',grab('core.js','const Keep={')+'\nreturn Keep')(store);
+ const mem=new Map(),localStorage={getItem:k=>mem.has(k)?mem.get(k):null,setItem:(k,v)=>mem.set(k,String(v))};let width=1280;
+ const Keep=new Function('localStorage','innerWidth',grab('core.js','const Keep={')+'\nreturn Keep'),K=()=>Keep(localStorage,width);
  const el=h=>({style:{},isConnected:true,offsetHeight:h});
- let p=el(0);assert.equal(Keep.hold('usage.spend',p),0,'never drawn in this browser: nothing held');assert.equal(p.style.minHeight,undefined);
- p=el(402.4);p.style.minHeight='300px';Keep.note('usage.spend',p);assert.equal(p.style.minHeight,'','the content is in: the hold is let go');assert.deepEqual(mem.get('ph'),{'usage.spend':402});
- p=el(0);assert.equal(Keep.hold('usage.spend',p),402);assert.equal(p.style.minHeight,'402px','the next visit: its box is that tall while the placeholder shows');
- const gone={style:{minHeight:'1px'},isConnected:false,offsetHeight:0};Keep.note('usage.spend',gone);assert.equal(mem.get('ph')['usage.spend'],402,'a part that left the page records nothing');
+ let p=el(0);assert.equal(K().hold('usage.spend',p),0,'never drawn in this browser: nothing held');assert.equal(p.style.minHeight,undefined);
+ p=el(402.4);p.style.minHeight='300px';K().note('usage.spend',p);assert.equal(p.style.minHeight,'','the content is in: the hold is let go');assert.deepEqual(JSON.parse(mem.get('ph-here')),{'usage.spend@32':402});
+ p=el(0);assert.equal(K().hold('usage.spend',p),402);assert.equal(p.style.minHeight,'402px','the next visit: its box is that tall while the placeholder shows');
+ const gone={style:{minHeight:'1px'},isConnected:false,offsetHeight:0};K().note('usage.spend',gone);assert.equal(JSON.parse(mem.get('ph-here'))['usage.spend@32'],402,'a part that left the page records nothing');
+ width=390;p=el(0);assert.equal(K().hold('usage.spend',p),0,'another window width (a phone): its own height, not the desk one');
+ assert.doesNotMatch(grab('core.js','const Keep={'),/\bstore\./,'kept in this browser only: what goes through store follows the person to every device');assert.equal(/^(hui-|draft:|cronSeen:|chAlert:|cronFail:)/.test('ph-here'),false);
  const s=src('schedules.js');assert.match(s,/Keep\.hold\('usage\.spend',panel\)/);assert.match(s,/Keep\.note\('usage\.spend',panel\)/);
  assert.match(s,/<div class="skel" style="height:280px"><\/div>';/,'before it is known: as tall as it usually is where the page is slow, not 120 px')});
