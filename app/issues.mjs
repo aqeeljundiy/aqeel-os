@@ -340,6 +340,12 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   try{if(w.kind==='asker'&&await reply(i,text))return w.name;
    if(w.kind==='team'&&await toTeam(i.agent,w.member,text))return w.name}catch(e){log('issues: could not reach '+w.name+': '+e.message)}
   await tellOwner(text);return pol.owner?.name||'the owner'}
+ // GOOG-6 (12 Nov 2026, "tell me when it's fixed"): a proven fix was silent for everyone (7 Nov: no "Fixed by aqeelOS" messages), so the
+ // person who asked from a chat in aqeelOS heard about "needs a person" and "stuck" but never that it was fixed. That one person now gets
+ // one line (reply: their bell, linked to the chat they asked in). Only aqeelOS's own chats: a Telegram or WhatsApp chat stays silent as
+ // before, nobody else is told when the chat's person is not known, and a test agent or a restart hold says nothing.
+ async function tellFixed(i){if(i.by?.platform!=='api_server'||!i.by?.chat||i.toldFixed||quiet(i.agent||null))return;
+  try{if(await reply(i,'Fixed: '+clip(i.missing,200)+(i.proof?'\nHow it was checked: '+clip(i.proof,300):'')))i.toldFixed=now()}catch(e){log('issues: '+i.id+' fixed, but the person who asked was not told: '+e.message)}}
 // an issue: o = {agent, what, missing, evidence, proposed_fix, affects, needs, source, healthKey, origin:{platform, uid, who, chat, thread}}
  const file=o=>queue(async()=>{await load();const pol=await policy();const m=clip(o.missing,500).trim();if(!m)throw Error('Say what is broken (missing).');
   const key=o.healthKey?'health|'+o.healthKey:o.agent+'|'+m.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,100);
@@ -738,7 +744,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   // a recheck of a stuck issue (sweep): nothing to roll back; proven closes it, otherwise it stays stuck until its files change again
   if(i.recheck==='deploy'){i.recheck=false;i.recheckedAt=now();i.rechecks=(i.rechecks||0)+1;
    if(pr.status==='proven'){i.state='fixed';i.fixed=now();i.proof=pr.proof;i.result={...(i.result||{}),status:'fixed',proof:pr.proof,summary:clip('Fixed by the daily deploy ('+(i.patch||'its patch')+'). '+(i.result?.summary||''),1600)};if(last)last.outcome='proven after the deploy';
-    await save();log('issues: '+i.id+' fixed by the deploy and proven');await onFixed(view(i)).catch(e=>log('issues: '+i.id+' after the fix: '+e.message));return}
+    await tellFixed(i);await save();log('issues: '+i.id+' fixed by the deploy and proven');await onFixed(view(i)).catch(e=>log('issues: '+i.id+' after the fix: '+e.message));return}
    if(i.cloud)return await cloudAgain(i);   // the merged fix is deployed and the problem is still there
    // not in that deploy, or not enough: it keeps waiting for the next one; after 3 deploys it is stuck (nobody told)
    i.state=i.rechecks>=TRIES?'stuck':'deploy';await save();log('issues: '+i.id+' not proven after the deploy ('+i.rechecks+'), '+i.state);return}
@@ -746,9 +752,14 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(pr.status==='proven'){i.state='fixed';i.fixed=now();i.proof=pr.proof;i.result={...(i.result||{}),status:'fixed',proof:pr.proof};if(last)last.outcome='proven';
    const pf=await savePatch(i,last,i.history.filter(h=>h.kind==='fix').length).catch(e=>{log('issues: '+i.id+' patch not saved: '+e.message);return null});
    if(pf){i.patch=pf;if(last)last.patch=pf;i.result.summary=clip((i.result.summary||'')+' The code change is saved as '+pf+' for git.',1600)}
-   await save();log('issues: '+i.id+' fixed and proven'+(pf?', patch '+pf:''));await onFixed(view(i)).catch(e=>log('issues: '+i.id+' after the fix: '+e.message));return}
+   await tellFixed(i);await save();log('issues: '+i.id+' fixed and proven'+(pf?', patch '+pf:''));await onFixed(view(i)).catch(e=>log('issues: '+i.id+' after the fix: '+e.message));return}
   if(last){last.outcome='not proven';last.proofNeed=pr.need}
   const back=await rollBack(last?.changes);if(last&&back.length)last.outcome+=', rolled back';i.lastNeed=pr.need||i.lastNeed;
+  // QR-3 (12 Nov 2026): the proof run names something only a person can do or see (money, a key or login only they have, a bot to add,
+  // a decision). Two more fix runs cannot give that, and each was rolled back for nothing (if734729a: three tries undone because the proof
+  // needed someone to look at a phone). The change is put back as after any unproven try, and the issue waits for that person at once
+  // (afterTry); on the last try nothing changes: it is stuck with the same need, as before.
+  if(pr.need&&!noPersonNeeded(pr.need)&&i.tries<TRIES&&!i.noRetry){i.personNow=clip(pr.need,500);if(last)last.outcome+='; only a person can do the rest'}
   return await nextTry(i,back.length&&last?.apply!=='none'?last.apply:null)}
  // after a failed try: reload what was put back (if anything), then queued again, or stuck after the last try
  // 7 Nov 2026 (i87c8beb0 restarted the web app twice per try: once for the fix, once to roll it back): a try restarts the
@@ -757,6 +768,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  async function nextTry(i,reloadKind){if(reloadKind==='ui'&&i.uiRestartTry===i.tries){i.uiDirty=true;await save();log('issues: '+i.id+' put the web app files back; the reload waits for the next try or the end');return await afterTry(i)}
   if(reloadKind){i.state='rollback';i.applyKind=reloadKind;i.waitingSince=now();await save();return}return await afterTry(i)}
  async function afterTry(i){if(i.noRetry){i.state=i.closeAfter?'closed':'stopped';i.updated=now();await save();log('issues: '+i.id+' '+i.state+' after its try (no more tries asked)');return}
+ if(i.personNow){const need=i.personNow;delete i.personNow;i.state='needs_human';i.need=need;i.lastNeed=need;await save();
+  const to=await tell(i,nameOf(i.agent)+' needs a person for a fix\n\nProblem: '+i.missing+'\nWhat is needed: '+need+'\n\naqeelOS tries the fix again once this is done: press Try again on System › Health (issue '+i.id+').');i.told=to;await save();log('issues: '+i.id+' needs a person after its proof run, told '+to+' (no more tries spent)');return}
  if(i.tries<TRIES){i.state='queued';i.notBefore=now()+60e3;await save();return}
   i.state='stuck';await save();
   const tried=i.history.filter(h=>h.kind==='fix').map((h,n)=>(n+1)+') '+clip(h.summary,200)+(h.outcome?' ('+h.outcome+')':'')).join('\n');
