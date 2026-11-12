@@ -343,9 +343,10 @@ legacy_screen_stop(){
 adopt_profile(){
   local n=$1 u=$2 ws="$HOMEC/workspaces/$1"
   as_user "$u" sh -c 'ws=$1; src=$ws/.screen/browser-profile
-    [ -d "$src/Default" ] && [ ! -e "$ws/.browser/.aq-adopted" ] || exit 0
-    [ ! -e "$ws/.browser" ] || mv -- "$ws/.browser" "$ws/.browser.before-own-user" || exit 1
-    cp -a -- "$src" "$ws/.browser" || { rm -rf -- "$ws/.browser"; [ ! -e "$ws/.browser.before-own-user" ] || mv -- "$ws/.browser.before-own-user" "$ws/.browser"; exit 1; }
+    [ -d "$src/Default" ] || exit 0
+    if [ -e "$ws/.browser/.aq-adopted" ]; then rm -rf -- "$ws/.browser"
+    elif [ -e "$ws/.browser" ]; then b=$ws/.browser.before-own-user; [ ! -e "$b" ] || b=$b.$$; mv -- "$ws/.browser" "$b" || exit 1; fi
+    cp -a -- "$src" "$ws/.browser" || { rm -rf -- "$ws/.browser"; exit 1; }
     rm -f -- "$ws/.browser/SingletonLock" "$ws/.browser/SingletonSocket" "$ws/.browser/SingletonCookie"
     : > "$ws/.browser/.aq-adopted"' sh "$ws" </dev/null
 }
@@ -357,9 +358,14 @@ handover_check(){
     got=$(as_user "$OWNER" ssh -i "$key" -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$u@127.0.0.1" id -un </dev/null 2>/dev/null)
     [ "$got" = "$u" ] || { echo "SSH as $u from aqeelOS is refused"; return 1; }
   fi
+  # Chrome starts: headless on a debugging port of its own, up when it writes DevToolsActivePort (up to 90 s: the box can be
+  # busy), then ended. Not --dump-dom: this Chrome never exits after it (its background services keep it alive), so the
+  # first check (12 Nov 2026, load average 15) ran into its time limit and undid a move that was fine.
   if [ -x "$CHROME" ]; then
     as_user "$u" sh -c 'cd "$1"; export HOME="$1"; d=$(mktemp -d "$1/.aq-chk.XXXXXX") || exit 1
-      timeout 40 "$2" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --user-data-dir="$d" --dump-dom about:blank >/dev/null 2>&1; rc=$?; rm -rf -- "$d"; exit $rc' sh "$ws" "$CHROME" </dev/null \
+      "$2" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --user-data-dir="$d" --remote-debugging-port=0 --remote-debugging-address=127.0.0.1 about:blank >/dev/null 2>&1 </dev/null &
+      p=$!; rc=1; for i in $(seq 180); do [ -s "$d/DevToolsActivePort" ] && { rc=0; break; }; kill -0 "$p" 2>/dev/null || break; sleep 0.5; done
+      kill "$p" 2>/dev/null; sleep 1; pkill -KILL -f -- "--user-data-dir=$d" 2>/dev/null; rm -rf -- "$d"; exit $rc' sh "$ws" "$CHROME" </dev/null \
       || { echo "Chrome does not start as $u"; return 1; }
   fi
   return 0
@@ -481,14 +487,17 @@ restart_gate(){
 # names in $RESET: their screens may be started again (the counts start over)
 take_resets(){
   [ -s "$RESET" ] || return 0
-  local n
+  local n again=0
   while read -r n; do
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
+    # a move to an own user that was undone is allowed again (and tried at once, below)
+    [ -f "$HAND/$n.failed" ] && { rm -f -- "$HAND/$n.failed"; again=1; }
     rm -f -- "$RST/$n" "$RST/$n.stopped" "$RST/$n.wakefails" "$RST/$n.chrome-reported"
     ag_rm "ag-$n" "$HOMEC/workspaces/$n/.screen/chrome.stopped" "$HOMEC/workspaces/$n/.screen/lean.failed" "$HOMEC/workspaces/$n/.screen/nosleep"
     echo "agent users: $n: screen may start again"
   done < "$RESET"
   own_clear "$RESET"
+  [ "$again" = 1 ] && once
 }
 
 # Chrome on an agent's screen, run by the screen's own launcher as the agent's user. It is started again when it exits,
