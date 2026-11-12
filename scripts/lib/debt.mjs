@@ -44,7 +44,7 @@ export function envReads(){
   for(const m of s.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g))names.add(m[1]);
   for(const m of s.matchAll(/process\.env\[['"]([A-Z][A-Z0-9_]*)['"]\]/g))names.add(m[1]);
   for(const m of s.matchAll(/(?<![\w.])env\.([A-Z][A-Z0-9_]+)/g))names.add(m[1])}
- const listed=new Set([...read('.env.example').matchAll(/^#?\s*([A-Z][A-Z0-9_]+)=/gm)].map(m=>m[1]));
+ const listed=new Set([...read('.env.example').matchAll(/^#?\s*([A-Z][A-Z0-9_]*)=/gm)].map(m=>m[1]));
  return {all:[...names].sort(),missing:[...names].filter(n=>!listed.has(n)).sort()}}
 
 export function measure(){
