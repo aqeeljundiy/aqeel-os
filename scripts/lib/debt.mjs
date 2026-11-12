@@ -41,9 +41,10 @@ export function unusedExports(){
 export function envReads(){
  const names=new Set();
  for(const f of [...appModules(),...list('scripts',/\.mjs$/)]){const s=read(f);
-  for(const m of s.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g))names.add(m[1]);
+  // (?![A-Za-z0-9_]): process.env.SystemRoot is not a variable called S
+  for(const m of s.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)(?![A-Za-z0-9_])/g))names.add(m[1]);
   for(const m of s.matchAll(/process\.env\[['"]([A-Z][A-Z0-9_]*)['"]\]/g))names.add(m[1]);
-  for(const m of s.matchAll(/(?<![\w.])env\.([A-Z][A-Z0-9_]+)/g))names.add(m[1])}
+  for(const m of s.matchAll(/(?<![\w.])env\.([A-Z][A-Z0-9_]+)(?![A-Za-z0-9_])/g))names.add(m[1])}
  const listed=new Set([...read('.env.example').matchAll(/^#?\s*([A-Z][A-Z0-9_]*)=/gm)].map(m=>m[1]));
  return {all:[...names].sort(),missing:[...names].filter(n=>!listed.has(n)).sort()}}
 
