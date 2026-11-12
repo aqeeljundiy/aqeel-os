@@ -32,3 +32,19 @@ test('corners come from the radius tokens: no hand-written size of 5px or more, 
   if(/var\(--radius(-sm|-lg)?\)/.test(s)&&f==='app.css')bad.push(f+': var(--radius…) is only defined inside .plug-host')}
  assert.deepEqual(bad,[]);
 });
+
+// Review of 12 Nov 2026: the tests above read the source; none of them pressed Escape. escLayer's own "EscLayers.push(l)" sat behind a comment on the
+// same line, so no layer was ever registered and Escape closed nothing (the preview, the usage card and the plugin dialogs had given up their own
+// handlers for this one). This runs the real helper and the real key handler against a small stand-in for the page.
+test('pressing Escape really closes the top-most registered layer, once, and gives focus back; a layer that was taken off is left alone',async()=>{
+ const core=src('core.js'),a=core.indexOf('const EscLayers=[]'),b=core.indexOf('},true);',a);assert.ok(a>0&&b>a,'the helper is where it was');
+ let onKey=null,focused=0;const page={activeElement:null,body:{},querySelectorAll:()=>[],addEventListener:(t,h)=>{if(t==='keydown')onKey=h}};
+ const {escLayer,EscLayers}=new Function('document','Node',core.slice(a,b+8)+';return {escLayer,EscLayers}')(page,{DOCUMENT_POSITION_FOLLOWING:4});
+ const el=()=>({isConnected:true,compareDocumentPosition:()=>0,contains:()=>false}),opener={isConnected:true,focus:()=>{focused++}};
+ const press=()=>{const e={key:'Escape',prevented:0,stopped:0,preventDefault(){this.prevented++},stopImmediatePropagation(){this.stopped++}};onKey(e);return e};
+ const closed=[];const offA=escLayer({el:el(),back:opener,close:()=>closed.push('a')}),offB=escLayer({el:el(),back:opener,close:()=>{closed.push('b');offB()}});
+ assert.equal(EscLayers.length,2,'a registered layer is kept');
+ const e=press();assert.deepEqual(closed,['b'],'the top-most one closes, nothing under it');assert.equal(e.prevented,1);assert.equal(e.stopped,1);
+ await new Promise(r=>setTimeout(r,5));assert.equal(focused,1,'focus goes back to the opener');
+ press();assert.deepEqual(closed,['b','a']);offA();assert.equal(EscLayers.length,0);
+ const none=press();assert.deepEqual(closed,['b','a'],'no layer left: nothing closes');assert.equal(none.prevented,0,'and the key is left for the page')});
