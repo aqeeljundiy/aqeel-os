@@ -16,20 +16,29 @@ for i in $(seq 1 180); do mkdir $L 2>/dev/null && { got=1; break; }
  [ -n "$(find $L -maxdepth 0 -mmin +90 2>/dev/null)" ] && { rmdir $L 2>/dev/null; continue; }
  [ "$i" = 1 ] && echo "· another check is using the test copy; waiting for it…"; sleep 10; done
 [ "${got:-0}" = 1 ] || { echo "✗ the test copy stayed busy for 30 minutes"; exit 1; }
-trap 'rmdir /tmp/aq-check.lock 2>/dev/null' EXIT
-rm -rf /tmp/aq-stage && mkdir -p /tmp/aq-stage && tar -xzf $TGZ -C /tmp/aq-stage && rm $TGZ
+# H9 (audit of 12 Nov 2026): the test copy's folder was 775 and its password, settings and copy of the data 664: every
+# agent's user could read the password and sign in to the copy as the owner. Everything here is made for this user only
+# (umask 077, folders 700), a folder that is a link or someone else's is refused, and the copy listens on 127.0.0.1 only.
+umask 077
+aq_private(){ local d=$1; [ -L "$d" ] && { echo "✗ $d is a link; refusing to use it"; return 1; }; mkdir -p "$d" 2>/dev/null; [ -d "$d" ] && [ -O "$d" ] && [ ! -L "$d" ] || { echo "✗ $d is not this user's own folder; refusing to use it"; return 1; }; chmod 700 "$d"; }
 D=/tmp/ppl
+# the copy is stopped and its password and data removed when the check ends, however it ends (it used to stay up on 4402
+# with the live engine's keys and a copy of the data)
+aq_copy_down(){ [ "$HEAVY" = 1 ] || return 0; [ -f $D/pid ] && kill "$(cat $D/pid 2>/dev/null)" 2>/dev/null; rm -rf $D/pid $D/data $D/env $D/pw; return 0; }
+trap 'aq_copy_down; rmdir /tmp/aq-check.lock 2>/dev/null' EXIT
+rm -rf /tmp/aq-stage && aq_private /tmp/aq-stage && tar -xzf $TGZ -C /tmp/aq-stage && rm $TGZ
 if [ "$HEAVY" != 1 ]; then cd /tmp/aq-stage; echo "· light checks (FULL_CHECK=1 adds the test copy and the browser checks)"
  echo "· 1/2 every script parses, no browser script clashes"
  for f in app/*.js app/*.mjs; do node --check "$f" || { echo "✗ $f does not parse"; exit 1; }; done
  node scripts/check-globals.mjs || { echo "✗ browser scripts clash (see above)"; exit 1; }
 else
 # the test copy's own data and password (made again if the box restarted and /tmp was emptied)
-if [ ! -f $D/env ]; then mkdir -p $D; rm -rf $D/data; cp -a ~/apps/hermes-ui-data $D/data
+aq_private $D; chmod -R go-rwx $D 2>/dev/null || true
+if [ ! -f $D/env ]; then rm -rf $D/data; cp -a ~/apps/hermes-ui-data $D/data; chmod -R go-rwx $D/data
  # the test copy signs in with its own password: on an install whose owner set one in the app, that one would win and every check would be signed out
  node -e "const fs=require('fs'),f=process.argv[1];const d=JSON.parse(fs.readFileSync(f,'utf8'));delete d.ownerPw;fs.writeFileSync(f,JSON.stringify(d,null,1))" $D/data/users.json 2>/dev/null || true
  PW=$(head -c 12 /dev/urandom | base64 | tr -d "/+="); echo "$PW" > $D/pw
- printf "UI_PASSWORD_HASH=%s\nUI_INSECURE_COOKIE=1\nUI_DATA_DIR=%s\nUI_PORT=4402\nAQEELOS_LIVE=0\n" "$(node /tmp/aq-stage/app/server.mjs hash "$PW")" "$D/data" > $D/env; fi
+ printf "UI_PASSWORD_HASH=%s\nUI_INSECURE_COOKIE=1\nUI_DATA_DIR=%s\nUI_PORT=4402\nUI_HOST=127.0.0.1\nAQEELOS_LIVE=0\n" "$(node /tmp/aq-stage/app/server.mjs hash "$PW")" "$D/data" > $D/env; fi
 grep -q "^AQEELOS_LIVE=" $D/env || echo "AQEELOS_LIVE=0" >> $D/env   # a test copy never runs the live jobs
 [ -f $D/pid ] && kill $(cat $D/pid) 2>/dev/null || true; sleep 1
 cd ~; SCHED_DESCRIBE=1 setsid nohup node --env-file=$HOME/.hermes/.env --env-file=$D/env /tmp/aq-stage/app/server.mjs > $D/log 2>&1 < /dev/null & echo $! > $D/pid
@@ -67,8 +76,8 @@ m=$(timeout 480 node scripts/mybrowser-check.mjs 2>&1 | tail -1); echo "$m" | gr
 if echo "$m" | grep -q '7/7'; then echo "  ✓ my browser: $m"; else echo "  ! my browser check missed twice (not counted, it rests on the model): $(echo "$m" | cut -c1-400)"; fi
 fi
 fi   # HEAVY: the four browser checks
-# the nightly run leaves no test copy standing; a deploy's own full run keeps it, as before
-[ "$BO" = 1 ] && { [ -f $D/pid ] && kill $(cat $D/pid) 2>/dev/null; echo "✓ browser checks passed"; exit 0; }
+# no run leaves a test copy standing (aq_copy_down, at exit)
+[ "$BO" = 1 ] && { echo "✓ browser checks passed"; exit 0; }
 echo "· $([ "$HEAVY" = 1 ] && echo 5/5 || echo 2/2) engine update (a clean engine update plus the patch steps gives the live engine)"
 er=0; wait $ESP || er=$?
 # 2 = the simulation itself could not run (disk, git): one more try, then reported without stopping the deploy
