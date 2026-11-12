@@ -9,7 +9,8 @@ import path from 'node:path';
 import {readPicture,emojiSlugs,AVATAR_TYPES} from './avatar-file.mjs';
 import {HELP_AGENT} from './agentops.mjs';
 import {addonDecision} from './addons.mjs';
-import {createAccountLimiter,safeEq} from './account-limit.mjs';
+import {safeEq} from './account-limit.mjs';
+import {createSignInGuard,burn,hashName} from './signin-guard.mjs';
 
 export const LEVELS=['chat','edit','owner'];           // per-agent share levels, weakest first
 // What a member may do beyond chatting. Admins can do everything. Each one only ever applies to agents
@@ -36,7 +37,7 @@ const PEOPLE_DIR=path.join(homedir(),'people');      // members' own folders: ~/
 // next time; an account with no email keeps signing in by username until it adds one (the app asks at sign-in), so nobody
 // is locked out. relaxed: a test copy (deploy checks), where the owner may still sign in with the password alone.
 const AGENT_ID={test:a=>/^[a-z0-9][a-z0-9_-]{0,63}$/.test(String(a))&&!(String(a) in Object.prototype)};   // an agent's id in an address or a body: never a name every object has (constructor, __proto__)
-export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=async()=>'aqeelOS',relaxed=true,ownerSeesAll=()=>false,limiter=createAccountLimiter()}={}){
+export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=async()=>'aqeelOS',relaxed=true,ownerSeesAll=()=>false,limiter=createSignInGuard()}={}){
  const hooks={};   // onJoin(person): the server makes their lead agent
  const FILE=path.join(DATA,'users.json');
  let db=null;
@@ -64,6 +65,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  let saving=Promise.resolve();
  const save=()=>{const p=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))});saving=p.catch(()=>{});return p};
  const hash=pw=>{const salt=randomBytes(16);return 'scrypt:'+salt.toString('hex')+':'+scryptSync(String(pw),salt,64).toString('hex')};
+ let dummy=null;const dummyCheck=pw=>{dummy||=hash('not-a-password');check(pw,dummy)};   // an unknown name costs the same as a wrong password
  const check=(pw,h)=>{const [k,s,x]=String(h||'').split(':');if(k!=='scrypt'||!s||!x)return false;const a=scryptSync(String(pw),Buffer.from(s,'hex'),64),b=Buffer.from(x,'hex');return a.length===b.length&&timingSafeEqual(a,b)};
  const norm=s=>String(s||'').trim().toLowerCase();
  const owner=()=>({id:'owner',name:db.ownerName,username:db.ownerUsername||'owner',role:'owner',avatar:db.ownerAvatar||null,avatarV:db.ownerAvatarV||null,emoji:db.ownerEmoji||null,email:db.ownerEmail||'',emailVerified:!!db.ownerEmailVerified,twoStep:!!db.ownerTwoStep});
@@ -151,9 +153,11 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   return key}
  // per account too (not only per code: a new code is one password away): wrong codes for one account make it wait longer each time
  function checkCode(key,code,purpose){const v=codes.get(key);if(!v||v.purpose!==purpose||v.exp<Date.now()){codes.delete(key);return {error:'That code expired. Ask for a new one.'}}
-  const lk=purpose+':'+v.uid,w=limiter.wait(lk);if(w)return {error:limiter.text(w),wait:w};
-  if(++v.tries>5){codes.delete(key);limiter.fail(lk);return {error:'Too many tries. Ask for a new code.'}}
-  if(!check(String(code||'').trim(),v.hash)){limiter.fail(lk);return {error:'That code is not right.'}}codes.delete(key);limiter.ok(lk);return {ok:true,uid:v.uid,email:v.email}}
+  const lk=purpose+':'+v.uid,so={signIn:purpose==='login'};
+  // a waiting account answers exactly as a wrong code does (same words, same work), so nothing tells the two apart (signin-guard.mjs)
+  if(limiter.wait(lk,so)){burn();return {error:'That code is not right.'}}
+  if(++v.tries>5){codes.delete(key);limiter.fail(lk,so);return {error:'Too many tries. Ask for a new code.'}}
+  if(!check(String(code||'').trim(),v.hash)){limiter.fail(lk,so);return {error:'That code is not right.'}}codes.delete(key);limiter.ok(lk);return {ok:true,uid:v.uid,email:v.email}}
  /* ---------- signing in ---------- */
  const GRACE=14*864e5;
  const graceOn=()=>Date.now()<(db.emailLoginSince||0)+GRACE;
@@ -165,9 +169,9 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   return x};
  // the key the per-account limit counts a sign-in try under: the account the name leads to, else the name itself (so a made-up name
  // is limited like a real one and nothing tells them apart)
- async function loginKey(name){await load();const n=norm(name),x=findLogin(n);return 'pw:'+(x?x.id:'name:'+n.slice(0,120))}
+ async function loginKey(name){await load();const n=norm(name),x=findLogin(n);return 'pw:'+(x?x.id:'name:'+hashName(n))}
  async function login(name,pw,ownerCheck){await load();if(ownerCheck)envOwnerCheck=ownerCheck;const n=norm(name);const x=findLogin(n);
-  if(!x)return null;if(x.id==='owner')return ownerPwOk(pw)?owner():null;
+  if(!x){dummyCheck(pw);return null}if(x.id==='owner')return ownerPwOk(pw)?owner():null;
   if(x.disabled||!check(pw,x.pw))return null;x.last=Date.now();await save();return x}
  // after a sign-in: the quiet note when they used the old username
  const loginNote=(u,name)=>u?.email&&!norm(name).includes('@')?'Use your email next time: '+u.email:null;
@@ -299,11 +303,11 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   // "your current password" is a password guess too: same per-account count as signing in (a stolen session must not be able to try without end)
   const pwKey='pw:'+u.id,pwOkCounted=(good,tried=true)=>{if(good)limiter.ok(pwKey);else if(tried)limiter.fail(pwKey);return good};   // an empty field is not a guess
   if(p==='/ui/me/password'&&req.method==='PUT'){const b=await body();const x=u.role==='owner'?null:db.users.find(y=>y.id===u.id);
-   const lw=limiter.wait(pwKey);if(lw)return send(res,429,{error:limiter.text(lw)});
+   if(limiter.wait(pwKey)){burn();return send(res,400,{error:'Your current password is not right.'})}
    if(!pwOkCounted(u.role==='owner'?ownerPwOk(b.current):!!x&&check(b.current,x.pw),!!String(b.current||'')))return send(res,400,{error:'Your current password is not right.'});if(String(b.next||'').length<8)return send(res,400,{error:'Use at least 8 characters.'});
    if(x)x.pw=hash(b.next);else db.ownerPw=hash(b.next);await save();return send(res,200,{ok:true})}
   // turning two-step off and changing or clearing a set email (which turns it off) take the current password, like a new password does
-  const pwOk=pw=>!limiter.wait(pwKey)&&pwOkCounted(u.role==='owner'?ownerPwOk(pw):check(pw,db.users.find(y=>y.id===u.id)?.pw),!!String(pw||''));const PW_BAD={error:'Your current password is not right.'};
+  const pwOk=pw=>!(limiter.wait(pwKey)&&(burn(),1))&&pwOkCounted(u.role==='owner'?ownerPwOk(pw):check(pw,db.users.find(y=>y.id===u.id)?.pw),!!String(pw||''));const PW_BAD={error:'Your current password is not right.'};
   if(p==='/ui/me/email'&&req.method==='PUT'){const b=await body();const email=String(b.email||'').trim().toLowerCase();if(byId(u.id)?.email&&!pwOk(b.current))return send(res,400,PW_BAD);
    if(!email)return send(res,400,{error:'You sign in with your email, so it can be changed but not removed.'});
    if(!EMAIL.test(email))return send(res,400,{error:'That email address does not look right.'});if([owner(),...db.users].some(x=>x.id!==u.id&&norm(x.email)===email))return send(res,400,{error:'Someone already uses that email.'});
@@ -443,7 +447,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  const rcNorm=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'').replace(/(.{5})(?=.)/g,'$1-');
  async function makeRecovery(){await load();const c=newRecovery();await save();return c}
  // a right code sets the new password, turns two-step off (the email may be what is lost) and is used up
- async function recoverOwner(code,pw){await load();const w=limiter.wait('recover:owner');if(w)return {error:limiter.text(w),wait:w,keep:true};
+ async function recoverOwner(code,pw){await load();if(limiter.wait('recover:owner')){burn();return {error:'That recovery code is not right.'}}
   if(!db.ownerRecovery||!check(rcNorm(code),db.ownerRecovery)){limiter.fail('recover:owner');return {error:'That recovery code is not right.'}}limiter.ok('recover:owner');
   if(String(pw||'').length<8)return {error:'Use a password of at least 8 characters.',keep:true};
   db.ownerPw=hash(pw);db.ownerTwoStep=false;const next=newRecovery();await save();return {ok:true,user:owner(),recovery:next}}
@@ -453,12 +457,17 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  // always the same answer, so nobody learns which names or emails exist here
  async function forgot(who,link){await load();const n=norm(who);if(!n)return;sweep();
   const x=[owner(),...db.users].find(y=>!y.disabled&&(norm(y.username)===n||norm(y.name)===n||y.email&&norm(y.email)===n));
+  // every ask counts per account (a made-up name too); past 5 in 15 minutes nothing more is sent, and the answer is the same as ever
+  const rk='reset:'+(x?x.id:'name:'+hashName(n));if(limiter.wait(rk))return;limiter.fail(rk);
   if(!x||!x.email||!x.emailVerified){console.log('password reset asked for an unknown or unconfirmed address');return}
   if(db.resets.filter(r=>r.uid===x.id).length>=3)return;
   const tok=randomBytes(24).toString('base64url');db.resets.push({h:tokHash(tok),uid:x.id,exp:Date.now()+3600e3});await save();const bn=await brandName();
-  await mail.deliver(x.email,'Reset your '+bn+' password',`Hi ${x.name},\n\nSomeone asked to reset your ${bn} password. Open this link to pick a new one:\n\n${link(tok)}\n\nIt works once, for one hour. If you didn't ask, you can ignore this email: your password stays as it is.\n\n${bn}`)}
- async function resetInfo(tok){await load();sweep();const r=db.resets.find(y=>safeEq(y.h,tokHash(tok)));const x=r&&byId(r.uid);return x&&!x.disabled?{name:x.name,username:x.username||''}:null}
- async function finishReset(tok,pw){await load();sweep();const r=db.resets.find(y=>safeEq(y.h,tokHash(tok)));const x=r&&byId(r.uid);if(!x||x.disabled)return {error:'This reset link has expired or was already used. Ask for a new one.'};
+  // not waited for: a real account and a made-up name answer in the same time
+  mail.deliver(x.email,'Reset your '+bn+' password',`Hi ${x.name},\n\nSomeone asked to reset your ${bn} password. Open this link to pick a new one:\n\n${link(tok)}\n\nIt works once, for one hour. If you didn't ask, you can ignore this email: your password stays as it is.\n\n${bn}`).catch(e=>console.warn('password reset mail:',e.message))}
+ // a link that matches nothing counts toward one shared bucket (nobody's account yet); while it waits, even a right link answers "expired"
+ const badLink=()=>{limiter.fail('resettok:any');return null};
+ async function resetInfo(tok){await load();sweep();if(limiter.wait('resettok:any'))return null;const r=db.resets.find(y=>safeEq(y.h,tokHash(tok)));const x=r&&byId(r.uid);return x&&!x.disabled?{name:x.name,username:x.username||''}:badLink()}
+ async function finishReset(tok,pw){await load();sweep();const GONE={error:'This reset link has expired or was already used. Ask for a new one.'};if(limiter.wait('resettok:any'))return GONE;const r=db.resets.find(y=>safeEq(y.h,tokHash(tok)));const x=r&&byId(r.uid);if(!x||x.disabled){badLink();return GONE}
   if(String(pw||'').length<8)return {error:'Use a password of at least 8 characters.'};
   if(x.id==='owner')db.ownerPw=hash(pw);else db.users.find(y=>y.id===x.id).pw=hash(pw);db.resets=db.resets.filter(y=>y.uid!==x.id);await save();return {ok:true,user:byId(x.id)}}
  return {statusFor,limits:limiter,loginKey,needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,memberChat,lockedByOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginNote,emailOnly,applyEmailMoves,loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent,addonCheck};

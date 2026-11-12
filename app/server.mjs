@@ -23,7 +23,7 @@ import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
 import {createFixerGit} from './fixer-git.mjs';
 import {createFixerSandbox} from './fixer-sandbox.mjs';
-import {createAccountLimiter} from './account-limit.mjs';
+import {createSignInGuard,withRequest} from './signin-guard.mjs';import {createSignInRoutes} from './signin-routes.mjs';
 import {peopleOf,approverState,buildApprovers,catalogRows,catalogFromRows,leftOut} from './kirimdev-settings.mjs';
 import {createCloudFixer} from './cloud-fixer.mjs';
 import {createLiveDrift} from './live-drift.mjs';
@@ -1156,7 +1156,10 @@ async function adoptFirstModel(slug){const agents=['default',...(await listAgent
 const connect=createConnect({HERMES_HOME,DASH,DASH_TOKEN,live:LIVE_APP,afterSave:slug=>adoptFirstModel(slug)});accountHooks.keyStatus=()=>connect.status();accountHooks.keyCheck=()=>connect.checkAll();
 const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
-const users=createUsers(DATA,mailer,{limiter:createAccountLimiter({free:Number(env.UI_SIGNIN_FREE_TRIES)||4}),ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name(),relaxed:!LIVE_APP,ownerSeesAll:()=>installSettings().supervision===true});
+// per-account sign-in limit (signin-guard.mjs): one Health item per account that is being guessed at, with the numbers and never a password
+const signInGuard=createSignInGuard({file:path.join(DATA,'signin-guard.json'),free:Number(env.UI_SIGNIN_FREE_TRIES)||5,ipOf:r=>clientIp(r),deviceOf:r=>cookieId(r),onLock:({kind,id,count,addresses,windowMin})=>{const x=users.byId(id),who=x?(x.email||x.name||id):id;
+ bottlenecks.event('signin','Many failed sign-ins for '+who,count+' wrong '+(kind==='pw'?'passwords':kind==='recover'?'recovery codes':'codes')+' from '+addresses+' address'+(addresses===1?'':'es')+' (counted over '+windowMin+' minutes). Further tries for this account now wait, up to 15 minutes; the person on a browser that is already signed in is not held up. Nothing needs doing unless it was you.',{topic:'signin|'+kind+'|'+id}).catch(()=>{})}});
+const users=createUsers(DATA,mailer,{limiter:signInGuard,ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name(),relaxed:!LIVE_APP,ownerSeesAll:()=>installSettings().supervision===true});
 const addons=createAddons({DATA});
 // who an add-on was added by, for the admins' list: the person, or the person an agent acts for
 const addonBy=u=>({id:u?.id||null,name:u?.name||(u?.role==='owner'?'Owner':null)});
@@ -1167,7 +1170,9 @@ const addonByAgent=a=>{const o=users.agentPerson(a);return {id:o?.id||null,name:
 const ownsAgent=(u,a)=>!!u&&(users.isAdmin(u)||users.level(u,String(a||'default'))==='owner');
 users.hooks.revoke=id=>revokeSessions(id);
 const accountAuth=createAccountAuth({users,send,readBody,publicUrl:()=>String(PUBLIC_URL),revoke:id=>revokeSessions(id),signIn:id=>({'set-cookie':'hui='+makeCookie(id)+'; '+cookieAttrs(SESSION_DAYS*86400)}),
+
  limited:req=>limited(clientIp(req)),miss:req=>{const ip=clientIp(req);(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now())}});
+const signInRoutes=createSignInRoutes({users,guard:signInGuard,send,readBody,clientIp,ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),needEmail:()=>LIVE_APP,signIn:id=>({'set-cookie':'hui='+makeCookie(id)+'; '+cookieAttrs(SESSION_DAYS*86400)}),limited,miss:ip=>{(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now())},clear:ip=>attempts.delete(ip)});
 // Help: the person's own help chat (help.mjs); account usage is read through the Accounts page's own handler, as that person
 const help=createHelp({DATA,root,DASH:DASH.origin,DASH_TOKEN,GATE:GATE.origin,API_KEY,users,listAgents:()=>listAgents(),names:a=>agentName(a),platforms:a=>platformsCached(a),signins:()=>[...signinsDue.values()],agentModel:a=>agentModel(a),security,send,readBody,
  accounts:u=>new Promise(r=>Promise.resolve(accountsApi({method:'GET',url:'/ui/accounts',headers:{}},null,'/ui/accounts',(x,code,data)=>r(code===200?data:null),readBody,a=>!!users.level(u,a))).catch(()=>r(null)))});
@@ -2506,7 +2511,7 @@ async function openBrowser(res,agent){
 
 /* ---------- routes ---------- */
 const LOCAL_KEY=await localKey(DATA).catch(e=>{console.warn('local owner key:',e.message);return null});   // DATA/local-owner.key, mode 600, kept across restarts
-const server=createServer(async(req,res)=>{
+const server=createServer((req,res)=>withRequest(req,async()=>{
  const url=new URL(req.url,'http://x');const p=url.pathname;
  try{
   await users.load();   // people (owners, shares) are read before any route uses them, also right after a restart
@@ -3060,34 +3065,10 @@ const server=createServer(async(req,res)=>{
    return p==='/ui/screen/browser'?openBrowser(res,sm?decodeURIComponent(sm[1]):agentOf(p,url.searchParams)):screens.handle(req,res,p,send)}
   if(p==='/ui/adspower'){const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'});return agentAds.handle(req,res,p,send,{admin:users.isAdmin(u)})}
   if(p.startsWith('/auth/')&&await accountAuth(req,res,p,url))return;
-  if(p==='/auth/login'&&req.method==='POST'){
-   const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
-   let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-   // per account, whatever the address (account-limit.mjs): while it waits the password is not even looked at
-   const lk=await users.loginKey(b.name),lw=users.limits.wait(lk);if(lw)return send(res,429,{error:users.limits.text(lw),wait:lw});
-   const u=await users.login(b.name,b.password||'',pw=>!!PW_HASH&&checkPassword(pw));
-   if(!u){users.limits.fail(lk);(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());const nm=String(b.name||'').trim();return send(res,401,{error:!nm?'Enter your email.':!nm.includes('@')&&users.emailOnly()?'Sign in with your email address.':'That email and password do not match.'})}
-   const note=users.loginNote(u,b.name);
-   attempts.delete(ip);users.limits.ok(lk);
-   // two-step: the password was right; now a code goes to their confirmed email
-   if(u.twoStep&&u.emailVerified){try{return send(res,200,{needCode:true,key:await users.loginCode(u),to:u.email.replace(/^(.).*(@.*)$/,'$1•••$2'),note})}catch(e){return send(res,502,{error:'Your sign-in code could not be sent: '+e.message})}}
-   return send(res,200,{ok:true,note},{'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)});
-  }
-  if(p==='/auth/code'&&req.method==='POST'){const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
-   let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const v=users.finishLogin(b.key,b.code);
-   if(v.error){(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());return send(res,v.wait?429:401,{error:v.error})}
-   return send(res,200,{ok:true},{'set-cookie':'hui='+makeCookie(v.user.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}
+  if(p.startsWith('/auth/')&&await signInRoutes(req,res,p,url))return;
   if(p==='/auth/logout'&&req.method==='POST')return send(res,200,{ok:true},{'set-cookie':'hui=; '+cookieAttrs(0)});
   if(p==='/auth/logout-all'&&req.method==='POST'){const id=cookieId(req);if(!id)return send(res,401,{error:'Sign in first.'});await revokeSessions(id);console.log('signed out everywhere:',id);return send(res,200,{ok:true},{'set-cookie':'hui=; '+cookieAttrs(0)})}
   if(p==='/auth/me'){const u=await me(req);return send(res,u?200:401,{signedIn:!!u,name:u?.name,role:u?.role})}
-  // Invite links: /#invite/<code> asks for a name and password, then signs the new person in.
-  if(p==='/auth/invite'&&req.method==='GET'){const i=await users.inviteInfo(url.searchParams.get('code')||'');return send(res,i?200:404,i||{error:'This invite link has expired or was already used.'})}
-  if(p==='/auth/accept'&&req.method==='POST'){const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
-   let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-   // the live app needs their email (they sign in with it); a test copy's checks may leave it out
-   if(LIVE_APP&&!String(b.email||'').trim())return send(res,400,{error:'Enter your email address. You sign in with it.'});
-   try{const u=await users.accept(String(b.code||''),b.name,b.password,b.username,b.email);return send(res,200,{ok:true,name:u.name},{'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}
-   catch(e){(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());return send(res,400,{error:e.message})}}
   if(p.startsWith('/ui/')){
    const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'},{'x-hui-auth':'required'});
    if(req.method!=='GET'&&req.headers['x-hui']!=='1')return send(res,403,{error:'Missing request header.'});
@@ -4073,7 +4054,7 @@ const server=createServer(async(req,res)=>{
    res.writeHead(200,{'content-type':types['.html'],'cache-control':'no-store',...security});return res.end(req.method==='HEAD'?undefined:html)}
   send(res,404,'Not found');
  }catch(e){console.error(e);if(!res.headersSent)send(res,500,{error:'Server error'})}
-});
+}));
 // The screen's live connection is a WebSocket: same login, and only from this site (no cross-site hijacking).
 server.on('upgrade',(req,sock,headBuf)=>{
  const p=new URL(req.url,'http://x').pathname;
