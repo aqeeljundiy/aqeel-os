@@ -207,7 +207,9 @@ its own data and its own sign-in. No other agent uses it.
  async function handle(req,res,p,send,{admin=false,agent=null}={}){
   if(p==='/ui/adspower'&&req.method==='GET'){if(!admin)return send(res,200,{items:[]});return send(res,200,{items:await list()})}
   const m=/^\/ui\/screens\/([^/]+)\/adspower(?:\/(start|stop))?$/.exec(p);if(!m)return send(res,404,{error:'Not found'});
-  const a=baseOf(agent||decodeURIComponent(m[1]));if(!(await agents()).includes(a))return send(res,404,{error:'This agent has no AdsPower.'});
+  // asking whether an agent without AdsPower has it is a plain "none", not a 404: the screen asked on every page and each
+  // answer was a red line in the browser's console (audit of 12 Nov 2026)
+  const a=baseOf(agent||decodeURIComponent(m[1]));if(!(await agents()).includes(a))return !m[2]&&req.method==='GET'?send(res,200,{state:'none'}):send(res,404,{error:'This agent has no AdsPower.'});
   if(!m[2])return req.method==='GET'?send(res,200,await status(a)):send(res,405,{error:'GET only'});
   if(req.method!=='POST')return send(res,405,{error:'POST only'});if(!admin)return send(res,403,{error:'Only admins can start or stop AdsPower.'});
   try{return send(res,200,m[2]==='start'?await start(a):await stop(a))}catch(e){return send(res,409,{error:e.message})}}
