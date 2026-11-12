@@ -1,7 +1,7 @@
 // Per-account sign-in limit (app/signin-guard.mjs, app/signin-routes.mjs, users.mjs; BACKLOG AUD-15).
 // Covered: every way to sign in or prove a secret (password login, two-step code, "current password" in Settings, recovery code,
 // forgot-password asks, reset-link use, invite codes), the lock, the no-reveal property, the trusted-browser exception, restart, expiry.
-import test from 'node:test';import assert from 'node:assert/strict';
+import test from 'node:test';import {scryptSync} from 'node:crypto';import assert from 'node:assert/strict';
 import {mkdtemp,readFile} from 'node:fs/promises';import {tmpdir} from 'node:os';import path from 'node:path';
 const HOME=await mkdtemp(path.join(tmpdir(),'signguard-'));process.env.HOME=HOME;
 const {createSignInGuard,withRequest,hashName,WINDOW_MS,MAX_ENTRIES}=await import('../app/signin-guard.mjs');
@@ -13,7 +13,7 @@ const REQ=(ip,dev=null,body={},method='POST')=>({ip,dev,body,method,headers:{}})
 const mk=(o={})=>{const clock={t:1e9};const locks=[];
  const guard=createSignInGuard({now:()=>clock.t,ipOf:r=>r.ip,deviceOf:r=>r.dev,onLock:x=>locks.push(x),flushMs:5,...o});return {guard,clock,locks}};
 let n=0;
-async function world(o={}){const w=mk(o),sent=[];const users=createUsers(path.join(HOME,'d'+(++n)),{deliver:async(to,sub,text)=>sent.push({to,sub,text})},{ownerCheck:()=>false,limiter:w.guard});
+async function world(o={},uo={}){const w=mk(o),sent=[];const users=createUsers(path.join(HOME,'d'+(++n)),{deliver:async(to,sub,text)=>sent.push({to,sub,text})},{ownerCheck:()=>false,limiter:w.guard,...uo});
  const owner=await users.createOwner('Ola','ola@example.com','longpassword1');
  const send=(res,status,body,headers={})=>{res.out={status,body,headers}};
  const routes=createSignInRoutes({users,guard:w.guard,send,readBody:async r=>JSON.stringify(r.body),clientIp:r=>r.ip,ownerCheck:()=>false,signIn:id=>({'set-cookie':'hui='+id}),limited:()=>false,miss:()=>{},clear:()=>{},needEmail:()=>false});
@@ -154,3 +154,15 @@ test('a browser with a valid session gets 5 tries of its own, not tries without 
  assert.equal((await mine('longpassword1')).status,200,'a right answer starts that browser over as well');
  for(let i=0;i<5;i++)await w.login('203.0.113.32','x'+i);   // someone else guesses: the signed-in browser is not held up
  assert.equal((await mine('longpassword1')).status,200)});
+test('login: a suspended account answers exactly like a wrong password and does the same hash work (counted, not timed)',async()=>{
+ let hashes=0;const scrypt=(...a)=>{hashes++;return scryptSync(...a)};const w=await world({},{scrypt});
+ const api=async(u,p,b)=>{let out;await w.users.api(u,{method:'POST',url:p},{},p,(res,status,body)=>{out={status,body}},async()=>JSON.stringify(b||{}));return out};
+ const join=async(name,email)=>{const inv=(await api(w.owner.user,'/ui/people/invite',{name})).body;return w.users.accept(inv.code,name,'memberpass-123',undefined,email)};
+ await join('Rina','rina@example.com');const sus=await join('Bo','bo@example.com');
+ assert.equal((await api(w.owner.user,'/ui/people/'+sus.id+'/suspend',{on:true})).status,200);
+ const work=async(pw,name,ip)=>{const before=hashes;const r=await w.login(ip,pw,{name});return {r,n:hashes-before}};
+ const wrong=await work('not-the-pass','rina@example.com','203.0.113.31');
+ assert.equal(wrong.r.status,401);assert.equal(wrong.n,1,'a wrong password costs one hash');
+ for(const [what,x] of [['suspended, right password',await work('memberpass-123','bo@example.com','203.0.113.32')],['suspended, wrong password',await work('nope-nope-1','bo@example.com','203.0.113.33')],['unknown email',await work('nope-nope-1','ghost@example.com','203.0.113.34')],['unknown email again',await work('nope-nope-1','ghost2@example.com','203.0.113.35')]]){
+  assert.deepEqual(x.r,wrong.r,what+': same status and words as a wrong password');assert.equal(x.n,wrong.n,what+': same hash work as a wrong password')}
+ assert.equal((await w.login('203.0.113.36','memberpass-123',{name:'rina@example.com'})).status,200,'the active member still signs in')});
