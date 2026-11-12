@@ -1,410 +1,410 @@
-`# aqeelOS backlog
-`
-`This is the one list of everything still open in aqeelOS. It lives in git, so this PC, the Mac and every session see the same list.
-`
-`**How it works**
-`- Every request goes here first, the same turn it's asked.
-`- `[ ]` is open, `[~]` is being worked on now, `[x]` is done. Done means **live on the servers and checked**, not just built.
-`- A session only stops when everything left is waiting on the owner. Those items go under **Waiting on you** with the exact step needed.
-`- Each session ends by updating this file: what's done, what's still left and why.
-`
-`_Last updated: 12 Nov 2026_
-`
-`---
-`
-`## Now
-`
-`### Afternoon of 12 Nov (live on both servers in 64b78d5)
-`- [x] **KEY-1** A key rotation left Continue Threads' posting guard with an old signature: every comment and DM was refused for about three hours (12 Nov, 11:45–15:00 WIB). The app now re-issues every signed file itself at start and every 10 minutes (`app/relay-heal.mjs`); the guard reports a stale key once instead of every run.
-`- [x] **SHEETS-1** `google_sheets`: formulas, clearing, formatting, tabs, and a `batch_update` pass-through. Still needs the Sheets API enabled in P&P's Google Cloud project (owner).
-`- [x] **UI-ESC** One Escape helper for every overlay; 239 hand-written radii moved to the tokens. Watch: 16–22px corners may have shifted slightly; not yet looked at live.
-`- [x] **LEAN-2** An agent with its own AdsPower profile stays awake by rule.
-`- [x] **SYS-50** The outside uptime check runs from GitHub every 10 minutes for both sites.
-`
-`### Deep audit of 12 Nov (four reviewers, read-only; fixes live on both servers in 86efb86 unless a line says otherwise)
-`Reports are kept outside the repo (private archive). `[x]` = fixed and live; `[~]` = fixed in part or not yet seen working; `[ ]` = open.
-`- [x] **AUD-1 Secrets in the public repo**: no live credential found in any branch, tag, old commit or Actions log. Install notes with live prompts, real numbers, ids and addresses are out of the tree; a secret scan and a wider privacy test run in the `tests` check; GitHub secret scanning and push protection are on. Open: old history is still retrievable on GitHub (AUD-9).
-`- [x] **AUD-2 Members and the main agent**: one place decides which agent a proxied request may act on; a member can no longer reach the main agent or another agent by any selector.
-`- [x] **AUD-3 Agents changing their own settings**: an exact list of settings with plain values; no command-type providers; schedules' scripts, checks and hooks run as the agent's own user.
-`- [x] **AUD-4 Root helper**: root no longer acts by path in folders an agent can write; pids, names and ports are checked; a rig of 66 checks guards it.
-`- [x] **AUD-5 Local ports and logs**: logs are in a private folder; a firewall rule lets only the box user reach the engine's local ports; agent screens are off the network; the agents' signing key was replaced on both servers (12 Nov) because old signatures had been readable in a log.
-`- [~] **AUD-6 Fixers and untrusted text**: reports reach every fixer as marked data. Open: the on-box fixer still has a shell as the box user (it needs its own Linux user).
-`- [~] **AUD-7 Cloud fixer merge gate**: path allow-list gate run from main, CODEOWNERS, updates install only commits whose tests passed. **Needs the owner on GitHub before any routine is saved**: branch rule with code-owner review and no admin bypass, the write deploy key removed, a fixer token on a non-owner account.
-`- [x] **AUD-8 Customer safety (WhatsApp lines, both still in Test)**: prices come from a price list in the app, not from the model; past chats return only the team's answers, masked; handoff and Draft are real gates; the exit guard stops the 24 leak cases; unanswered customers alert the team; payment and Kirimdev keys are out of the agents' folders. Open for the owner: items left out of the price lists, who may approve drafts, when to leave Test.
-`- [ ] **AUD-9 Owner-only security steps**: rotate the GitHub password, two-step seed and token found in Elkiya's engine env file; change the member-app admin password; rotate the Telegram bot token of continue-threads (shown once in a reviewer's working output); decide on erasing old history (recreate the repo) and on firewalling the origins to Cloudflare only.
-`- [x] **AUD-10 Threads posting limits**: limits per kind (comment 70/6/8, thread 8/1/60, dm 30/3/10, reply 80/20/0) bind in the posting scripts; every posting schedule is gated; the stray DM watcher (199 model runs in 48 h) is stopped. Watch: posts are recorded with the right kind.
-`- [x] **AUD-11 Data files**: one safe store helper (a damaged file is never treated as empty and saved over; atomic writes; one writer at a time) used by about 50 modules.
-`- [~] **AUD-12 Backups**: the backup runs detached and survives app restarts; a night without one alerts. Elkiya's last good backup was 9 Nov: confirm the next one completes.
-`- [x] **AUD-13 Account pools**: calm by construction (move only near the limit, one-hour pin, at most 8 automatic moves per agent a day). Elkiya: 0 moves in the hour after deploy (was 9-18 an hour).
-`- [x] **AUD-14 Deploys**: new files are switched in by rename; undo restores everything a deploy changed; the test copy is private and wiped.
-`- [ ] **AUD-15 Left from the audit**: the screen viewer's own connection; the box user's Chrome debugging ports; `pepclub-social` as its own Linux user; a per-account sign-in limiter; the unsigned desktop installer; "never sleep" leaves a running Chrome unreachable (continue-threads is pinned to a 30-day sleep instead); mediums and lows listed in the reports.
-`- [ ] **AUD-16 Not yet done**: the UI and functionality walkthrough of every page as owner, member and employee; maintainability (app/server.mjs is about 620 KB).
-`
-`### Session of 11–12 Nov (token savings, reliability, "never fix by hand again")
-`Live on both servers unless a line says otherwise. `[x]` = seen working live; `[~]` = live in code, not yet seen working.
-`- [x] **EFF-1** Token savings (b64a4cd): chats shortened at 200k and folded at 180k, 1-hour chat cache, schedule gates, Efficiency view, Graphify pilot on Sesa, instruction size check. P&P's PC account moved last in Elkiya's account list.
-`- [x] **CONF-1** Conflicts are asked, never picked (b84cf88, fixed in 6d5b14a): any number of sides, strictest applies until answered, one card with a button per side; threads, comments and DMs are compared only with their own kind. First case answered 12 Nov: Continue Threads comments 6 an hour and 70 a day, own threads 60 minutes apart.
-`- [~] **EVT-1** Event-started runs and no-model run checks (b84cf88): a Tebar webhook starts the matching schedule; standard checks for unread DMs, unanswered comments, posting allowed, new lines in a file. Checks are on Continue Threads' two 10-minute runners. Tebar is not connected for that agent (no key, no webhook), so events do nothing yet; the DM dot detection is unverified.
-`- [~] **RUN-1** Schedules that wake the AI more often than every 30 minutes need a check, or start at most every 30 minutes (e59a24d). Open: the two sales recaps (continue-support 8181388f19ee, biomarkers-support 77e3e2b3c668) are held to 30 minutes until the owner chooses; the "new since last run" check is built (`--new-since`), not applied.
-`- [x] **FIX-1** A used-up AI provider is "inconclusive", not a failure (842518c): no auto-rollback, no issue, no failed proof; fixer runs capped per issue (4 proofs and 6 fixes a day, 10 and 12 in total); agents stop moving between accounts when all are used up.
-`- [~] **GIT-2** The fixer never edits live code (842518c): own checkout, a branch per issue, "Fixes waiting for review" on Health, hand edits on the live folder reported. With a cloud routine set up, code bugs go to Claude Code in Anthropic's cloud on the account with the most room (6d5b14a, `docs/cloud-fixer.md`); GitHub auto-merge is on and `main` requires the `tests` check (green since 8f84db2). **Needs the owner:** create the routine on each Claude account and paste its trigger id and token (Settings › Cloud fixer); install the Claude GitHub app on aqeel-os. The real routine call has never been made.
-`- [x] **DRIFT-1** Elkiya's lost live fixes are in git (842518c): a payment whose delivery failed is not paid; the reasoning guard; one guard where every customer message leaves; a breaker on the "agent stopped" loop. A deploy that finds live changes git lacks saves them, stops (FORCE=1 goes on) and files one item.
-`- [x] **OPS-18/19** Uploads readable by agents, Telegram over IPv4 where IPv6 fails, backups stay on the box when no Google account is connected (newest 3), own temp files pruned after 3 days, leftover scratch databases and old app servers swept, sign-in notices once.
-`- [~] **RES-1** Maintenance window 00:00–01:00 Asia/Jakarta (setting) and resume after any restart (842518c): chats, schedules and fixer runs cut by a restart continue by themselves; Telegram and WhatsApp chats continue instead of asking "what next?" (engine patch 2026-11-12-channel-resume-continue, loads at the next engine restart). Not yet seen on a real cut: deploys only restart the app, and the engine finished every run. Test it with a deliberate engine restart.
-`- [~] **LEAN-1** An agent's screen is its browser only, started on demand, asleep after 15 idle minutes (6d5b14a, e19b21e). P&P: screens slept (Chrome 124 → 29 processes); a wake took 3.7 s in lean mode. Elkiya is held on the old desktop (`agent-limits.json` default `screen_mode: desktop`) until P&P's wake is seen clean (no wallpaper error box, tabs back). AdsPower wake time not measured.
-`- [x] **USE-1** Usage is always shown (d993d84): Claude limits are read from response headers when the usage call is refused (Elkiya's main account: something else polls the same sign-in); Antigravity quota per model family; a dead sign-in is said plainly (P&P's ChatGPT).
-`- [~] **HEALTH-9** Every Needs-you item has one button that does the thing (sign in, paste, run again, copy the command), and a question kind with choices that the fixer and agents can ask (d993d84). Not yet looked at in a browser. Questions cannot be answered from Telegram (alerts are plain text).
-`- [x] **CLI-1** `node scripts/aq-needs.mjs` on the box lists the owner's Needs-you items and answers conflicts, questions and frequent-schedule items without a browser (7732f55; loopback only, key in the data folder).
-`- [x] **DEPLOY-7** Light deploys (e59a24d): about 2 minutes instead of 12–14; the browser checks run once a night after the update and report on Health.
-`- [~] **WA-1** The reason an agent run stopped is shown; a used-up provider holds a Kirimdev line until the reset instead of looping. Protocol PDF over WhatsApp is built (generator in git, a 15-minute public link, document send, delivery probe). **To do:** `protocolPdf` setting for continue-support in kirimdev.json, restart the WhatsApp bridge, run `delivery-check.mjs continue-support --document`, then close i19b649d9.
-`- [x] **CI-1** `tests` runs on GitHub for every push and pull request: 991 pass, 0 fail (8f84db2). The workflow had never started a job before (an invalid line).
-`- [ ] **SVC-1** The servers' launcher is in git (`scripts/services.sh`, round 5): adopt it on both servers at the next deploy (their copies were hand-edited on 12 Nov, with backups kept there).
-`- [ ] **CT-1** Continue Threads (round 5): `record_post` is listed for every agent; a schedule that ends ok without doing its job files one item; a failures pause on self-runs ends after an hour. Watch after deploy: the self-run pause of 10 Nov clears, comments are recorded again. The schedule's name still says "5 comments/h".
-`- [ ] **GOOG-5b** P&P issue i7d96eb8c still names the sheet owner: re-sort or close it.
-`- [ ] **ACC-9** Health asks about "Continue Social Media signed in to Composio.dev as you": not looked into.
-`
-`**Waiting on you (deployment and fixes only)**
-`- Cloud fixer: the routine and token per Claude account, and the Claude GitHub app on the repo (see GIT-2).
-`- P&P: its only Claude account runs out and its ChatGPT sign-in is dead (revoked), so its agents have no fallback. Sign ChatGPT in again there or add a second Claude account.
-`- The two sales recaps: keep every 5 minutes, or use the "new sale since last run" check (recommended).
-`- Is the aqeel-os repository meant to be public?
-`
-`- [x] **GIT-1** The fixer's lost fixes are in git and live (4f7243a and later), and Health's "Code changes" list was emptied on both servers on 11 Nov (17 on Elkiya, 5 on P&P, each one reviewed first).
-`
-`## Waiting on you
-`
-`- [x] **ENG-4** (urgent, fixed 11 Nov, 634c593) billion-context's x-bili-* headers made the Claude sign-in plugin fail every turn once tools were ready (Elkiya: 6/h in the morning, 231/h by noon; Continue Threads' runners all failing). The plugin now accepts them like traceparent (never forwarded; everything else still fails closed). All 10 copies on Elkiya replaced, graceful engine restart 12:28 UTC, a real Claude reply checked, 0 errors since. P&P never had it.
-`
-`- [x] **DEPLOY-6** Both servers run 8abacb9 (11 Nov): owner rule, fixer rule, one alert per app, engine limit patch, type_secret through the browser. Live tests passed on both.
-`- [x] **MODEL-0** Plan agreed (11 Nov): see MODEL-1 to MODEL-4.
-`
-`
-`- [x] **HEALTH-0** Answered (11 Nov): cost by **person** next to cost by agent, see HEALTH-7.
-`- [ ] **CODE-50** aqeelOS app for Mac: run `gh auth refresh -s workflow` (from the old board).
-`- [ ] **OPS-17** Swap on Elkiya (it has none; programs had asked for twice the RAM, so a spike kills agents): add a 16 GB swap on the Elkiya host (the AI box is a container; the owner has the access). Command given in chat 11 Nov; check the free disk first (use 8G if under 30 GB free).
-`- [x] **OPS-18** browser_harness.daemon leak (11 Nov, 542bb57): the engine stops idle helpers after 30 min (engine/patches/2026-11-11-harness-idle-stop.patch) and the root janitor stops orphaned ones (parent gone, Chrome gone, or a day old). 7 stopped on Elkiya, 1 on P&P. Live after the deploy and the next engine restart.
-`
-`## Next, in this order
-`
-`### 1. Shipped today, check it on the live servers
-`Checked against P&P's live data and the code on 11 Nov: Aldillah is an employee, so her agent opens for partners, no Private switch is on yet, and Fakhri's agent is held as Aqeel's until he joins. Still to do: look at each one on screen.
-`- [x] **ACC-1** Checked on both test copies 11 Nov (36/37 checks each): partners manage employees' agents and read their chats read-only and logged; employees see only their own.
-`- [x] **ACC-2** Checked 11 Nov: the Private switch works; the gap where another partner could still share it to themselves (/ui/people/share) is fixed in 3745ecb, live with the next deploy.
-`- [x] **ACC-3** Checked 11 Nov: "Owner: <name> · invited" before joining, theirs after. Fakhri's agent is his.
-`- [x] **ACC-4** Checked 11 Nov: an employee with the create permission makes an agent and owns it; the default Member role (no permissions) still can't, by design.
-`
-`### 2. Code that only exists on the servers (the next deploy would undo it)
-`- [ ] **GIT-2** (design proposed 11 Nov, waits for your OK and a token) The fixer ships through GitHub instead of patching live code. Proposal:
-`  1. The fixer works in its own git checkout on each server (`aqeel-os-src`, which Elkiya has), on a branch per issue, never in the live folder.
-`  2. It proves the fix on the test copy (:4402) and with the tests, as today.
-`  3. It pushes the branch and opens a pull request, using a GitHub token that may open PRs on aqeel-os but never push to main.
-`  4. You or a coding session merge it; the normal deploy ships it. An engine fix becomes an `engine/patches` file in the same PR.
-`  5. Health's "Code changes" becomes "Fixes waiting for review", linking each PR.
-`  Needs from you: OK on the design, and that token (a fine-grained GitHub token: aqeel-os only, pull requests and contents on branches, no admin).
-`
-`### 3. Long-term reliability rules
-`- [~] **OPS-2** Each agent's Linux user is its group: `aq-agent-users stop <agent>` stops all it runs; a soft memory cap per agent (default 4 GB, 8 GB with its own AdsPower) restarts its Chrome, then files an issue (your choice, 11 Nov: no kernel cgroups, which would need a privileged box). Built and tested on the box as the claude user; waiting for your yes to deploy. Was: Each agent runs in its own container group with a memory cap, and one command stops everything it started.
-`- [x] **OPS-3** Restarts back off (5 s, 30 s, 2 min, 10 min) and after 5 failures in an hour stop and file one issue: agent screens and their Chrome (`scripts/agent-users.sh`, issue via `app/box-ops.mjs`). Live on both servers since 11 Nov (85b21c7). Engine schedules that fail on every run are not covered yet.
-`- [~] **OPS-4** Built with the wake proxy you approved on 11 Nov (OPS-12): screens unused for 30 min sleep and wake on the first browser call or when someone opens them; tabs and sign-ins come back. Tested on the box; waiting for your yes to deploy. Rollback: `sleep_minutes: 0` in hermes-ui-data/agent-limits.json. Was: A screen and Chrome left idle for 30 min go to sleep and wake on use.
-`- [x] **OPS-5** Janitor: every minute it compares expected and running screen processes per agent, reports anything extra and removes it a minute later. Live on both since 11 Nov: Elkiya 35 expected, 35 running; P&P 50 expected, 48 running (pixel-agent's desktop background and panel had exited; its screen and Chrome work). Shown under System › Per agent with each agent's memory.
-`- [x] **OPS-6** (checked live 11 Nov, 842518c) Deploy checks: AI-dependent checks report but don't block, and a failed check gets one retry. Built 11 Nov (scripts/box-check.sh, scripts/live-test.mjs): pages, fast switching, the button check and every live-test check get one more try before they count; My browser and a test-agent answer without the check word or colour are reported ("Reported, not counted" on System › Health), never a reason to stop or undo. Live on Elkiya in 1f5a2c1 (11 Nov), deployed with no skip flags: fast switching and My browser each missed once and passed on the second try, the live test's tools check did the same in 85b21c7. P&P still fails two old checks of its own (OPS-14, OPS-15), so its deploys still skip them.
-`- [x] **OPS-7** Fixer patches, drift saves, .bak copies, ~/backups, broken Python environments and deploy files expire after 30 days; long engine and screen logs are cut; gone test agents leave the test list after two daily passes. Live on both since 11 Nov. Same day: Elkiya's disk was at 99% because seven cut-off backups had each left 26 GB in /tmp; removed with your yes (now 54%), and 55ec552 removes such leftovers on start.
-`- [x] **OPS-8** [OPERATIONS.md](OPERATIONS.md) written (11 Nov). `scripts/ops-rules.test.mjs` fails when code breaks rules 1, 2, 3, 4 or 7; live with 85b21c7. Rule 6's test comes with OPS-6.
-`- [x] **OPS-12** Answered 11 Nov: a wake proxy on each agent's DevTools port (scripts/wake-proxy.mjs) starts the screen on first use. Was: Design question before building OPS-4: when an agent's sleeping screen is needed again, what wakes it? The engine's browser tool connects straight to Chrome's port, so the likely answer is a small proxy on that port that starts the screen on first use.
-`- [ ] **OPS-13** The janitor reports a screen part that is missing (P&P pixel-agent: desktop background and panel gone since about 9 Nov) but does not start it again. Decided 11 Nov: restart it. Built (not live yet): a part missing 10 min starts the desktop alone again (display and Chrome keep running), through the OPS-3 gate, never while the agent replies (the busy marker from box-ops) or used its screen within 5 min (`scripts/agent-users.sh` `desk_check`). On P&P on 11 Nov all of pixel-agent's parts were running again (its screen restarted 10:36 UTC).
-`- [ ] **OPS-14** P&P's fast page switching check fails, twice in a row (11 Nov, first run with checks on in a while): the bell pops in or rings again twice while pages change (topbar drawn without its count), and #/abilities/achievements replays its reveal (ach-cat, ach-grid). Old, not a regression: the version checked (342b90a) differs from what P&P ran (2845e0b) by one line on Health, and earlier P&P deploys skipped every check. Until fixed, P&P deploys skip only this check (FLICKER_CHECK=0). P&P's 1f5a2c1 deploy (11 Nov) still skipped every check (owner's call); its live test passed.
-`- [~] **OPS-15** P&P's button check (11 Nov). The buttons are not gone: on P&P's test copy with 60da9a7 the owner's All-agents Agents page stayed blank for over 6 s right after start, then drew New agent in 0.5 s every time. Cause: P&P's engine dashboard answered in up to 18 s under load (fixed in 8f70356, live in 60da9a7), and the check itself takes 7 to 10 minutes on a busy P&P, at its 10-minute limit, where a stopped run failed with an empty message. With 60da9a7 the check passes on P&P: 52 page views, nothing missing, 434 s. Since then box-check.sh gives it 15 minutes, names a timeout as one, and treats the test-copy lock as stale only after 90 minutes. No baseline change needed. Done once a P&P deploy with checks on passes it.
-`- [~] **FLICKER-1** (built 12 Nov on branch w-flick, not merged, not live) "Remove flicker as well, happening again." Measured on a P&P test copy in a real browser: the sidebar and topbar were not being drawn again; what flickered was the page. Every visit blanked the view to a ring (40 of 52 page visits), then the list came, then each card a layer round the page fetches for itself landed one by one and pushed the rest down: Settings moved 6 times in 0.9 s (layout shift 0.41 to 0.47), Health 5 times (0.89); the old check passed because each card glided. Now a page is drawn out of sight and shown whole (Stage in app/core.js), and a page seen before draws from its last answers at once while they are read again behind it (Swr in app/core.js, the rule of app/swr.mjs). After: layout shift 0.00 on both, 8 of 52 visits show a ring (first visits slower than 0.45 s). The fast page switching check now also fails on the shell drawn again and on a page that moves more than 0.05 (old version: fails on Health 0.41 and Settings 0.30; new: passes, worst 0.001), runs every night on the box as before, and a short run of it is in GitHub Actions (scripts/flicker-ci.mjs). The bell part of the check no longer counts a notification that really arrives during the run (likely OPS-14's "twice": one pop and one ring). Done when live on both servers and the nightly check passes there.
-`
-`### 4. Health and fixer redesign
-`- [x] **HEALTH-1** Live in 1f5a2c1 on both servers, checked on both servers (11 Nov): one verdict at the top ("Everything is patched and working", or what needs you) with a line of facts.
-`- [x] **HEALTH-2** Live on both servers (1f5a2c1, follow-ups in 60da9a7), checked on both servers, 11 Nov: the fixer panel shows its step, try and model, why the rest waits (quiet-hours reload, runs used today, pause), and its line with move up/down, skip for today and pause. Proof runs go on while an engine reload waits; the daily limit resets at the install's midnight. Elkiya's fixer had started nothing since 09:37 (the engine unlinked gateway.pid); since 99a006d it runs again (proof runs from 10:29). The engine stop follows gateway_state.json too (5408dcb).
-`- [~] **HEALTH-3** Live on both servers (1f5a2c1, follow-ups in 60da9a7), checked on both servers, 11 Nov: Needs you holds only what a person must do, with plain titles, one card per task (the six Higgsfield reports are one card, the two Higgsfield items one card). Open: the two Notion items each name the other as their duplicate and still show as two cards; fixed on main in the commit after 60da9a7 (grouping copes with a loop, the sorter makes none), waiting for the owner's deploy OK.
-`- [x] **HEALTH-4** Live in 1f5a2c1 on both servers, checked on both servers (11 Nov): Now and History tabs; History has what was fixed, resolved by itself or closed, by day, with the proof (120 items on Elkiya, 11 on P&P).
-`- **HEALTH-5** Dropped (11 Nov): the Code changes list was emptied after review, and GIT-2 keeps it empty by sending fixes as pull requests.
-`- [x] **HEALTH-6** Live in 1f5a2c1 on both servers, checked on both servers (11 Nov): memory per agent (each agent's Linux user; the main agent includes the engine), sampled every 10 minutes and kept 7 days, a warning when it rose 3 days in a row. The 7-day line fills in over the coming days.
-`- [x] **HEALTH-7** Live in 1f5a2c1 on both servers, checked on both servers (11 Nov): cost this week by agent and by person side by side. Usage counted every chat nobody started in aqeelOS as the owner; now the owner on Telegram counts as the owner, and Schedules, Customers and channels, and Background work (fixer, helpers) have their own lines.
-`- [~] **HEALTH-8** Built (not yet deployed): a slow engine answer gets a second, 20 s try before Health says "can't reach the engine"; a refused connection still counts as down at once.
-`- [x] **HEALTH-9** Live on both servers (1f5a2c1, follow-ups in 60da9a7), checked on both servers, 11 Nov: the same problem in other words for the same agent joins the open issue when filed, and the sorter merges the same problem across agents (16 on Elkiya, the six Higgsfield sign-ins into one card counting 6). Merges follow chains; duplicates that already had tries are linked instead.
-`
-`### 4b. Randy's QRIS picture never reaches the customer (if734729a, Elkiya)
-`Found 11 Nov:
-`- Kirimdev and WhatsApp mark every QR as "delivered" and report no media error. Tripay serves the QR as a normal PNG, crawlers included.
-`- Gilang's working QRs use the same Tripay link, but go as **one picture with a caption**. Randy's went as text, a bare picture, then text, all in the same second.
-`- The fixer's caption fix was rolled back only because its proof needed a person to look at Amri's phone.
-`- [~] **QR-1** Fix 06a44a6 is live. Proof waits for the delivery check (QR-2): it starts working when the WhatsApp bridge restarts. Found 11 Nov: the bridge had been started by hand 10 days ago, so engine restarts never restarted it. The engine replaces a bridge whose code changed at its next full start (its script hash differs now: running 5c0e6bc7, file ba5b70eb), normally tonight's quiet-hours restart. Then run `node scripts/delivery-check.mjs continue-support` on Elkiya.
-`- [~] **QR-2** Built in `4ceac9e` (69 tests pass, plus the bridge add-on's own 4 cases). Delivery probe, so the fixer can prove a picture arrived without a person:
-`  - The main agent's WhatsApp bridge on Elkiya messages the line once a day, which opens WhatsApp's 24-hour window.
-`  - aqeelOS sends a test picture to it with a hidden probe code.
-`  - The bridge sets probe messages aside instead of giving them to Donna, and records whether the picture downloaded.
-`  - The line's agent ignores inbound probe messages.
-`  - The fixer's proof step and Health use the result: "Pictures from Randy: arrived 10:02".
-`- [~] **QR-3** The fixer's fix and proof runs are now told to use the delivery check and never to ask a person to look at a phone (`4ceac9e`). Still to do: file "needs a person" at once for any other proof only a person can give.
-`- [x] **ENG-1** The bridge add-ons (group_watch.js, inbox_log.js, their hooks) are in engine/patches/2026-11-11-engine-hand-edits.patch (0e71ac3).
-`- Clue: Kirimdev reports Meta status `CONNECTED` for the Biomarkers line, but none for the main Continue line.
-`
-`### 5b. Employees can't connect Google (P&P, Fakhri Agent, 11 Nov)
-`Found:
-`- P&P has no install-wide Google client. The only client is Pixel Agent's own (a Desktop client from 19 Oct). It's not shared.
-`- Connections › Connect Google is admin-only (`/ui/google/*`: "Only admins connect Google accounts").
-`- So Fakhri's agent had no free route it could take for an employee. Its standing rule says to suggest Composio "when the setup needs admin access the person does not have", and no agent text mentions Connect Google at all.
-`- [x] **GOOG-1** Done 11 Nov on both servers: Google Cloud project "aqeelOS", External and **In production** (any Google account; unverified, so a one-time warning screen and a 100-user cap until verified), authorised domains of both installs. Web clients "aqeelOS P&P" and "aqeelOS Elkiya" with each server's /google-oauth/callback, installed on each server (Elkiya's old desktop-type client was kept; the one token that relied on it, cont-socmed, got its own copy so it keeps renewing).
-`- [x] **GOOG-7** Removed 11 Nov: the "WO Dashboard - Google Sheet" entry is gone from Fakhri Agent. His agent still only has a read-only copy of the owner's Google; he connects his own Google once the employee Google tools (no terminal needed) are live.
-`- [~] **GOOG-2** (live since 411d62b, built in b983ba0) Employees connect their **own** Google account for their own agents (sign-in link or the Connect Google card). Setting up the Google Cloud client stays admin-only.
-`- [x] **GOOG-4** (checked live 11 Nov on both) (live since 411d62b, built in b983ba0) The "Add MCP tool" form accepted a Google Sheets link as a tool: "WO Dashboard - Google Sheet" in Fakhri Agent's config is just `url: https://docs.google.com/spreadsheets/...`. Fakhri saw a sign-in button and thought it was connected, then sign-in failed with "Bad name". The form must refuse a web page that isn't an MCP server, recognise Google links and send the person to Connect Google, and refuse tool names with spaces up front.
-`- [ ] **GOOG-5** Waits on GOOG-1: issue i7d96eb8c named the wrong person (the sheet owner). Once the install has its Google client, the fixer's guidance points to it, and Fakhri hears in his bell when it is fixed (GOOG-6).
-`- [~] **GOOG-6** (live since 411d62b, built in b983ba0: the fixer tells the person who asked in their bell, linked to the chat) "Tell me when it's fixed": Fakhri's agent said it can't send a message on its own when an issue it filed is solved. The fixer should tell the chat that filed the issue when it's fixed, the aqeelOS web chat included.
-`- [~] **GOOG-3** (live since 411d62b, built in b983ba0) Agent guidance: if a client exists, send the sign-in link yourself. If not, say "an admin does the free 5-minute setup once in Connections › Connect Google". Composio only after that.
-`
-`### 5c. The same pattern beyond Google (audit of both servers, 11 Nov)
-`**Apps that can never work**
-`- [x] **APP-1** The engine limit was already raised by hand on 7 Nov (tools/mcp_tool_transport.py, 10 MB), and the 1 MB error hasn't come back since. It is now in git as engine/patches/2026-11-11-mcp-sse-event-cap.patch (e5da3a7), so engine updates keep it. Higgsfield now only needs a normal sign-in on the agents that should have it (see HIGGS-1). One alert per app instead of one per agent is in 0bd063f.
-`- [ ] **HIGGS-1** Higgsfield is off the 6 non-main Elkiya agents for good (11 Nov): switched off on purpose in agent-optins.json (appsOff, so the 10-minute job no longer adds it back) and removed from their configs. **Left for you:** in the Elkiya aqeelOS, Connections › search higgs › Higgsfield › Sign in again › Allow, for Donna AI.
-`- [x] **ENG-2** (0e71ac3, 11 Nov) Simulated an engine update on a clean copy and compared it with both live engines. The 6 Nov patch no longer fit, and 19 files had hand edits no step re-applied. All of it is now in engine/patches (engine-hand-edits, telegram-cross-topic-digest). Proof: on Elkiya, update + patches == live in every file except webhook.py, where the repo is newer. Also fixed: apply-skill-patches crashed without ~/.hermes/installs.
-`- [x] **ENG-3** Run the same update simulation in every deploy check, so an engine edit that no patch carries fails the deploy instead of being found later. Built 11 Nov: scripts/engine-sim.sh, check 5/5 in box-check.sh (runs alongside the others, only under /tmp; about 1 min on Elkiya, 3 on P&P). It compares a clean update plus the patch steps with the live engine plus the same steps, so a new patch is never a false alarm. Known differences: engine/patches/known-differences.txt (webhook.py). Tried on both servers: same result; with one patch left out it names the file. Live in 1f5a2c1: passed in Elkiya's deploys of 85b21c7 and 1f5a2c1 (760 changed files match, webhook.py known); on P&P it runs once OPS-14 lets a deploy reach it.
-`- [x] **APP-2** (live in 8abacb9, built in 0bd063f: technicalOnly in the fixer, and one sign-in alert per app instead of one per agent) Health: a "needs a person" issue must name something a person can actually do. A sign-in that fails for a technical reason is the fixer's job, not a person's.
-`- All other apps on both servers (88 entries) are fine. The only broken entry is Fakhri's Sheets link (GOOG-7).
-`
-`**Things an employee can't do for their own agent (same as Google was)**
-`- [x] **OWN-1** (live in 8abacb9, built in 86a2772: ownsAgent rule plus scripts/route-rights.test.mjs) Edit or rename an app on their own agent, or change its key (`/ui/mcp/server`, `/ui/mcp/keys`, `/ui/share/rename-mcp` are admin-only). For example, Fakhri can't fix his own "WO Dashboard" entry.
-`- [x] **OWN-2** (live in 8abacb9, built in 86a2772) Reconnect or pause their own agent's Telegram or WhatsApp channel when it drops (`/ui/channels/reconnect`, `/ui/channels/pause`).
-`- [x] **OWN-3** (live in 8abacb9, built in 86a2772) Remove a Google account from their own agent in the Connected apps panel (`/ui/google-accounts` DELETE is still admin-only, while Connect Google now allows the owner).
-`- Stay admin-only, on purpose: branding, gateway restarts, plugins, sharing between agents, the owner's view of n8n, keys of other people, WhatsApp Business setup.
-`
-`**Agents that get stuck signing in**
-`- [~] **AUTH-1** Fixed in c384c27, live in 8abacb9: type_secret finds the browser the agent's browser tool drives (config port, the engine Chromium's DevToolsActivePort file, or its own Chrome) and types into the focused sign-in field through it, with the same checks. Tested against real Chrome on Elkiya. Done once Donna signs in to KirimDev with it.
-`
-`**Answers that went to the wrong person**
-`- P&P: 3 issues came from web chats; 1 answer went to the owner and 2 aren't answered yet. Elkiya: 1, not answered yet. GOOG-6 fixes all of these once deployed.
-`
-`### 6. Token use and model choice
-`Today: the fixer runs on the main agent's profile, Sonnet 5.5 with the 1M context, through the Claude subscription, and its use is mixed into Donna's. This Claude Code work runs on Opus 5.5 at medium effort. API prices per million tokens in/out: Opus 5.5 $4/$20, Sonnet 5.5 $2/$10, Haiku 5.5 $0.10/$0.50.
-`- [x] **MODEL-1** (checked live 11 Nov) Done differently (2596157): each fixer run records its own tokens and cost from the engine's session records, and Health › Issues shows the fixer's runs and cost today and this month. A separate profile would have lost the main agent's access the fixer needs. Cost by person (HEALTH-7) is still open.
-`- [x] **MODEL-2** (checked live 11 Nov) Live in 2596157 on both servers since 11 Nov, settings in team-policy.json: fix claude-sonnet-5-5[1m] at medium, proof claude-haiku-5-5 at low, escalate claude-opus-5-5[1m]. Still to build: sorting new issues with one small call (no agent run).
-`- [x] **MODEL-3** Live on both servers (1f5a2c1, follow-ups in 60da9a7), checked on both servers, 11 Nov: each new issue is sorted by one short tool-less engine call (about 30 s; fixer.models.sort, else the proof model): duplicate, person-only or the fixer's, plus a plain title. Every open issue on both servers has been sorted. The rest of this item is MODEL-3b.
-`- [ ] **MODEL-3b** Prove with delivery checks instead of fix-and-roll-back rounds, and don't spend the daily runs on issues that will come back (left over from MODEL-3).
-`- [~] **MODEL-4** Tokens per fixer run are logged (2596157). Baseline on Elkiya, 11 Nov: fix runs about $0.12-0.23, proof runs about $0.15, all on Sonnet. Compare after a week on the new settings.
-`- [x] **MODEL-5** (checked live 11 Nov: 504,758 tokens saved on Elkiya) billion-context (github.com/ranxianglei/billion-context) in every install, so long chats use fewer tokens. Owner: "ship to all now" (11 Nov). On main as `8f2353a` (`app/billion-context.mjs`, pinned 0.1.213, self-update off, credit in README and the plugin's description), live on Elkiya since 05:32 UTC: every agent has the plugin switched on. The engine loads it at its next restart, which aqeelOS holds for the quiet hours (01:00-05:00). Emergency off: an off file, see `app/billion-context.mjs`.
-`  - Tested 11 Nov 07:15 UTC on Elkiya, the agents' Claude sign-in: a real message through the Claude plugin with billion-context loaded answers normally, and billion-context tracks the chat (one session, 6,819 tokens, anthropic protocol). The `claude` program sends its request through the proxy on its way to the plugin's relay, so no extra setting is needed. Earlier "saw nothing" was because `chat --oneshot` never loads engine plugins (and silences all logs): one-shot can't test this, only the always-on engine.
-`  - Owner (11 Nov): "on my OS no matter what model, on main so all people pulling the app use it". It is on main and switched on for every agent whatever its model. Tested 07:40 UTC: ChatGPT sign-in (openai-codex, gpt-6.1-sol) runs inside OpenAI's own Codex program, which ignores the proxy setting (it answered with HTTPS_PROXY pointed at a dead port) and keeps and compacts the chat itself, so billion-context can't reach it without engine work. Anthropic API key (aqeelos-help): its request was not seen either, even with api.anthropic.com on the list; not understood yet. Google sign-ins (Gemini, Antigravity): not tested. Owner (11 Nov): "Claude is enough": no further work on the other sign-ins.
-`  - Found on the way: the server's default Claude login (`~/.claude`) is at its weekly limit until 14 Nov 05:00 UTC; only the test agent aq-livetest uses it.
-`  - Still to do: after tonight's restart, check that agents still answer and that long chats get folded (`/__bili/sessions` on the proxy shows tokensSaved). ChatGPT-sign-in agents are not tested. P&P runs `8abacb9` since 06:07 UTC (automatic deploy) and every agent there has the plugin switched on too; same quiet-hours restart. The engine's own summariser stays on as a fallback; it only acts if billion-context doesn't keep the chat short.
-`
-`### 5. Small leftovers
-`- [x] **OPS-9** Elkiya's gateway answers "Unknown or unconfigured profile" for the test agent aq-livetest (P&P's works), so every Elkiya live test skips its agent check. The terminal chat command fails for it too ("Gateway starting: deadline"). Why: a `hermes -p aq-livetest gateway stop` on 9 Nov 12:32 left `gateway.parked` in its profile, and the engine does not serve parked profiles. Fixed 11 Nov in live-test.mjs: the live test unparks its own test agent with the engine's `gateway start` (no engine restart). Live: Elkiya's live tests of 85b21c7 and 1f5a2c1 ran the agent check, and the test agent answered and saw the picture.
-`- [x] **TEST-1** Done 11 Nov: continue-support and biomarkers-support **stay** on Elkiya's test-agent list on purpose (owner: they are in training, not live with customers yet; take them off when they go live, so their alerts reach the owner). 258 entries for agents that no longer exist removed; 9 lines left (aq-livetest and 8 mb-* test agents).
-`- [x] **OPS-16** (agents and users gone; folders swept since e59a24d) Elkiya still has 8 leftover My browser test agents (mb-1ip0b, mb-7h28s, mb-b7kra, mb-hq1oh, mb-in69q, mb-j3xbc, mb-ln092, mb-vbmf2) with profiles and Linux users: remove them and make the check delete its agent every time.
-`- [x] **OPS-10** The user ag-zz-fornew was already removed by the root script; its leftover folder (51 MB) was moved to the removed-workspaces folder on P&P (11 Nov).
-`- [x] **OPS-11** P&P's live test hung because live-test.mjs had no engine key from a shell. Fixed in 4f7243a; every P&P live test since has passed.
-`
-`## Done (11 Nov)
-`
-`- [x] Deployed `996144f` to Elkiya and P&P (Private switch, partner/employee rule, self-create, Elkiya payment fixes, auto-fix guard).
-`- [x] **OPS-1** Screen desktops piling up (49 each on continue-support and biomarkers-support). Fixed in `25fd701`, live on both servers. Elkiya is back to 1 desktop per agent, both screens open again, and memory went from 28.0 to 22.5 GB of 28 GB.
-`
-`---
-`
-`## From the old /backlog board (last updated 5 Nov)
-`
-`
-`### Doing (from the old board) (3)
-`
-`- [x] **ABIL-65** (checked on Elkiya 11 Nov) Every agent has Donna’s tools, Sesa included · P0 — checked on Elkiya 11 Nov: Sesa is fine now (own user, own Chrome, every tool bundle, aqeelos-code/notify/self). Two gaps fixed in code (not deployed): (1) skills right at the top of the main agent's skills folder were never copied, so threads-fast-search is missing on cont-socmed, pepclub-social, seo-specialist and Sesa (app/accounts.mjs giveSkills); (2) pepclub-social (trusted, runs as the main user) still had browser.cdp_url → 127.0.0.1:9605, the port the root script later gave aq-livetest, so its browser drives the test agent's Chrome; trusted agents now drop a leftover own-screen link (app/agent-defaults.mjs ownScreenCdp). Test: scripts/agents-equal.test.mjs. Deliberate differences: aqeelos-customer only on the two support agents, AdsPower only on continue-threads, aqeelos-self only on agents with their own user (not the main agent or trusted pepclub-social), aqeelos-help is the locked help agent. **Left:** deploy and check both agents on Elkiya; Sesa has no n8n tool (her n8n user exists and was connected on 20 Oct, the tool has been gone since at least 7 Nov; Access › n8n › Sesa gives it back, if that removal wasn't on purpose).
-`- [ ] **AUTO-47** Run rules: one run at a time, posting limits and live checks · P0 — all built (app/posting-limits.mjs, Schedules › Run rules, gate route and record_post in server.mjs) and covered by scripts/posting-limits.test.mjs (15 pass); the engine supports both parts (per-profile cron.max_parallel_jobs, a script gate's wakeAgent:false). **Not in use on Elkiya:** no agent has Run rules (no posting-limits.json, no gate script, max_parallel_jobs unset), and Continue Threads' three runners (comment + DM, outbound DM, DM + reply answering) run without a gate. To finish: on Continue Threads, Run rules › one at a time + limits + alert chat, then set each posting schedule's script to aqeelos-posting-gate.sh, then check a run is gated and a post is looked up. Side finding 11 Nov 19:10: those three runners and one schedule each on continue-support and biomarkers-support fail with "RuntimeError: extra_headers supports host traceparent metadata only" (from the Claude plugin, directsdk.py); last good run 19:00.
-`- [ ] **CODE-29** Live: publish apps from Code to <name>.app.<domain> · P0 — the old blockers are gone (Dokploy connected, "Live apps" environment made, *.app.<domain> resolves), but no app has ever been published. **Blocked:** HTTPS on any <name>.app.<domain> fails at Cloudflare (TLS handshake failure; Cloudflare's free certificate covers one level only), so publish() refuses with that message (app/live.mjs domainProblem). Owner's call: in Cloudflare, make the *.app record DNS only (grey cloud) to the Dokploy server so Traefik's Let's Encrypt certificates answer, or buy an Advanced Certificate for *.app.<domain>, or set LIVE_DOMAIN=<domain> (apps at <name>.<domain>). Then publish one test app and check it opens.
-`
-`### Blocked (from the old board) (2)
-`
-`- [ ] **CODE-50** aqeelOS app for Mac · P1
-`  - 20 Oct: build ready (ARCH=arm64|x64, dmg, mic/camera/location texts); built on GitHub’s Macs by a workflow. Blocked: the owner runs gh auth refresh -s workflow,
-`- [ ] **MODEL-15** Gemini with your Google AI plan (chat, then images and video) · P1
-`  - Built and tried on 17 Oct: the sign-in worked (the owner's personal Google account), but Google now refuses the Gemini CLI for personal accounts, Google AI Pro in
-`
-`### Planned (from the old board) (5)
-`
-`- [ ] **CODE-10** Mac install checked on a Mac · P1
-`- [ ] **SHELL-49** Extension tested in real Chrome · P1
-`- [ ] **AUTO-23** Slack: as a bot, or as a person’s own Slack account · P2
-`- [ ] **SYS-45** More installs of aqeelOS, updated from GitHub · P2
-`- [ ] **CODE-22** Signed installers (Windows and Mac) · P3
-`
-`
-`Sorted 11 Nov against the code on main (helper agent, 168 items): 10 open, 154 done, 4 dropped. AUDIT-2, AUDIT-41 and PAR-37 were fixed the same day.
-`
-`### Still open (next steps)
-`
-`- [x] **AUDIT-2** People and access: Admins can bypass private-agent access through the legacy sharing endpoint — fixed 11 Nov: the share check and the invite filter also refuse an admin's own agent made Private (users.mjs; users.test.mjs proves both halves fail on the old code)
-`- [x] **AUDIT-41** Code engine and desktop app: Background self-update can terminate work started during the download — fixed 11 Nov: Code's self-update also waits while a terminal is at work (input or output in the last 2 min, or on Linux a shell with a running command; Terminals.busy, tested on a real shell)
-`- [x] **CODE-12** (closed by decision 12 Nov: coding is local, online Code is off) Code for the whole team · P0 (raised 11 Nov) — found live: online Code runs as the box user claude, which holds the install's keys, and any member with edit rights on a project (their own included) could open a terminal, run commands, start dev servers or agent runs there and read those keys. Contained in code (not yet deployed): online Code refuses those to non-admins (MEMBER_NO_RUN in code/workspace-api.mjs; CODE_MEMBERS_RUN=1 turns it back on). Real fix still to do: run member work under its own Linux user, as agents do.
-`- [x] **CODE-56** Plan only on every model · P1 — checked on Elkiya 11 Nov: the agent's user can read the .plan copy but not change it or the real project; commands that need approval are refused, other commands run but can't change files.
-`- [x] **PAR-37** Models and agents: Add, remove and change MoA reference-model slots — fixed 11 Nov: key and split sat behind a // comment in people.js, so New team / Edit for a team of models threw at once
-`- [x] **PAR-47** System, Logs, Usage: Global critical and elevated disk warnings — fixed 11 Nov: the engine already reports disk pressure and the banner reads it; both banners now say saving chats, files and backups may fail
-`- [~] **SHELL-51** Help: a chat that explains aqeelOS and finds what went wrong · P1 — checked live 11 Nov: the hidden Help agent (aqeelos-help) exists on both servers with every toolset off (agent.disabled_toolsets). Elkiya: claude-opus-5-5 via the anthropic provider; P&P: no model of its own, so the install default. Left: one Help reply on each, to see it stream.
-`- [x] **SYS-50** Email when the server goes down · P1 — .github/workflows/uptime.yml (every 10 min, scripts/uptime-check.mjs); owner step left: set the repository variable AQEELOS_URLS (OPERATIONS.md).
-`- [ ] **AUDIT-65** Chrome extension: Stop should hold until the next chat turn · P2 — **waits on you**: your Chrome runs extension 2.0.0 (seen on Elkiya 11 Nov), the fix is in 2.1.2; update it from the My browser page, then check Stop holds.
-`- [ ] **AUTO-38** WhatsApp Business connection for a team number · P2 — next: owner-blocked: needs the Meta business account and chosen number; then enter them on Channels › WhatsApp Business (callback /whatsapp-cloud, app/server.mjs:2340/2703) and test with one real message.
-`
-`### Done (verified in code)
-`
-`- [x] **AUDIT-1** Agents: Members can bypass the fresh-agent restriction and copy another agent's secrets — closed.
-`- [x] **AUDIT-3** Server: [P0] Unauthenticated WebSocket clients can exhaust server memory — closed.
-`- [x] **AUDIT-4** Code engine and desktop app: Online viewers can control runs and terminals despite view-only access — closed.
-`- [x] **AUDIT-6** Chrome extension: Password values can leak through snapshot element names — closed.
-`- [x] **AUDIT-10** Chat: Uploads can silently overwrite another chat's attachment — closed.
-`- [x] **AUDIT-11** Chat: Voice transcription is always routed to the default agent — closed.
-`- [x] **AUDIT-12** Memory and Files: Uploading a matching filename silently overwrites the existing file — closed.
-`- [x] **AUDIT-13** Memory and Files: A failed memory read opens an empty editor that can erase existing notes — closed.
-`- [x] **AUDIT-14** Memory and Files: All-agents Files shows members folders they cannot open — closed.
-`- [x] **AUDIT-15** Code page in aqeelOS: Fallback download installs an engine the browser refuses to open — closed.
-`- [x] **AUDIT-16** Code page in aqeelOS: A rejected connection attempt hides the connection form — closed.
-`- [x] **AUDIT-17** Automations: Editing interval or one-time schedules silently replaces their timing — closed.
-`- [x] **AUDIT-18** Automations: Failed access removal is reported as successful — closed.
-`- [x] **AUDIT-19** Automations: The timezone shortcut changes the chatting agent instead of the schedule's agent — closed.
-`- [x] **AUDIT-20** Channels: All agents omits requests from extra channel accounts — closed.
-`- [x] **AUDIT-21** Abilities: Renaming an app can overwrite another connection — closed.
-`- [x] **AUDIT-22** Abilities: Changing provider can leave an incompatible model selected — closed.
-`- [x] **AUDIT-23** Models: Switching providers can leave the agent with an unsupported model — closed.
-`- [x] **AUDIT-24** Models: Automatic switching stops after the first inaccessible fallback — closed.
-`- [x] **AUDIT-25** Models: Google sign-out leaves agents pointing at the disabled provider — closed.
-`- [x] **AUDIT-26** System: Backup controls never reach the Health page — closed.
-`- [x] **AUDIT-27** System: Daily limits ignore today's work in older chats — closed.
-`- [x] **AUDIT-7** App shell: Signing out leaves private conversations available to the next account — closed.
-`- [x] **AUDIT-8** Chat: Sending locks out steering, queued messages, and other chats until the reply ends — closed.
-`- [x] **AUDIT-9** Chat: Images larger than 8 MB are sent without image data — closed.
-`- [x] **AUDIT-28** People and access: Sharing a key silently destroys a different key already on the recipient — closed.
-`- [x] **AUDIT-29** People and access: Deleting an agent never frees the member's creation allowance — closed.
-`- [x] **AUDIT-30** People and access: Member connection lists are always filtered using a nonexistent field — closed.
-`- [x] **AUDIT-31** People and access: Password changes leave existing sessions authenticated — closed.
-`- [x] **AUDIT-32** Server: [P0] Shared-screen restriction can be bypassed through an agent screen — closed.
-`- [x] **AUDIT-33** Server: [P1] Code online sessions survive 'Sign out everywhere' — closed.
-`- [x] **AUDIT-34** Code engine and desktop app: Keeping a comparison corrupts changed image files — closed.
-`- [x] **AUDIT-35** Code engine and desktop app: Comparison deletions bypass undo history — closed.
-`- [x] **AUDIT-36** Code engine and desktop app: AI browser reads the person's tab but clicks its own tab — closed.
-`- [x] **AUDIT-37** Code engine and desktop app: PowerPoint, Word and Excel uploads are rejected as nontext — closed.
-`- [x] **AUDIT-38** Code engine and desktop app: Gemini loses all saved project secrets before launch — closed.
-`- [x] **AUDIT-39** Code engine and desktop app: Turning off web access also removes unrelated app and connected-agent tools — closed.
-`- [x] **AUDIT-40** Code engine and desktop app: A fourth running AI leaves a new comparison half-started forever — closed.
-`- [x] **AUDIT-42** Code engine and desktop app: Failed dependency installation still commits the self-update — closed.
-`- [x] **AUDIT-43** Chrome extension: Stop and Take over do not cancel a pending click or typing action — closed.
-`- [x] **AUDIT-44** Chrome extension: The browser cannot discover controls inside shadow roots — closed.
-`- [x] **AUDIT-45** Code app: Saving can silently discard edits typed during the request — closed.
-`- [x] **AUDIT-46** Code app: The project preview tab is never rendered — closed.
-`- [x] **AUDIT-47** Code app: Compare draft Preview buttons show the wrong browser — closed.
-`- [x] **AUDIT-48** Code app: Agent command updates repeatedly steal the terminal tab — closed.
-`- [x] **AUDIT-49** App shell: 12 smaller fixes — closed.
-`- [x] **AUDIT-50** Chat: 8 smaller fixes — closed.
-`- [x] **AUDIT-51** Agents: 8 smaller fixes — closed.
-`- [x] **AUDIT-52** Memory and Files: 6 smaller fixes — closed.
-`- [x] **AUDIT-53** Code page in aqeelOS: 6 smaller fixes — closed.
-`- [x] **AUDIT-54** Automations: 10 smaller fixes — closed.
-`- [x] **AUDIT-55** Channels: 5 smaller fixes — closed.
-`- [x] **AUDIT-56** Abilities: 7 smaller fixes — closed.
-`- [x] **AUDIT-57** Models: 10 smaller fixes — closed.
-`- [x] **AUDIT-58** System: 13 smaller fixes — closed.
-`- [x] **AUDIT-59** People and access: 4 smaller fixes — closed.
-`- [x] **AUDIT-60** Server: 6 smaller fixes — closed.
-`- [x] **AUDIT-61** Code app: 8 smaller fixes — closed.
-`- [x] **AUDIT-62** Code engine and desktop app: 4 smaller fixes — closed.
-`- [x] **AUDIT-63** Chrome extension: 5 smaller fixes — closed.
-`- [x] **CODE-07** Code uses agents, one way — evidence: app/code-agents.mjs createCodeAgents (run ticket, ask-only design); app/server.mjs:2257 notes code_projects/code_work are gone; asks go through aqeelos_ask in code/aqeelos-mcp.mjs.
-`- [x] **CODE-41** The aqeelOS desktop app, with a real browser in Code — evidence: code/desktop/main.cjs (Electron, real tabs laid over the stage, DevTools-driven via code/browser.mjs); the Mac build no longer needs a Mac: .github/workflows/desktop-app.yml builds aqeelOS.dmg on macos-latest and aqeelOS-Setup.exe on windows-latest.
-`- [x] **CODE-48** Stop doesn’t close the app — evidence: code/desktop/main.cjs:66 spawns servers with ELECTRON_RUN_AS_NODE:'1' (also in code/aqeelos.mjs and code/workspace-api.mjs for tool servers).
-`- [x] **CODE-52** Attach several agents to a Code message — evidence: code/studio.js:478 (agent chips, remembered per project); app/code-agents.mjs ticket()/ticketAgents() sign which agents a run may ask; aqeelos_ask in code/aqeelos-mcp.mjs.
-`- [x] **CODE-55** One model list in Code, as in aqeelOS — evidence: code/studio.js:219 and :658 (one list "<harness>:<model>" from aqeelOS for the first attached agent); code/server.mjs:25; app/code-bridge.mjs relays project tool calls and logs to data/code-bridge.jsonl.
-`- [x] **CODE-39** Side browser: microphone, camera, location, downloads, uploads — evidence: code/desktop/main.cjs:83 setPermissionRequestHandler→sitePermit (per site per project), :85 will-download into Downloads › Project; code/browser.mjs:144/163 Page.fileChooserOpened→fileAsk opens the picker for the person (a real upload was not tried on screen).
-`- [x] **CODE-45** Rounded, centred device screens — evidence: code/desktop/main.cjs:106 view.setBorderRadius(stageRect.radius) for the real tab; frames and centring in the page as shipped in app 1.0.5 (glide not re-seen on screen).
-`- [x] **CODE-53** Agents introduce themselves to the coding model — evidence: app/code-agents.mjs intro() (purpose, apps and skills by name, notes digest for owners; the SECRETY filter drops secret-looking notes).
-`- [x] **CODE-54** Files from agents land in the project — evidence: app/code-agents.mjs outbox()/collect()/saveInto() with FILES_MAX=12, FILE_MAX=20e6, FILES_TOTAL=40e6 and safeRel() for a project subfolder; from-agents/<agent>/ handled in app/server.mjs and code/aqeelos-mcp.mjs.
-`- [x] **CODE-57** Open in Code from a chat — evidence: app/server.mjs:2291/2318 adds and handles the open_in_code tool; app/code-agents.mjs handoff()/handoffGet() (7-day request, only people who may chat with the agent); app/core.js:154 opens Code in place, nothing runs until send.
-`- [x] **PAR-11** Shell, Task board, Achievements: Configure orchestrator and default assignee — evidence: app/boards.js ACT['kb-settings'] reads GET /orchestration and /profiles, Organiser and Default agent selects show resolved values, saved with put(KB,'/orchestration').
-`- [x] **PAR-12** Shell, Task board, Achievements: Toggle automatic triage decomposition — evidence: app/boards.js ACT['kb-settings'] "Split new ideas into tasks automatically" toggle (#ksX → auto_decompose), plus the board-header mode (lines 49-53).
-`- [x] **PAR-13** Shell, Task board, Achievements: Task diagnostic and staleness indicators — evidence: app/boards.js KSTALE/kbStale() amber/red outlines and the needs-attention strip (kb-warn-open / kb-warn-off, lines 82-85).
-`- [x] **PAR-14** Shell, Task board, Achievements: Create tasks in the intended workflow destination — evidence: app/boards.js kb-new #ktGo PATCHes {status} with the chosen status (line 214); each column header opens kb-new preselected (line 71).
-`- [x] **PAR-15** Shell, Task board, Achievements: Select task workspace type and path — evidence: app/boards.js kb-new sends workspace_kind and workspace_path (line 209); shown in kbTaskL1 "Works in".
-`- [x] **PAR-16** Shell, Task board, Achievements: Choose a parent when creating a task — evidence: app/boards.js kb-new "Waits for" select #ktW sent as body.parents=[w] (line 208).
-`- [x] **PAR-17** Shell, Task board, Achievements: Move tasks by desktop drag and drop — evidence: app/boards.js kbDrag()/kbDropOn(): the Running column is knodrop (line 71) and refuses drops, kbDragOn shows targets while dragging, plus touch dragging in kbTouch().
-`- [x] **PAR-18** Shell, Task board, Achievements: Change task status through task controls — evidence: app/boards.js kbStatusBtns() (line 218) renders only moves valid for the current status, wired to ACT['kb-status']→kbMove; no Running option.
-`- [x] **PAR-19** Shell, Task board, Achievements: Completion summary and destructive transition confirmations — evidence: app/boards.js kbMove(): confirmBox before Block and Archive, promptBox for a required summary on Done, sent as {status:'done',result,summary}.
-`- [x] **PAR-2** Shell, Task board, Achievements: Standalone gateway warning on multi-profile installations — evidence: app/core.js:481 reads st.multiplex_standalone_reason and lists the agents not being served in the banner.
-`- [x] **PAR-20** Shell, Task board, Achievements: Specify and decompose triage work — evidence: app/boards.js ACT['kb-specify'] (POST /tasks/<id>/specify) and ACT['kb-decompose'] (POST /decompose, one at a time per task) with result messages.
-`- [x] **PAR-21** Shell, Task board, Achievements: Inspect and edit task dependencies — evidence: app/boards.js kbTaskL1 "Waits for" / "Waiting for this" lists with add selects and ACT['kb-unlink'] (DELETE /links).
-`- [x] **PAR-22** Shell, Task board, Achievements: Final task result and run-summary fallback — evidence: app/boards.js kbTaskL1 res=k.result||k.latest_summary with its label, and the hint for done parents with sub-tasks.
-`- [x] **PAR-23** Shell, Task board, Achievements: Read child task results and open child tasks — evidence: app/boards.js kbTaskL1 "Sub-task results" from t.child_results, each with an Open (kb-open) button.
-`- [x] **PAR-24** Shell, Task board, Achievements: Read and add task comments — evidence: app/boards.js comments show author and ago(created_at), #kdC submits on Enter (line 275), hint "The agent reads comments the next time it works on this task" (line 266); author no longer hard-coded.
-`- [x] **PAR-25** Shell, Task board, Achievements: Task attachment upload, download and deletion — evidence: app/boards.js kbTaskL1 Files section with kb-att-get / kb-att-del and the upload handler (lines 315-319).
-`- [x] **PAR-26** Shell, Task board, Achievements: Task diagnostics details and recovery actions — evidence: app/boards.js kbDiags() plus ACT['kb-reclaim'] (POST /reclaim), ACT['kb-reassign'] (POST /reassign with reclaim_first) and ACT['kb-copycmd'].
-`- [x] **PAR-27** Shell, Task board, Achievements: Worker log inspection — evidence: app/boards.js kbLog() loads /tasks/<id>/log?tail=100000 with size, and ACT['kb-log'].
-`- [x] **PAR-28** Shell, Task board, Achievements: Complete task run history — evidence: app/boards.js kbTaskL2 shows the latest 3 runs with agent, outcome, duration, summary, error and a metadata fold; ACT['kb-runs-all'] shows the rest.
-`- [x] **PAR-29** Shell, Task board, Achievements: Select tasks for bulk work — evidence: app/boards.js KSel with kb-sel checkboxes, shift-click range (line 92) and the bulk bar (lines 102-111).
-`- [x] **PAR-30** Shell, Task board, Achievements: Bulk status changes and multi-card dragging — evidence: app/boards.js kbMove() posts /tasks/bulk for several ids; kbIdsFor() moves the whole selection when a selected card is dragged.
-`- [x] **PAR-31** Shell, Task board, Achievements: Bulk priority and reassignment with reclaim-first — evidence: app/boards.js ACT['kb-bulk-pri'] and ACT['kb-bulk-agent'] via /tasks/bulk with reclaim_first (lines 108-109).
-`- [x] **PAR-32** Shell, Task board, Achievements: Unlocked, discovered and secret achievement states — evidence: app/boards.js achState()/achBadge() (lines 338-343) branch on x.state with masked secrets and a lock icon, plus Earned / In progress / Secret filters (line 361).
-`- [x] **PAR-4** Shell, Task board, Achievements: Kanban manual refresh and automatic updates — evidence: app/boards.js kbLive() subscribes to /hapi/plugins/kanban/events over WebSocket with backoff, reloads the board and refreshes an open drawer (kbDrawerLive); polling stays as fallback.
-`- [x] **PAR-6** Shell, Task board, Achievements: Create a board — evidence: app/boards.js new-board drawer (#knGo) posts /boards with slug, name, description, icon, project and default_workdir, plus "Open it now".
-`- [x] **PAR-7** Shell, Task board, Achievements: Edit board name, description and default work directory — evidence: app/boards.js ACT['kb-settings'] PATCHes /boards/<slug> with name, description, icon, project_id and default_workdir (empty clears).
-`- [x] **PAR-33** Files and Memory: Enter an arbitrary absolute directory path and submit with Go or Enter — evidence: app/files.js:32 "Go to folder" button (data-act f-go) and :69 promptBox that sets S.filePath and reloads.
-`- [x] **PAR-34** Files and Memory: See accurate provider readiness states — evidence: app/pages.js:772-781 MEM_ST/memSt map ready / needs_config / unavailable / missing to Ready / Needs setup / bad chips on each provider row.
-`- [x] **PAR-35** Files and Memory: Inspect and edit an already available provider's configuration — evidence: app/pages.js:781 every provider row gets Settings (or Set up); ACT['mem-setup'] (:800) GETs /memory/providers/{p}/config and Save PUTs the same path (:810).
-`- [x] **PAR-36** Files and Memory: See detailed dependency setup results and failures — evidence: app/pages.js:811-813 renders r.results via memResults, reports failed steps or r.ok===false as an error, toasts success only otherwise.
-`- [x] **PAR-38** Models and agents: Disconnect an OAuth provider with confirmation — evidence: app/accounts-page.js acctRemove sends every OAuth ("sub") account to ACT['oauth-out'] (app/pages.js:888), which asks with confirmBox and DELETEs /providers/oauth/{id}; no disconnectable flag is needed.
-`- [x] **PAR-39** Settings and Keys: Complete environment-variable catalog — evidence: app/pages.js:904 skips HERMES_* only when v.category!=='provider', so provider HERMES_ keys are listed.
-`- [x] **PAR-40** System, Logs, Usage: Host memory used, total and percentage — evidence: app/pages.js:1232 RAM stat shows the AI box used/limit and, in the small line, whole-server used / total with its percentage.
-`- [x] **PAR-41** System, Logs, Usage: Gateway running status and detailed state description — evidence: app/pages.js:1255 gwStateText explains gateway_state (degraded, stale heartbeat minutes), shown under the gateway buttons at :1241; app/core.js:495-500 labels the state.
-`- [x] **PAR-42** System, Logs, Usage: Stop the selected profile's gateway — evidence: app/pages.js:1264-1268 ACT['gw-stop'] stops agentProfile() (or all when shared), with a 409 fallback "Stop every agent".
-`- [x] **PAR-48** Channels: Show each platform's shared-listener callback URL — evidence: app/pages.js:305 channelDrawer shows a "Callback address" copy row (chCopy) whenever c.ingress_url is set.
-`- [x] **PAR-49** Channels: Enable and disable individual channels — evidence: app/pages.js:304/309 shared channels (CH_SHARED = api_server, webhook, :322) get a real "Switched on" toggle that PUTs {enabled}; other channels pause via Belongs to (hint at :306).
-`- [x] **PAR-50** Channels: Edit all returned platform environment settings — evidence: app/people.js waCloudDrawer (:1010 on) renders the remaining env_vars with chField in a "More settings" fold with its own Save.
-`- [x] **PAR-51** Channels: View existing allowlist entries when opening settings — evidence: app/pages.js:327/337 chIsList fields render saved IDs from v.value as removable chips with an Add input.
-`- [x] **PAR-52** Channels: Choose WhatsApp Bot or Self-chat mode — evidence: app/people.js:682-711 Link WhatsApp drawer offers "A number for the agent" / "My own number" (self-chat), defaults from the saved mode; app/server.mjs:1225 writes b.mode.
-`- [x] **PAR-53** Skills, Plugins, Connected apps: Learn a skill from local sources, a URL and free-form notes — evidence: app/all-agents-more.js:43-45 "Learn a skill" button (sk-learn) on Abilities › Skills.
-`- [x] **PAR-54** Skills, Plugins, Connected apps: Open hub skill details and preview SKILL.md before installation — evidence: app/pages.js:643 hub drawer loads /skills/hub/preview and paints the Instructions view.
-`- [x] **PAR-55** Skills, Plugins, Connected apps: Run or rerun a hub skill security scan — evidence: app/pages.js:634-641 paintScan/runScan with "Run security check" and "Check again" calling /skills/hub/scan.
-`- [x] **PAR-56** Skills, Plugins, Connected apps: Inspect security verdict, install policy and severity totals — evidence: app/pages.js:635-638 scan header shows verdict chip, trust level, finding count, severity_counts chips, and policy with policy_reason.
-`- [x] **PAR-57** Skills, Plugins, Connected apps: Install a plugin from an arbitrary identifier or repository URL — evidence: app/pages.js:722 free-form #plId install posts {identifier,force,enable} to /dashboard/agent-plugins/install.
-`- [x] **PAR-58** Skills, Plugins, Connected apps: Browse and install curated, pinned catalog plugins — evidence: app/pages.js:731 catalog install posts the engine contract {identifier:'',catalog_name,force,enable:false}.
-`- [x] **PAR-59** Skills, Plugins, Connected apps: Review and accept expanded plugin capabilities during update — evidence: app/pages.js:738-740 on consent_required asks with confirmBox (sha + delta_lines), re-posts accept_capabilities:true, toasts only on real success.
-`- [x] **PAR-60** Skills, Plugins, Connected apps: Open any installed plugin dashboard tab — evidence: app/plugin-host.js hosts engine dashboard plugins inside aqeelOS (Plugins.open, :41) and app/pages.js:743 adds "Open its page" to the plugin menu.
-`- [x] **PAR-61** Skills, Plugins, Connected apps: Edit and save schema-driven memory-provider settings — evidence: app/pages.js:800-810 mem-setup drawer renders fields by kind with when-conditions, bounds checks and current values, saved via PUT /memory/providers/{p}/config.
-`- [x] **PAR-62** Skills, Plugins, Connected apps: Install memory-provider dependencies and inspect per-step results — evidence: app/pages.js:811-813 "Install what it needs" renders result.results step rows and errors when any step failed.
-`- [x] **PAR-63** Skills, Plugins, Connected apps: Add an HTTP MCP server with a bearer token — evidence: app/pages.js:668 and app/connections.js:183/194 set body.auth='header' with bearer_token.
-`- [x] **PAR-64** Skills, Plugins, Connected apps: Authenticate an MCP server through browser OAuth — evidence: app/connections.js:151 and app/pages.js:662 treat 'approved' as success; connections.js keeps polling past a failed poll.
-`- [x] **PAR-65** Skills, Plugins, Connected apps: Enter and validate required MCP catalog credentials — evidence: app/connections.js:175-177 Cx.install maps required_env {name,prompt,required} to labelled inputs with * and required checks; :183 direct URL adds send a header token, not env.
-`- [x] **PAR-66** Chat: Choose a project folder or discovered repository — evidence: app/chat.js:95-97 workspace menu maps projects to folders[].path / primary_path and repos to r.root with readable labels.
-`- [x] **PAR-67** Chat: Choose reasoning effort across all eight levels — evidence: app/chat.js:6 EFFORTS=['none','minimal','low','medium','high','xhigh','max','ultra'].
-`- [x] **PAR-68** Schedules, Webhooks, Pairing: Attach one or multiple skills to a job — evidence: app/pages.js:219 "Skills (optional)" picker (#cjSkills), :258 b.skills, :263 empty prompt allowed when a skill is chosen.
-`- [x] **PAR-69** Schedules, Webhooks, Pairing: Select a script for scheduled execution — evidence: app/pages.js:227 Script input (#cjScript) sent as b.script (:262), engine errors translated at :163.
-`- [x] **PAR-70** Schedules, Webhooks, Pairing: Run script only and deliver stdout verbatim — evidence: app/pages.js:228/262 "Send the script's output as it is" toggle sets no_agent, enabled only with a script (:238).
-`- [x] **PAR-71** Schedules, Webhooks, Pairing: Continuity between successive runs — evidence: app/pages.js:202/259 continuity toggle (#cjCont) adds 'self' to context_from.
-`- [x] **PAR-72** Schedules, Webhooks, Pairing: Scheduler heartbeat staleness warning — evidence: app/schedules.js:36 staleAge reads scheduler_heartbeat_age_s and :87 shows how long ago the scheduler last ticked.
-`- [x] **PAR-73** Schedules, Webhooks, Pairing: Automatic-enable restart outcome, errors and retry restart — evidence: app/pages.js:403-405 watches restart_started and shows restart_error / needs_restart with a restart prompt.
-`- [x] **PAR-74** Schedules, Webhooks, Pairing: Webhook delivery choices: log, Telegram, Discord, Slack, email and GitHub comment — evidence: app/pages.js:392 WH_DELIVER lists log, github_comment, telegram, discord, slack, email.
-`- [x] **PAR-75** Chats and history: Highlight matches within an opened transcript and jump to the first hit — evidence: app/chat.js:247-255 Chat.markHits wraps the search words in <mark class="hit">, loads older messages if needed, and scrolls to the first hit.
-`- [x] **PAR-76** Chats and history: Automatically refresh session history when another process creates a session — evidence: app/boot.js:129 runs Chat.tick every 20 s; app/chat.js:60-61 reloads sessions and redraws Manage chats when the head of the list changes.
-`- [x] **PAR-77** Shell, Task board, Achievements: 37 useful engine features to add — evidence: commits aa0dae5/a1f48ec (shell-plugins#31-#100) and 549c9bd (plugin loader, #26-#28); app/boards.js has tenant filter, lanes_by_profile, goal_mode/goal_max_turns, subscribe, phantom_refs, archive, touch drag, achievement evidence, share card (achImage, Copy/Download PNG); app/plugin-host.js registerSlot/route overrides; app/boot.js shared-metrics consent card; app/core.js "Restart all".
-`- [x] **PAR-79** Files and Memory: 15 useful engine features to add — evidence: commits 8e844c2, a80c418, fffce20; app/files.js refresh and broken-link handling; app/pages.js memProvPanel (L777+) renders schema fields as selects, switches, bounded numbers, secret inputs with "Saved · leave blank", pip_dependencies with `pip install` command, readiness and missing-provider warning.
-`- [x] **PAR-81** Models and agents: 40 useful engine features to add — evidence: commits b1d8993, 62c603d, c22a97e, 8925c4a; app/pages.js expensive-model confirm (L821), "Reset all to automatic"/"Reset every helper model?" (L860, L884), auto-refresh on tab return (L886 visibilitychange, models-profiles#22), MoA preset handling; app/connect.js sign-in drawer with copyable command, countdown, Try again, cancel-on-close.
-`- [x] **PAR-83** Settings and Keys: 23 useful engine features to add — evidence: commits 682bee1 (Settings search, per-group reset with confirm, list/number/text/nested editors, export/import) and af1378a (Keys grouped per provider, descriptions, tools badges, reveal); app/pages.js KROW (L893) shows tools per key and key-reveal, "Reset these results"/"Reset this group" (L1192), cfg-import; OAuth parts in app/connect.js.
-`- [x] **PAR-85** System, Logs, Usage: 34 useful engine features to add — evidence: commits bf9b483 (Logs/Usage refresh, sortable tables, top skills, API calls, real log levels), 37af48d (engine state, backup download, restore from file or path), ab8525c + app/help.js L130 `debug-share` with redaction and copyable links, 8250c6f (served-profile stop refusal); app/health-page.js engine console; curator, hooks, checkpoints, migration in app/pages.js.
-`- [x] **PAR-87** Channels: 13 useful engine features to add — evidence: commit 7896ea4 and feadfdb; app/pages.js channel drawer field rows (L338) with required markers, secret masking from server metadata (is_password/redacted_value), allowlist rows, Telegram/Slack format checks, "Restart now" banner; app/people.js WhatsApp review and restart wording, per-platform updated time.
-`- [x] **PAR-89** Skills, Plugins, Connected apps: 32 useful engine features to add — evidence: commits 4d3dc18 (skill search/categories, toolset tools), 710a986 (plugin install from GitHub, catalog search, provenance, capabilities), bba4cb3 (MCP bearer/OAuth, catalog source and setup notes), 549c9bd (plugin page sections via app/plugin-host.js, skills-plugins-mcp#52), a80c418 (memory-provider readiness); featured hub, orphan plugins and context engine in app/pages.js.
-`- [x] **PAR-91** Chat: 22 useful engine features to add — evidence: commit 10b35f2..10b27a4 (chat#12-14,16-19,21-23,25,27-29,35,36,38-41,44-48,50,52,65,67,68) and 647926b (chat#37); app/chat.js renders tagged reasoning (L549 `<think`), reconnect status dot, refusal actions; app/core.js transcript `<mark>` highlights (L581) and clipboard fallback; app/pages.js expensive-model confirm.
-`- [x] **PAR-93** Schedules, Webhooks, Pairing: 22 useful engine features to add — evidence: commits 39ebe5c (skills, scripts, toolsets, context_from, workdir, base_url), 5c96946 (stalled-clock warning, overdue/missed runs), 5361351; app/schedules.js repeatText (L37) and overdue marks; blueprints and webhook descriptions in app/pages.js; pairing lists in app/channels-page.js.
-`- [x] **PAR-95** Chats and history: 25 useful engine features to add — evidence: commit 647926b (sessions#1-3,6,7,9-11,13-15,23,29,33,34,36,37,42,43) and 10b27a4 (sessions#4,17-23,45,47-49,54,56); JSON Lines import in app/pages.js, shift-click ranges in app/chat.js/core.js; sessions#40 (Recent sessions card) was left out on purpose because Health dropped that card.
-`- [x] **PAR-78** Shell, Task board, Achievements: 4 small engine features to add — evidence: commit aa0dae5 ("drag to trash and touch", shell-plugins#31-#100); app/boards.js trash drop zone and achievement tier legend; Post on X via `x.com/intent/post` in ACT['ach-share'] (app/boards.js L385).
-`- [x] **PAR-80** Files and Memory: 6 small engine features to add — evidence: commit 8e844c2 (go up from every view, exact dates, locked folder) and fffce20/a80c418 (show/hide secret, copy setup commands); app/files.js locked root handling; app/pages.js memProvPanel pip install command.
-`- [x] **PAR-82** Models and agents: 17 small engine features to add — evidence: commits b1d8993 (models-profiles#4,7,15,21,69,85,87,90,93), c22a97e (#25,#34), 62c603d (#52), 8925c4a (#55-57); PKCE Enter submit in app/connect.js. #5 was declined on purpose (the menu already ticks the saved model) and #24 is the same Refresh as Usage's (bf9b483).
-`- [x] **PAR-84** Settings and Keys: 12 small engine features to add — evidence: commits 682bee1 (search clear, result counts, dotted paths, sections) and af1378a (provider totals, custom keys); app/pages.js "Reset these results" (L1192); PKCE Enter and docs link in app/connect.js; config-keys#53 slots via app/plugin-host.js PAGE_SLOTS (commit 549c9bd).
-`- [x] **PAR-86** System, Logs, Usage: 9 small engine features to add — evidence: commits 37af48d, bf9b483 ("memory shows" file sizes), ab8525c (debug-share upload info, console), e36d2b6 (memory file sizes); python version in app/pages.js; system-logs-analytics#94 plugin content above/below Logs and Usage via app/plugin-host.js PAGE_SLOTS (549c9bd).
-`- [x] **PAR-88** Channels: 8 small engine features to add — evidence: commit 7896ea4 (settings file shown, allowlist rows); app/pages.js Telegram user-ID link (userinfobot); app/people.js WhatsApp QR countdown (L697 "This code works for m:ss more") and wa.me chat link (L712).
-`- [x] **PAR-90** Skills, Plugins, Connected apps: 7 small engine features to add — evidence: commit 4d3dc18 (alphabetical skills, clear button), 549c9bd (dashboard extension slots and no-tab info), bba4cb3 (stdio MCP with args and env); hub search by Enter and Installed refresh in app/pages.js.
-`- [x] **PAR-92** Chat: 8 small engine features to add — evidence: commit 10b27a4 (chat#13,16,23,27,29,35,65) and 549c9bd (chat#70 plugin content above/below chat through app/plugin-host.js); mailto links in app/core.js.
-`- [x] **PAR-94** Schedules, Webhooks, Pairing: 4 small engine features to add — evidence: commits 39ebe5c/5c96946 (job ID, blueprint validation), 5361351 (focus restore, cron-webhooks-pairing#62); webhook hot reload and switched-off events explained in app/pages.js (L388-389).
-`- [x] **PAR-96** Chats and history: 6 small engine features to add — evidence: commit 647926b (sessions#1,3,7,11,42: ordering, total, source counts and reset, clear button, platform last-update) and 10b27a4 (sessions#22 tool-call ids, shown in app/chat.js).
-`
-`### Dropped
-`
-`- **SYS-61** Full audit: everything the engine's own dashboard has, aqeelOS has too — why: umbrella item; its one named leftover (plugin loader for other plugins' pages and slots) is in app/plugin-host.js (register/registerSlot, React fetched on demand), and the remaining gaps are tracked as the per-area PAR-77…PAR-96 items.
-`- **PAR-43** System, Logs, Usage: Create full engine backup and show archive path — why: the engine's /ops/backup flow is no longer called anywhere in app/; superseded by aqeelOS's own backups (app/backups.js, app/backup.mjs: scheduled Google Drive backups, Back up now, last-backup row).
-`- **PAR-44** System, Logs, Usage: Download the completed engine backup archive — why: superseded by app/backups.js (backups go to Google Drive and come back through Prepare / Restore now); no engine archive download is used any more.
-`- **PAR-45** System, Logs, Usage: Restore an uploaded archive with destructive confirmation — why: superseded by app/backups.js op-restore (Prepare, preview of what changes, Restore now, safety copy); the engine /ops import path is no longer called.
-`
+# aqeelOS backlog
+
+This is the one list of everything still open in aqeelOS. It lives in git, so this PC, the Mac and every session see the same list.
+
+**How it works**
+- Every request goes here first, the same turn it's asked.
+- `[ ]` is open, `[~]` is being worked on now, `[x]` is done. Done means **live on the servers and checked**, not just built.
+- A session only stops when everything left is waiting on the owner. Those items go under **Waiting on you** with the exact step needed.
+- Each session ends by updating this file: what's done, what's still left and why.
+
+_Last updated: 12 Nov 2026_
+
+---
+
+## Now
+
+### Afternoon of 12 Nov (live on both servers in 64b78d5)
+- [x] **KEY-1** A key rotation left Continue Threads’ posting guard with an old signature: every comment and DM was refused for about three hours (12 Nov, 11:45–15:00 WIB). The app now re-issues every signed file itself at start and every 10 minutes (`app/relay-heal.mjs`); the guard reports a stale key once instead of every run.
+- [x] **SHEETS-1** `google_sheets`: formulas, clearing, formatting, tabs, and a `batch_update` pass-through. Still needs the Sheets API enabled in P&P’s Google Cloud project (owner).
+- [x] **UI-ESC** One Escape helper for every overlay; 239 hand-written radii moved to the tokens. Watch: 16–22px corners may have shifted slightly; not yet looked at live.
+- [x] **LEAN-2** An agent with its own AdsPower profile stays awake by rule.
+- [x] **SYS-50** The outside uptime check runs from GitHub every 10 minutes for both sites (first run passed).
+
+### Deep audit of 12 Nov (four reviewers, read-only; fixes live on both servers in 86efb86 unless a line says otherwise)
+Reports are kept outside the repo (private archive). `[x]` = fixed and live; `[~]` = fixed in part or not yet seen working; `[ ]` = open.
+- [x] **AUD-1 Secrets in the public repo**: no live credential found in any branch, tag, old commit or Actions log. Install notes with live prompts, real numbers, ids and addresses are out of the tree; a secret scan and a wider privacy test run in the `tests` check; GitHub secret scanning and push protection are on. Open: old history is still retrievable on GitHub (AUD-9).
+- [x] **AUD-2 Members and the main agent**: one place decides which agent a proxied request may act on; a member can no longer reach the main agent or another agent by any selector.
+- [x] **AUD-3 Agents changing their own settings**: an exact list of settings with plain values; no command-type providers; schedules' scripts, checks and hooks run as the agent's own user.
+- [x] **AUD-4 Root helper**: root no longer acts by path in folders an agent can write; pids, names and ports are checked; a rig of 66 checks guards it.
+- [x] **AUD-5 Local ports and logs**: logs are in a private folder; a firewall rule lets only the box user reach the engine's local ports; agent screens are off the network; the agents' signing key was replaced on both servers (12 Nov) because old signatures had been readable in a log.
+- [~] **AUD-6 Fixers and untrusted text**: reports reach every fixer as marked data. Open: the on-box fixer still has a shell as the box user (it needs its own Linux user).
+- [~] **AUD-7 Cloud fixer merge gate**: path allow-list gate run from main, CODEOWNERS, updates install only commits whose tests passed. **Needs the owner on GitHub before any routine is saved**: branch rule with code-owner review and no admin bypass, the write deploy key removed, a fixer token on a non-owner account.
+- [x] **AUD-8 Customer safety (WhatsApp lines, both still in Test)**: prices come from a price list in the app, not from the model; past chats return only the team's answers, masked; handoff and Draft are real gates; the exit guard stops the 24 leak cases; unanswered customers alert the team; payment and Kirimdev keys are out of the agents' folders. Open for the owner: items left out of the price lists, who may approve drafts, when to leave Test.
+- [ ] **AUD-9 Owner-only security steps**: rotate the GitHub password, two-step seed and token found in Elkiya's engine env file; change the member-app admin password; rotate the Telegram bot token of continue-threads (shown once in a reviewer's working output); decide on erasing old history (recreate the repo) and on firewalling the origins to Cloudflare only.
+- [x] **AUD-10 Threads posting limits**: limits per kind (comment 70/6/8, thread 8/1/60, dm 30/3/10, reply 80/20/0) bind in the posting scripts; every posting schedule is gated; the stray DM watcher (199 model runs in 48 h) is stopped. Watch: posts are recorded with the right kind.
+- [x] **AUD-11 Data files**: one safe store helper (a damaged file is never treated as empty and saved over; atomic writes; one writer at a time) used by about 50 modules.
+- [~] **AUD-12 Backups**: the backup runs detached and survives app restarts; a night without one alerts. Elkiya's last good backup was 9 Nov: confirm the next one completes.
+- [x] **AUD-13 Account pools**: calm by construction (move only near the limit, one-hour pin, at most 8 automatic moves per agent a day). Elkiya: 0 moves in the hour after deploy (was 9-18 an hour).
+- [x] **AUD-14 Deploys**: new files are switched in by rename; undo restores everything a deploy changed; the test copy is private and wiped.
+- [ ] **AUD-15 Left from the audit**: the screen viewer's own connection; the box user's Chrome debugging ports; `pepclub-social` as its own Linux user; a per-account sign-in limiter; the unsigned desktop installer; "never sleep" leaves a running Chrome unreachable (continue-threads is pinned to a 30-day sleep instead); mediums and lows listed in the reports.
+- [ ] **AUD-16 Not yet done**: the UI and functionality walkthrough of every page as owner, member and employee; maintainability (app/server.mjs is about 620 KB).
+
+### Session of 11–12 Nov (token savings, reliability, "never fix by hand again")
+Live on both servers unless a line says otherwise. `[x]` = seen working live; `[~]` = live in code, not yet seen working.
+- [x] **EFF-1** Token savings (b64a4cd): chats shortened at 200k and folded at 180k, 1-hour chat cache, schedule gates, Efficiency view, Graphify pilot on Sesa, instruction size check. P&P's PC account moved last in Elkiya's account list.
+- [x] **CONF-1** Conflicts are asked, never picked (b84cf88, fixed in 6d5b14a): any number of sides, strictest applies until answered, one card with a button per side; threads, comments and DMs are compared only with their own kind. First case answered 12 Nov: Continue Threads comments 6 an hour and 70 a day, own threads 60 minutes apart.
+- [~] **EVT-1** Event-started runs and no-model run checks (b84cf88): a Tebar webhook starts the matching schedule; standard checks for unread DMs, unanswered comments, posting allowed, new lines in a file. Checks are on Continue Threads' two 10-minute runners. Tebar is not connected for that agent (no key, no webhook), so events do nothing yet; the DM dot detection is unverified.
+- [~] **RUN-1** Schedules that wake the AI more often than every 30 minutes need a check, or start at most every 30 minutes (e59a24d). Open: the two sales recaps (continue-support 8181388f19ee, biomarkers-support 77e3e2b3c668) are held to 30 minutes until the owner chooses; the "new since last run" check is built (`--new-since`), not applied.
+- [x] **FIX-1** A used-up AI provider is "inconclusive", not a failure (842518c): no auto-rollback, no issue, no failed proof; fixer runs capped per issue (4 proofs and 6 fixes a day, 10 and 12 in total); agents stop moving between accounts when all are used up.
+- [~] **GIT-2** The fixer never edits live code (842518c): own checkout, a branch per issue, "Fixes waiting for review" on Health, hand edits on the live folder reported. With a cloud routine set up, code bugs go to Claude Code in Anthropic's cloud on the account with the most room (6d5b14a, `docs/cloud-fixer.md`); GitHub auto-merge is on and `main` requires the `tests` check (green since 8f84db2). **Needs the owner:** create the routine on each Claude account and paste its trigger id and token (Settings › Cloud fixer); install the Claude GitHub app on aqeel-os. The real routine call has never been made.
+- [x] **DRIFT-1** Elkiya's lost live fixes are in git (842518c): a payment whose delivery failed is not paid; the reasoning guard; one guard where every customer message leaves; a breaker on the "agent stopped" loop. A deploy that finds live changes git lacks saves them, stops (FORCE=1 goes on) and files one item.
+- [x] **OPS-18/19** Uploads readable by agents, Telegram over IPv4 where IPv6 fails, backups stay on the box when no Google account is connected (newest 3), own temp files pruned after 3 days, leftover scratch databases and old app servers swept, sign-in notices once.
+- [~] **RES-1** Maintenance window 00:00–01:00 Asia/Jakarta (setting) and resume after any restart (842518c): chats, schedules and fixer runs cut by a restart continue by themselves; Telegram and WhatsApp chats continue instead of asking "what next?" (engine patch 2026-11-12-channel-resume-continue, loads at the next engine restart). Not yet seen on a real cut: deploys only restart the app, and the engine finished every run. Test it with a deliberate engine restart.
+- [~] **LEAN-1** An agent's screen is its browser only, started on demand, asleep after 15 idle minutes (6d5b14a, e19b21e). P&P: screens slept (Chrome 124 → 29 processes); a wake took 3.7 s in lean mode. Elkiya is held on the old desktop (`agent-limits.json` default `screen_mode: desktop`) until P&P's wake is seen clean (no wallpaper error box, tabs back). AdsPower wake time not measured.
+- [x] **USE-1** Usage is always shown (d993d84): Claude limits are read from response headers when the usage call is refused (Elkiya's main account: something else polls the same sign-in); Antigravity quota per model family; a dead sign-in is said plainly (P&P's ChatGPT).
+- [~] **HEALTH-9** Every Needs-you item has one button that does the thing (sign in, paste, run again, copy the command), and a question kind with choices that the fixer and agents can ask (d993d84). Not yet looked at in a browser. Questions cannot be answered from Telegram (alerts are plain text).
+- [x] **CLI-1** `node scripts/aq-needs.mjs` on the box lists the owner's Needs-you items and answers conflicts, questions and frequent-schedule items without a browser (7732f55; loopback only, key in the data folder).
+- [x] **DEPLOY-7** Light deploys (e59a24d): about 2 minutes instead of 12–14; the browser checks run once a night after the update and report on Health.
+- [~] **WA-1** The reason an agent run stopped is shown; a used-up provider holds a Kirimdev line until the reset instead of looping. Protocol PDF over WhatsApp is built (generator in git, a 15-minute public link, document send, delivery probe). **To do:** `protocolPdf` setting for continue-support in kirimdev.json, restart the WhatsApp bridge, run `delivery-check.mjs continue-support --document`, then close i19b649d9.
+- [x] **CI-1** `tests` runs on GitHub for every push and pull request: 991 pass, 0 fail (8f84db2). The workflow had never started a job before (an invalid line).
+- [x] **SVC-1** (adopted on both servers 12 Nov) The servers' launcher is in git (`scripts/services.sh`, round 5): adopt it on both servers at the next deploy (their copies were hand-edited on 12 Nov, with backups kept there).
+- [ ] **CT-1** Continue Threads (round 5): `record_post` is listed for every agent; a schedule that ends ok without doing its job files one item; a failures pause on self-runs ends after an hour. Watch after deploy: the self-run pause of 10 Nov clears, comments are recorded again. The schedule's name still says "5 comments/h".
+- [ ] **GOOG-5b** P&P issue i7d96eb8c still names the sheet owner: re-sort or close it.
+- [x] **ACC-9** (closed 12 Nov: Composio removed entirely, its sign-ins deleted) Health asks about "Continue Social Media signed in to Composio.dev as you": not looked into.
+
+**Waiting on you (deployment and fixes only)**
+- Cloud fixer: the routine and token per Claude account, and the Claude GitHub app on the repo (see GIT-2).
+- P&P: its only Claude account runs out and its ChatGPT sign-in is dead (revoked), so its agents have no fallback. Sign ChatGPT in again there or add a second Claude account.
+- The two sales recaps: keep every 5 minutes, or use the "new sale since last run" check (recommended).
+- Is the aqeel-os repository meant to be public?
+
+- [x] **GIT-1** The fixer's lost fixes are in git and live (4f7243a and later), and Health's "Code changes" list was emptied on both servers on 11 Nov (17 on Elkiya, 5 on P&P, each one reviewed first).
+
+## Waiting on you
+
+- [x] **ENG-4** (urgent, fixed 11 Nov, 634c593) billion-context's x-bili-* headers made the Claude sign-in plugin fail every turn once tools were ready (Elkiya: 6/h in the morning, 231/h by noon; Continue Threads' runners all failing). The plugin now accepts them like traceparent (never forwarded; everything else still fails closed). All 10 copies on Elkiya replaced, graceful engine restart 12:28 UTC, a real Claude reply checked, 0 errors since. P&P never had it.
+
+- [x] **DEPLOY-6** Both servers run 8abacb9 (11 Nov): owner rule, fixer rule, one alert per app, engine limit patch, type_secret through the browser. Live tests passed on both.
+- [x] **MODEL-0** Plan agreed (11 Nov): see MODEL-1 to MODEL-4.
+
+
+- [x] **HEALTH-0** Answered (11 Nov): cost by **person** next to cost by agent, see HEALTH-7.
+- [ ] **CODE-50** aqeelOS app for Mac: run `gh auth refresh -s workflow` (from the old board).
+- [ ] **OPS-17** Swap on Elkiya (it has none; programs had asked for twice the RAM, so a spike kills agents): add a 16 GB swap on the Elkiya host (the AI box is a container; the owner has the access). Command given in chat 11 Nov; check the free disk first (use 8G if under 30 GB free).
+- [x] **OPS-18** browser_harness.daemon leak (11 Nov, 542bb57): the engine stops idle helpers after 30 min (engine/patches/2026-11-11-harness-idle-stop.patch) and the root janitor stops orphaned ones (parent gone, Chrome gone, or a day old). 7 stopped on Elkiya, 1 on P&P. Live after the deploy and the next engine restart.
+
+## Next, in this order
+
+### 1. Shipped today, check it on the live servers
+Checked against P&P's live data and the code on 11 Nov: Aldillah is an employee, so her agent opens for partners, no Private switch is on yet, and Fakhri's agent is held as Aqeel's until he joins. Still to do: look at each one on screen.
+- [x] **ACC-1** Checked on both test copies 11 Nov (36/37 checks each): partners manage employees' agents and read their chats read-only and logged; employees see only their own.
+- [x] **ACC-2** Checked 11 Nov: the Private switch works; the gap where another partner could still share it to themselves (/ui/people/share) is fixed in 3745ecb, live with the next deploy.
+- [x] **ACC-3** Checked 11 Nov: "Owner: <name> · invited" before joining, theirs after. Fakhri's agent is his.
+- [x] **ACC-4** Checked 11 Nov: an employee with the create permission makes an agent and owns it; the default Member role (no permissions) still can't, by design.
+
+### 2. Code that only exists on the servers (the next deploy would undo it)
+- [ ] **GIT-2** (design proposed 11 Nov, waits for your OK and a token) The fixer ships through GitHub instead of patching live code. Proposal:
+  1. The fixer works in its own git checkout on each server (`aqeel-os-src`, which Elkiya has), on a branch per issue, never in the live folder.
+  2. It proves the fix on the test copy (:4402) and with the tests, as today.
+  3. It pushes the branch and opens a pull request, using a GitHub token that may open PRs on aqeel-os but never push to main.
+  4. You or a coding session merge it; the normal deploy ships it. An engine fix becomes an `engine/patches` file in the same PR.
+  5. Health's "Code changes" becomes "Fixes waiting for review", linking each PR.
+  Needs from you: OK on the design, and that token (a fine-grained GitHub token: aqeel-os only, pull requests and contents on branches, no admin).
+
+### 3. Long-term reliability rules
+- [~] **OPS-2** Each agent's Linux user is its group: `aq-agent-users stop <agent>` stops all it runs; a soft memory cap per agent (default 4 GB, 8 GB with its own AdsPower) restarts its Chrome, then files an issue (your choice, 11 Nov: no kernel cgroups, which would need a privileged box). Built and tested on the box as the claude user; waiting for your yes to deploy. Was: Each agent runs in its own container group with a memory cap, and one command stops everything it started.
+- [x] **OPS-3** Restarts back off (5 s, 30 s, 2 min, 10 min) and after 5 failures in an hour stop and file one issue: agent screens and their Chrome (`scripts/agent-users.sh`, issue via `app/box-ops.mjs`). Live on both servers since 11 Nov (85b21c7). Engine schedules that fail on every run are not covered yet.
+- [~] **OPS-4** Built with the wake proxy you approved on 11 Nov (OPS-12): screens unused for 30 min sleep and wake on the first browser call or when someone opens them; tabs and sign-ins come back. Tested on the box; waiting for your yes to deploy. Rollback: `sleep_minutes: 0` in hermes-ui-data/agent-limits.json. Was: A screen and Chrome left idle for 30 min go to sleep and wake on use.
+- [x] **OPS-5** Janitor: every minute it compares expected and running screen processes per agent, reports anything extra and removes it a minute later. Live on both since 11 Nov: Elkiya 35 expected, 35 running; P&P 50 expected, 48 running (pixel-agent's desktop background and panel had exited; its screen and Chrome work). Shown under System › Per agent with each agent's memory.
+- [x] **OPS-6** (checked live 11 Nov, 842518c) Deploy checks: AI-dependent checks report but don't block, and a failed check gets one retry. Built 11 Nov (scripts/box-check.sh, scripts/live-test.mjs): pages, fast switching, the button check and every live-test check get one more try before they count; My browser and a test-agent answer without the check word or colour are reported ("Reported, not counted" on System › Health), never a reason to stop or undo. Live on Elkiya in 1f5a2c1 (11 Nov), deployed with no skip flags: fast switching and My browser each missed once and passed on the second try, the live test's tools check did the same in 85b21c7. P&P still fails two old checks of its own (OPS-14, OPS-15), so its deploys still skip them.
+- [x] **OPS-7** Fixer patches, drift saves, .bak copies, ~/backups, broken Python environments and deploy files expire after 30 days; long engine and screen logs are cut; gone test agents leave the test list after two daily passes. Live on both since 11 Nov. Same day: Elkiya's disk was at 99% because seven cut-off backups had each left 26 GB in /tmp; removed with your yes (now 54%), and 55ec552 removes such leftovers on start.
+- [x] **OPS-8** [OPERATIONS.md](OPERATIONS.md) written (11 Nov). `scripts/ops-rules.test.mjs` fails when code breaks rules 1, 2, 3, 4 or 7; live with 85b21c7. Rule 6's test comes with OPS-6.
+- [x] **OPS-12** Answered 11 Nov: a wake proxy on each agent's DevTools port (scripts/wake-proxy.mjs) starts the screen on first use. Was: Design question before building OPS-4: when an agent's sleeping screen is needed again, what wakes it? The engine's browser tool connects straight to Chrome's port, so the likely answer is a small proxy on that port that starts the screen on first use.
+- [ ] **OPS-13** The janitor reports a screen part that is missing (P&P pixel-agent: desktop background and panel gone since about 9 Nov) but does not start it again. Decided 11 Nov: restart it. Built (not live yet): a part missing 10 min starts the desktop alone again (display and Chrome keep running), through the OPS-3 gate, never while the agent replies (the busy marker from box-ops) or used its screen within 5 min (`scripts/agent-users.sh` `desk_check`). On P&P on 11 Nov all of pixel-agent's parts were running again (its screen restarted 10:36 UTC).
+- [ ] **OPS-14** P&P's fast page switching check fails, twice in a row (11 Nov, first run with checks on in a while): the bell pops in or rings again twice while pages change (topbar drawn without its count), and #/abilities/achievements replays its reveal (ach-cat, ach-grid). Old, not a regression: the version checked (342b90a) differs from what P&P ran (2845e0b) by one line on Health, and earlier P&P deploys skipped every check. Until fixed, P&P deploys skip only this check (FLICKER_CHECK=0). P&P's 1f5a2c1 deploy (11 Nov) still skipped every check (owner's call); its live test passed.
+- [~] **OPS-15** P&P's button check (11 Nov). The buttons are not gone: on P&P's test copy with 60da9a7 the owner's All-agents Agents page stayed blank for over 6 s right after start, then drew New agent in 0.5 s every time. Cause: P&P's engine dashboard answered in up to 18 s under load (fixed in 8f70356, live in 60da9a7), and the check itself takes 7 to 10 minutes on a busy P&P, at its 10-minute limit, where a stopped run failed with an empty message. With 60da9a7 the check passes on P&P: 52 page views, nothing missing, 434 s. Since then box-check.sh gives it 15 minutes, names a timeout as one, and treats the test-copy lock as stale only after 90 minutes. No baseline change needed. Done once a P&P deploy with checks on passes it.
+- [x] **FLICKER-1** (merged and live 12 Nov) (built 12 Nov on branch w-flick, not merged, not live) "Remove flicker as well, happening again." Measured on a P&P test copy in a real browser: the sidebar and topbar were not being drawn again; what flickered was the page. Every visit blanked the view to a ring (40 of 52 page visits), then the list came, then each card a layer round the page fetches for itself landed one by one and pushed the rest down: Settings moved 6 times in 0.9 s (layout shift 0.41 to 0.47), Health 5 times (0.89); the old check passed because each card glided. Now a page is drawn out of sight and shown whole (Stage in app/core.js), and a page seen before draws from its last answers at once while they are read again behind it (Swr in app/core.js, the rule of app/swr.mjs). After: layout shift 0.00 on both, 8 of 52 visits show a ring (first visits slower than 0.45 s). The fast page switching check now also fails on the shell drawn again and on a page that moves more than 0.05 (old version: fails on Health 0.41 and Settings 0.30; new: passes, worst 0.001), runs every night on the box as before, and a short run of it is in GitHub Actions (scripts/flicker-ci.mjs). The bell part of the check no longer counts a notification that really arrives during the run (likely OPS-14's "twice": one pop and one ring). Done when live on both servers and the nightly check passes there.
+
+### 4. Health and fixer redesign
+- [x] **HEALTH-1** Live in 1f5a2c1 on both servers, checked on both servers (11 Nov): one verdict at the top ("Everything is patched and working", or what needs you) with a line of facts.
+- [x] **HEALTH-2** Live on both servers (1f5a2c1, follow-ups in 60da9a7), checked on both servers, 11 Nov: the fixer panel shows its step, try and model, why the rest waits (quiet-hours reload, runs used today, pause), and its line with move up/down, skip for today and pause. Proof runs go on while an engine reload waits; the daily limit resets at the install's midnight. Elkiya's fixer had started nothing since 09:37 (the engine unlinked gateway.pid); since 99a006d it runs again (proof runs from 10:29). The engine stop follows gateway_state.json too (5408dcb).
+- [~] **HEALTH-3** Live on both servers (1f5a2c1, follow-ups in 60da9a7), checked on both servers, 11 Nov: Needs you holds only what a person must do, with plain titles, one card per task (the six Higgsfield reports are one card, the two Higgsfield items one card). Open: the two Notion items each name the other as their duplicate and still show as two cards; fixed on main in the commit after 60da9a7 (grouping copes with a loop, the sorter makes none), waiting for the owner's deploy OK.
+- [x] **HEALTH-4** Live in 1f5a2c1 on both servers, checked on both servers (11 Nov): Now and History tabs; History has what was fixed, resolved by itself or closed, by day, with the proof (120 items on Elkiya, 11 on P&P).
+- **HEALTH-5** Dropped (11 Nov): the Code changes list was emptied after review, and GIT-2 keeps it empty by sending fixes as pull requests.
+- [x] **HEALTH-6** Live in 1f5a2c1 on both servers, checked on both servers (11 Nov): memory per agent (each agent's Linux user; the main agent includes the engine), sampled every 10 minutes and kept 7 days, a warning when it rose 3 days in a row. The 7-day line fills in over the coming days.
+- [x] **HEALTH-7** Live in 1f5a2c1 on both servers, checked on both servers (11 Nov): cost this week by agent and by person side by side. Usage counted every chat nobody started in aqeelOS as the owner; now the owner on Telegram counts as the owner, and Schedules, Customers and channels, and Background work (fixer, helpers) have their own lines.
+- [~] **HEALTH-8** Built (not yet deployed): a slow engine answer gets a second, 20 s try before Health says "can't reach the engine"; a refused connection still counts as down at once.
+- [x] **HEALTH-9** Live on both servers (1f5a2c1, follow-ups in 60da9a7), checked on both servers, 11 Nov: the same problem in other words for the same agent joins the open issue when filed, and the sorter merges the same problem across agents (16 on Elkiya, the six Higgsfield sign-ins into one card counting 6). Merges follow chains; duplicates that already had tries are linked instead.
+
+### 4b. Randy's QRIS picture never reaches the customer (if734729a, Elkiya)
+Found 11 Nov:
+- Kirimdev and WhatsApp mark every QR as "delivered" and report no media error. Tripay serves the QR as a normal PNG, crawlers included.
+- Gilang's working QRs use the same Tripay link, but go as **one picture with a caption**. Randy's went as text, a bare picture, then text, all in the same second.
+- The fixer's caption fix was rolled back only because its proof needed a person to look at Amri's phone.
+- [~] **QR-1** Fix 06a44a6 is live. Proof waits for the delivery check (QR-2): it starts working when the WhatsApp bridge restarts. Found 11 Nov: the bridge had been started by hand 10 days ago, so engine restarts never restarted it. The engine replaces a bridge whose code changed at its next full start (its script hash differs now: running 5c0e6bc7, file ba5b70eb), normally tonight's quiet-hours restart. Then run `node scripts/delivery-check.mjs continue-support` on Elkiya.
+- [~] **QR-2** Built in `4ceac9e` (69 tests pass, plus the bridge add-on's own 4 cases). Delivery probe, so the fixer can prove a picture arrived without a person:
+  - The main agent's WhatsApp bridge on Elkiya messages the line once a day, which opens WhatsApp's 24-hour window.
+  - aqeelOS sends a test picture to it with a hidden probe code.
+  - The bridge sets probe messages aside instead of giving them to Donna, and records whether the picture downloaded.
+  - The line's agent ignores inbound probe messages.
+  - The fixer's proof step and Health use the result: "Pictures from Randy: arrived 10:02".
+- [~] **QR-3** The fixer's fix and proof runs are now told to use the delivery check and never to ask a person to look at a phone (`4ceac9e`). Still to do: file "needs a person" at once for any other proof only a person can give.
+- [x] **ENG-1** The bridge add-ons (group_watch.js, inbox_log.js, their hooks) are in engine/patches/2026-11-11-engine-hand-edits.patch (0e71ac3).
+- Clue: Kirimdev reports Meta status `CONNECTED` for the Biomarkers line, but none for the main Continue line.
+
+### 5b. Employees can't connect Google (P&P, Fakhri Agent, 11 Nov)
+Found:
+- P&P has no install-wide Google client. The only client is Pixel Agent's own (a Desktop client from 19 Oct). It's not shared.
+- Connections › Connect Google is admin-only (`/ui/google/*`: "Only admins connect Google accounts").
+- So Fakhri's agent had no free route it could take for an employee. Its standing rule says to suggest Composio "when the setup needs admin access the person does not have", and no agent text mentions Connect Google at all.
+- [x] **GOOG-1** Done 11 Nov on both servers: Google Cloud project "aqeelOS", External and **In production** (any Google account; unverified, so a one-time warning screen and a 100-user cap until verified), authorised domains of both installs. Web clients "aqeelOS P&P" and "aqeelOS Elkiya" with each server's /google-oauth/callback, installed on each server (Elkiya's old desktop-type client was kept; the one token that relied on it, cont-socmed, got its own copy so it keeps renewing).
+- [x] **GOOG-7** Removed 11 Nov: the "WO Dashboard - Google Sheet" entry is gone from Fakhri Agent. His agent still only has a read-only copy of the owner's Google; he connects his own Google once the employee Google tools (no terminal needed) are live.
+- [~] **GOOG-2** (live since 411d62b, built in b983ba0) Employees connect their **own** Google account for their own agents (sign-in link or the Connect Google card). Setting up the Google Cloud client stays admin-only.
+- [x] **GOOG-4** (checked live 11 Nov on both) (live since 411d62b, built in b983ba0) The "Add MCP tool" form accepted a Google Sheets link as a tool: "WO Dashboard - Google Sheet" in Fakhri Agent's config is just `url: https://docs.google.com/spreadsheets/...`. Fakhri saw a sign-in button and thought it was connected, then sign-in failed with "Bad name". The form must refuse a web page that isn't an MCP server, recognise Google links and send the person to Connect Google, and refuse tool names with spaces up front.
+- [ ] **GOOG-5** Waits on GOOG-1: issue i7d96eb8c named the wrong person (the sheet owner). Once the install has its Google client, the fixer's guidance points to it, and Fakhri hears in his bell when it is fixed (GOOG-6).
+- [~] **GOOG-6** (live since 411d62b, built in b983ba0: the fixer tells the person who asked in their bell, linked to the chat) "Tell me when it's fixed": Fakhri's agent said it can't send a message on its own when an issue it filed is solved. The fixer should tell the chat that filed the issue when it's fixed, the aqeelOS web chat included.
+- [~] **GOOG-3** (live since 411d62b, built in b983ba0) Agent guidance: if a client exists, send the sign-in link yourself. If not, say "an admin does the free 5-minute setup once in Connections › Connect Google". Composio only after that.
+
+### 5c. The same pattern beyond Google (audit of both servers, 11 Nov)
+**Apps that can never work**
+- [x] **APP-1** The engine limit was already raised by hand on 7 Nov (tools/mcp_tool_transport.py, 10 MB), and the 1 MB error hasn't come back since. It is now in git as engine/patches/2026-11-11-mcp-sse-event-cap.patch (e5da3a7), so engine updates keep it. Higgsfield now only needs a normal sign-in on the agents that should have it (see HIGGS-1). One alert per app instead of one per agent is in 0bd063f.
+- [ ] **HIGGS-1** Higgsfield is off the 6 non-main Elkiya agents for good (11 Nov): switched off on purpose in agent-optins.json (appsOff, so the 10-minute job no longer adds it back) and removed from their configs. **Left for you:** in the Elkiya aqeelOS, Connections › search higgs › Higgsfield › Sign in again › Allow, for Donna AI.
+- [x] **ENG-2** (0e71ac3, 11 Nov) Simulated an engine update on a clean copy and compared it with both live engines. The 6 Nov patch no longer fit, and 19 files had hand edits no step re-applied. All of it is now in engine/patches (engine-hand-edits, telegram-cross-topic-digest). Proof: on Elkiya, update + patches == live in every file except webhook.py, where the repo is newer. Also fixed: apply-skill-patches crashed without ~/.hermes/installs.
+- [x] **ENG-3** Run the same update simulation in every deploy check, so an engine edit that no patch carries fails the deploy instead of being found later. Built 11 Nov: scripts/engine-sim.sh, check 5/5 in box-check.sh (runs alongside the others, only under /tmp; about 1 min on Elkiya, 3 on P&P). It compares a clean update plus the patch steps with the live engine plus the same steps, so a new patch is never a false alarm. Known differences: engine/patches/known-differences.txt (webhook.py). Tried on both servers: same result; with one patch left out it names the file. Live in 1f5a2c1: passed in Elkiya's deploys of 85b21c7 and 1f5a2c1 (760 changed files match, webhook.py known); on P&P it runs once OPS-14 lets a deploy reach it.
+- [x] **APP-2** (live in 8abacb9, built in 0bd063f: technicalOnly in the fixer, and one sign-in alert per app instead of one per agent) Health: a "needs a person" issue must name something a person can actually do. A sign-in that fails for a technical reason is the fixer's job, not a person's.
+- All other apps on both servers (88 entries) are fine. The only broken entry is Fakhri's Sheets link (GOOG-7).
+
+**Things an employee can't do for their own agent (same as Google was)**
+- [x] **OWN-1** (live in 8abacb9, built in 86a2772: ownsAgent rule plus scripts/route-rights.test.mjs) Edit or rename an app on their own agent, or change its key (`/ui/mcp/server`, `/ui/mcp/keys`, `/ui/share/rename-mcp` are admin-only). For example, Fakhri can't fix his own "WO Dashboard" entry.
+- [x] **OWN-2** (live in 8abacb9, built in 86a2772) Reconnect or pause their own agent's Telegram or WhatsApp channel when it drops (`/ui/channels/reconnect`, `/ui/channels/pause`).
+- [x] **OWN-3** (live in 8abacb9, built in 86a2772) Remove a Google account from their own agent in the Connected apps panel (`/ui/google-accounts` DELETE is still admin-only, while Connect Google now allows the owner).
+- Stay admin-only, on purpose: branding, gateway restarts, plugins, sharing between agents, the owner's view of n8n, keys of other people, WhatsApp Business setup.
+
+**Agents that get stuck signing in**
+- [~] **AUTH-1** Fixed in c384c27, live in 8abacb9: type_secret finds the browser the agent's browser tool drives (config port, the engine Chromium's DevToolsActivePort file, or its own Chrome) and types into the focused sign-in field through it, with the same checks. Tested against real Chrome on Elkiya. Done once Donna signs in to KirimDev with it.
+
+**Answers that went to the wrong person**
+- P&P: 3 issues came from web chats; 1 answer went to the owner and 2 aren't answered yet. Elkiya: 1, not answered yet. GOOG-6 fixes all of these once deployed.
+
+### 6. Token use and model choice
+Today: the fixer runs on the main agent's profile, Sonnet 5.5 with the 1M context, through the Claude subscription, and its use is mixed into Donna's. This Claude Code work runs on Opus 5.5 at medium effort. API prices per million tokens in/out: Opus 5.5 $4/$20, Sonnet 5.5 $2/$10, Haiku 5.5 $0.10/$0.50.
+- [x] **MODEL-1** (checked live 11 Nov) Done differently (2596157): each fixer run records its own tokens and cost from the engine's session records, and Health › Issues shows the fixer's runs and cost today and this month. A separate profile would have lost the main agent's access the fixer needs. Cost by person (HEALTH-7) is still open.
+- [x] **MODEL-2** (checked live 11 Nov) Live in 2596157 on both servers since 11 Nov, settings in team-policy.json: fix claude-sonnet-5-5[1m] at medium, proof claude-haiku-5-5 at low, escalate claude-opus-5-5[1m]. Still to build: sorting new issues with one small call (no agent run).
+- [x] **MODEL-3** Live on both servers (1f5a2c1, follow-ups in 60da9a7), checked on both servers, 11 Nov: each new issue is sorted by one short tool-less engine call (about 30 s; fixer.models.sort, else the proof model): duplicate, person-only or the fixer's, plus a plain title. Every open issue on both servers has been sorted. The rest of this item is MODEL-3b.
+- [ ] **MODEL-3b** Prove with delivery checks instead of fix-and-roll-back rounds, and don't spend the daily runs on issues that will come back (left over from MODEL-3).
+- [~] **MODEL-4** Tokens per fixer run are logged (2596157). Baseline on Elkiya, 11 Nov: fix runs about $0.12-0.23, proof runs about $0.15, all on Sonnet. Compare after a week on the new settings.
+- [x] **MODEL-5** (checked live 11 Nov: 504,758 tokens saved on Elkiya) billion-context (github.com/ranxianglei/billion-context) in every install, so long chats use fewer tokens. Owner: "ship to all now" (11 Nov). On main as `8f2353a` (`app/billion-context.mjs`, pinned 0.1.213, self-update off, credit in README and the plugin's description), live on Elkiya since 05:32 UTC: every agent has the plugin switched on. The engine loads it at its next restart, which aqeelOS holds for the quiet hours (01:00-05:00). Emergency off: an off file, see `app/billion-context.mjs`.
+  - Tested 11 Nov 07:15 UTC on Elkiya, the agents' Claude sign-in: a real message through the Claude plugin with billion-context loaded answers normally, and billion-context tracks the chat (one session, 6,819 tokens, anthropic protocol). The `claude` program sends its request through the proxy on its way to the plugin's relay, so no extra setting is needed. Earlier "saw nothing" was because `chat --oneshot` never loads engine plugins (and silences all logs): one-shot can't test this, only the always-on engine.
+  - Owner (11 Nov): "on my OS no matter what model, on main so all people pulling the app use it". It is on main and switched on for every agent whatever its model. Tested 07:40 UTC: ChatGPT sign-in (openai-codex, gpt-6.1-sol) runs inside OpenAI's own Codex program, which ignores the proxy setting (it answered with HTTPS_PROXY pointed at a dead port) and keeps and compacts the chat itself, so billion-context can't reach it without engine work. Anthropic API key (aqeelos-help): its request was not seen either, even with api.anthropic.com on the list; not understood yet. Google sign-ins (Gemini, Antigravity): not tested. Owner (11 Nov): "Claude is enough": no further work on the other sign-ins.
+  - Found on the way: the server's default Claude login (`~/.claude`) is at its weekly limit until 14 Nov 05:00 UTC; only the test agent aq-livetest uses it.
+  - Still to do: after tonight's restart, check that agents still answer and that long chats get folded (`/__bili/sessions` on the proxy shows tokensSaved). ChatGPT-sign-in agents are not tested. P&P runs `8abacb9` since 06:07 UTC (automatic deploy) and every agent there has the plugin switched on too; same quiet-hours restart. The engine's own summariser stays on as a fallback; it only acts if billion-context doesn't keep the chat short.
+
+### 5. Small leftovers
+- [x] **OPS-9** Elkiya's gateway answers "Unknown or unconfigured profile" for the test agent aq-livetest (P&P's works), so every Elkiya live test skips its agent check. The terminal chat command fails for it too ("Gateway starting: deadline"). Why: a `hermes -p aq-livetest gateway stop` on 9 Nov 12:32 left `gateway.parked` in its profile, and the engine does not serve parked profiles. Fixed 11 Nov in live-test.mjs: the live test unparks its own test agent with the engine's `gateway start` (no engine restart). Live: Elkiya's live tests of 85b21c7 and 1f5a2c1 ran the agent check, and the test agent answered and saw the picture.
+- [x] **TEST-1** Done 11 Nov: continue-support and biomarkers-support **stay** on Elkiya's test-agent list on purpose (owner: they are in training, not live with customers yet; take them off when they go live, so their alerts reach the owner). 258 entries for agents that no longer exist removed; 9 lines left (aq-livetest and 8 mb-* test agents).
+- [x] **OPS-16** (agents and users gone; folders swept since e59a24d) Elkiya still has 8 leftover My browser test agents (mb-1ip0b, mb-7h28s, mb-b7kra, mb-hq1oh, mb-in69q, mb-j3xbc, mb-ln092, mb-vbmf2) with profiles and Linux users: remove them and make the check delete its agent every time.
+- [x] **OPS-10** The user ag-zz-fornew was already removed by the root script; its leftover folder (51 MB) was moved to the removed-workspaces folder on P&P (11 Nov).
+- [x] **OPS-11** P&P's live test hung because live-test.mjs had no engine key from a shell. Fixed in 4f7243a; every P&P live test since has passed.
+
+## Done (11 Nov)
+
+- [x] Deployed `996144f` to Elkiya and P&P (Private switch, partner/employee rule, self-create, Elkiya payment fixes, auto-fix guard).
+- [x] **OPS-1** Screen desktops piling up (49 each on continue-support and biomarkers-support). Fixed in `25fd701`, live on both servers. Elkiya is back to 1 desktop per agent, both screens open again, and memory went from 28.0 to 22.5 GB of 28 GB.
+
+---
+
+## From the old /backlog board (last updated 5 Nov)
+
+
+### Doing (from the old board) (3)
+
+- [x] **ABIL-65** (checked on Elkiya 11 Nov) Every agent has Donna’s tools, Sesa included · P0 — checked on Elkiya 11 Nov: Sesa is fine now (own user, own Chrome, every tool bundle, aqeelos-code/notify/self). Two gaps fixed in code (not deployed): (1) skills right at the top of the main agent's skills folder were never copied, so threads-fast-search is missing on cont-socmed, pepclub-social, seo-specialist and Sesa (app/accounts.mjs giveSkills); (2) pepclub-social (trusted, runs as the main user) still had browser.cdp_url → 127.0.0.1:9605, the port the root script later gave aq-livetest, so its browser drives the test agent's Chrome; trusted agents now drop a leftover own-screen link (app/agent-defaults.mjs ownScreenCdp). Test: scripts/agents-equal.test.mjs. Deliberate differences: aqeelos-customer only on the two support agents, AdsPower only on continue-threads, aqeelos-self only on agents with their own user (not the main agent or trusted pepclub-social), aqeelos-help is the locked help agent. **Left:** deploy and check both agents on Elkiya; Sesa has no n8n tool (her n8n user exists and was connected on 20 Oct, the tool has been gone since at least 7 Nov; Access › n8n › Sesa gives it back, if that removal wasn't on purpose).
+- [ ] **AUTO-47** Run rules: one run at a time, posting limits and live checks · P0 — all built (app/posting-limits.mjs, Schedules › Run rules, gate route and record_post in server.mjs) and covered by scripts/posting-limits.test.mjs (15 pass); the engine supports both parts (per-profile cron.max_parallel_jobs, a script gate's wakeAgent:false). **Not in use on Elkiya:** no agent has Run rules (no posting-limits.json, no gate script, max_parallel_jobs unset), and Continue Threads' three runners (comment + DM, outbound DM, DM + reply answering) run without a gate. To finish: on Continue Threads, Run rules › one at a time + limits + alert chat, then set each posting schedule's script to aqeelos-posting-gate.sh, then check a run is gated and a post is looked up. Side finding 11 Nov 19:10: those three runners and one schedule each on continue-support and biomarkers-support fail with "RuntimeError: extra_headers supports host traceparent metadata only" (from the Claude plugin, directsdk.py); last good run 19:00.
+- [ ] **CODE-29** Live: publish apps from Code to <name>.app.<domain> · P0 — the old blockers are gone (Dokploy connected, "Live apps" environment made, *.app.<domain> resolves), but no app has ever been published. **Blocked:** HTTPS on any <name>.app.<domain> fails at Cloudflare (TLS handshake failure; Cloudflare's free certificate covers one level only), so publish() refuses with that message (app/live.mjs domainProblem). Owner's call: in Cloudflare, make the *.app record DNS only (grey cloud) to the Dokploy server so Traefik's Let's Encrypt certificates answer, or buy an Advanced Certificate for *.app.<domain>, or set LIVE_DOMAIN=<domain> (apps at <name>.<domain>). Then publish one test app and check it opens.
+
+### Blocked (from the old board) (2)
+
+- [ ] **CODE-50** aqeelOS app for Mac · P1
+  - 20 Oct: build ready (ARCH=arm64|x64, dmg, mic/camera/location texts); built on GitHub’s Macs by a workflow. Blocked: the owner runs gh auth refresh -s workflow,
+- [ ] **MODEL-15** Gemini with your Google AI plan (chat, then images and video) · P1
+  - Built and tried on 17 Oct: the sign-in worked (the owner's personal Google account), but Google now refuses the Gemini CLI for personal accounts, Google AI Pro in
+
+### Planned (from the old board) (5)
+
+- [ ] **CODE-10** Mac install checked on a Mac · P1
+- [ ] **SHELL-49** Extension tested in real Chrome · P1
+- [ ] **AUTO-23** Slack: as a bot, or as a person’s own Slack account · P2
+- [ ] **SYS-45** More installs of aqeelOS, updated from GitHub · P2
+- [ ] **CODE-22** Signed installers (Windows and Mac) · P3
+
+
+Sorted 11 Nov against the code on main (helper agent, 168 items): 10 open, 154 done, 4 dropped. AUDIT-2, AUDIT-41 and PAR-37 were fixed the same day.
+
+### Still open (next steps)
+
+- [x] **AUDIT-2** People and access: Admins can bypass private-agent access through the legacy sharing endpoint — fixed 11 Nov: the share check and the invite filter also refuse an admin's own agent made Private (users.mjs; users.test.mjs proves both halves fail on the old code)
+- [x] **AUDIT-41** Code engine and desktop app: Background self-update can terminate work started during the download — fixed 11 Nov: Code's self-update also waits while a terminal is at work (input or output in the last 2 min, or on Linux a shell with a running command; Terminals.busy, tested on a real shell)
+- [x] **CODE-12** (closed by decision 12 Nov: coding is local, online Code is off) Code for the whole team · P0 (raised 11 Nov) — found live: online Code runs as the box user claude, which holds the install's keys, and any member with edit rights on a project (their own included) could open a terminal, run commands, start dev servers or agent runs there and read those keys. Contained in code (not yet deployed): online Code refuses those to non-admins (MEMBER_NO_RUN in code/workspace-api.mjs; CODE_MEMBERS_RUN=1 turns it back on). Real fix still to do: run member work under its own Linux user, as agents do.
+- [x] **CODE-56** Plan only on every model · P1 — checked on Elkiya 11 Nov: the agent's user can read the .plan copy but not change it or the real project; commands that need approval are refused, other commands run but can't change files.
+- [x] **PAR-37** Models and agents: Add, remove and change MoA reference-model slots — fixed 11 Nov: key and split sat behind a // comment in people.js, so New team / Edit for a team of models threw at once
+- [x] **PAR-47** System, Logs, Usage: Global critical and elevated disk warnings — fixed 11 Nov: the engine already reports disk pressure and the banner reads it; both banners now say saving chats, files and backups may fail
+- [~] **SHELL-51** Help: a chat that explains aqeelOS and finds what went wrong · P1 — checked live 11 Nov: the hidden Help agent (aqeelos-help) exists on both servers with every toolset off (agent.disabled_toolsets). Elkiya: claude-opus-5-5 via the anthropic provider; P&P: no model of its own, so the install default. Left: one Help reply on each, to see it stream.
+- [x] **SYS-50** Email when the server goes down · P1 — .github/workflows/uptime.yml (every 10 min, scripts/uptime-check.mjs); owner step left: set the repository variable AQEELOS_URLS (OPERATIONS.md).
+- [ ] **AUDIT-65** Chrome extension: Stop should hold until the next chat turn · P2 — **waits on you**: your Chrome runs extension 2.0.0 (seen on Elkiya 11 Nov), the fix is in 2.1.2; update it from the My browser page, then check Stop holds.
+- [ ] **AUTO-38** WhatsApp Business connection for a team number · P2 — next: owner-blocked: needs the Meta business account and chosen number; then enter them on Channels › WhatsApp Business (callback /whatsapp-cloud, app/server.mjs:2340/2703) and test with one real message.
+
+### Done (verified in code)
+
+- [x] **AUDIT-1** Agents: Members can bypass the fresh-agent restriction and copy another agent's secrets — closed.
+- [x] **AUDIT-3** Server: [P0] Unauthenticated WebSocket clients can exhaust server memory — closed.
+- [x] **AUDIT-4** Code engine and desktop app: Online viewers can control runs and terminals despite view-only access — closed.
+- [x] **AUDIT-6** Chrome extension: Password values can leak through snapshot element names — closed.
+- [x] **AUDIT-10** Chat: Uploads can silently overwrite another chat's attachment — closed.
+- [x] **AUDIT-11** Chat: Voice transcription is always routed to the default agent — closed.
+- [x] **AUDIT-12** Memory and Files: Uploading a matching filename silently overwrites the existing file — closed.
+- [x] **AUDIT-13** Memory and Files: A failed memory read opens an empty editor that can erase existing notes — closed.
+- [x] **AUDIT-14** Memory and Files: All-agents Files shows members folders they cannot open — closed.
+- [x] **AUDIT-15** Code page in aqeelOS: Fallback download installs an engine the browser refuses to open — closed.
+- [x] **AUDIT-16** Code page in aqeelOS: A rejected connection attempt hides the connection form — closed.
+- [x] **AUDIT-17** Automations: Editing interval or one-time schedules silently replaces their timing — closed.
+- [x] **AUDIT-18** Automations: Failed access removal is reported as successful — closed.
+- [x] **AUDIT-19** Automations: The timezone shortcut changes the chatting agent instead of the schedule's agent — closed.
+- [x] **AUDIT-20** Channels: All agents omits requests from extra channel accounts — closed.
+- [x] **AUDIT-21** Abilities: Renaming an app can overwrite another connection — closed.
+- [x] **AUDIT-22** Abilities: Changing provider can leave an incompatible model selected — closed.
+- [x] **AUDIT-23** Models: Switching providers can leave the agent with an unsupported model — closed.
+- [x] **AUDIT-24** Models: Automatic switching stops after the first inaccessible fallback — closed.
+- [x] **AUDIT-25** Models: Google sign-out leaves agents pointing at the disabled provider — closed.
+- [x] **AUDIT-26** System: Backup controls never reach the Health page — closed.
+- [x] **AUDIT-27** System: Daily limits ignore today's work in older chats — closed.
+- [x] **AUDIT-7** App shell: Signing out leaves private conversations available to the next account — closed.
+- [x] **AUDIT-8** Chat: Sending locks out steering, queued messages, and other chats until the reply ends — closed.
+- [x] **AUDIT-9** Chat: Images larger than 8 MB are sent without image data — closed.
+- [x] **AUDIT-28** People and access: Sharing a key silently destroys a different key already on the recipient — closed.
+- [x] **AUDIT-29** People and access: Deleting an agent never frees the member's creation allowance — closed.
+- [x] **AUDIT-30** People and access: Member connection lists are always filtered using a nonexistent field — closed.
+- [x] **AUDIT-31** People and access: Password changes leave existing sessions authenticated — closed.
+- [x] **AUDIT-32** Server: [P0] Shared-screen restriction can be bypassed through an agent screen — closed.
+- [x] **AUDIT-33** Server: [P1] Code online sessions survive 'Sign out everywhere' — closed.
+- [x] **AUDIT-34** Code engine and desktop app: Keeping a comparison corrupts changed image files — closed.
+- [x] **AUDIT-35** Code engine and desktop app: Comparison deletions bypass undo history — closed.
+- [x] **AUDIT-36** Code engine and desktop app: AI browser reads the person's tab but clicks its own tab — closed.
+- [x] **AUDIT-37** Code engine and desktop app: PowerPoint, Word and Excel uploads are rejected as nontext — closed.
+- [x] **AUDIT-38** Code engine and desktop app: Gemini loses all saved project secrets before launch — closed.
+- [x] **AUDIT-39** Code engine and desktop app: Turning off web access also removes unrelated app and connected-agent tools — closed.
+- [x] **AUDIT-40** Code engine and desktop app: A fourth running AI leaves a new comparison half-started forever — closed.
+- [x] **AUDIT-42** Code engine and desktop app: Failed dependency installation still commits the self-update — closed.
+- [x] **AUDIT-43** Chrome extension: Stop and Take over do not cancel a pending click or typing action — closed.
+- [x] **AUDIT-44** Chrome extension: The browser cannot discover controls inside shadow roots — closed.
+- [x] **AUDIT-45** Code app: Saving can silently discard edits typed during the request — closed.
+- [x] **AUDIT-46** Code app: The project preview tab is never rendered — closed.
+- [x] **AUDIT-47** Code app: Compare draft Preview buttons show the wrong browser — closed.
+- [x] **AUDIT-48** Code app: Agent command updates repeatedly steal the terminal tab — closed.
+- [x] **AUDIT-49** App shell: 12 smaller fixes — closed.
+- [x] **AUDIT-50** Chat: 8 smaller fixes — closed.
+- [x] **AUDIT-51** Agents: 8 smaller fixes — closed.
+- [x] **AUDIT-52** Memory and Files: 6 smaller fixes — closed.
+- [x] **AUDIT-53** Code page in aqeelOS: 6 smaller fixes — closed.
+- [x] **AUDIT-54** Automations: 10 smaller fixes — closed.
+- [x] **AUDIT-55** Channels: 5 smaller fixes — closed.
+- [x] **AUDIT-56** Abilities: 7 smaller fixes — closed.
+- [x] **AUDIT-57** Models: 10 smaller fixes — closed.
+- [x] **AUDIT-58** System: 13 smaller fixes — closed.
+- [x] **AUDIT-59** People and access: 4 smaller fixes — closed.
+- [x] **AUDIT-60** Server: 6 smaller fixes — closed.
+- [x] **AUDIT-61** Code app: 8 smaller fixes — closed.
+- [x] **AUDIT-62** Code engine and desktop app: 4 smaller fixes — closed.
+- [x] **AUDIT-63** Chrome extension: 5 smaller fixes — closed.
+- [x] **CODE-07** Code uses agents, one way — evidence: app/code-agents.mjs createCodeAgents (run ticket, ask-only design); app/server.mjs:2257 notes code_projects/code_work are gone; asks go through aqeelos_ask in code/aqeelos-mcp.mjs.
+- [x] **CODE-41** The aqeelOS desktop app, with a real browser in Code — evidence: code/desktop/main.cjs (Electron, real tabs laid over the stage, DevTools-driven via code/browser.mjs); the Mac build no longer needs a Mac: .github/workflows/desktop-app.yml builds aqeelOS.dmg on macos-latest and aqeelOS-Setup.exe on windows-latest.
+- [x] **CODE-48** Stop doesn’t close the app — evidence: code/desktop/main.cjs:66 spawns servers with ELECTRON_RUN_AS_NODE:'1' (also in code/aqeelos.mjs and code/workspace-api.mjs for tool servers).
+- [x] **CODE-52** Attach several agents to a Code message — evidence: code/studio.js:478 (agent chips, remembered per project); app/code-agents.mjs ticket()/ticketAgents() sign which agents a run may ask; aqeelos_ask in code/aqeelos-mcp.mjs.
+- [x] **CODE-55** One model list in Code, as in aqeelOS — evidence: code/studio.js:219 and :658 (one list "<harness>:<model>" from aqeelOS for the first attached agent); code/server.mjs:25; app/code-bridge.mjs relays project tool calls and logs to data/code-bridge.jsonl.
+- [x] **CODE-39** Side browser: microphone, camera, location, downloads, uploads — evidence: code/desktop/main.cjs:83 setPermissionRequestHandler→sitePermit (per site per project), :85 will-download into Downloads › Project; code/browser.mjs:144/163 Page.fileChooserOpened→fileAsk opens the picker for the person (a real upload was not tried on screen).
+- [x] **CODE-45** Rounded, centred device screens — evidence: code/desktop/main.cjs:106 view.setBorderRadius(stageRect.radius) for the real tab; frames and centring in the page as shipped in app 1.0.5 (glide not re-seen on screen).
+- [x] **CODE-53** Agents introduce themselves to the coding model — evidence: app/code-agents.mjs intro() (purpose, apps and skills by name, notes digest for owners; the SECRETY filter drops secret-looking notes).
+- [x] **CODE-54** Files from agents land in the project — evidence: app/code-agents.mjs outbox()/collect()/saveInto() with FILES_MAX=12, FILE_MAX=20e6, FILES_TOTAL=40e6 and safeRel() for a project subfolder; from-agents/<agent>/ handled in app/server.mjs and code/aqeelos-mcp.mjs.
+- [x] **CODE-57** Open in Code from a chat — evidence: app/server.mjs:2291/2318 adds and handles the open_in_code tool; app/code-agents.mjs handoff()/handoffGet() (7-day request, only people who may chat with the agent); app/core.js:154 opens Code in place, nothing runs until send.
+- [x] **PAR-11** Shell, Task board, Achievements: Configure orchestrator and default assignee — evidence: app/boards.js ACT['kb-settings'] reads GET /orchestration and /profiles, Organiser and Default agent selects show resolved values, saved with put(KB,'/orchestration').
+- [x] **PAR-12** Shell, Task board, Achievements: Toggle automatic triage decomposition — evidence: app/boards.js ACT['kb-settings'] "Split new ideas into tasks automatically" toggle (#ksX → auto_decompose), plus the board-header mode (lines 49-53).
+- [x] **PAR-13** Shell, Task board, Achievements: Task diagnostic and staleness indicators — evidence: app/boards.js KSTALE/kbStale() amber/red outlines and the needs-attention strip (kb-warn-open / kb-warn-off, lines 82-85).
+- [x] **PAR-14** Shell, Task board, Achievements: Create tasks in the intended workflow destination — evidence: app/boards.js kb-new #ktGo PATCHes {status} with the chosen status (line 214); each column header opens kb-new preselected (line 71).
+- [x] **PAR-15** Shell, Task board, Achievements: Select task workspace type and path — evidence: app/boards.js kb-new sends workspace_kind and workspace_path (line 209); shown in kbTaskL1 "Works in".
+- [x] **PAR-16** Shell, Task board, Achievements: Choose a parent when creating a task — evidence: app/boards.js kb-new "Waits for" select #ktW sent as body.parents=[w] (line 208).
+- [x] **PAR-17** Shell, Task board, Achievements: Move tasks by desktop drag and drop — evidence: app/boards.js kbDrag()/kbDropOn(): the Running column is knodrop (line 71) and refuses drops, kbDragOn shows targets while dragging, plus touch dragging in kbTouch().
+- [x] **PAR-18** Shell, Task board, Achievements: Change task status through task controls — evidence: app/boards.js kbStatusBtns() (line 218) renders only moves valid for the current status, wired to ACT['kb-status']→kbMove; no Running option.
+- [x] **PAR-19** Shell, Task board, Achievements: Completion summary and destructive transition confirmations — evidence: app/boards.js kbMove(): confirmBox before Block and Archive, promptBox for a required summary on Done, sent as {status:'done',result,summary}.
+- [x] **PAR-2** Shell, Task board, Achievements: Standalone gateway warning on multi-profile installations — evidence: app/core.js:481 reads st.multiplex_standalone_reason and lists the agents not being served in the banner.
+- [x] **PAR-20** Shell, Task board, Achievements: Specify and decompose triage work — evidence: app/boards.js ACT['kb-specify'] (POST /tasks/<id>/specify) and ACT['kb-decompose'] (POST /decompose, one at a time per task) with result messages.
+- [x] **PAR-21** Shell, Task board, Achievements: Inspect and edit task dependencies — evidence: app/boards.js kbTaskL1 "Waits for" / "Waiting for this" lists with add selects and ACT['kb-unlink'] (DELETE /links).
+- [x] **PAR-22** Shell, Task board, Achievements: Final task result and run-summary fallback — evidence: app/boards.js kbTaskL1 res=k.result||k.latest_summary with its label, and the hint for done parents with sub-tasks.
+- [x] **PAR-23** Shell, Task board, Achievements: Read child task results and open child tasks — evidence: app/boards.js kbTaskL1 "Sub-task results" from t.child_results, each with an Open (kb-open) button.
+- [x] **PAR-24** Shell, Task board, Achievements: Read and add task comments — evidence: app/boards.js comments show author and ago(created_at), #kdC submits on Enter (line 275), hint "The agent reads comments the next time it works on this task" (line 266); author no longer hard-coded.
+- [x] **PAR-25** Shell, Task board, Achievements: Task attachment upload, download and deletion — evidence: app/boards.js kbTaskL1 Files section with kb-att-get / kb-att-del and the upload handler (lines 315-319).
+- [x] **PAR-26** Shell, Task board, Achievements: Task diagnostics details and recovery actions — evidence: app/boards.js kbDiags() plus ACT['kb-reclaim'] (POST /reclaim), ACT['kb-reassign'] (POST /reassign with reclaim_first) and ACT['kb-copycmd'].
+- [x] **PAR-27** Shell, Task board, Achievements: Worker log inspection — evidence: app/boards.js kbLog() loads /tasks/<id>/log?tail=100000 with size, and ACT['kb-log'].
+- [x] **PAR-28** Shell, Task board, Achievements: Complete task run history — evidence: app/boards.js kbTaskL2 shows the latest 3 runs with agent, outcome, duration, summary, error and a metadata fold; ACT['kb-runs-all'] shows the rest.
+- [x] **PAR-29** Shell, Task board, Achievements: Select tasks for bulk work — evidence: app/boards.js KSel with kb-sel checkboxes, shift-click range (line 92) and the bulk bar (lines 102-111).
+- [x] **PAR-30** Shell, Task board, Achievements: Bulk status changes and multi-card dragging — evidence: app/boards.js kbMove() posts /tasks/bulk for several ids; kbIdsFor() moves the whole selection when a selected card is dragged.
+- [x] **PAR-31** Shell, Task board, Achievements: Bulk priority and reassignment with reclaim-first — evidence: app/boards.js ACT['kb-bulk-pri'] and ACT['kb-bulk-agent'] via /tasks/bulk with reclaim_first (lines 108-109).
+- [x] **PAR-32** Shell, Task board, Achievements: Unlocked, discovered and secret achievement states — evidence: app/boards.js achState()/achBadge() (lines 338-343) branch on x.state with masked secrets and a lock icon, plus Earned / In progress / Secret filters (line 361).
+- [x] **PAR-4** Shell, Task board, Achievements: Kanban manual refresh and automatic updates — evidence: app/boards.js kbLive() subscribes to /hapi/plugins/kanban/events over WebSocket with backoff, reloads the board and refreshes an open drawer (kbDrawerLive); polling stays as fallback.
+- [x] **PAR-6** Shell, Task board, Achievements: Create a board — evidence: app/boards.js new-board drawer (#knGo) posts /boards with slug, name, description, icon, project and default_workdir, plus "Open it now".
+- [x] **PAR-7** Shell, Task board, Achievements: Edit board name, description and default work directory — evidence: app/boards.js ACT['kb-settings'] PATCHes /boards/<slug> with name, description, icon, project_id and default_workdir (empty clears).
+- [x] **PAR-33** Files and Memory: Enter an arbitrary absolute directory path and submit with Go or Enter — evidence: app/files.js:32 "Go to folder" button (data-act f-go) and :69 promptBox that sets S.filePath and reloads.
+- [x] **PAR-34** Files and Memory: See accurate provider readiness states — evidence: app/pages.js:772-781 MEM_ST/memSt map ready / needs_config / unavailable / missing to Ready / Needs setup / bad chips on each provider row.
+- [x] **PAR-35** Files and Memory: Inspect and edit an already available provider's configuration — evidence: app/pages.js:781 every provider row gets Settings (or Set up); ACT['mem-setup'] (:800) GETs /memory/providers/{p}/config and Save PUTs the same path (:810).
+- [x] **PAR-36** Files and Memory: See detailed dependency setup results and failures — evidence: app/pages.js:811-813 renders r.results via memResults, reports failed steps or r.ok===false as an error, toasts success only otherwise.
+- [x] **PAR-38** Models and agents: Disconnect an OAuth provider with confirmation — evidence: app/accounts-page.js acctRemove sends every OAuth ("sub") account to ACT['oauth-out'] (app/pages.js:888), which asks with confirmBox and DELETEs /providers/oauth/{id}; no disconnectable flag is needed.
+- [x] **PAR-39** Settings and Keys: Complete environment-variable catalog — evidence: app/pages.js:904 skips HERMES_* only when v.category!=='provider', so provider HERMES_ keys are listed.
+- [x] **PAR-40** System, Logs, Usage: Host memory used, total and percentage — evidence: app/pages.js:1232 RAM stat shows the AI box used/limit and, in the small line, whole-server used / total with its percentage.
+- [x] **PAR-41** System, Logs, Usage: Gateway running status and detailed state description — evidence: app/pages.js:1255 gwStateText explains gateway_state (degraded, stale heartbeat minutes), shown under the gateway buttons at :1241; app/core.js:495-500 labels the state.
+- [x] **PAR-42** System, Logs, Usage: Stop the selected profile's gateway — evidence: app/pages.js:1264-1268 ACT['gw-stop'] stops agentProfile() (or all when shared), with a 409 fallback "Stop every agent".
+- [x] **PAR-48** Channels: Show each platform's shared-listener callback URL — evidence: app/pages.js:305 channelDrawer shows a "Callback address" copy row (chCopy) whenever c.ingress_url is set.
+- [x] **PAR-49** Channels: Enable and disable individual channels — evidence: app/pages.js:304/309 shared channels (CH_SHARED = api_server, webhook, :322) get a real "Switched on" toggle that PUTs {enabled}; other channels pause via Belongs to (hint at :306).
+- [x] **PAR-50** Channels: Edit all returned platform environment settings — evidence: app/people.js waCloudDrawer (:1010 on) renders the remaining env_vars with chField in a "More settings" fold with its own Save.
+- [x] **PAR-51** Channels: View existing allowlist entries when opening settings — evidence: app/pages.js:327/337 chIsList fields render saved IDs from v.value as removable chips with an Add input.
+- [x] **PAR-52** Channels: Choose WhatsApp Bot or Self-chat mode — evidence: app/people.js:682-711 Link WhatsApp drawer offers "A number for the agent" / "My own number" (self-chat), defaults from the saved mode; app/server.mjs:1225 writes b.mode.
+- [x] **PAR-53** Skills, Plugins, Connected apps: Learn a skill from local sources, a URL and free-form notes — evidence: app/all-agents-more.js:43-45 "Learn a skill" button (sk-learn) on Abilities › Skills.
+- [x] **PAR-54** Skills, Plugins, Connected apps: Open hub skill details and preview SKILL.md before installation — evidence: app/pages.js:643 hub drawer loads /skills/hub/preview and paints the Instructions view.
+- [x] **PAR-55** Skills, Plugins, Connected apps: Run or rerun a hub skill security scan — evidence: app/pages.js:634-641 paintScan/runScan with "Run security check" and "Check again" calling /skills/hub/scan.
+- [x] **PAR-56** Skills, Plugins, Connected apps: Inspect security verdict, install policy and severity totals — evidence: app/pages.js:635-638 scan header shows verdict chip, trust level, finding count, severity_counts chips, and policy with policy_reason.
+- [x] **PAR-57** Skills, Plugins, Connected apps: Install a plugin from an arbitrary identifier or repository URL — evidence: app/pages.js:722 free-form #plId install posts {identifier,force,enable} to /dashboard/agent-plugins/install.
+- [x] **PAR-58** Skills, Plugins, Connected apps: Browse and install curated, pinned catalog plugins — evidence: app/pages.js:731 catalog install posts the engine contract {identifier:'',catalog_name,force,enable:false}.
+- [x] **PAR-59** Skills, Plugins, Connected apps: Review and accept expanded plugin capabilities during update — evidence: app/pages.js:738-740 on consent_required asks with confirmBox (sha + delta_lines), re-posts accept_capabilities:true, toasts only on real success.
+- [x] **PAR-60** Skills, Plugins, Connected apps: Open any installed plugin dashboard tab — evidence: app/plugin-host.js hosts engine dashboard plugins inside aqeelOS (Plugins.open, :41) and app/pages.js:743 adds "Open its page" to the plugin menu.
+- [x] **PAR-61** Skills, Plugins, Connected apps: Edit and save schema-driven memory-provider settings — evidence: app/pages.js:800-810 mem-setup drawer renders fields by kind with when-conditions, bounds checks and current values, saved via PUT /memory/providers/{p}/config.
+- [x] **PAR-62** Skills, Plugins, Connected apps: Install memory-provider dependencies and inspect per-step results — evidence: app/pages.js:811-813 "Install what it needs" renders result.results step rows and errors when any step failed.
+- [x] **PAR-63** Skills, Plugins, Connected apps: Add an HTTP MCP server with a bearer token — evidence: app/pages.js:668 and app/connections.js:183/194 set body.auth='header' with bearer_token.
+- [x] **PAR-64** Skills, Plugins, Connected apps: Authenticate an MCP server through browser OAuth — evidence: app/connections.js:151 and app/pages.js:662 treat 'approved' as success; connections.js keeps polling past a failed poll.
+- [x] **PAR-65** Skills, Plugins, Connected apps: Enter and validate required MCP catalog credentials — evidence: app/connections.js:175-177 Cx.install maps required_env {name,prompt,required} to labelled inputs with * and required checks; :183 direct URL adds send a header token, not env.
+- [x] **PAR-66** Chat: Choose a project folder or discovered repository — evidence: app/chat.js:95-97 workspace menu maps projects to folders[].path / primary_path and repos to r.root with readable labels.
+- [x] **PAR-67** Chat: Choose reasoning effort across all eight levels — evidence: app/chat.js:6 EFFORTS=['none','minimal','low','medium','high','xhigh','max','ultra'].
+- [x] **PAR-68** Schedules, Webhooks, Pairing: Attach one or multiple skills to a job — evidence: app/pages.js:219 "Skills (optional)" picker (#cjSkills), :258 b.skills, :263 empty prompt allowed when a skill is chosen.
+- [x] **PAR-69** Schedules, Webhooks, Pairing: Select a script for scheduled execution — evidence: app/pages.js:227 Script input (#cjScript) sent as b.script (:262), engine errors translated at :163.
+- [x] **PAR-70** Schedules, Webhooks, Pairing: Run script only and deliver stdout verbatim — evidence: app/pages.js:228/262 "Send the script's output as it is" toggle sets no_agent, enabled only with a script (:238).
+- [x] **PAR-71** Schedules, Webhooks, Pairing: Continuity between successive runs — evidence: app/pages.js:202/259 continuity toggle (#cjCont) adds 'self' to context_from.
+- [x] **PAR-72** Schedules, Webhooks, Pairing: Scheduler heartbeat staleness warning — evidence: app/schedules.js:36 staleAge reads scheduler_heartbeat_age_s and :87 shows how long ago the scheduler last ticked.
+- [x] **PAR-73** Schedules, Webhooks, Pairing: Automatic-enable restart outcome, errors and retry restart — evidence: app/pages.js:403-405 watches restart_started and shows restart_error / needs_restart with a restart prompt.
+- [x] **PAR-74** Schedules, Webhooks, Pairing: Webhook delivery choices: log, Telegram, Discord, Slack, email and GitHub comment — evidence: app/pages.js:392 WH_DELIVER lists log, github_comment, telegram, discord, slack, email.
+- [x] **PAR-75** Chats and history: Highlight matches within an opened transcript and jump to the first hit — evidence: app/chat.js:247-255 Chat.markHits wraps the search words in <mark class="hit">, loads older messages if needed, and scrolls to the first hit.
+- [x] **PAR-76** Chats and history: Automatically refresh session history when another process creates a session — evidence: app/boot.js:129 runs Chat.tick every 20 s; app/chat.js:60-61 reloads sessions and redraws Manage chats when the head of the list changes.
+- [x] **PAR-77** Shell, Task board, Achievements: 37 useful engine features to add — evidence: commits aa0dae5/a1f48ec (shell-plugins#31-#100) and 549c9bd (plugin loader, #26-#28); app/boards.js has tenant filter, lanes_by_profile, goal_mode/goal_max_turns, subscribe, phantom_refs, archive, touch drag, achievement evidence, share card (achImage, Copy/Download PNG); app/plugin-host.js registerSlot/route overrides; app/boot.js shared-metrics consent card; app/core.js "Restart all".
+- [x] **PAR-79** Files and Memory: 15 useful engine features to add — evidence: commits 8e844c2, a80c418, fffce20; app/files.js refresh and broken-link handling; app/pages.js memProvPanel (L777+) renders schema fields as selects, switches, bounded numbers, secret inputs with "Saved · leave blank", pip_dependencies with `pip install` command, readiness and missing-provider warning.
+- [x] **PAR-81** Models and agents: 40 useful engine features to add — evidence: commits b1d8993, 62c603d, c22a97e, 8925c4a; app/pages.js expensive-model confirm (L821), "Reset all to automatic"/"Reset every helper model?" (L860, L884), auto-refresh on tab return (L886 visibilitychange, models-profiles#22), MoA preset handling; app/connect.js sign-in drawer with copyable command, countdown, Try again, cancel-on-close.
+- [x] **PAR-83** Settings and Keys: 23 useful engine features to add — evidence: commits 682bee1 (Settings search, per-group reset with confirm, list/number/text/nested editors, export/import) and af1378a (Keys grouped per provider, descriptions, tools badges, reveal); app/pages.js KROW (L893) shows tools per key and key-reveal, "Reset these results"/"Reset this group" (L1192), cfg-import; OAuth parts in app/connect.js.
+- [x] **PAR-85** System, Logs, Usage: 34 useful engine features to add — evidence: commits bf9b483 (Logs/Usage refresh, sortable tables, top skills, API calls, real log levels), 37af48d (engine state, backup download, restore from file or path), ab8525c + app/help.js L130 `debug-share` with redaction and copyable links, 8250c6f (served-profile stop refusal); app/health-page.js engine console; curator, hooks, checkpoints, migration in app/pages.js.
+- [x] **PAR-87** Channels: 13 useful engine features to add — evidence: commit 7896ea4 and feadfdb; app/pages.js channel drawer field rows (L338) with required markers, secret masking from server metadata (is_password/redacted_value), allowlist rows, Telegram/Slack format checks, "Restart now" banner; app/people.js WhatsApp review and restart wording, per-platform updated time.
+- [x] **PAR-89** Skills, Plugins, Connected apps: 32 useful engine features to add — evidence: commits 4d3dc18 (skill search/categories, toolset tools), 710a986 (plugin install from GitHub, catalog search, provenance, capabilities), bba4cb3 (MCP bearer/OAuth, catalog source and setup notes), 549c9bd (plugin page sections via app/plugin-host.js, skills-plugins-mcp#52), a80c418 (memory-provider readiness); featured hub, orphan plugins and context engine in app/pages.js.
+- [x] **PAR-91** Chat: 22 useful engine features to add — evidence: commit 10b35f2..10b27a4 (chat#12-14,16-19,21-23,25,27-29,35,36,38-41,44-48,50,52,65,67,68) and 647926b (chat#37); app/chat.js renders tagged reasoning (L549 `<think`), reconnect status dot, refusal actions; app/core.js transcript `<mark>` highlights (L581) and clipboard fallback; app/pages.js expensive-model confirm.
+- [x] **PAR-93** Schedules, Webhooks, Pairing: 22 useful engine features to add — evidence: commits 39ebe5c (skills, scripts, toolsets, context_from, workdir, base_url), 5c96946 (stalled-clock warning, overdue/missed runs), 5361351; app/schedules.js repeatText (L37) and overdue marks; blueprints and webhook descriptions in app/pages.js; pairing lists in app/channels-page.js.
+- [x] **PAR-95** Chats and history: 25 useful engine features to add — evidence: commit 647926b (sessions#1-3,6,7,9-11,13-15,23,29,33,34,36,37,42,43) and 10b27a4 (sessions#4,17-23,45,47-49,54,56); JSON Lines import in app/pages.js, shift-click ranges in app/chat.js/core.js; sessions#40 (Recent sessions card) was left out on purpose because Health dropped that card.
+- [x] **PAR-78** Shell, Task board, Achievements: 4 small engine features to add — evidence: commit aa0dae5 ("drag to trash and touch", shell-plugins#31-#100); app/boards.js trash drop zone and achievement tier legend; Post on X via `x.com/intent/post` in ACT['ach-share'] (app/boards.js L385).
+- [x] **PAR-80** Files and Memory: 6 small engine features to add — evidence: commit 8e844c2 (go up from every view, exact dates, locked folder) and fffce20/a80c418 (show/hide secret, copy setup commands); app/files.js locked root handling; app/pages.js memProvPanel pip install command.
+- [x] **PAR-82** Models and agents: 17 small engine features to add — evidence: commits b1d8993 (models-profiles#4,7,15,21,69,85,87,90,93), c22a97e (#25,#34), 62c603d (#52), 8925c4a (#55-57); PKCE Enter submit in app/connect.js. #5 was declined on purpose (the menu already ticks the saved model) and #24 is the same Refresh as Usage's (bf9b483).
+- [x] **PAR-84** Settings and Keys: 12 small engine features to add — evidence: commits 682bee1 (search clear, result counts, dotted paths, sections) and af1378a (provider totals, custom keys); app/pages.js "Reset these results" (L1192); PKCE Enter and docs link in app/connect.js; config-keys#53 slots via app/plugin-host.js PAGE_SLOTS (commit 549c9bd).
+- [x] **PAR-86** System, Logs, Usage: 9 small engine features to add — evidence: commits 37af48d, bf9b483 ("memory shows" file sizes), ab8525c (debug-share upload info, console), e36d2b6 (memory file sizes); python version in app/pages.js; system-logs-analytics#94 plugin content above/below Logs and Usage via app/plugin-host.js PAGE_SLOTS (549c9bd).
+- [x] **PAR-88** Channels: 8 small engine features to add — evidence: commit 7896ea4 (settings file shown, allowlist rows); app/pages.js Telegram user-ID link (userinfobot); app/people.js WhatsApp QR countdown (L697 "This code works for m:ss more") and wa.me chat link (L712).
+- [x] **PAR-90** Skills, Plugins, Connected apps: 7 small engine features to add — evidence: commit 4d3dc18 (alphabetical skills, clear button), 549c9bd (dashboard extension slots and no-tab info), bba4cb3 (stdio MCP with args and env); hub search by Enter and Installed refresh in app/pages.js.
+- [x] **PAR-92** Chat: 8 small engine features to add — evidence: commit 10b27a4 (chat#13,16,23,27,29,35,65) and 549c9bd (chat#70 plugin content above/below chat through app/plugin-host.js); mailto links in app/core.js.
+- [x] **PAR-94** Schedules, Webhooks, Pairing: 4 small engine features to add — evidence: commits 39ebe5c/5c96946 (job ID, blueprint validation), 5361351 (focus restore, cron-webhooks-pairing#62); webhook hot reload and switched-off events explained in app/pages.js (L388-389).
+- [x] **PAR-96** Chats and history: 6 small engine features to add — evidence: commit 647926b (sessions#1,3,7,11,42: ordering, total, source counts and reset, clear button, platform last-update) and 10b27a4 (sessions#22 tool-call ids, shown in app/chat.js).
+
+### Dropped
+
+- **SYS-61** Full audit: everything the engine's own dashboard has, aqeelOS has too — why: umbrella item; its one named leftover (plugin loader for other plugins' pages and slots) is in app/plugin-host.js (register/registerSlot, React fetched on demand), and the remaining gaps are tracked as the per-area PAR-77…PAR-96 items.
+- **PAR-43** System, Logs, Usage: Create full engine backup and show archive path — why: the engine's /ops/backup flow is no longer called anywhere in app/; superseded by aqeelOS's own backups (app/backups.js, app/backup.mjs: scheduled Google Drive backups, Back up now, last-backup row).
+- **PAR-44** System, Logs, Usage: Download the completed engine backup archive — why: superseded by app/backups.js (backups go to Google Drive and come back through Prepare / Restore now); no engine archive download is used any more.
+- **PAR-45** System, Logs, Usage: Restore an uploaded archive with destructive confirmation — why: superseded by app/backups.js op-restore (Prepare, preview of what changes, Restore now, safety copy); the engine /ops import path is no longer called.
+
