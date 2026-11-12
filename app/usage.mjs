@@ -2,6 +2,7 @@
 // aqeelOS knows who started it). Used by System › Usage and by per-person daily limits.
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import path from 'node:path';
+import {readRecords,summarize} from './route-order.mjs';
 export function createUsage(DASH,TOKEN,DATA,opt={}){
  const cache=new Map(),flying=new Map();   // agent → {t,full,since,list}; agent → the read in progress
  const at=(s,active)=>active?Math.max(s.last_active||0,s.started_at||0):(s.started_at||0);
@@ -52,7 +53,9 @@ export function createUsage(DASH,TOKEN,DATA,opt={}){
  async function breakdown(agents,days,ownerOf){const since=Date.now()/1000-days*86400;const byPerson={},byAgent={},byModel={},failed=[];
   const per=await each(agents,a=>chats(a,since,false,true).catch(e=>{console.warn('usage',a,e.message);failed.push(a);return []}));
   agents.forEach((a,i)=>{for(const s of per[i]){const p=ownerOf(s.id,s);add(byPerson[p]||=blank(),s);add(byAgent[a]||=blank(),s);add(byModel[s.model||'unknown']||=blank(),s)}});
-  return {days,byPerson,byAgent,byModel,...(failed.length?{failed}:{})}}
+  // where a run asked for one model's vendor and ran on another (route-order.mjs): per agent and kind, with the reasons
+  const routes=summarize(await readRecords(DATA,{days}).catch(()=>[]),{days,agents});
+  return {days,byPerson,byAgent,byModel,routes,...(failed.length?{failed}:{})}}
  // today's use counts only what a chat added today: each chat's totals at the first sight of the day are kept
  // (DATA/usage-day.json, reset at midnight) and subtracted. A chat started today starts from 0. Use before the first
  // sight of an older chat today is not counted (seen on every message a member sends, so the gap is small).

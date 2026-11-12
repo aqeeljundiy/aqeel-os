@@ -1,7 +1,25 @@
-Engine (Hermes Agent) changes made on the reference install on 6 Nov 2026 that `scripts/apply-skill-patches.mjs` (step 16) now applies on install and after engine updates: per-chat SSH ControlMaster sockets (tools/environments/ssh.py), configurable
+Engine (Hermes Agent) changes made on the reference install on 6 Nov 2026: per-chat SSH ControlMaster sockets (tools/environments/ssh.py), configurable
 persona branding (hermes_cli/branding.py, used by default_soul.py and prompt_builder.py), turn_finalizer fallback
-notice, and matching tests. Apply to a Hermes Agent checkout with `git apply 2026-11-06-tonight.patch` and copy
-`branding.py` to `hermes_cli/`. Verified with the engine's pytest: 180 passed, 0 related failures.
+notice, and matching tests. Verified then with the engine's pytest: 180 passed, 0 related failures. Step 16 of
+`scripts/apply-skill-patches.mjs` still copies `branding.py` to `hermes_cli/`; the patch itself is retired (below).
+
+## Retired: 2026-11-06-tonight.patch (12 Nov 2026, now `retired/`)
+
+Every deploy printed `! MISFIT 2026-11-06-tonight.patch` in the engine update check. Checked read-only on both live engines
+(same commit bf0203a794, v0.22.5): the patch reverse-applies on each live engine (in place) and applies cleanly to the bare
+commit (`git apply --cached --check`), but never inside a run of the steps: step 8 (the engine wording rename) and the
+prompt_builder and turn_finalizer steps rewrite its context lines before step 16, so on a clean update it always failed and
+changed nothing. Its content reaches a clean engine through `2026-11-11-engine-hand-edits.patch` (step 17b), whose base is
+exactly "clean engine plus the steps without this patch"; the engine update check passing with the MISFIT showing proves the
+update copy equals the live engine without it. So the git apply was a no-op on every path: step 16 now only copies
+branding.py. The file is kept in `retired/` for the record; step 17b reads only this folder's own `*.patch` files.
+
+## Retired: step 5 "port-reuse" (12 Nov 2026)
+
+`plugins/platforms/whatsapp/bridge_ownership.py` `port_is_free` sets `SO_REUSEADDR` itself upstream (engine commits
+155588754a "reuse bridge ports after restart", 1848982075 "POSIX-only reuse in the probe", 7d9f04469b docs), in both live
+engines. Our text replacement no longer matched the new code, so every deploy printed `MISFIT port-reuse` and the go-live
+step ended with exit 3 ("! skill patches: see the message above (exit 3)" on P&P). The step is removed.
 
 ## 2026-11-06-shared-skills.patch (applied by step 17)
 
@@ -32,8 +50,8 @@ Found by simulating an engine update on a clean copy (the live engine's commit, 
   branding, the fallback-notice setting).
 - `2026-11-11-telegram-cross-topic-digest.patch` (3 files): Elkiya's Telegram cross-topic digest. P&P gets it at its
   next update step.
-- `2026-11-06-tonight.patch` no longer fits a clean engine of this version, so step 16 warns "6 Nov patch does not fit".
-  That is expected now: its content is in the hand-edits patch above. Keep branding.py here (step 16 still copies it).
+- `2026-11-06-tonight.patch` no longer fit a clean engine of this version, so step 16 warned "6 Nov patch does not fit" until
+  12 Nov, when its git apply was retired (see "Retired" above). Keep branding.py here (step 16 still copies it).
 - Since 11 Nov this runs in every deploy check (ENG-3): `scripts/engine-sim.sh` makes two throwaway copies under /tmp
   (a clean update of the live engine's commit, and the live engine itself), runs every patch step on both with HOME
   pointed at each copy, and fails the deploy with the names of the files that differ. Allowed differences are listed in
@@ -111,3 +129,26 @@ First live document check (12 Nov, Elkiya): Kirimdev said "delivered" but the br
 that has a caption in `documentWithCaptionMessage`, and `probe_watch.js` looked only at the plain `documentMessage`, so it never
 saw the `aqeelos-probe:` mark (the message even went on to the agent). `inner()` now unwraps it. Applies on top of the
 `delivery-probe-document` patch; takes effect after the engine's WhatsApp bridge restarts.
+
+## 2026-11-12-route-order.patch (route order, applied by step 17b)
+
+A run asked for one model stayed on its vendor only by accident: the fallback list fired on the first failed call, whatever it was
+(Elkiya, 9 to 12 Nov: 9 of 34 fixer runs that asked for Claude ran on GPT or Gemini, about $15.77; 241 chat and schedule replies on a
+fallback; P&P pixel-agent: 483 switches to Gemini on an engine ValueError). The patch adds `agent/aqeelos_route.py` (pure, no engine
+imports) and one hook in `try_activate_fallback` (`agent/chat_completion_helpers.py`); the two callers that know the error text
+(`turn_api_error.py`, `turn_recovery.py`) pass it as `message=`. The order:
+
+1. a different vendor is only tried when the ACCOUNT failed (billing, used up, signed out, refused). A timeout, an overload, an engine
+   error, or the relay's "Server is temporarily limiting requests (not your usage limit)" 429 (classified as billing) never moves the run;
+2. not while another signed-in account of the agent's pool has room for the same model: the app (accounts.mjs poolRoom, backup-models.mjs)
+   moves the agent there. The app says so in `<home>/aqeelos-route.json` (written every 5 minutes; the engine ignores one older than 15);
+3. a background run (fixer `AQEELOS_FIXER=1`, schedule `platform=cron`) waits when the provider's reset is within `waitMinutes`;
+4. then the owner's explicit list (`fallback_providers`, written from Models › If an account fails), in its order; else the run stops and
+   the reply says why.
+
+Every switch and every refusal is a line in `<home>/logs/route-switches.jsonl` (asked model, actual model, reason, step, kind chat /
+schedule / fixer). The app reads them (backup-models.mjs) for Health (System › Health › Tools and schedules, the fixer card), Usage
+(Model switches) and one Health item when an agent has been answering on a fallback for `route.fallbackHours` (default 3). Settings, in
+`team-policy.json`: `route.waitMinutes` (default 15, 0 = never wait) and `route.fallbackHours`. Tests: `tests/agent/test_aqeelos_route.py`
+(12 cases, run on Elkiya's Python in memory: 12 passed) and `scripts/route-order.test.mjs`. Not covered: auxiliary calls (title
+generation) still walk `fallback_providers` in `agent/auxiliary_client.py`.

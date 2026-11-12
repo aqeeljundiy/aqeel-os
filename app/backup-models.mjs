@@ -16,10 +16,15 @@
 //     dropped connection, and never sooner than 20 min after the move (40 or 60 min when it already happened in the 2 hours
 //     before), so agents do not flip back and forth. While it is out, auto-switch does not move anyone back up to it. An
 //     agent someone moved by hand stays where they put it.
+//   - route order (12 Nov 2026): the engine leaves the model an agent was asked for only in the owner's order (route-order.mjs). Every sync also
+//     writes each agent's policy file (aqeelos-route.json: does another account of its pool have room, how long a background run waits); every
+//     minute the engine's records of a switch or a refusal (logs/route-switches.jsonl) are read, kept in DATA/route-switches.jsonl, shown on
+//     Health and Usage, and one Health item says when an agent has been answering on a fallback for hours.
 //   - one message when a switch starts and one when it ends (the bell's list once agents moved, else Bottlenecks; and WhatsApp); a line on System › Health › Tools and schedules. In the app these are "fallback models" (1 Nov 2026), so "backup" means data backups only.
 // The engine's own words for "every model failed" and the note under a reply a backup gave are in
 // scripts/apply-skill-patches.mjs (13). The parts that only decide are exported and tested in scripts/backup-models.test.mjs.
 import {readStore,writeStore} from './store.mjs';
+import {settingsOf,policyFor,parseSwitches,summarize,onFallback,fallbackText,readRecords,appendRecords} from './route-order.mjs';
 import {readFile,writeFile,mkdir,rename,stat,open} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
@@ -112,11 +117,17 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
    if(e.key.startsWith('claude:')){if(e.key.slice(7)!==assigned||!det[assigned]?.signedIn)return null;const p=provs.find(x=>x.slug===PLUGIN);return p?{provider:PLUGIN,models:p.models||[]}:null}
    const p=provs.find(x=>x.slug===e.key.slice(2));return p&&(p.models||[]).length?{provider:p.slug,models:p.models}:null};
   return {cur,route:r,list:backupList({priority:d.priority||[],cur,curProvider:r.provider,usable,modelOk:(p,m)=>modelOk(profile,p,m),held})}}
+ // what the engine needs to keep an agent on its model (route-order.mjs); it ignores a file older than 15 minutes, and a test copy writes none
+ async function writePolicy(profile,d,det){if(!live)return;
+  try{const room=await acc.sameModelRoom?.(profile,d,det).catch(()=>null),set=settingsOf(JSON.parse(await readFile(path.join(DATA,'team-policy.json'),'utf8').catch(()=>'null')));
+   await writeStore(path.join(homeOf(profile),'aqeelos-route.json'),JSON.stringify(policyFor(room,{waitMinutes:set.waitMinutes})))}
+  catch(e){console.warn('route policy:',profile,e.message)}}
  let syncing=null,again=false;
  // every agent's list written when it differs (one at a time per agent, through the engine's own config set)
  function sync(why=''){if(syncing){again=true;return syncing}syncing=(async()=>{let r;try{do{again=false;r=await syncAll(why)}while(again);return r}finally{syncing=null}})();return syncing}
  async function syncAll(why){await load();await ready();const d=await acc.load(),det=Object.fromEntries(await Promise.all(acc.all(d).map(async a=>[a.id,await acc.details(a).catch(()=>null)])));const out=[];
   for(const profile of await agents()){try{const w=await wanted(profile,d,det);if(!w){out.push({profile,skip:'its gateway did not answer'});continue}
+    await writePolicy(profile,d,det);
     const c=await readConfig(profile);if(!c){out.push({profile,skip:'its settings could not be read'});continue}
     const have=listOf(c.fallback_providers),mine=db.wrote[profile];
     // made by hand (hermes fallback add, or someone's own edit): theirs, left alone
@@ -140,7 +151,16 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
   let b=await readRange(f,from,st.size);if(!o&&from>0){const i=b.indexOf(10)+1;b=b.subarray(i);from+=i}
   const cut=b.lastIndexOf(10)+1;db.offsets[f]={ino:st.ino,pos:from+cut};return pre.toString('utf8')+b.subarray(0,cut).toString('utf8')}
  const rec=slug=>db.p[slug]||={ev:[],on:false,ends:[]};
- async function scan(){for(const a of [...new Set(await agents())]){const text=await readNew(path.join(homeOf(a),'logs','agent.log'));if(!text)continue;
+ // the engine's records of a switch or a refusal (route-order.mjs): kept in DATA, a refusal "another account has room" asks for a move now
+ let routes=null;const recs=async()=>routes||=await readRecords(DATA,{days:7}).catch(()=>[]);
+ async function scanRoutes(list){const fresh=[];
+  for(const a of list){const text=await readNew(path.join(homeOf(a),'logs','route-switches.jsonl'));if(text)fresh.push(...parseSwitches(text,a))}
+  if(!fresh.length)return;await recs();routes.push(...fresh);const cut=Date.now()-7*864e5;routes=routes.filter(r=>r.at>=cut);
+  await appendRecords(DATA,fresh).catch(e=>console.warn('route records:',e.message));
+  // a refusal "another account of its pool has room": that agent is moved there now (at most once in 10 minutes per agent)
+  if(live)for(const a of new Set(fresh.filter(r=>r.denied&&r.step==='pool').map(r=>r.agent))){const was=db.nudged?.[a]||0;if(Date.now()-was<10*60e3)continue;(db.nudged||={})[a]=Date.now();
+   Promise.resolve(acc.moveToPool?.(a)).catch(e=>console.warn('backup models: moving',a,e.message))}}
+ async function scan(){const list=[...new Set(await agents())];await scanRoutes(list);for(const a of list){const text=await readNew(path.join(homeOf(a),'logs','agent.log'));if(!text)continue;
    for(const l of text.split('\n')){if(!/API call/.test(l))continue;const ev=parseLine(l);if(!ev)continue;const r=note(rec(ev.provider),ev);if(ev.kind!=='ok'&&ev.model)r.lastModel=ev.model}}}
 
  /* ---------- the switch ---------- */
@@ -174,7 +194,13 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
  let ticking=null;
  function tick(now=Date.now()){if(ticking)return ticking;ticking=(async()=>{await load();await scan();
    for(const [slug,p] of Object.entries(db.p)){const v=judge(p,now,R);if(v==='start')await start(slug,now);else if(v==='end')await end(slug,now);else if(p.on&&now-(p.lastProbe||0)>=R.probeEvery)await tryIt(slug,now)}
+   await routeHealth(now).catch(e=>console.warn('route health:',e.message));
    db.at=now;await save()})().finally(()=>{ticking=null});return ticking}
+ // one Health item per agent that has been answering on another vendor's model for the set hours; it clears when the agent is back
+ async function routeHealth(now){const set=settingsOf(JSON.parse(await readFile(path.join(DATA,'team-policy.json'),'utf8').catch(()=>'null'))),on=db.route||={},cur=onFallback(await recs(),{now,hours:set.fallbackHours}).filter(f=>f.due);
+  for(const f of cur){if(on[f.agent])continue;on[f.agent]={since:f.since};const t=fallbackText(f,nameOf(f.agent));
+   await tell(t.text,{topic:'route|'+f.agent,detail:t.detail}).catch(e=>console.warn('backup models: telling the owner',e.message))}
+  for(const a of Object.keys(on))if(!cur.some(f=>f.agent===a)){delete on[a];await tell('',{resolve:'route|'+a}).catch(()=>{})}}
  if(live){setInterval(()=>tick().catch(e=>console.warn('backup models',e.message)),60e3).unref();setTimeout(()=>tick().catch(e=>console.warn('backup models',e.message)),30e3).unref();
   setInterval(()=>sync('every 5 min').catch(e=>console.warn('backup models',e.message)),5*60e3).unref();setTimeout(()=>sync('start').catch(e=>console.warn('backup models',e.message)),60e3).unref()}
 
@@ -182,7 +208,10 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
  async function status(){await load();const out=[];
   for(const [profile,x] of Object.entries(db.lists))out.push({agent:profile,name:nameOf(profile),backups:x.list.map(e=>brandOf(e.provider,e.model)),models:x.list.map(e=>e.model),byHand:!!x.byHand});
   const now=Object.entries(db.p).filter(([,p])=>p.on).map(([slug,p])=>({provider:slug,brand:p.brand||brandOf(slug),since:p.since,why:p.why||'',moved:Object.keys(p.moved||{}).map(nameOf),to:[...new Set(Object.values(p.moved||{}).map(m=>brandOf(providerOf(m.to),m.toModel)))],lastProbe:p.probes?.[0]||null}));
-  return {at:db.syncAt||null,agents:out,outages:now,history:db.history.slice(0,3).map(h=>({...h,moved:h.moved.map(nameOf)}))}}
+  const set=settingsOf(JSON.parse(await readFile(path.join(DATA,'team-policy.json'),'utf8').catch(()=>'null'))),all=await recs(),t=Date.now();
+  const sum=summarize(all,{now:t,days:7});
+  return {at:db.syncAt||null,agents:out,outages:now,history:db.history.slice(0,3).map(h=>({...h,moved:h.moved.map(nameOf)})),
+   routes:{...sum,rows:sum.rows.map(r=>({...r,name:nameOf(r.agent)})),recent:sum.recent.slice(0,12).map(r=>({...r,name:nameOf(r.agent)})),onFallback:onFallback(all,{now:t,hours:set.fallbackHours}).map(f=>({...f,name:nameOf(f.agent)})),waitMinutes:set.waitMinutes,fallbackHours:set.fallbackHours}}}
  return {sync,soon,tick,status,held,_db:async()=>load()}}
 
 // The probe: one short, tool-free question through the engine's own provider code (scripts/probe-model.py), with the

@@ -84,5 +84,5 @@ test('a database that cannot be read is named, the rest still count; the last an
  const readRows=async(p,db)=>{calls++;if(db.includes('rory'))return null;return [['s','telegram','C','m',T-5,T-5,1,10,1,0,0,0,0]]};
  const E=createEfficiencyView({HERMES_HOME:H,DATA,python:async()=>'py',readRows,now:()=>clock.n,nameOf:a=>a});
  const v=await E.view();assert.deepEqual(v.failed,['rory']);assert.equal(v.d7.agents.length,1);const n=calls;
- clock.n+=61e3;const v2=await E.view();assert.equal(v2,v,'old answer at once');let v3=v;for(let i=0;i<100&&v3===v;i++){await new Promise(r=>setTimeout(r,20));v3=await E.view()}/* the read behind finishes when it finishes: wait for it, up to 2 s */
+ clock.n+=61e3;const v2=await E.view();assert.equal(v2,v,'old answer at once');let v3=v;for(let i=0;i<1500&&v3===v;i++){await new Promise(r=>setTimeout(r,20));v3=await E.view()}/* the read behind finishes when it finishes: wait for it (up to 30 s on a busy box; 12 Nov 2026: 2 s was a guess) */
  assert.ok(calls>n,'read again behind');assert.notEqual(v3,v)});

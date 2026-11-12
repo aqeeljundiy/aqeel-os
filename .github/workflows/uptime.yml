@@ -1,8 +1,10 @@
 # Is aqeelOS up? Checked from outside the server every 10 minutes (a server that is off cannot report itself).
-# Set the repository variable AQEELOS_URLS (Settings > Secrets and variables > Actions > Variables): the sites' addresses, comma separated.
-# (AQEELOS_URL, one address, still works when AQEELOS_URLS is not set.) Nothing set = the run skips with a notice.
+# Set the repository SECRET AQEELOS_URLS (Settings > Secrets and variables > Actions > Secrets): the sites' addresses, comma separated.
+# A secret, not a variable: this repository is public and a run's log prints every variable a step is given, so the addresses stood in the
+# public log (review of 12 Nov 2026). A secret is masked there. Nothing set = the run skips with a notice; the list still sitting in a
+# variable = the run fails and says to move it (the variable's value is never handed to a step, only whether it is set).
 # A site is down after 2 failed tries 30 s apart (its login page must answer 200): the run fails (GitHub emails the owner) and one issue
-# labelled `uptime` per site is opened or updated; it is closed with a comment when the site answers again. No secrets: the issues use the run's own token.
+# labelled `uptime` per site is opened or updated; it is closed with a comment when the site answers again. The issues use the run's own token.
 # The logic is scripts/uptime-check.mjs (tested in scripts/uptime-check.test.mjs).
 name: aqeelOS uptime
 on:
@@ -20,8 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      AQEELOS_URLS: ${{ vars.AQEELOS_URLS }}
-      AQEELOS_URL: ${{ vars.AQEELOS_URL }}
+      AQEELOS_URLS: ${{ secrets.AQEELOS_URLS }}
+      AQEELOS_URLS_IN_VARIABLE: ${{ vars.AQEELOS_URLS != '' || vars.AQEELOS_URL != '' }}
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4

@@ -113,18 +113,9 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
             _aq["token_type"] = "Bearer"
             token_response = _AqToken.model_validate(_aq)`;
  if(!s.includes('aqeelos:token-type')&&s.includes(from)){await writeFile(pf,s.replace(from,to));changed++;console.log('patched',pf)}else if(!s.includes('aqeelos:token-type'))misfit('token-type '+pf)}}
-// 5) Engine: a WhatsApp bridge port that was just closed (TIME_WAIT, ~60 s after a restart) was treated as "bound by
-//    another process", a permanent error with no retry, so a second agent's WhatsApp stayed down after every restart.
-//    SO_REUSEADDR ignores just-closed connections; a port really in use still fails the bind.
-{const pf=path.join(HOME,'hermes-agent','plugins','platforms','whatsapp','bridge_ownership.py');if(await exists(pf)){let s=await readFile(pf,'utf8');
- const from=`    with socket.socket() as sock:
-        try:
-            sock.bind(("127.0.0.1", port))`;
- const to=`    with socket.socket() as sock:
-        try:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # aqeelos:port-reuse (TIME_WAIT is not "in use")
-            sock.bind(("127.0.0.1", port))`;
- if(!s.includes('aqeelos:port-reuse')&&s.includes(from)){await writeFile(pf,s.replace(from,to));changed++;console.log('patched',pf)}else if(!s.includes('aqeelos:port-reuse'))misfit('port-reuse '+pf)}}
+// 5) Retired 12 Nov 2026 (port-reuse: SO_REUSEADDR in the WhatsApp bridge's port probe, so a just-closed port in TIME_WAIT
+//    is not "in use"). The engine does it itself in plugins/platforms/whatsapp/bridge_ownership.py port_is_free since
+//    155588754a (POSIX only since 1848982075); our replacement no longer matched and printed MISFIT on every deploy (exit 3).
 // 7) The engine's own messages (to WhatsApp, Telegram, the chat: "Hermes is shutting down", "Hermes is back"…)
 //    say aqeelOS. Only the words people read change; commands such as `hermes gateway restart` stay as they are.
 {const dir=path.join(HOME,'hermes-agent','locales');
@@ -259,14 +250,12 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
   if(!r.out)continue;const t=pf+'.aq.tmp';await rawWrite(t,r.out);
   try{execFileSync('python3',['-c','import ast,sys;ast.parse(open(sys.argv[1]).read())',t]);await rename(t,pf);changed++;console.log(f+': '+r.applied.join(', ')+' in place')}
   catch{await rm(t,{force:true});console.warn('! '+f+' would not compile with '+r.applied.join(', ')+', left alone')}}}
-// 16) Engine changes of 6 Nov 2026 (engine/patches: per-chat SSH sockets, persona branding, turn_finalizer notice,
-//     prompt_builder). Applied with git, all or nothing: skipped when already in, a warning when upstream changed.
-{const {execFileSync}=await import('node:child_process');const E=path.join(HOME,'hermes-agent');
- const D=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','patches');const pf=path.join(D,'2026-11-06-tonight.patch');
- if(await exists(path.join(E,'.git'))&&await exists(pf)){const g=a=>execFileSync('git',['-C',E,...a],{stdio:'pipe'});
-  let inPlace=false;try{g(['apply','--reverse','--check',pf]);inPlace=true}catch{}
-  if(!inPlace){try{g(['apply','--check',pf]);g(['apply',pf]);changed++;console.log('engine: 6 Nov patch in place')}catch{console.warn('! engine: 6 Nov patch does not fit this engine version; see engine/patches/README.md');misfit('2026-11-06-tonight.patch')}}
-  const b=path.join(E,'hermes_cli','branding.py');if(!await exists(b)){await writeFile(b,await readFile(path.join(D,'branding.py')));changed++;console.log('engine: branding.py in place')}}}
+// 16) Persona branding: hermes_cli/branding.py (used by default_soul.py and prompt_builder.py) is put in place when missing.
+//     12 Nov 2026: the git apply of 2026-11-06-tonight.patch is retired (now engine/patches/retired/). Step 8 and the
+//     prompt_builder/turn_finalizer steps rewrite its context lines first, so it never fit a clean engine and printed MISFIT on
+//     every deploy; its content is in 2026-11-11-engine-hand-edits.patch (step 17b), and both live engines have it.
+{const E=path.join(HOME,'hermes-agent'),D=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','patches');
+ if(await exists(path.join(E,'.git'))){const b=path.join(E,'hermes_cli','branding.py');if(!await exists(b)){await writeFile(b,await readFile(path.join(D,'branding.py')));changed++;console.log('engine: branding.py in place')}}}
 // 17) Shared skills (engine/patches/2026-11-06-shared-skills.patch): every agent reads the main profile's skills,
 //     installed once; <HERMES_HOME>/skills-scope.json limits private ones to listed agents; editing a shared skill
 //     makes the agent's own copy. Same all-or-nothing git apply as step 16.
@@ -281,7 +270,7 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
 //     earlier one hides the earlier one from a reverse check on the live files. Skipped when in, a warning when upstream changed.
 {const {applyLayers}=await import('./engine-patch-layers.mjs');const E=path.join(HOME,'hermes-agent');
  const D=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','patches');
- const OWN=new Set(['2026-11-06-tonight.patch','2026-11-06-shared-skills.patch']);
+ const OWN=new Set(['2026-11-06-shared-skills.patch']);
  const list=(await readdir(D).catch(()=>[])).filter(f=>/^\d{4}-\d\d-\d\d-[\w-]+\.patch$/.test(f)&&!OWN.has(f)).sort();
  if(list.length&&await exists(path.join(E,'.git'))){
   let r=null;try{r=applyLayers(E,list.map(f=>path.join(D,f)))}catch(e){console.warn('! engine: could not tell which patches are in ('+String(e.message||e).split('\n')[0]+')')}

@@ -14,7 +14,7 @@ import {createClaudeRenew} from './claude-renew.mjs';
 import {providerUnavailable} from './provider-limits.mjs';
 import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';
 import {accountStates} from './account-state.mjs';
-import {groupEntries,planGroups,normalise,nextPick,moves24,stepAgent,pinState,afterMove,pinFromEvents,upGate,movesToday,singleFlight,DAY_MAX} from './account-pools.mjs';
+import {groupEntries,planGroups,normalise,nextPick,rankMembers,moves24,stepAgent,pinState,afterMove,pinFromEvents,upGate,movesToday,singleFlight,DAY_MAX} from './account-pools.mjs';
 
 const HOME=homedir();
 const CLAUDE=process.env.CLAUDE_BIN||path.join(HOME,'.local','bin','claude');
@@ -322,6 +322,21 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const best=accts.filter(a=>a.id!==cur&&det[a.id]?.signedIn&&det[a.id]?.usage).sort((x,y)=>headroom(det[y.id])-headroom(det[x.id]))[0];
    if(best&&headroom(det[best.id])>100-th)await assign(d,profile,best.id,`${v.label||cur} reached ${worst}%`).catch(e=>console.warn('auto-switch',e.message))}}
  if(LIVE_APP)setInterval(()=>autoTick().catch(()=>{}),5*60000).unref();   // a test copy never switches real agents
+ // Route order step (a) (route-order.mjs): does another signed-in account of this agent's pool have room for the model it runs? Then the
+ // engine must not leave that model: the agent is moved there (auto-switch, now). Only claimed while auto-switch is on and can still move
+ // this agent today, so a "yes" never leaves an agent failing with nobody to move it. Signed-out and unreadable members have no room.
+ async function poolRoom(profile,d,det){const none={sameModelRoom:false,keys:[]};
+  if(!d.auto?.on||!(d.priority||[]).length||movesToday(d.moved?.[profile])>=DAY_MAX)return none;
+  const prov=await providers(false,profile).catch(()=>null)||[];   // the gateway did not answer: a Claude-only pool can still be read
+  const groups=planGroups(groupsOf(d,prov)),cur=await entryOf(d,profile),model=(await agentRoute(profile)).model,th=Number(d.auto?.threshold)||90;
+  const g=groups.find(x=>x.members.some(e=>e.key===cur));if(!g?.pool)return none;
+  const mem=g.members.filter(e=>e.key===cur||servesModel(e,model,prov)).map(e=>reading(e,det,prov,e.model||(e.key.startsWith(PLUGIN_KEY)&&!isClaude(model)?'':model),new Map()));
+  const keys=rankMembers(mem,{lim:th,floor:th,self:cur,skip:cur}).filter(x=>!x.unknown).map(x=>x.key);return {sameModelRoom:keys.length>0,keys}}
+ // the engine refused to leave the model because of that room: the agent goes to the member with the most room now, whatever its own reading says
+ // (the 5-minute check only moves an account that reads as used up). Counts as one of its automatic moves today.
+ async function moveToPool(profile){const d=await load();if(!d.auto?.on)return null;
+  const det=Object.fromEntries(await Promise.all(all(d).map(async a=>[a.id,await details(a)]))),r=await poolRoom(profile,d,det),e=r.sameModelRoom&&d.priority.find(x=>x.key===r.keys[0]);
+  if(!e)return null;await useEntry(d,profile,e,'Its account failed: the account in its pool with the most room');console.log('route order:',profile,'moved to',e.key);return e.key}
 
  /* ---------- signed out: an account that stopped working until someone reconnects it (Bottlenecks, the Models banner).
     A Claude account that answers "signed out" always counts (each one was signed in once). A provider counts when it
@@ -564,5 +579,5 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   send(res,404,{error:'Not found'});
  },{codeRoute,signedOut,known,forget,noteLimit,
   // what backup-models.mjs needs to build each agent's backup list and to move agents in an outage
-  backup:{load,all,details:a=>details(a),options,entryOf,agentRoute,useEntry,keyStatus:()=>accountHooks.keyStatus?.()||{}}});
+  backup:{load,all,details:a=>details(a),options,entryOf,agentRoute,useEntry,keyStatus:()=>accountHooks.keyStatus?.()||{},sameModelRoom:poolRoom,moveToPool}});
 }

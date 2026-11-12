@@ -7,13 +7,17 @@
 //   login    the two-step code after the password (/auth/code)         verify   the code that confirms an email address
 //   recover  the owner's recovery code                                   reset    "forgot password" requests (the mail is simply not sent again)
 //   resettok a reset-link token that matched nothing (/auth/reset)     invite   an invite code that matched nothing (/auth/accept)
-//   resettok and invite belong to no account yet, so they share one bucket each and a much larger free allowance.
+//   resettok and invite belong to no account yet, so each is counted per ADDRESS (a hash of it), with a much larger free allowance. Not one bucket
+//   for everyone: 31 made-up links from anywhere made every real invite and every reset link (the owner's too) answer "expired" for as long as the
+//   sender kept going (review of 12 Nov 2026). The codes are 18 and 24 random bytes, so guessing from many addresses gets nowhere.
 // The rule: after FREE (5) wrong tries inside WINDOW (15 min) the account waits 30 s, then 60 s, 120 s ... never more than 15 min. Tries that arrive while
 // it waits are not even looked at (the right password gets nothing either) and are answered with the SAME words, status and work as a wrong one, so
 // nobody can tell a waiting account from a wrong password, or an account from a made-up name. A right answer clears the count.
 // The owner is never locked out by someone else's guessing: a try to SIGN IN (opts.signIn) from a browser that already holds a valid session cookie
-// for that same account skips the wait and is not counted (the cookie is signed by this server and was only ever given to someone who knew the
-// password). It is never used for "current password" inside a session: a stolen session must still not be able to guess without end.
+// for that same account is counted on a count of its own ("<key>:dev"), apart from everyone else's (the cookie is signed by this server and was
+// only ever given to someone who knew the password). So other people's guesses never make that browser wait, its typos never make anyone else
+// wait, and it still gets 5 tries and then the same waits: a stolen session must not be able to guess the password without end, neither in
+// Settings ("current password", which gets no exception at all) nor by calling the sign-in route with its cookie (review of 12 Nov 2026).
 // State is kept in one file through app/store.mjs, so a restart does not hand the attacker a fresh count. It is bounded (MAX_ENTRIES) and an entry
 // disappears once its tries are older than the window and its wait is over. Addresses are kept only as salted hashes, passwords never.
 // The owner is told once per account on Health (onLock) with the count and the number of addresses; the callback gets no password and no address.
@@ -51,14 +55,16 @@ export function createSignInGuard({file=null,now=()=>Date.now(),free=5,ipOf=()=>
  // a sign-in try from a device that already holds a valid session for this very account
  const trusted=(key,o)=>{if(!o?.signIn)return false;const r=als.getStore();if(!r)return false;const d=deviceOf(r);return !!d&&d===idOf(key)};
  const addr=()=>{const r=als.getStore(),ip=r?ipOf(r):null;return ip?createHmac('sha256',db.salt).update(String(ip)).digest('hex').slice(0,12):null};
+ // the entry a try counts under: a link or invite code that matched nothing counts per address; a sign-in from the account's own signed-in browser on its own count
+ const slot=(key,o)=>{if(/^(resettok|invite):any$/.test(key)){const a=addr();return a?kindOf(key)+':'+a:key}return trusted(key,o)?key+':dev':key};
  // seconds still to wait (0 = go ahead)
- function wait(key,o){const v=m[key];if(!v)return 0;const t=now();if(quiet(v)){delete m[key];save();return 0}
-  if(v.until<=t)return 0;if(trusted(key,o))return 0;
+ function wait(key0,o){const key=slot(key0,o),v=m[key];if(!v)return 0;const t=now();if(quiet(v)){delete m[key];save();return 0}
+  if(v.until<=t)return 0;
   // the try that is turned away is not a guess, but the address it came from is part of "how many addresses"
   const a=addr();if(a&&!v.addrs.includes(a)&&v.addrs.length<MAX_ADDRS){v.addrs.push(a);save()}
   return Math.ceil((v.until-t)/1000)}
  // a wrong try: returns the seconds the account now waits (0 while the free tries last)
- function fail(key,o){if(trusted(key,o))return 0;const t=now();let v=m[key];
+ function fail(key0,o){const key=slot(key0,o),t=now();let v=m[key];
   if(!v||quiet(v)){if(!v&&Object.keys(m).length>=MAX_ENTRIES)sweep(Math.floor(MAX_ENTRIES*0.9));v=m[key]={fails:[],total:0,until:0,last:t,addrs:[],told:0}}
   v.fails=v.fails.filter(x=>t-x<WINDOW_MS);v.fails.push(t);if(v.fails.length>MAX_FAILS)v.fails.splice(0,v.fails.length-MAX_FAILS);
   v.total++;v.last=t;const a=addr();if(a&&!v.addrs.includes(a)&&v.addrs.length<MAX_ADDRS)v.addrs.push(a);
@@ -67,6 +73,6 @@ export function createSignInGuard({file=null,now=()=>Date.now(),free=5,ipOf=()=>
   if(over>=0&&kindOf(key)!=='resettok'&&kindOf(key)!=='invite'&&kindOf(key)!=='reset'&&!/^pw:name:/.test(key)&&(!v.told||v.total>=v.told*2)){v.told=v.total;
    try{Promise.resolve(onLock({kind:kindOf(key),id:idOf(key),count:v.total,addresses:v.addrs.length,windowMin:WINDOW_MS/60e3})).catch(()=>{})}catch{}}
   save();return Math.ceil(Math.max(0,v.until-t)/1000)}
- // a right answer: the count starts over (a trusted device's right answer ends someone else's lock too)
- function ok(key){if(m[key]){delete m[key];save()}}
+ // a right answer: the count starts over, for everyone's tries and for the signed-in browser's own
+ function ok(key){for(const k of [key,key+':dev'])if(m[k]){delete m[k];save()}}
  return {wait,fail,ok,flush,size:()=>Object.keys(m).length}}

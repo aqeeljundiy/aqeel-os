@@ -54,8 +54,16 @@ test('without a token the job still fails when a site is down (no issue is opene
  const w=world({answers:{[A]:['fail','fail']}});const out=[];
  const r=await run({env:{AQEELOS_URLS:A},fetch:w.f,sleep:w.sleep,log:x=>out.push(x)});assert.equal(r.down.length,1);assert.ok(out.some(x=>/^::warning::No GITHUB_TOKEN/.test(x)))});
 
-test('the workflow: every 10 minutes and by hand, least permissions, no secrets, the script it calls exists',()=>{
+test('the workflow: every 10 minutes and by hand, least permissions, the script it calls exists; the addresses come from a secret, never from a variable',()=>{
  const y=readFileSync(new URL('../.github/workflows/uptime.yml',import.meta.url),'utf8');
  assert.match(y,/cron: '\*\/10 \* \* \* \*'/);assert.match(y,/workflow_dispatch:/);
- assert.match(y,/permissions:\n  contents: read\n  issues: write\n/);assert.ok(!/secrets\./.test(y));assert.match(y,/vars\.AQEELOS_URLS/);assert.match(y,/vars\.AQEELOS_URL\b/);
+ assert.match(y,/permissions:\n  contents: read\n  issues: write\n/);// review of 12 Nov 2026: a run's log prints the env of each step, and this repository is public: a variable's value showed the servers' addresses there
+ assert.match(y,/AQEELOS_URLS: \$\{\{ secrets\.AQEELOS_URLS \}\}/);assert.ok(!/\$\{\{\s*vars\.[A-Z_]+\s*\}\}/.test(y),'no variable is handed to a step as it is');
+ for(const m of y.matchAll(/\$\{\{([^}]*)\}\}/g))if(/vars\./.test(m[1]))assert.match(m[1],/^ (vars\.[A-Z_]+ != '' (\|\| )?)+$/,'a variable is only asked whether it is set: '+m[1]);
  assert.match(y,/node scripts\/uptime-check\.mjs/)});
+
+test('the list still in a repository variable: nothing is checked, the run fails and says to move it to a secret (never quietly off)',async()=>{
+ const out=[];const w=world();const r=await run({env:{...ENV,AQEELOS_URLS_IN_VARIABLE:'true'},fetch:w.f,sleep:w.sleep,log:x=>out.push(x)});
+ assert.equal(r.misplaced,true);assert.match(out[0],/^::error::.*SECRET named AQEELOS_URLS/);assert.equal(w.calls.length,0);
+ assert.equal((await run({env:{...ENV,AQEELOS_URLS_IN_VARIABLE:'false'},fetch:w.f,sleep:w.sleep,log:()=>{}})).misplaced,undefined);
+ assert.match(readFileSync(new URL('./uptime-check.mjs',import.meta.url),'utf8'),/process\.exit\(r\.down\.length\|\|r\.misplaced\?1:0\)/)});

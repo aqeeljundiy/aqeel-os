@@ -1,0 +1,426 @@
+diff --git a/agent/aqeelos_route.py b/agent/aqeelos_route.py
+new file mode 100644
+index 0000000..b28f4e0
+--- /dev/null
++++ b/agent/aqeelos_route.py
+@@ -0,0 +1,207 @@
++"""aqeelOS route order: when a run may leave the model it was asked for.
++
++Elkiya, 11 Nov 2026: 9 of 34 fixer runs that asked for a Claude model ran on GPT or Gemini, and so did agents' chats and
++schedules (biomarkers-support, continue-support, continue-threads, pepclub-social, the main agent: 241 replies answered on a fallback in the logs of 9-12 Nov).
++The engine's fallback chain fired on the FIRST failed call, whatever the failure was: a short "Server is temporarily limiting
++requests (not your usage limit)" 429 (classified as billing), a timeout, an engine ValueError (P&P pixel-agent: 483 times).
++
++The order, always (the app, accounts.mjs / route-order.mjs, does the parts it can; this module is the engine's part):
++  (a) the same model on another signed-in account of the pool that has room: the app moves the agent there, so the engine
++      does not leave the model while the app's policy file says such an account exists;
++  (b) a background run (fixer, schedule) waits when the reset is near (waitMinutes);
++  (c) the owner's explicit fallback list (fallback_providers, written by backup-models.mjs from Models > If an account fails),
++      in its order, only for a failure of the ACCOUNT (billing, used up, signed out), never for a transient error;
++  (d) otherwise the run stops, with the reason in the reply.
++Every switch and every refusal is one line in <HERMES_HOME>/logs/route-switches.jsonl (asked model, actual model, reason, step);
++the app reads it (backup-models.mjs) for the run, Usage and Health.
++
++Pure: no engine imports, so it is tested alone (tests/agent/test_aqeelos_route.py).
++"""
++from __future__ import annotations
++
++import json
++import os
++import re
++import time
++from pathlib import Path
++
++POLICY_FILE = "aqeelos-route.json"
++LOG_FILE = "route-switches.jsonl"
++POLICY_FRESH_S = 15 * 60  # an older policy says nothing about the pool (the app writes it every 5 minutes)
++
++# FailoverReason values that mean "this ACCOUNT cannot answer": used up, no credit, signed out or refused.
++ACCOUNT_REASONS = frozenset({"billing", "rate_limit", "auth", "auth_permanent", "model_entitlement"})
++# Text of a limit that is not the account's: the provider's own short throttle (Claude's relay says "not your usage limit").
++TRANSIENT_TEXT = re.compile(
++    r"not your usage limit|temporarily limiting requests|holding outbound sends|zero egress while held|"
++    r"overloaded|try again in a (?:few|moment)|upstream-timeout|ETIMEDOUT|ECONNRESET|connection dropped",
++    re.I,
++)
++
++
++def family_of(model: str) -> str:
++    """claude / gpt / gemini / the model's own first word: the vendor family a person means by 'the same model'."""
++    m = str(model or "").lower()
++    if re.search(r"claude|opus|sonnet|haiku|fable", m):
++        return "claude"
++    if re.search(r"gpt|codex|\bo[134]\b", m):
++        return "gpt"
++    if "gemini" in m:
++        return "gemini"
++    return re.split(r"[-_/:.\s]", m, maxsplit=1)[0] if m else ""
++
++
++def reason_name(reason) -> str:
++    return str(getattr(reason, "value", reason) or "")
++
++
++def failure_class(reason, message: str = "") -> str:
++    """'account' (this account cannot answer), 'transient' (the provider hiccuped), 'other' (no failure named)."""
++    name = reason_name(reason)
++    if not name:
++        return "other"
++    if name in ACCOUNT_REASONS:
++        # a billing / rate_limit verdict on text that says the limit is not the account's stays transient
++        if name in ("billing", "rate_limit") and TRANSIENT_TEXT.search(str(message or "")):
++            return "transient"
++        return "account"
++    return "transient"
++
++
++def home_dir(home=None) -> Path:
++    if home:
++        return Path(home)
++    try:
++        from hermes_constants import get_hermes_home  # the engine's own, profile-aware
++        return Path(get_hermes_home())
++    except Exception:
++        return Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
++
++
++def load_policy(home=None, now: float | None = None) -> dict:
++    """The app's per-agent policy ({} when missing or unreadable). Stale pool facts are dropped, never trusted."""
++    try:
++        p = json.loads((home_dir(home) / POLICY_FILE).read_text("utf-8"))
++        if not isinstance(p, dict):
++            return {}
++    except Exception:
++        return {}
++    now = time.time() if now is None else now
++    at = float(p.get("at") or 0) / 1000.0
++    if not at or now - at > POLICY_FRESH_S:
++        p = {**p, "pool": {}}
++    return p
++
++
++def is_background(env=None, platform: str = "") -> bool:
++    env = os.environ if env is None else env
++    return env.get("AQEELOS_FIXER") == "1" or str(platform or "").lower() in ("cron", "schedule")
++
++
++def run_kind(env=None, platform: str = "") -> str:
++    env = os.environ if env is None else env
++    if env.get("AQEELOS_FIXER") == "1":
++        return "fixer"
++    if str(platform or "").lower() in ("cron", "schedule"):
++        return "schedule"
++    return "chat"
++
++
++def decide(*, asked_model: str, cand_model: str, reason=None, message: str = "", policy: dict | None = None,
++           background: bool = False, reset_in_s: float | None = None) -> tuple[bool, str, str]:
++    """May a run asked for `asked_model` move to `cand_model`? -> (allowed, step, why).
++
++    step: 'same-family' | 'explicit' | 'pool' | 'wait' | 'not-account' ; why: one plain sentence for the reply and the record."""
++    policy = policy or {}
++    if family_of(asked_model) and family_of(asked_model) == family_of(cand_model):
++        return True, "same-family", "the same model family"
++    cls = failure_class(reason, message)
++    if cls != "account":
++        return False, "not-account", (
++            "it is not a failure of the account (" + (reason_name(reason) or "no failure named")
++            + "), so aqeelOS does not switch to another model; it retries instead")
++    pool = policy.get("pool") or {}
++    if pool.get("sameModelRoom"):
++        keys = ", ".join(str(k) for k in (pool.get("keys") or [])[:3])
++        return False, "pool", "another account of the same pool has room" + (" (" + keys + ")" if keys else "") + " and the agent is moved there"
++    wait_s = float(policy.get("waitMinutes") or 0) * 60
++    if background and reset_in_s is not None and 0 < reset_in_s <= wait_s:
++        return False, "wait", "the account is back in about %d minutes, and this run waits for it" % max(1, round(reset_in_s / 60))
++    return True, "explicit", "the owner's fallback list, in its order"
++
++
++def reset_in(reset_at, now: float | None = None):
++    """Seconds until a reset the provider named (epoch seconds, epoch ms or ISO text), None when unknown or past."""
++    if reset_at in (None, ""):
++        return None
++    now = time.time() if now is None else now
++    try:
++        v = float(reset_at)
++        if v > 1e11:
++            v /= 1000.0
++    except (TypeError, ValueError):
++        try:
++            from datetime import datetime
++            v = datetime.fromisoformat(str(reset_at).replace("Z", "+00:00")).timestamp()
++        except Exception:
++            return None
++    d = v - now
++    return d if d > 0 else None
++
++
++_last_noted: dict = {}
++
++
++def note(rec: dict, home=None, now: float | None = None) -> bool:
++    """Append one record to logs/route-switches.jsonl. A refusal repeats every few seconds, so the same one is kept once a minute."""
++    now = time.time() if now is None else now
++    try:
++        if rec.get("denied"):
++            key = (str(home or ""), rec.get("asked"), rec.get("candidate"), rec.get("step"))
++            if now - _last_noted.get(key, 0) < 60:
++                return False
++            _last_noted[key] = now
++        d = home_dir(home) / "logs"
++        d.mkdir(parents=True, exist_ok=True)
++        with open(d / LOG_FILE, "a", encoding="utf-8") as f:
++            f.write(json.dumps({"at": int(now * 1000), **rec}, ensure_ascii=False) + "\n")
++        return True
++    except Exception:
++        return False
++
++
++def gate(agent, reason, message, fb_provider, fb_model, reset_at=None, home=None, now: float | None = None) -> tuple[bool, str]:
++    """The engine's hook (chat_completion_helpers.try_activate_fallback): may this candidate be used? Records a refusal."""
++    try:
++        primary = getattr(agent, "_primary_runtime", None) or {}
++        asked = str(primary.get("model") or getattr(agent, "model", "") or "")
++        platform = str(getattr(agent, "platform", "") or "")
++        env_kind = run_kind(platform=platform)
++        ok, step, why = decide(
++            asked_model=asked, cand_model=fb_model, reason=reason, message=message, policy=load_policy(home, now),
++            background=is_background(platform=platform), reset_in_s=reset_in(reset_at, now))
++        if not ok:
++            note({"denied": True, "kind": env_kind, "platform": platform, "session": str(getattr(agent, "session_id", "") or ""),
++                  "asked": asked, "candidate": str(fb_model), "candidateProvider": str(fb_provider),
++                  "reason": reason_name(reason), "step": step, "why": why}, home, now)
++            try:
++                agent._buffer_diagnostic_status("Staying on %s: %s." % (asked or "the chosen model", why))
++            except Exception:
++                pass
++        return ok, why
++    except Exception:
++        return True, "route order could not be checked"  # never make a failing run worse
++
++
++def switched(agent, reason, old_model, old_provider, fb_model, fb_provider, why="", home=None) -> None:
++    """One line for a switch that happened: asked model, actual model, reason, which step allowed it."""
++    try:
++        primary = getattr(agent, "_primary_runtime", None) or {}
++        platform = str(getattr(agent, "platform", "") or "")
++        asked = str(primary.get("model") or old_model or "")
++        note({"kind": run_kind(platform=platform), "platform": platform, "session": str(getattr(agent, "session_id", "") or ""),
++              "asked": asked, "askedProvider": str(primary.get("provider") or old_provider or ""),
++              "actual": str(fb_model), "actualProvider": str(fb_provider), "reason": reason_name(reason),
++              "step": "same-family" if family_of(asked) == family_of(fb_model) else "explicit", "why": why}, home)
++    except Exception:
++        pass
+diff --git a/agent/chat_completion_helpers.py b/agent/chat_completion_helpers.py
+index 6b21961..676382a 100644
+--- a/agent/chat_completion_helpers.py
++++ b/agent/chat_completion_helpers.py
+@@ -2051,7 +2051,7 @@ def _buffer_fallback_notice(agent, notice: str) -> None:
+         agent._pending_fallback_notice = [str(pending), notice] if pending else [notice]
+ 
+ 
+-def try_activate_fallback(agent, reason: FailoverReason | None = None, reset_at=None) -> bool:
++def try_activate_fallback(agent, reason: FailoverReason | None = None, reset_at=None, message: str | None = None) -> bool:
+     """Switch to the next fallback model/provider in the chain; False when exhausted. Swaps client,
+     model slug and provider in place so the retry loop continues on the new backend; client
+     construction goes through resolve_provider_client (no duplicated provider→key mappings)."""
+@@ -2072,6 +2072,13 @@ def try_activate_fallback(agent, reason: FailoverReason | None = None, reset_at=
+         fb_model = (fb.get("model") or "").strip()
+         if _should_skip_fallback_candidate(agent, fb, fb_key, fb_provider, fb_model, unavailable):
+             continue
++        # aqeelos:route-order: only an account failure may leave the asked model, never while the pool has room or a
++        # background run's reset is near; every refusal and every switch is recorded (agent/aqeelos_route.py)
++        from agent.aqeelos_route import gate as _aq_gate
++        _aq_ok, _aq_why = _aq_gate(agent, reason, message, fb_provider, fb_model, reset_at)
++        if not _aq_ok:
++            logger.warning("aqeelos-route-refused: %s/%s not used: %s", fb_provider, fb_model, _aq_why)
++            continue
+ 
+         try:
+             from agent.route_binding import bind_route_entry
+@@ -2096,6 +2103,8 @@ def try_activate_fallback(agent, reason: FailoverReason | None = None, reset_at=
+             agent._provider_fallback_active = True
+             agent._provider_fallback_route = (str(fb_model), str(fb_provider))
+             _log_fallback_activated(agent, reason, old_model, old_provider, fb_model, fb_provider)
++            from agent.aqeelos_route import switched as _aq_switched
++            _aq_switched(agent, reason, old_model, old_provider, fb_model, fb_provider, _aq_why)
+             from hermes_cli.observability.shared_metrics_events import record_fallback
+             record_fallback(from_provider=old_provider, to_provider=fb_provider, reason=reason)
+             # The stale-call streak measured the OLD provider; carrying it over would
+diff --git a/agent/turn_api_error.py b/agent/turn_api_error.py
+index d82217d..b7d191b 100644
+--- a/agent/turn_api_error.py
++++ b/agent/turn_api_error.py
+@@ -351,7 +351,7 @@ def settle_unrecovered_error(
+                 _label = _NONRETRYABLE_LABELS.get(classified.reason, f"Non-retryable error (HTTP {status_code})")
+                 agent._buffer_diagnostic_status(f"⚠️ {_label} — trying fallback...")
+             reset_at = error_context.get("reset_at") if isinstance(error_context, dict) else None
+-            if agent._try_activate_fallback(reason=classified.reason, reset_at=reset_at):
++            if agent._try_activate_fallback(reason=classified.reason, reset_at=reset_at, message=classified.message):
+                 # Direct ``return _verdict("break")`` is load-bearing: the restart handler
+                 # re-runs the pre-API preflight against the fallback's context window.
+                 active_system_prompt = _arm_fallback_restart(agent, api_messages, active_system_prompt, _retry)
+@@ -390,7 +390,7 @@ def settle_unrecovered_error(
+         if agent._has_pending_fallback():
+             agent._buffer_diagnostic_status(f"⚠️ Max retries ({max_retries}) exhausted — trying fallback...")
+         reset_at = error_context.get("reset_at") if isinstance(error_context, dict) else None
+-        if agent._try_activate_fallback(reason=classified.reason, reset_at=reset_at):
++        if agent._try_activate_fallback(reason=classified.reason, reset_at=reset_at, message=classified.message):
+             # Direct ``return _verdict("break")`` is load-bearing: the restart handler
+             # re-runs the pre-API preflight against the fallback's context window.
+             active_system_prompt = _arm_fallback_restart(agent, api_messages, active_system_prompt, _retry)
+diff --git a/agent/turn_recovery.py b/agent/turn_recovery.py
+index 4a5793f..53125ab 100644
+--- a/agent/turn_recovery.py
++++ b/agent/turn_recovery.py
+@@ -1785,7 +1785,7 @@ def activate_codex_app_server_fallback(agent: Any, result: dict[str, Any]) -> bo
+         return False
+     agent._buffer_diagnostic_status(
+         _eager_fallback_status(classified, classified.reason == FailoverReason.upstream_rate_limit, False))
+-    return bool(agent._try_activate_fallback(reason=classified.reason))
++    return bool(agent._try_activate_fallback(reason=classified.reason, message=classified.message))
+ 
+ 
+ def _is_genuine_nous_rate_limit(agent: Any, api_error: Exception, error_context: Any, classified: Any = None) -> bool:
+@@ -1964,7 +1964,7 @@ def route_classified_error(
+         if not pool_may_recover:
+             agent._buffer_diagnostic_status(_eager_fallback_status(classified, _is_upstream, _is_transport_failure))
+             reset_at = error_context.get("reset_at") if isinstance(error_context, dict) else None
+-            if agent._try_activate_fallback(reason=classified.reason, reset_at=reset_at):
++            if agent._try_activate_fallback(reason=classified.reason, reset_at=reset_at, message=classified.message):
+                 return _fallback_break()
+ 
+     # A 401/403 surviving credential refresh means a broken credential or endpoint:
+@@ -1979,7 +1979,7 @@ def route_classified_error(
+             "🔐 Authentication failed and could not be refreshed — "
+             "switching to fallback provider..."
+         )
+-        if agent._try_activate_fallback(reason=classified.reason):
++        if agent._try_activate_fallback(reason=classified.reason, message=classified.message):
+             return _fallback_break()
+ 
+     # Nous Portal: a genuine account-level 429 is recorded to a shared file so ALL
+diff --git a/tests/agent/test_aqeelos_route.py b/tests/agent/test_aqeelos_route.py
+new file mode 100644
+index 0000000..54d5c1d
+--- /dev/null
++++ b/tests/agent/test_aqeelos_route.py
+@@ -0,0 +1,118 @@
++"""Route order (agent/aqeelos_route.py): a run leaves the model it was asked for only in the owner's order."""
++import json
++import time
++
++from agent import aqeelos_route as r
++
++
++class Reason:  # stands in for FailoverReason (only .value is read)
++    def __init__(self, v):
++        self.value = v
++
++
++class Agent:
++    def __init__(self, model="claude-sonnet-5-5[1m]", provider="claude-sub", platform="telegram"):
++        self._primary_runtime = {"model": model, "provider": provider}
++        self.model, self.provider, self.platform, self.session_id = model, provider, platform, "s1"
++        self.said = []
++
++    def _buffer_diagnostic_status(self, t):
++        self.said.append(t)
++
++
++def _policy(tmp_path, **kw):
++    p = {"v": 1, "at": int(time.time() * 1000), "waitMinutes": 15, **kw}
++    (tmp_path / r.POLICY_FILE).write_text(json.dumps(p))
++
++
++def _lines(tmp_path):
++    f = tmp_path / "logs" / r.LOG_FILE
++    return [json.loads(x) for x in f.read_text().splitlines()] if f.exists() else []
++
++
++def test_family_of_names_the_vendor():
++    assert r.family_of("claude-opus-5-5[1m]") == "claude"
++    assert r.family_of("gpt-6.1-sol") == "gpt"
++    assert r.family_of("gemini-4-argon-high") == "gemini"
++
++
++def test_a_transient_429_is_not_an_account_failure():
++    msg = "HTTP 429: ... API Error: Server is temporarily limiting requests (not your usage limit) · upstream rate-limited"
++    assert r.failure_class(Reason("billing"), msg) == "transient"
++    assert r.failure_class(Reason("rate_limit"), msg) == "transient"
++    assert r.failure_class(Reason("billing"), "You've hit your session limit · resets 6pm (UTC)") == "account"
++    assert r.failure_class(Reason("timeout")) == "transient"
++    assert r.failure_class(None) == "other"
++
++
++def test_transient_errors_never_leave_the_model():
++    for reason in ("timeout", "overloaded", "server_error", "unknown", None):
++        ok, step, _ = r.decide(asked_model="claude-sonnet-5-5", cand_model="gpt-6.1-sol", reason=Reason(reason) if reason else None)
++        assert (ok, step) == (False, "not-account")
++
++
++def test_same_family_is_always_allowed():
++    ok, step, _ = r.decide(asked_model="claude-sonnet-5-5", cand_model="claude-opus-5-5", reason=Reason("timeout"))
++    assert (ok, step) == (True, "same-family")
++
++
++def test_pool_room_comes_first():
++    ok, step, why = r.decide(asked_model="claude-sonnet-5-5", cand_model="gpt-6.1-sol", reason=Reason("billing"),
++                             message="hit your session limit", policy={"pool": {"sameModelRoom": True, "keys": ["claude:b"]}})
++    assert (ok, step) == (False, "pool") and "claude:b" in why
++
++
++def test_background_waits_when_the_reset_is_near_chat_does_not():
++    kw = dict(asked_model="claude-opus-5-5", cand_model="gpt-6.1-sol", reason=Reason("rate_limit"),
++              message="You've hit your session limit", policy={"waitMinutes": 15}, reset_in_s=600)
++    assert r.decide(background=True, **kw)[:2] == (False, "wait")
++    assert r.decide(background=False, **kw)[:2] == (True, "explicit")
++    far = {**kw, "reset_in_s": 3 * 3600}
++    assert r.decide(background=True, **far)[:2] == (True, "explicit")
++
++
++def test_the_explicit_list_when_the_account_is_out():
++    ok, step, _ = r.decide(asked_model="claude-sonnet-5-5", cand_model="gemini-4-argon-high", reason=Reason("auth_permanent"))
++    assert (ok, step) == (True, "explicit")
++
++
++def test_a_stale_policy_says_nothing_about_the_pool(tmp_path):
++    (tmp_path / r.POLICY_FILE).write_text(json.dumps({"at": 1000, "pool": {"sameModelRoom": True}, "waitMinutes": 5}))
++    assert r.load_policy(tmp_path)["pool"] == {}
++    _policy(tmp_path, pool={"sameModelRoom": True})
++    assert r.load_policy(tmp_path)["pool"]["sameModelRoom"] is True
++    assert r.load_policy(tmp_path / "missing") == {}
++
++
++def test_gate_records_a_refusal_once_and_tells_the_reply(tmp_path):
++    a = Agent()
++    for _ in range(3):
++        ok, _ = r.gate(a, Reason("timeout"), "ECONNRESET", "openai-codex", "gpt-6.1-sol", home=tmp_path)
++        assert ok is False
++    rows = _lines(tmp_path)
++    assert len(rows) == 1 and rows[0]["denied"] and rows[0]["asked"].startswith("claude") and rows[0]["step"] == "not-account"
++    assert rows[0]["kind"] == "chat" and a.said and "Staying on claude" in a.said[0]
++
++
++def test_switched_writes_asked_actual_reason_and_kind(tmp_path):
++    a = Agent(platform="cron")
++    r.switched(a, Reason("billing"), a.model, a.provider, "gpt-6.1-sol", "openai-codex", "the owner's fallback list, in its order", home=tmp_path)
++    (row,) = _lines(tmp_path)
++    assert (row["kind"], row["asked"], row["actual"], row["reason"], row["step"]) == (
++        "schedule", "claude-sonnet-5-5[1m]", "gpt-6.1-sol", "billing", "explicit")
++
++
++def test_reset_in_reads_seconds_millis_and_iso():
++    now = 1_800_000_000
++    assert r.reset_in(now + 300, now) == 300
++    assert r.reset_in((now + 300) * 1000, now) == 300
++    assert r.reset_in(None, now) is None and r.reset_in(now - 5, now) is None
++    assert r.reset_in("2027-01-15T08:05:00Z", 1_800_000_000 - 3600 * 24 * 365) is not None
++
++
++def test_a_broken_check_never_blocks_a_failing_run(tmp_path):
++    class Bad:
++        @property
++        def _primary_runtime(self):
++            raise RuntimeError("boom")
++    assert r.gate(Bad(), Reason("billing"), "", "p", "m", home=tmp_path)[0] is True

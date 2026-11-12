@@ -1,7 +1,7 @@
 // Per-account sign-in limit (app/signin-guard.mjs, app/signin-routes.mjs, users.mjs; BACKLOG AUD-15).
 // Covered: every way to sign in or prove a secret (password login, two-step code, "current password" in Settings, recovery code,
 // forgot-password asks, reset-link use, invite codes), the lock, the no-reveal property, the trusted-browser exception, restart, expiry.
-import test from 'node:test';import assert from 'node:assert/strict';
+import test from 'node:test';import {scryptSync} from 'node:crypto';import assert from 'node:assert/strict';
 import {mkdtemp,readFile} from 'node:fs/promises';import {tmpdir} from 'node:os';import path from 'node:path';
 const HOME=await mkdtemp(path.join(tmpdir(),'signguard-'));process.env.HOME=HOME;
 const {createSignInGuard,withRequest,hashName,WINDOW_MS,MAX_ENTRIES}=await import('../app/signin-guard.mjs');
@@ -13,7 +13,7 @@ const REQ=(ip,dev=null,body={},method='POST')=>({ip,dev,body,method,headers:{}})
 const mk=(o={})=>{const clock={t:1e9};const locks=[];
  const guard=createSignInGuard({now:()=>clock.t,ipOf:r=>r.ip,deviceOf:r=>r.dev,onLock:x=>locks.push(x),flushMs:5,...o});return {guard,clock,locks}};
 let n=0;
-async function world(o={}){const w=mk(o),sent=[];const users=createUsers(path.join(HOME,'d'+(++n)),{deliver:async(to,sub,text)=>sent.push({to,sub,text})},{ownerCheck:()=>false,limiter:w.guard});
+async function world(o={},uo={}){const w=mk(o),sent=[];const users=createUsers(path.join(HOME,'d'+(++n)),{deliver:async(to,sub,text)=>sent.push({to,sub,text})},{ownerCheck:()=>false,limiter:w.guard,...uo});
  const owner=await users.createOwner('Ola','ola@example.com','longpassword1');
  const send=(res,status,body,headers={})=>{res.out={status,body,headers}};
  const routes=createSignInRoutes({users,guard:w.guard,send,readBody:async r=>JSON.stringify(r.body),clientIp:r=>r.ip,ownerCheck:()=>false,signIn:id=>({'set-cookie':'hui='+id}),limited:()=>false,miss:()=>{},clear:()=>{},needEmail:()=>false});
@@ -92,7 +92,7 @@ test('forgot password: asks are counted per account (a made-up name too); past 5
  assert.ok(w.guard.wait('reset:name:'+hashName('ghost@example.com'))>0,'and so is a made-up name');
  assert.equal(await ask('ghost@example.com'),undefined);assert.equal(w.locks.length,0,'asks never raise the failed-sign-in item')});
 
-test('reset links and invite codes that match nothing share one bucket; while it waits even a right one answers "expired"',async()=>{
+test('reset links and invite codes that match nothing are counted (per address, see the review tests below); while it waits even a right one answers "expired"',async()=>{
  const w=await world();
  const GONE='This reset link has expired or was already used. Ask for a new one.';
  for(let i=0;i<30;i++)assert.equal((await w.users.finishReset('wrong'+i,'newpassword1')).error,GONE);
@@ -100,7 +100,7 @@ test('reset links and invite codes that match nothing share one bucket; while it
  assert.equal(await w.users.resetInfo('anything'),null);
  const inv=()=>w.call('/auth/accept',REQ('203.0.113.1',null,{code:'nope',name:'Sam',password:'longpassword1',email:'sam@example.com'}));
  const first=await inv();assert.equal(first.status,400);for(let i=0;i<30;i++)await inv();
- assert.deepEqual(await inv(),first);assert.ok(w.guard.wait('invite:any')>0);
+ assert.deepEqual(await inv(),first);assert.ok(await withRequest(REQ('203.0.113.1'),()=>w.guard.wait('invite:any'))>0);
  const info=await w.call('/auth/invite',REQ('203.0.113.1',null,{},'GET'),new URL('http://x/auth/invite?code=nope'));assert.equal(info.status,404)});
 
 test('Health: one item per account when it starts waiting, with the count and the number of addresses, never a password; again only when the count doubles',async()=>{
@@ -134,3 +134,35 @@ test('enterRequest (what server.mjs calls per request): two requests in flight e
  await Promise.all([one('203.0.113.1','x'),one('203.0.113.14',null)]);
  assert.equal(w.guard.wait('pw:x',{signIn:true}),0,'the request whose cookie is for x is trusted, and its tries are not counted');
  assert.equal(w.guard.size(),1)});
+
+// Review of 12 Nov 2026.
+test('made-up invite and reset links from one address do not close them for everyone else (the owner can still reset; a new person can still join)',async()=>{
+ const w=await world();const from=(ip,f)=>withRequest(REQ(ip),f);
+ const GONE='This reset link has expired or was already used. Ask for a new one.';
+ for(let i=0;i<40;i++){assert.equal((await from('198.51.100.9',()=>w.users.finishReset('made-up-'+i,'newpassword1'))).error,GONE);await w.call('/auth/invite',REQ('198.51.100.9',null,{},'GET'),new URL('http://x/auth/invite?code=made-up-'+i))}
+ assert.ok(await from('198.51.100.9',()=>w.guard.wait('resettok:any'))>0,'the address that sent them waits');assert.ok(await from('198.51.100.9',()=>w.guard.wait('invite:any'))>0);
+ assert.equal(await from('203.0.113.20',()=>w.guard.wait('resettok:any')),0,'a reset link opened from another address is looked at');
+ assert.equal(await from('203.0.113.20',()=>w.guard.wait('invite:any')),0,'and so is an invite');
+ assert.ok(w.guard.size()<=4,'one entry per kind and address, not one per try: '+w.guard.size())});
+
+test('a browser with a valid session gets 5 tries of its own, not tries without end: a stolen session cannot guess the password through the sign-in route',async()=>{
+ const w=await world();const mine=pw=>w.login('203.0.113.30',pw,{dev:'owner'});
+ for(let i=0;i<5;i++)assert.equal((await mine('guess'+i)).status,401);
+ assert.equal((await mine('longpassword1')).status,401,'the sixth try from that browser waits, right password or not');
+ assert.equal(w.locks.length,1,'and the owner is told');
+ assert.equal((await w.login('203.0.113.31','longpassword1')).status,200,'nobody else was made to wait by it');
+ assert.equal((await mine('longpassword1')).status,200,'a right answer starts that browser over as well');
+ for(let i=0;i<5;i++)await w.login('203.0.113.32','x'+i);   // someone else guesses: the signed-in browser is not held up
+ assert.equal((await mine('longpassword1')).status,200)});
+test('login: a suspended account answers exactly like a wrong password and does the same hash work (counted, not timed)',async()=>{
+ let hashes=0;const scrypt=(...a)=>{hashes++;return scryptSync(...a)};const w=await world({},{scrypt});
+ const api=async(u,p,b)=>{let out;await w.users.api(u,{method:'POST',url:p},{},p,(res,status,body)=>{out={status,body}},async()=>JSON.stringify(b||{}));return out};
+ const join=async(name,email)=>{const inv=(await api(w.owner.user,'/ui/people/invite',{name})).body;return w.users.accept(inv.code,name,'memberpass-123',undefined,email)};
+ await join('Rina','rina@example.com');const sus=await join('Bo','bo@example.com');
+ assert.equal((await api(w.owner.user,'/ui/people/'+sus.id+'/suspend',{on:true})).status,200);
+ const work=async(pw,name,ip)=>{const before=hashes;const r=await w.login(ip,pw,{name});return {r,n:hashes-before}};
+ const wrong=await work('not-the-pass','rina@example.com','203.0.113.31');
+ assert.equal(wrong.r.status,401);assert.equal(wrong.n,1,'a wrong password costs one hash');
+ for(const [what,x] of [['suspended, right password',await work('memberpass-123','bo@example.com','203.0.113.32')],['suspended, wrong password',await work('nope-nope-1','bo@example.com','203.0.113.33')],['unknown email',await work('nope-nope-1','ghost@example.com','203.0.113.34')],['unknown email again',await work('nope-nope-1','ghost2@example.com','203.0.113.35')]]){
+  assert.deepEqual(x.r,wrong.r,what+': same status and words as a wrong password');assert.equal(x.n,wrong.n,what+': same hash work as a wrong password')}
+ assert.equal((await w.login('203.0.113.36','memberpass-123',{name:'rina@example.com'})).status,200,'the active member still signs in')});

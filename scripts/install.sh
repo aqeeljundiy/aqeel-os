@@ -62,7 +62,12 @@ if [ -n "$ADDED" ]; then ok "engine keys written to ~/.hermes/.env ($ADDED)"; el
 
 step "The Claude sign-in for the engine"
 P=claude-subscription-directsdk-experimental
-if [ -f "$OHOME/.hermes/plugins/$P/plugin.yaml" ]; then ok "already there"; else as_owner mkdir -p "$OHOME/.hermes/plugins" && as_owner cp -a "$APP/engine/$P" "$OHOME/.hermes/plugins/$P" && ok "added (turn it on from Models › Install Claude sign-in)"; fi
+# 12 Nov 2026: "already there" was never updated again, and each agent's own copy neither. The same pass the app and a deploy use puts the plugin
+# into the engine home when it is missing and makes every existing copy of every shipped plugin the shipped version (app/plugin-sync.mjs).
+HAD=0; [ -f "$OHOME/.hermes/plugins/$P/plugin.yaml" ] && HAD=1
+if as_owner env HERMES_HOME="$OHOME/.hermes" node "$APP/scripts/plugin-sync.mjs" --ensure "$P" | sed 's/^[·!] /  /'; then
+  if [ "$HAD" = 1 ]; then ok "there, and the shipped version"; else ok "added (turn it on from Models › Install Claude sign-in)"; fi
+else warn "could not add or update the engine plugins (see above)"; fi
 
 agent_users
 
