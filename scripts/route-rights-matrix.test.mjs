@@ -150,7 +150,7 @@ test.before(async()=>{
  const preload=path.join(tmp,'preload.mjs');await writeFile(preload,PRELOAD);await writeFile(blockLog,'');
  for(const k of ['dash','gate','hooks','wa','n8n'])servers.push(stubs[k]=await listen(stub(k)));
  const port=await portFree();base='http://127.0.0.1:'+port;const url=k=>'http://127.0.0.1:'+stubs[k].address().port;
- app=spawn(process.execPath,['--import',pathToFileURL(preload).href,path.join(ROOT,'app','server.mjs')],{cwd:home,stdio:['ignore','pipe','pipe'],env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,HOME:home,USERPROFILE:home,TMPDIR:tmp,TEMP:tmp,TMP:tmp,HERMES_HOME:hh,UI_DATA_DIR:data,UI_PORT:String(port),UI_HOST:'127.0.0.1',UI_INSECURE_COOKIE:'1',AQEELOS_LIVE:'0',
+ app=spawn(process.execPath,['--import',pathToFileURL(preload).href,path.join(ROOT,'app','server.mjs')],{cwd:home,stdio:['ignore','pipe','pipe'],env:{UI_SIGNIN_FREE_TRIES:'1000000',PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,HOME:home,USERPROFILE:home,TMPDIR:tmp,TEMP:tmp,TMP:tmp,HERMES_HOME:hh,UI_DATA_DIR:data,UI_PORT:String(port),UI_HOST:'127.0.0.1',UI_INSECURE_COOKIE:'1',AQEELOS_LIVE:'0',
   HERMES_DASH:url('dash'),HERMES_API:url('gate'),HERMES_WEBHOOKS:url('hooks'),HERMES_WA_CLOUD:url('wa'),N8N_URL:url('n8n'),API_SERVER_KEY:'k',HERMES_DASHBOARD_SESSION_TOKEN:'t',HERMES_BIN:path.join(tmp,'no-engine'),RIGHTS_BLOCK_LOG:blockLog,UI_SECRET:'rights-test-'+randomBytes(8).toString('hex')}});
  app.stdout.on('data',d=>appLog+=d);app.stderr.on('data',d=>appLog+=d);
  let up=false;for(let i=0;i<150&&!up;i++){try{up=(await fetch(base+'/healthz')).ok}catch{}if(!up)await new Promise(r=>setTimeout(r,200))}

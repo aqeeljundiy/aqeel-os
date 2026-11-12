@@ -23,6 +23,7 @@ import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
 import {createFixerGit} from './fixer-git.mjs';
 import {createFixerSandbox} from './fixer-sandbox.mjs';
+import {createAccountLimiter} from './account-limit.mjs';
 import {peopleOf,approverState,buildApprovers,catalogRows,catalogFromRows,leftOut} from './kirimdev-settings.mjs';
 import {createCloudFixer} from './cloud-fixer.mjs';
 import {createLiveDrift} from './live-drift.mjs';
@@ -1155,7 +1156,7 @@ async function adoptFirstModel(slug){const agents=['default',...(await listAgent
 const connect=createConnect({HERMES_HOME,DASH,DASH_TOKEN,live:LIVE_APP,afterSave:slug=>adoptFirstModel(slug)});accountHooks.keyStatus=()=>connect.status();accountHooks.keyCheck=()=>connect.checkAll();
 const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
-const users=createUsers(DATA,mailer,{ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name(),relaxed:!LIVE_APP,ownerSeesAll:()=>installSettings().supervision===true});
+const users=createUsers(DATA,mailer,{limiter:createAccountLimiter({free:Number(env.UI_SIGNIN_FREE_TRIES)||4}),ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name(),relaxed:!LIVE_APP,ownerSeesAll:()=>installSettings().supervision===true});
 const addons=createAddons({DATA});
 // who an add-on was added by, for the admins' list: the person, or the person an agent acts for
 const addonBy=u=>({id:u?.id||null,name:u?.name||(u?.role==='owner'?'Owner':null)});
@@ -2864,11 +2865,7 @@ const server=createServer(async(req,res)=>{
    if(typeof b.key!=='string'||b.key.length!==k.length||!timingSafeEqual(Buffer.from(b.key),Buffer.from(k)))return send(res,403,{error:'bad key'});
    const r=await issues.press(b.data,String(b.from||''));console.log('issue button',String(b.data||'').slice(0,15),'from',b.from,'→',r.toast);return send(res,200,r)}
   // an old Approve / Decline link (issues.mjs before 7 Nov 2026): it only shows where the issue is now
-  {const im=/^\/issue\/(i[0-9a-f]{8})\/([\w-]{10,40})$/.exec(p);if(im){const H={'cache-control':'no-store','x-robots-tag':'noindex'};
-   const page=(body)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...H});res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>aqeelOS issue</title><body style="font:16px/1.5 system-ui;max-width:560px;margin:40px auto;padding:0 18px">'+body+'</body>')};
-   const e=x=>String(x??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-   const l=(await issues.list()).items.find(x=>x.id===im[1]);if(!l)return page('<h2>Link not valid</h2>');
-   return page('<h2>'+e(l.agentName)+': '+e(l.missing)+'</h2><p>Nothing to approve any more: the fixer handles every issue by itself and proves the fix (7 Nov 2026).</p><p>State: '+e(l.state)+'</p>')}}
+  // /issue/<id>/<token> approval links ended on 7 Nov 2026 (the fixer handles every issue itself). They no longer exist: such a link is a plain 404 like any missing page, whatever its token (13 Nov 2026; it used to show the issue to anyone with a made-up token)
   // a one-purpose PDF link for a WhatsApp document (doc-links.mjs): unguessable, 15 minutes, no sign-in
   {const dm=/^\/doc\/([\w-]{43})\/([^/]+)$/.exec(p);if(dm&&(req.method==='GET'||req.method==='HEAD'))return await docLinks.serve(req,res,dm[1],dm[2])}
   if(p==='/secret'||p.startsWith('/secret/'))return await secretRoute(req,res,p);
@@ -3078,7 +3075,7 @@ const server=createServer(async(req,res)=>{
    const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
    // per account, whatever the address (account-limit.mjs): while it waits the password is not even looked at
-   const lk=await users.loginKey(b.name),lw=users.limits.wait(lk);if(lw)return send(429,{error:users.limits.text(lw),wait:lw});
+   const lk=await users.loginKey(b.name),lw=users.limits.wait(lk);if(lw)return send(res,429,{error:users.limits.text(lw),wait:lw});
    const u=await users.login(b.name,b.password||'',pw=>!!PW_HASH&&checkPassword(pw));
    if(!u){users.limits.fail(lk);(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());const nm=String(b.name||'').trim();return send(res,401,{error:!nm?'Enter your email.':!nm.includes('@')&&users.emailOnly()?'Sign in with your email address.':'That email and password do not match.'})}
    const note=users.loginNote(u,b.name);
@@ -3089,7 +3086,7 @@ const server=createServer(async(req,res)=>{
   }
   if(p==='/auth/code'&&req.method==='POST'){const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const v=users.finishLogin(b.key,b.code);
-   if(v.error){(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());return send(v.wait?429:401,{error:v.error})}
+   if(v.error){(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());return send(res,v.wait?429:401,{error:v.error})}
    return send(res,200,{ok:true},{'set-cookie':'hui='+makeCookie(v.user.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}
   if(p==='/auth/logout'&&req.method==='POST')return send(res,200,{ok:true},{'set-cookie':'hui=; '+cookieAttrs(0)});
   if(p==='/auth/logout-all'&&req.method==='POST'){const id=cookieId(req);if(!id)return send(res,401,{error:'Sign in first.'});await revokeSessions(id);console.log('signed out everywhere:',id);return send(res,200,{ok:true},{'set-cookie':'hui=; '+cookieAttrs(0)})}
@@ -3200,7 +3197,7 @@ const server=createServer(async(req,res)=>{
    // today's US dollar → rupiah rate, so costs can be shown in rupiah (fetched twice a day, last good one kept)
    if(p==='/ui/fx'&&req.method==='GET'){if(!FX.at||Date.now()-FX.at>12*3600e3){try{const r=await fetch('https://open.er-api.com/v6/latest/USD',{signal:AbortSignal.timeout(8000)});const j=await r.json();const rates=Object.fromEntries(Object.entries(j?.rates||{}).filter(([k,v])=>/^[A-Z]{3}$/.test(k)&&+v>0));if(rates.EUR)Object.assign(FX,{rates,at:Date.now(),day:(j.time_last_update_utc||'').slice(5,16)})}catch{}}
     return send(res,200,{rates:FX.rates,IDR:FX.rates.IDR,updated:FX.day||null})}
-   if(p==='/ui/box'&&req.method==='GET')return send(res,200,{...await boxMemory(),processes:await boxOps.janitor().catch(()=>null),screens:await boxOps.screens().catch(()=>null),agents:await boxOps.agentMemory().catch(()=>[])});
+   if(p==='/ui/box'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,{...await boxMemory(),processes:await boxOps.janitor().catch(()=>null),screens:await boxOps.screens().catch(()=>null),agents:await boxOps.agentMemory().catch(()=>[])});}
    // Google accounts an agent can use (the Google Workspace skill keeps one sign-in per account); never the tokens themselves
    if(p==='/ui/google-accounts'){const a=String(url.searchParams.get('agent')||'default');if(!(await listAllProfiles()).includes(a))return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
@@ -3340,7 +3337,7 @@ const server=createServer(async(req,res)=>{
     try{const r=await accountHooks.skillShare({key:b.skill,agents:Array.isArray(b.agents)?b.agents.map(String):null,dry:!!b.dry});if(b.dry)return send(res,200,r);
      console.log('skill',b.skill,Array.isArray(b.agents)?'only for '+b.agents.join(', '):'for every agent','(by '+u.id+')');return send(res,200,{...skillRules(),done:r})}catch(e){return send(res,400,{error:e.message})}}
    // who has one skill right now and who built it (the Access block opens with this)
-   if(p==='/ui/skills-policy/who'&&req.method==='GET'){try{return send(res,200,await accountHooks.skillShare({key:url.searchParams.get('skill'),agents:[],dry:true}))}catch(e){return send(res,400,{error:e.message})}}
+   if(p==='/ui/skills-policy/who'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});try{return send(res,200,await accountHooks.skillShare({key:url.searchParams.get('skill'),agents:[],dry:true}))}catch(e){return send(res,400,{error:e.message})}}
    // which agents are locked to safe tools, and why (the Tool groups grid shows a lock with this reason instead of a switch)
    if(p==='/ui/agent-locks'&&req.method==='GET'){const st=await getStatus();const out={};
     for(const a of String(url.searchParams.get('names')||'').split(',').filter(Boolean).slice(0,200)){if(a==='default'||!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)!==null||!lockedAgent(a,st))continue;
@@ -3541,7 +3538,7 @@ const server=createServer(async(req,res)=>{
     if(b.currency!==undefined){if(!/^[A-Z]{3}$/.test(String(b.currency)))return send(res,400,{error:'Pick a currency code like USD or EUR.'});d.currency=b.currency}await writeFile(F,JSON.stringify(d,null,1));return send(res,200,d)}
    if(p==='/ui/apps'&&req.method==='GET')return send(res,200,{...await live.list(u,users.isAdmin(u)),admin:users.isAdmin(u)});
    if(p.startsWith('/ui/apps/')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
-    try{if(p==='/ui/apps/check'){const a=await live.check(String(b.id||''));return send(res,200,{status:a.status,error:a.error||''})}
+    try{if(p==='/ui/apps/check'){if(!users.isAdmin(u)&&!(await live.list(u,false)).apps.some(x=>x.owner===u.id&&x.id===String(b.id||'')))return send(res,403,{error:'That app is not yours.'});const a=await live.check(String(b.id||''));return send(res,200,{status:a.status,error:a.error||''})}
      if(p==='/ui/apps/remove')return send(res,200,await live.remove(u,users.isAdmin(u),String(b.id||'')));
      if(p==='/ui/apps/visibility')return send(res,200,await live.setVisibility(u,users.isAdmin(u),String(b.id||''),String(b.visibility||'')));
      if(p==='/ui/apps/online')return send(res,200,await live.setOnline(u,users.isAdmin(u),String(b.id||''),!!b.on));

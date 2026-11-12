@@ -192,7 +192,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  function gate(u,p,method,query,agent){
   const no=(error='You do not have access to that.')=>({status:403,error});
   // dictation: the box's own speech-to-text (it runs on the main agent's setup) turns anyone's voice into text, nothing more
-  if(p==='/hapi/audio/transcribe'&&method==='POST')return null;
+  // (13 Nov 2026) it is open to everyone signed in, but only for an agent they may use: the profile it names goes through the same decision as the other proxied routes, below
   // the owner of aqeelOS is never locked out of an agent, whoever holds it now
   if(u.role==='owner')return null;
   if(isAdmin(u)){const t=agentTarget(p,query,agent||'default');return t&&!level(u,t)&&!(method==='GET'&&/^\/ui\/(identities|avatar\/[^/]+)$/.test(p))?no('This agent is private to its owner. Ask them to share it.'):null}
@@ -200,6 +200,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   // /profiles/<agent> path or ?profile= (which the server has made equal to a body's "profile"); ?agent= means nothing there
   let m;const a=p.startsWith('/gapi/')?agentTarget(p,query):(m=/^\/hapi\/profiles\/([^/]+)/.exec(p))?agent||decodeURIComponent(m[1]):p.startsWith('/hapi/')?(agent&&agent===(query.get('profile')||'default')?agent:null):agent||'default';
   if(a==null)return no();
+  if(p==='/hapi/audio/transcribe'&&method==='POST')return a==='default'||atLeast(u,a,'chat')?null:no('That agent is not shared with you.');
   if(p.startsWith('/gapi/')){
    if(!atLeast(u,a,'chat'))return no('That agent is not shared with you.');
    const rest=p.replace(/^\/gapi(\/p\/[^/]+)?/,'');
@@ -288,13 +289,13 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   const body=async()=>{try{return JSON.parse(await readBody(req,8192))}catch{return {}}};
   if(p==='/ui/me'&&req.method==='GET'){const shares={};for(const a of new Set([...Object.keys(db.shares),...Object.keys(db.agentOwners)])){const l=level(u,a);if(l)shares[a]=l}return send(res,200,{...pub(u),admin:isAdmin(u),caps:isAdmin(u)?Object.keys(CAPS):eff(u).caps,role_name:isAdmin(u)?null:(eff(u).role==='custom'?'Custom':db.roles[eff(u).role]?.name),home:isAdmin(u)?homedir():home(u),...(u.role==='owner'?{recovery:!!db.ownerRecovery}:{}),...(isAdmin(u)?{hermes_home:process.env.HERMES_HOME||path.join(homedir(),'.hermes'),workspaces:path.join(homedir(),'workspaces')}:{}),agents:shares,canMake:isAdmin(u)||can(u,'create')&&ownCount(u)<eff(u).maxAgents,lead:(l=>l&&(isAdmin(u)||shares[l])?l:null)(leadOf(u.id))})}   // lead: their own lead agent, once it is made (pages fall back to it)
   // "your current password" is a password guess too: same per-account count as signing in (a stolen session must not be able to try without end)
-  const pwKey='pw:'+u.id,pwOkCounted=good=>{if(good)limiter.ok(pwKey);else limiter.fail(pwKey);return good};
+  const pwKey='pw:'+u.id,pwOkCounted=(good,tried=true)=>{if(good)limiter.ok(pwKey);else if(tried)limiter.fail(pwKey);return good};   // an empty field is not a guess
   if(p==='/ui/me/password'&&req.method==='PUT'){const b=await body();const x=u.role==='owner'?null:db.users.find(y=>y.id===u.id);
    const lw=limiter.wait(pwKey);if(lw)return send(res,429,{error:limiter.text(lw)});
-   if(!pwOkCounted(u.role==='owner'?ownerPwOk(b.current):!!x&&check(b.current,x.pw)))return send(res,400,{error:'Your current password is not right.'});if(String(b.next||'').length<8)return send(res,400,{error:'Use at least 8 characters.'});
+   if(!pwOkCounted(u.role==='owner'?ownerPwOk(b.current):!!x&&check(b.current,x.pw),!!String(b.current||'')))return send(res,400,{error:'Your current password is not right.'});if(String(b.next||'').length<8)return send(res,400,{error:'Use at least 8 characters.'});
    if(x)x.pw=hash(b.next);else db.ownerPw=hash(b.next);await save();return send(res,200,{ok:true})}
   // turning two-step off and changing or clearing a set email (which turns it off) take the current password, like a new password does
-  const pwOk=pw=>!limiter.wait(pwKey)&&pwOkCounted(u.role==='owner'?ownerPwOk(pw):check(pw,db.users.find(y=>y.id===u.id)?.pw));const PW_BAD={error:'Your current password is not right.'};
+  const pwOk=pw=>!limiter.wait(pwKey)&&pwOkCounted(u.role==='owner'?ownerPwOk(pw):check(pw,db.users.find(y=>y.id===u.id)?.pw),!!String(pw||''));const PW_BAD={error:'Your current password is not right.'};
   if(p==='/ui/me/email'&&req.method==='PUT'){const b=await body();const email=String(b.email||'').trim().toLowerCase();if(byId(u.id)?.email&&!pwOk(b.current))return send(res,400,PW_BAD);
    if(!email)return send(res,400,{error:'You sign in with your email, so it can be changed but not removed.'});
    if(!EMAIL.test(email))return send(res,400,{error:'That email address does not look right.'});if([owner(),...db.users].some(x=>x.id!==u.id&&norm(x.email)===email))return send(res,400,{error:'Someone already uses that email.'});
