@@ -32,6 +32,6 @@ await step('Typing into the agent’s own screen',async()=>{const st=await call(
  const r=await call('/ui/screens/'+AG+'/type',{method:'POST',body:{text:'hello from aqeelOS'}});must(r.s===200,JSON.stringify(r.j));
  const t=await fetch(notify,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'type_secret',arguments:{name:'GMAIL_PASSWORD_TEST'}}})}).then(r=>r.json());must(!t.result.isError,'type_secret: '+t.result.content[0].text);must(!JSON.stringify(t).includes(VALUE),'value leaked');
  await call('/ui/screens/'+AG+'/stop',{method:'POST'});return 'typed '+r.j.chars+' characters, then type_secret: '+t.result.content[0].text.slice(0,60)});
-await step('The value is in no log',async()=>{for(const f of ['/tmp/ppl/log','/tmp/ui.log',homedir()+'/.hermes/logs/agent.log'])must(!existsSync(f)||!readFileSync(f,'utf8').includes(VALUE),'found in '+f)});
+await step('The value is in no log',async()=>{for(const f of ['/tmp/ppl/log','/tmp/ui.log',homedir()+'/logs/aqeelos/ui.log',homedir()+'/logs/aqeelos/gateway.log',homedir()+'/.hermes/logs/agent.log'])must(!existsSync(f)||!readFileSync(f,'utf8').includes(VALUE),'found in '+f)});
 await step('Clean up',async()=>{const r=await call('/hapi/profiles/'+AG,{method:'DELETE'});must(r.s<300,'status '+r.s)});
 for(const [a,b,c] of out)console.log(a,'|',b,'|',String(c).slice(0,200));console.log(out.filter(x=>x[0]==='PASS').length+'/'+out.length+' passed');

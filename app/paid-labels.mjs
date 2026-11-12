@@ -27,11 +27,13 @@ const RESERVED=new Set(['kind','amounts','bank','name','order_form','order_total
 export function orderContextOf(pr){const c=pr?.orderContext||{};return {title:String(c.title||'Buyer details').slice(0,60),missing:String(c.missing||'not asked').slice(0,40),
  fields:(Array.isArray(c.fields)?c.fields:[]).filter(f=>/^[a-z][a-z0-9_]{0,30}$/.test(String(f?.key||''))&&!RESERVED.has(f.key)&&f.label).slice(0,6).map(f=>({key:f.key,label:String(f.label).slice(0,60),ask:String(f.ask||f.label).slice(0,300)}))}}
 
-export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=async()=>false,failed=async()=>{},onEvent=()=>{},callbackActive=async()=>false,fetchImpl=fetch,now=()=>Date.now(),log=m=>console.log(m),base=TRIPAY,xendit=XENDIT}){
+export function createPaidLabels({DATA,WORK,keyOf=null,label,orders=async()=>null,post=async()=>false,failed=async()=>{},onEvent=()=>{},callbackActive=async()=>false,fetchImpl=fetch,now=()=>Date.now(),log=m=>console.log(m),base=TRIPAY,xendit=XENDIT}){
  const F=path.join(DATA,'paid-labels.json');
  const tell=list=>{for(const k of new Set(list.map(e=>e.agent+'|'+e.type+'|'+e.kind))){const [agent,type,kind]=k.split('|');Promise.resolve().then(()=>onEvent(agent,{type,data:{kind}})).catch(()=>{})}};
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
  const put=async v=>{await mkdir(DATA,{recursive:true});const t=F+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(v,null,1),{mode:0o600});await rename(t,F)};
+ // the provider keys: the app's own store (agent-keys.mjs) when given, else the agent's .secrets as before (audit H3)
+ const secret=async(agent,name)=>keyOf?await keyOf(agent,name):(await readFile(path.join(WORK,agent,'.secrets',name),'utf8').catch(()=>'')).trim();
  const lines=async f=>(await readFile(f,'utf8').catch(()=>'')).split('\n').filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean);
  // our order refs (BM-…) to Tripay references, from what the agent's helpers wrote down
  async function references(agent,p){const out=new Set(p.refs||[]);if(!(p.orders||[]).length)return [...out];
@@ -40,11 +42,11 @@ export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=asyn
  // a card payment's Xendit invoice ids: logged with it, or found from our CC-… ref in tmp/last_card.json
  async function invoices(agent,p){const out=new Set([...(p.invoices||[]),...(p.orders||[]).filter(x=>HEX.test(x))]);if(out.size)return [...out];
   const known=await lines(path.join(WORK,agent,'tmp','last_card.json'));for(const o of p.orders||[]){const k=known.find(x=>x.ref===o&&x.invoice);if(k)out.add(String(k.invoice))}return [...out]}
- async function cardStatus(agent,id){const key=(await readFile(path.join(WORK,agent,'.secrets','XENDIT_SECRET_KEY'),'utf8').catch(()=>'')).trim();if(!key)throw Error('no Xendit key for '+agent);
+ async function cardStatus(agent,id){const key=await secret(agent,'XENDIT_SECRET_KEY');if(!key)throw Error('no Xendit key for '+agent);
   const r=await fetchImpl(xendit+'/v2/invoices/'+encodeURIComponent(id),{headers:{authorization:'Basic '+Buffer.from(key+':').toString('base64')},signal:AbortSignal.timeout(30000)});
   const j=await r.json().catch(()=>({}));if(!r.ok||!j.status)throw Error('Xendit '+r.status+' '+String(j.message||'').slice(0,80));const s=String(j.status).toUpperCase();return s==='SETTLED'?'PAID':s==='PENDING'?'UNPAID':s}
  const lastLook=new Map();
- async function status(agent,ref){const key=(await readFile(path.join(WORK,agent,'.secrets','TRIPAY_API_KEY'),'utf8').catch(()=>'')).trim();if(!key)throw Error('no Tripay key for '+agent);
+ async function status(agent,ref){const key=await secret(agent,'TRIPAY_API_KEY');if(!key)throw Error('no Tripay key for '+agent);
   const r=await fetchImpl(base+'/transaction/detail?'+new URLSearchParams({reference:ref}),{headers:{authorization:'Bearer '+key,'user-agent':'curl/8.5.0'},signal:AbortSignal.timeout(30000)});
   const j=await r.json().catch(()=>({}));if(!r.ok||!j.success)throw Error('Tripay '+r.status+' '+String(j.message||'').slice(0,80));return String(j.data?.status||'').toUpperCase()}
  // one writer of paid-labels.json at a time: the minute tick and post_order
@@ -56,10 +58,10 @@ export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=asyn
  const orderText=(p,refs,form,t,ctx)=>(p.mode==='test'?'🧪 TEST ':'')+'🧾 PAID ORDER ('+t.persona+', '+(p.name||'customer')+', +'+p.phone+')\n'+money(p.total,t.currency)+', '+String(p.kind||'qris').toUpperCase()+(refs.length?', ref '+refs.join(' '):'')+((p.products||[]).length?'\nProducts: '+p.products.join(', '):'')+'\n\n'+(form||p.form||'The order form was not recorded with this payment; it is in the customer\'s chat.')+(contextOf(t).fields.length?'\n\n'+buyerContext(contextOf(t),filled(contextOf(t),ctx||p)):'');
  async function sendOrder(p,refs,form,prev={tries:0},ctx=null){const t=await orders(p.agent).catch(()=>null);if(!t?.chatId)return {state:'none'};
   const mid=await post(p.agent,t,orderText(p,refs,form,t,ctx)).catch(()=>false);if(mid){log('paid orders: '+p.agent+' order of '+p.total+' posted');
-   const c=contextOf(t),v=filled(c,ctx||p),gap=c.fields.filter(f=>!v[f.key]);if(gap.length)await failed(p.agent,'order-context|'+p.at,'A paid order went to the Orders topic without buyer context','Order of '+money(p.total,t.currency)+' from +'+p.phone+': '+gap.map(f=>f.label).join(' and ')+' not asked. Ask the customer and send it to the team, then always pass them to create_payment.').catch(()=>{});
+   const c=contextOf(t),v=filled(c,ctx||p),gap=c.fields.filter(f=>!v[f.key]);if(gap.length)await failed(p.agent,'order-context|'+p.at,'A paid order went to the Orders topic without buyer context','Order of '+money(p.total,t.currency)+' from …'+String(p.phone).slice(-4)+': '+gap.map(f=>f.label).join(' and ')+' not asked. Ask the customer and send it to the team, then always pass them to create_payment.').catch(()=>{});
    return {state:'posted',at:now()}}
   const tries=(prev.tries||0)+1;log('paid orders: '+p.agent+' could not post an order (try '+tries+')');
-  if(tries>=TRIES){await failed(p.agent,'paid-order|'+p.at,'A paid order could not be posted to the Orders topic','Payment of '+money(p.total,t.currency)+' from +'+p.phone+'. Check that the agent\'s bot is in the Orders group and may post in that topic.').catch(()=>{});return {state:'gave-up',tries}}
+  if(tries>=TRIES){await failed(p.agent,'paid-order|'+p.at,'A paid order could not be posted to the Orders topic','Payment of '+money(p.total,t.currency)+' from …'+String(p.phone).slice(-4)+'. Check that the agent\'s bot is in the Orders group and may post in that topic.').catch(()=>{});return {state:'gave-up',tries}}
   return {state:'failed',tries}}
  // the provider's answer for each part of a payment, as one word
  const overall=s=>!s.length?'UNKNOWN':s.every(x=>x==='PAID')?'PAID':s.some(x=>x==='PAID')?'PARTLY_PAID':s.some(x=>x==='UNPAID')?'UNPAID':s[0];
@@ -98,7 +100,7 @@ export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=asyn
    const card=p.kind==='card';
    // a paid order whose post did not go through: tried again each minute, a few times
    if(db.done[key]?.order?.state==='failed'&&p.ok){db.done[key].order=await sendOrder(p,db.done[key].refs||[],'',db.done[key].order);changed=true;if(db.done[key].order.state==='posted')evs.push({agent:p.agent,type:'order.posted',kind:p.kind||'qris'});if(db.done[key].state)continue}
-   if(!p.ok||!p.agent||!p.conversation||!(t-at<(card?CARD_WINDOW:WINDOW))||db.done[key]?.state==='labelled'||db.done[key]?.state==='closed')continue;
+   if(!p.ok||!p.agent||!p.conversation||!(t-at<(card?CARD_WINDOW:WINDOW))||db.done[key]?.state==='labelled'||db.done[key]?.state==='closed'||db.done[key]?.state==='partly')continue;
    const d=db.done[key]||{tries:0};
    // an old unpaid card link is asked about every 10 minutes, not every minute; once the provider's paid callback is known to arrive for this agent
    // (payment-callbacks.mjs) every payment is asked about every 10 minutes (the slow fallback); a callback that just arrived (force) asks at once
@@ -107,8 +109,18 @@ export function createPaidLabels({DATA,WORK,label,orders=async()=>null,post=asyn
    const refs=card?await invoices(p.agent,p):await references(p.agent,p);
    if(!refs.length){if(t-at>NOREF){db.done[key]={state:'closed',why:'no provider reference',at:t};changed=true;log('paid labels: '+p.agent+' payment of '+p.total+' at '+p.at+' has no provider reference; not followed')}continue}
    let st;try{st=await Promise.all(refs.map(r=>(card?cardStatus:status)(p.agent,r)))}catch(e){log('paid labels: '+p.agent+' '+e.message);continue}
-   if(st.some(s=>['EXPIRED','FAILED','REFUND'].includes(s))&&!st.some(s=>s==='UNPAID')){db.done[key]={state:'closed',why:st.join(','),at:t};changed=true;
-    if(st.some(s=>s==='PAID'))log('paid labels: '+p.agent+' payment of '+p.total+' only partly paid ('+st.join(', ')+'); no labels, the team checks it');continue}
+   if(st.some(s=>['EXPIRED','FAILED','REFUND'].includes(s))&&!st.some(s=>s==='UNPAID')){
+    // PARTLY PAID (audit H8b): the customer paid one part of a split payment and another part ran out. Before this, that was one log line:
+    // no order post, no label, nobody told, and check_payment said "the team is still checking" for ever. Now the team is told once, in
+    // the Orders topic and on Health, with what was paid; the order is NOT closed as unpaid (state "partly"), no labels are set, and
+    // check_payment keeps answering PARTLY_PAID until a person settles it.
+    if(st.some(s=>s==='PAID')){const amts=(p.amounts||[]).length===st.length?p.amounts:null,paid=amts?amts.filter((_,i)=>st[i]==='PAID').reduce((a,b)=>a+b,0):null,tgt=await orders(p.agent).catch(()=>null),cur=tgt?.currency||'';
+     const what=(paid!=null?money(paid,cur)+' of '+money(p.total,cur):st.filter(s=>s==='PAID').length+' of '+st.length+' parts')+' paid; the rest '+st.filter(s=>s!=='PAID').join(', ').toLowerCase();
+     const text='⚠️ PARTLY PAID ORDER ('+(tgt?.persona||p.agent)+', '+(p.name||'customer')+', +'+p.phone+')\n'+what+'. Ref '+refs.join(' ')+'\nThe customer has paid part of this order. It stays open: send them a new payment for the rest, or refund what they paid.\n\n'+(p.form||'');
+     const mid=tgt?.chatId?await post(p.agent,tgt,text).catch(()=>false):false;
+     await failed(p.agent,'part-paid|'+p.at,'A split payment is only partly paid','Order of '+money(p.total,cur)+' from …'+String(p.phone).slice(-4)+': '+what+'. '+(mid?'The team was told in the Orders topic.':'The team could NOT be told in Telegram (no Orders topic, or the post failed): tell them.')+' The order stays open until a person settles it.').catch(()=>{});
+     db.done[key]={state:'partly',why:st.join(','),at:t,refs,...(paid!=null?{paid}:{}),told:!!mid};changed=true;log('paid labels: '+p.agent+' payment of '+p.total+' only partly paid ('+st.join(', ')+'); the team was told, the order stays open');continue}
+    db.done[key]={state:'closed',why:st.join(','),at:t};changed=true;continue}
    if(!st.length||!st.every(s=>s==='PAID'))continue;
    // the order goes to the team whatever happens with the labels, and only once
    if(!d.paid){d.paid=true;evs.push({agent:p.agent,type:'payment.paid',kind:p.kind||'qris'})}

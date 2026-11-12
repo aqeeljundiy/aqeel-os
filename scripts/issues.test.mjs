@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,mkdir,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {terms,parseLines,search,createChatHistory} from '../app/chat-history.mjs';
+import {terms,parseLines,createChatHistory} from '../app/chat-history.mjs';
 import {decide,whoToTell,parseResult,createIssues,fixerPrompt,proofPrompt,newSecrets,approvalOnly,testerSendOnly,noPersonNeeded,similar,urgentFor,lineOf,parseSort,dayIn,nextDay,fixerModel,sortPrompt} from '../app/issues.mjs';
 import {count,weekOf} from '../app/escalations.mjs';
 let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
@@ -17,7 +17,7 @@ await t('search with context, own files only',async()=>{const d=await mkdtemp(pa
  await writeFile(path.join(d,'b.jsonl'),L('c9','outbound','OTHER BRAND vial cartridge 5','2026-11-02T01:00'));
  await writeFile(path.join(d,'chat-history.json'),JSON.stringify({agents:{a1:{files:[path.join(d,'a.jsonl')]},a2:{files:[path.join(d,'b.jsonl')]}}}));
  const h=createChatHistory({DATA:d,log:()=>{}});const r=await h.find('a1','cartridge vial');
- assert.match(r.text,/2 cartridge/);assert.doesNotMatch(r.text,/OTHER BRAND/);assert.equal(r.total,2);
+ assert.match(r.text,/2 cartridge/);assert.doesNotMatch(r.text,/OTHER BRAND/);assert.doesNotMatch(r.text,/berapa cartridge kak/);assert.equal(r.total,1);
  const none=await h.find('zz','x vial');assert.equal(none.error,true);assert.equal(await h.has('a1--copy'),true)});
 const POL2={...POL,teams:[{...POL.teams[0],contact:'Mem'}],fixer:{on:true,agent:'default',cap:20}};
 const sleep=ms=>new Promise(z=>setTimeout(z,ms));

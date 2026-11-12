@@ -40,7 +40,10 @@ export const alertable=x=>!['invite','ticket','access'].includes(x.kind)&&!x.tol
 // (it waits on the Bottlenecks popup with what to do, 7 Nov 2026) and an agent's system report (report_bottleneck with
 // system true is filed as an issue at once, server.mjs). A bot removed from a group still goes in: the fixer checks it
 // against the agent's real groups and, when it is real, sends the one message to the right person.
-export const forLadder=x=>alertable(x)&&!['system','alerts'].includes(x.kind)&&(x.kind==='group'||!personNeed(x));
+// kind "customer" (kirimdev.mjs, paid-labels.mjs: a customer left without a reply, an unanswered handoff, a part-paid order) is for the
+// team, who are told in their own Telegram topic: neither the agent nor the code fixer can answer a customer (audit 12 Nov 2026, H7:
+// "a handoff has no answer" went to the agent itself, then 45 minutes later to the fixer)
+export const forLadder=x=>alertable(x)&&!['system','alerts','customer'].includes(x.kind)&&(x.kind==='group'||!personNeed(x));
 
 // the engine's failed-turn lines → per agent: failed turns in the window, how many were sent again by themselves and
 // worked, the most common cause, and the failures in the last hour that nobody recovered
