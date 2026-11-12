@@ -31,6 +31,7 @@ Cost: P = starts a process, F = reads files of every agent, N = network call.
 | New agents (`defaultsTick`) | 60 s | one directory listing | Agents made any way get the defaults once, after 5 minutes | Kept at 60 s (cheap, and the 5-minute wait needs a clock) |
 | aqeelos-live plugin | 10 min | F | The engine plugin must be in every home | Task, reads settings + plugins; sweep 4 h |
 | billion-context | 10 min | F | Same, for the context folding plugin | Task, reads settings + plugins |
+| plugin sync | none before 12 Nov (copies were made once) | F (hashes the shipped plugin files of every home) | Every copy of a plugin shipped in `engine/` must be the shipped version, or a plugin fix reaches no agent | Task `plugin sync`, reads plugins; sweep 4 h; no timer of its own (`app/plugin-sync.mjs`) |
 | Efficient defaults | 10 min | F | Chat shortening and cache settings must stay on | Task, reads settings |
 | Run gates | 10 min | F | Every schedule that starts the AI needs its gate script | Task, reads schedules + settings + the off marker; sweep 1 h |
 | Rule conflicts | 10 min | F | Schedules that disagree are raised | Task, reads schedules + `posting-limits.json` |

@@ -105,6 +105,7 @@ const AgentHealth={
    return '<div class="row ah-row'+(r.ok?'':' bad')+'"'+(first?' style="animation-delay:'+Math.min(i,8)*30+'ms"':'')+'><div class="main-c"><i class="ah-dot'+(r.ok?' ok':'')+'"></i><div class="txt"><b>'+esc(r.name)+'</b><span>'+(r.ok?'Working':r.problems.length===1?'1 problem':r.problems.length+' problems')+(dl?' · '+esc(dl):'')+'</span>'+
     AgentHealth.sizeHtml(r.agent,gr)+
     (r.posting?'<div class="ah-post'+(r.posting.unrecorded?' warn':'')+'" title="Run rules: posting limits per kind">'+icon('gauge',14)+'<span>'+esc(r.posting.text)+'</span></div>':'')+
+    (r.plugins?'<div class="ah-post'+(r.plugins.warn?' warn':'')+'" title="Engine plugins shipped with aqeelOS">'+icon('refresh',14)+'<span>'+esc(r.plugins.text)+'</span></div>':'')+
     (g?'<div class="ah-warn">'+icon('alert',15)+'<span>'+AgentHealth.memWarn(r.name,g,mem)+'</span></div>':'')+
     (r.ok?'':'<div class="ah-probs">'+r.problems.map((x,j)=>'<div class="ah-p"><i class="bn-ic bn-'+esc(x.kind)+'">'+icon(Bottlenecks.icon[x.kind]||'alert',15)+'</i><div><b>'+esc(x.kind==='report'?'Blocked: '+(x.missing||x.title):x.title)+'</b>'+(x.text?'<p>'+esc(x.text)+'</p>':'')+'<div class="bn-acts" data-r="'+i+'" data-j="'+j+'"></div></div></div>').join('')+'</div>')+'</div>'+memH+'</div></div>'}).join('')+'</div>';
   if(!first)box.querySelectorAll('.row').forEach(x=>x.style.animation='none');

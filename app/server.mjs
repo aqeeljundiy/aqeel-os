@@ -139,7 +139,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createDesignGuard,RULE_LINES as DESIGN_RULE_LINES} from './design-guard.mjs';   // better design by default (12 Nov 2026)
 import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // self-repair kit (workstream E)
-import {createAgentLive} from './agent-live.mjs';
+import {createPluginSync} from './plugin-sync.mjs';import {createAgentLive} from './agent-live.mjs';
 import {createBillionContext} from './billion-context.mjs';
 import {createRunGates} from './run-gates.mjs';
 import {createGraphify} from './graphify.mjs';
@@ -1769,7 +1769,7 @@ const memWatch=createMemWatch({DATA,HOME:homedir(),HERMES_HOME,sessions:a=>engin
  tell:async text=>{noteSys('memory',text.split('\n')[0]);await ownerSend(text,'telegram')}});
 if(LIVE_APP){setTimeout(()=>memWatch.tick().catch(e=>console.warn('memory watch',e.message)),90e3).unref();setInterval(()=>memWatch.tick().catch(e=>console.warn('memory watch',e.message)),120e3).unref()}
 // 7 Nov 2026: Health tells nobody; the agent fixes its own problem first (healthFix), then it is filed for the fixer (issues.mjs)
-const health=createAgentHealth({DATA,HERMES_HOME,bottlenecks,postingLine:a=>postingLimits.line(a),quiet:alertQuiet,fixFirst:(a,x)=>healthFix(a,x),fileIssue:o=>issues.file(o),healthGone:k=>issues.healthGone(k),
+const health=createAgentHealth({pluginLine:a=>pluginSync.line(a),DATA,HERMES_HOME,bottlenecks,postingLine:a=>postingLimits.line(a),quiet:alertQuiet,fixFirst:(a,x)=>healthFix(a,x),fileIssue:o=>issues.file(o),healthGone:k=>issues.healthGone(k),
  // plain-code live checks (no model): the customer tools of each Kirimdev agent answer tools/list on the local route
  kirimdevAgents:async()=>Object.keys(await kirimdev.lines().catch(()=>({}))),
  customerTools:async a=>{const r=await fetch('http://127.0.0.1:'+PORT+'/mcp/customer/'+encodeURIComponent(a),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list'}),signal:AbortSignal.timeout(10000)});const j=await r.json().catch(()=>null);return Array.isArray(j?.result?.tools)?j.result.tools.length:null},python:enginePython,link:PUBLIC_URL+'/#/system/health',
@@ -1990,11 +1990,10 @@ async function telegramChat(agent,chatId){const k=agent+'|'+chatId,c=chatSeen.ge
  chatSeen.set(k,{at:Date.now(),v});return v}
 const agentLive=createAgentLive({HERMES_HOME,DATA,chatInfo:(a,pf,id)=>pf==='telegram'?telegramChat(a,id):null,
  topicName:async(a,chatId,thread)=>{const g=await teamGroups.get(a).catch(()=>null);if(!g||String(g.chatId)!==String(chatId))return null;const r=Object.entries(g.topics||{}).find(([,v])=>String(v)===String(thread));return r?pretty0(r[0])+' (topic '+thread+')':null},listAgents:()=>listAgents(),readConfig,setKey,pick,capabilities:a=>versions.capabilities(a),policy:()=>issues.policy(),nameOf:a=>NAMES[a]||a,engineDir:path.join(here,'..','engine','aqeelos-live')});
-// the engine also reloads when it started before the plugin's files were written (a reload asked for by an earlier run of
-// this app is lost when the app restarts)
-const liveStale=async()=>{try{const pid=await gatewayPid();if(!pid)return false;const g=(await stat('/proc/'+pid)).mtimeMs;const f=(await stat(path.join(HERMES_HOME,'plugins','aqeelos-live','__init__.py'))).mtimeMs;return g<f}catch{return false}};
-if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(typeof a==='string'?a:a?.agent||'').catch(()=>false))c.push(a);if(c.length||await liveStale())restartLater('aqeelos-live plugin for '+(c.length||'all')+' agent(s)')}).catch(e=>{console.warn('agent-live install',e.message);throw e});
- rec.add('aqeelos-live plugin',{run:liveInstall,reads:['cfg','plugins'],why:'was every 10 min'})}
+// shipped engine plugins stay current in every home; the engine reloads after an update (plugin-sync.mjs)
+const pluginSync=createPluginSync({DATA,engineDir:path.join(root,'engine'),readConfig,pick,restartLater,isTest:isTestAgent,nameOf:agentName,enginePid:gatewayPid,bottlenecks});
+if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(typeof a==='string'?a:a?.agent||'').catch(()=>false))c.push(a);if(c.length)restartLater('aqeelos-live plugin for '+(c.length||'all')+' agent(s)')}).catch(e=>{console.warn('agent-live install',e.message);throw e});
+ rec.add('aqeelos-live plugin',{run:liveInstall,reads:['cfg','plugins'],why:'was every 10 min'}).add('plugin sync',{run:()=>pluginSync.tick(),reads:['plugins']})}
 // billion-context (fewer tokens in long chats) in every agent's home, same rhythm; the engine reloads once no reply runs
 const billion=createBillionContext({HERMES_HOME,readConfig,setKey,pick});
 // Efficiency on System › Health (efficiency-view.mjs): where model use goes and what drifts back, read only, kept a minute
