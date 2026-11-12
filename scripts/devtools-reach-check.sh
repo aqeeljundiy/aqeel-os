@@ -9,16 +9,36 @@
 #  - and that no viewer bridge of an older app (websockify on a 127.0.0.1 port) is still listening.
 # Prints one PASS/FAIL line per try and a summary; exits 1 on any FAIL, 2 when it cannot run.
 #   sudo bash scripts/devtools-reach-check.sh            (on the box; AQEELOS_USER when the box user is not "claude")
+# Without root (AUD-15 part 3, 13 Nov 2026: the box user has no sudo): as the box user it logs in over SSH as one agent's user
+# with aqeelOS's agents key (~/.hermes/agent-ssh/id_ed25519, or AQ_AGENT_KEY) and tries everything above as that user. What
+# listens is looked up the same way: each agent's own sockets as that agent, the box user's as itself (the wake proxy's user has
+# no login; its ports are known from the agents' port lines anyway).
+#   bash scripts/devtools-reach-check.sh [ag-<agent>]    (as the box user; default: the first agent user)
 set -u
-[ "$EUID" = 0 ] || [ -n "${AQ_RUNAS:-}" ] || { echo "run as root: it tries as each agent's own user"; exit 2; }
+KEY=${AQ_AGENT_KEY:-$HOME/.hermes/agent-ssh/id_ed25519}
+# a command as user $1 over SSH to this box with the agents key (the box user's own runs here). stdin stays here (-n); the
+# command travels base64, so the login shell only starts bash with it, whatever it holds
+as_ssh(){
+  local u=$1 c; shift
+  if [ "$u" = "$(id -un)" ]; then "$@"; return; fi
+  c=$(printf '%q ' "$@" | base64 | tr -d '\n')
+  ssh -n -i "$KEY" -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "$u@127.0.0.1" "bash -c \"\$(echo $c | base64 -d)\""
+}
+NOROOT=0
+if [ "$EUID" != 0 ] && [ -z "${AQ_RUNAS:-}" ]; then
+  [ -r "$KEY" ] || { echo "run as root, or as the box user with the agents key ($KEY)"; exit 2; }
+  AQ_RUNAS=as_ssh; AQ_AS=as_ssh; NOROOT=1
+fi
 OWNER=${AQEELOS_USER:-claude}
 OHOME=$(getent passwd "$OWNER" | cut -d: -f6)
 [ -n "$OHOME" ] || { echo "no user $OWNER on this box"; exit 2; }
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # the root script decides what a debugging port is and whose it is: the same functions are used here
 AU=${AQ_AGENT_USERS:-$HERE/agent-users.sh}
-[ -f "$AU" ] || AU=/usr/local/sbin/aq-agent-users
+[ -r "$AU" ] || AU=/usr/local/sbin/aq-agent-users
 export AQ_AGENT_USERS_LIB=1 AQEELOS_HOME=$OHOME AQEELOS_USER=$OWNER
+# what the scan keeps between passes goes to a folder of this run's own, never the watcher's
+[ -n "${AQ_RESTARTS:-}" ] || { AQ_RESTARTS=$(mktemp -d); trap 'rm -rf -- "$AQ_RESTARTS"' EXIT; export AQ_RESTARTS; }
 # shellcheck disable=SC1090
 source "$AU" || { echo "could not read $AU"; exit 2; }
 APP_PORT=${AQ_APP_PORT:-4400}
@@ -38,11 +58,18 @@ not_mine(){
       for(p in who){ if(p in own){ L=(p in lu)?lu[p]:""; m=(L=="" || L==own[p] || L==wake)?(own[p]==me):(L==me) } else m=(lu[p]==me); if(!m) print p, who[p] } }' | sort -n
 }
 try_tcp(){ runas "$1" timeout 3 bash -c "exec 3<>/dev/tcp/127.0.0.1/$2" >/dev/null 2>&1; }
+# without root, the one agent user to try as: its "name:uid" line from $2 ("name:uid" per line), the one named $1 (with or
+# without "ag-"), else the first
+pick_user(){ local w=${1:-}; [ -z "$w" ] || [[ "$w" == ag-* ]] || w=ag-$w; awk -F: -v w="$w" 'w=="" || $1==w {print; exit}' <<< "$2"; }
 
 [ "${AQ_REACH_LIB:-0}" = 1 ] && return 0 2>/dev/null   # the tests: functions only
-scan=$(devtools_scan | sed 's/^/L /'); agents=$(devtools_agents); wake=$(id -u "$WAKE_USER" 2>/dev/null || echo -)
+scan=$(devtools_scan full | sed '/^$/d; s/^/L /'); agents=$(devtools_agents); wake=$(id -u "$WAKE_USER" 2>/dev/null || echo -)
 users=$(getent passwd | awk -F: '$1 ~ /^ag-/ {print $1":"$3}')
 [ -n "$users" ] || { echo "no agent users (ag-*) on this box: nothing to try"; exit 0; }
+# without root: one agent's user (the one named, else the first), over SSH
+if [ "$NOROOT" = 1 ]; then users=$(pick_user "${1:-}" "$users"); [ -n "$users" ] || { echo "no agent user ${1:-} on this box"; exit 2; }; echo "(no root: as ${users%%:*} over SSH with the agents key)"; fi
+# the listeners nobody could name (a program the scan could not see): said, not tried (it may be what an agent runs for itself)
+while read -r _ port uid sc; do [ -n "${port:-}" ] && echo "NOTE  port $port ($sc) of user $uid: its program could not be seen"; done <<< "$(awk 'NF==4 && $3!=0' <<< "$scan")"
 for x in $users; do
   u=${x%%:*}; uid=${x##*:}
   echo "== $u"
@@ -65,5 +92,7 @@ for x in $users; do
 done
 echo "== viewer bridges"
 if ps -eo args= | grep -E '^([^ ]*/)?(python3? )?([^ ]*/)?websockify 127[.]0[.]0[.]1:[0-9]+ --unix-target=' >/dev/null; then bad "a viewer bridge (websockify on a 127.0.0.1 port) still runs: restart the app or end it"; else ok "no viewer bridge listens on a port"; fi
+st="$OHOME/.aqeelos-devtools-fw.json"
+[ -r "$st" ] && echo "== the root script's own status ($st): $(grep -o '"ok":[a-z]*' "$st"), written $(( $(date +%s) - $(stat -c %Y "$st") )) s ago"
 echo "== $pass passed, $fail failed"
 [ "$fail" = 0 ]
