@@ -157,7 +157,7 @@ import {createCatalog} from './price-catalog.mjs';import {createPaymentProviders
 import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
-import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';import {createSchedulesRoutes} from './schedules-routes.mjs';import {createIdentitiesRoutes} from './identities-routes.mjs';import {createHooksRoutes} from './hooks-routes.mjs';import {createOAuthCallbackRoutes} from './oauth-callback-routes.mjs';   // the routes that used to sit in this file (one module each)
+import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';import {createSchedulesRoutes} from './schedules-routes.mjs';import {createIdentitiesRoutes} from './identities-routes.mjs';import {createHooksRoutes} from './hooks-routes.mjs';import {createOAuthCallbackRoutes} from './oauth-callback-routes.mjs';import {createBoxRoutes} from './box-routes.mjs';   // the routes that used to sit in this file (one module each)
 
 delete Object.prototype.__proto__;   // a key named __proto__ from a request is an ordinary key: no lookup reaches Object.prototype (security audit, 12 Nov 2026)
 const here=path.dirname(fileURLToPath(import.meta.url));
@@ -2059,30 +2059,6 @@ const SR_TOOLS=[
 const SR_WAIT=20e3;
 const SR_STATE={waiting:'Waiting for the lock',running:'Running',ok:'Finished',failed:'Failed',timeout:'Ran out of time',stopped:'Stopped by an admin',interrupted:'Lost: aqeelOS restarted while it ran'};
 const srText=r=>'Run '+r.id+': '+(SR_STATE[r.state]||r.state)+(r.secs!=null?' after '+srDur(r.secs):'')+(r.exit!=null&&r.state!=='ok'?' (exit code '+r.exit+')':'')+'.\nReason: '+r.reason+(r.error?'\n'+r.error:'')+(r.answer?'\n\nIts last output:\n'+r.answer:'')+(r.state==='running'||r.state==='waiting'?'\n\nStill going. Do other work, or wait in your terminal (sleep 60), then call run_self_status again.':'');
-async function srMcp(req,res,ms){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
- let msg={};try{msg=JSON.parse(await readBody(req,262144))}catch{return send(res,400,{error:'bad json'})}
- const a=ms[1];if(!relayKeys.ok(ms[2],'self-runs:',a))return send(res,403,{error:'bad token'});
- const rpc=result=>send(res,200,{jsonrpc:'2.0',id:msg.id,result}),reply=(text,isError)=>rpc({content:[{type:'text',text}],...(isError?{isError:true}:{})});
- if(msg.method==='initialize')return rpc({protocolVersion:msg.params?.protocolVersion||'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'aqeelos-self',version:'1.0.0'}});
- if(msg.method==='notifications/initialized'||msg.id==null)return send(res,202,'');
- if(msg.method==='ping')return rpc({});
- if(msg.method==='tools/list')return rpc({tools:await srEligible(a)?SR_TOOLS:[]});
- if(msg.method!=='tools/call')return send(res,200,{jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'Method not found'}});
- const name=String(msg.params?.name||''),args=msg.params?.arguments&&typeof msg.params.arguments==='object'?msg.params.arguments:{};
- if(!SR_TOOLS.some(t=>t.name===name))return reply('Unknown tool.',true);
- if(!await srEligible(a))return reply('Running yourself is not available for this agent.',true);
- let origin=await srOrigin(a,name,args);
- try{if(name==='run_self'){const ws=path.join(homedir(),'workspaces',a);let lockPath=null;
-   if(origin.ok&&args.lock)try{lockPath=await safeLock(ws,args.lock)}catch(e){origin={ok:false,by:origin.by,why:e.message}}
-   const r=await selfRuns.start({agent:a,args,origin,ws,lockPath});console.log('self-run',r.id,'started by',a,'for',origin.by?.kind||'?');
-   return reply('Started run '+r.id+' ('+r.minutes+' minutes at most'+(r.state==='waiting'?', it first waits for the lock':'')+'). It runs on its own, so carry on. Call run_self_status with id '+r.id+' and wait true for the result; the person who asked also hears when it ends.')}
-  if(!origin.ok){await selfRuns.start({agent:a,args:{prompt:'('+name+')',reason:'('+name+')'},origin}).catch(()=>{});return reply(origin.why,true)}
-  if(name==='run_self_status'){// a short wait only: the engine runs one call at a time per tool server, so a long one held up every other call to it
-   // (5 Nov 2026: a run's own run_self waited 3 minutes behind its parent's run_self_status)
-   const r=args.wait?await selfRuns.wait(a,args.id,SR_WAIT):await selfRuns.status(a,args.id);return r?reply(srText(r)):reply('You have no run with id '+String(args.id||'').slice(0,40)+'. run_self_list shows yours.',true)}
-  const m=await selfRuns.mine(a);
-  return reply('Today: '+m.today+' of '+m.cap+' runs.'+(m.paused?' Self-runs are PAUSED ('+(m.paused.why==='cap'?'daily limit reached, until tomorrow':'3 failed runs in a row, until an admin resumes them')+').':'')+(m.on?'':' Running yourself is switched off for you in aqeelOS.')+'\n'+(m.runs.map(r=>'- '+r.id+' · '+(SR_STATE[r.state]||r.state)+(r.secs!=null?' · '+srDur(r.secs):'')+' · '+r.reason).join('\n')||'No runs yet.'))}
- catch(e){return reply(e.message,true)}}
 // every 5 seconds: runs that started or ended, trusted-person codes that arrived, and (live) the 08:00 summary
 let srTicking=false;setInterval(()=>{if(srTicking)return;srTicking=true;(async()=>{await selfRuns.check();
   const codes=await selfRuns.pendingCodes();if(codes.length){const hits=await srBox.findCodes(await listAllProfiles(),Math.min(...codes.map(c=>c.at))-60e3);
@@ -2466,6 +2442,7 @@ const schedulesRoutes=createSchedulesRoutes({designGuard,postingLimits,readBody,
 const identitiesRoutes=createIdentitiesRoutes({accountsApi,billion,builtins,channels,connect,DASH,DASH_TOKEN,DATA,designGuard,displayName,explain,graphify,HERMES_HOME,keysId,labels,listAgents,listAllProfiles,NAMES,okProfile,ownsAgent,pausedLoad,platCache,readBody,readIds,reconnectOne,restartGateway,runGates,security,send,setChannelOn,setDisplayName,starters,usage,users,waitingNow,withIds,writeIds});
 const hooksRoutes=createHooksRoutes({agentAccess,agentLive,customerTools:()=>customerTools,designGuard,HOOKS,issues,kirimdev,paymentCallbacks,pressKey,proxy,readBody,readRaw,send,smokeWatch,teamView,tebar,versions,WA_CLOUD});
 const oauthCallbackRoutes=createOAuthCallbackRoutes({DASH,DASH_TOKEN,deliverToGateway,esc,gconnect,googleConnected,HERMES_HOME,listAllProfiles,msconnect,NAMES,PUBLIC_URL,security,sharing,signinFlows:()=>signinFlows,writeAgentContext});
+const boxRoutes=createBoxRoutes({agentOps,codeBridge,eventHooks,fixerSandbox,googleFiles,kirimdev,postingLimits,readBody,relayKeys,runGates,selfRuns,send,sign,SR_STATE,SR_TOOLS,SR_WAIT,srDur,srEligible,srOrigin,srText});
 const server=createServer(async(req,res)=>{
  enterRequest(req);const url=new URL(req.url,'http://x');const p=url.pathname;   // the request is what the per-account sign-in limit reads the address and session cookie from
  try{
@@ -2490,50 +2467,7 @@ const server=createServer(async(req,res)=>{
   if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),engine:(void engineAgents(),engAgents.n),busy:busyTotal({live:liveCount(),setups:export_setups.running(),ops:opsBusy(),relay:relay.sending(),gwRestarting:!!gwRestarting,engineUpdate:engineUpd.busy(),restore:backups.busy()}),
    // hold: what a deploy still waits for (it cannot be continued afterwards); resume: what is waiting to continue
    hold:holdTotal({setups:export_setups.running(),ops:opsBusy(),relay:relay.sending(),gwRestarting:!!gwRestarting,engineUpdate:engineUpd.busy(),restore:backups.busy()}),resume:{inFlight:resume.inFlight(),waiting:resume.pending()}});
-  // the code bridge agents' engines call during a Code run for a computer project (app/code-bridge.mjs)
-  if(p.startsWith('/mcp/code/')&&await codeBridge.handle(req,res,{send,readBody}))return;
-  // run_self and the rest (aqeelos-self): from this box only, each agent's address signed
-  {const ms=/^\/mcp\/self\/([\w-]+)\/([\w-]+)$/.exec(p);if(ms)return await srMcp(req,res,ms)}
-  // an agent's Kirimdev calls without a key (agent-ops.mjs, audit H3): from this box only, signed per agent, its own line only, sends through the guards
-  {const mo=/^\/agent-ops\/([\w-]+)\/([\w-]+)$/.exec(p);if(mo){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
-   const x=Buffer.from(String(mo[2])),y=Buffer.from(sign('agent-ops:'+mo[1]).slice(0,32));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad signature'});
-   let body;try{body=JSON.parse(await readBody(req,1e6))}catch{return send(res,400,{error:'bad json'})}const r=await agentOps.call(mo[1],body).catch(e=>({status:500,json:{error:e.message}}));return send(res,r.status,r.json)}}
-  // the confined fixer's routes (fixer-sandbox.mjs, CR-7): from this box only, signed for one run, closed when the run ends
-  {const mf=/^\/fixer-ops\/([\w-]+)\/([\w-]+)\/([A-Za-z0-9_-]{32})\/(\w+)$/.exec(p);if(mf){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
-   let body={};try{body=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'bad json'})}
-   const r=await fixerSandbox.ops(mf[4],mf[1],mf[2],mf[3],body).catch(e=>({status:500,json:{error:String(e.message).slice(0,200)}}));return send(res,r.status,r.json)}}
-  // a person's message in the team's Telegram topic, from the engine's hook (audit H5): from this box only, signed per agent. The sender
-  // is checked against the line's approvers in kirimdev.teamMessage; nothing here trusts the text alone.
-  {const mt=/^\/team-message\/([\w-]+)\/([\w-]+)$/.exec(p);if(mt){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
-   const x=Buffer.from(String(mt[2])),y=Buffer.from(sign('team-message:'+mt[1]).slice(0,32));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad signature'});
-   let body;try{body=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}
-   const r=await kirimdev.teamMessage(mt[1].split('--')[0],{chatId:body.chatId,threadId:body.threadId,userId:body.userId,text:String(body.text||'')}).catch(e=>({handled:false,why:e.message}));return send(res,200,{handled:!!r.handled})}}
-  // an agent's Google files (google-files.mjs): from this box only, signed per agent, only the files listed for it
-  {const mf=/^\/google-files\/([\w-]+)\/([\w-]+)$/.exec(p);if(mf){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
-   if(!relayKeys.ok(mf[2],'google-files:',mf[1]))return send(res,403,{error:'bad signature'});
-   let body;try{body=JSON.parse(await readBody(req,4e6))}catch{return send(res,400,{error:'bad json'})}const r=await googleFiles.call(mf[1],body);return send(res,r.status,r.json)}}
-  // the run gate every schedule runs first (run-gates.mjs): from this box only, signed per agent; always answers
-  {const mr=/^\/run-gate\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mr){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   if(!relayKeys.ok(mr[3],'relay:',mr[1]))return send(res,403,'bad signature');
-   const t=await runGates.check(mr[1],mr[2],{nothing:url.searchParams.get('nothing')==='1'}).catch(()=>'aqeelOS run check: clear to run.\n{"wakeAgent": true}');res.writeHead(200,{'content-type':'text/plain; charset=utf-8'});return res.end(t+'\n')}}
-  // the slow fallback run of an event hook (event-hooks.mjs, scripts/hooks-wire.mjs): from this box only, signed per agent; 200 when the run went well, else 500 with the error
-  {const mh=/^\/event-hook\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mh){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   if(!relayKeys.ok(mh[3],'relay:',mh[1]))return send(res,403,'bad signature');
-   const e=await eventHooks.runNow(mh[1],mh[2]).catch(e=>e.message);res.writeHead(e?500:200,{'content-type':'text/plain; charset=utf-8'});return res.end((e||'ok')+'\n')}}
-  // for a script that posts without a model (the comment queue, 12 Nov 2026): GET ?json=1&kind=comment on the gate says {allow,n,reason} (it reserves nothing); POST /posting-record does what the record_post tool does.
-  // The guard of every script that posts (scripts/posting-guard.py, posting-limits.mjs): POST /posting-check {kind} -> {allow,ticket,reason}, /posting-sending {ticket}, /posting-record {ticket,kind,ref,text}, /posting-cancel {ticket}
-  {const mj=/^\/posting-(gate|record|check|sending|cancel)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mj&&(mj[1]!=='gate'||url.searchParams.get('json')==='1')){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   if(!relayKeys.ok(mj[3],'relay:',mj[2])){postingLimits.staleKey(mj[2]);return send(res,403,'bad signature')}
-   if(mj[1]==='gate')return send(res,200,await postingLimits.allowNow(mj[2].split('--')[0],url.searchParams.get('kind')||'').catch(e=>({allow:false,n:0,reason:'aqeelOS could not check the limits ('+e.message+')'})));
-   if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}
-   const ag=mj[2].split('--')[0];
-   if(mj[1]==='check'){const g=await postingLimits.guard(ag,b.kind).catch(e=>({allow:false,reason:'aqeelOS could not check the limits ('+e.message+'), so nothing may be posted.'}));return send(res,g.allow?200:409,g)}
-   if(mj[1]==='sending'||mj[1]==='cancel'){const g=await postingLimits.mark(ag,b.ticket,mj[1]).catch(e=>({ok:false,text:e.message}));return send(res,g.ok?200:409,g)}
-   const r=await postingLimits.record(ag,b).catch(e=>({isError:true,text:e.message}));return send(res,r.isError?409:200,{ok:!r.isError,text:r.text})}}
-  // the posting gate an agent's posting schedule runs first (posting-limits.mjs): from this box only, signed per agent
-  {const mg=/^\/posting-gate\/([\w-]+)\/([\w-]+)$/.exec(p);if(mg){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   if(!relayKeys.ok(mg[2],'relay:',mg[1])){postingLimits.staleKey(mg[1]);return send(res,403,'bad signature')}
-   const t=await postingLimits.gate(mg[1]).catch(e=>'aqeelOS could not check the limits ('+e.message+'), so no post this run.\n{"wakeAgent": false}');res.writeHead(200,{'content-type':'text/plain; charset=utf-8'});return res.end(t+'\n')}}
+  if(await boxRoutes(req,res,p,url))return;
   if(await notifyToolsRoutes(req,res,p))return;
   // private Live apps: Traefik asks here before each request (forwardAuth); /live-login sends a signed-in person back with a pass
   if(p==='/live-auth')return live.auth(req,res,id=>users.user(id)).catch(()=>{if(!res.headersSent){res.writeHead(503);res.end()}});
