@@ -3195,3 +3195,11 @@ label.cf-gh{display:flex;align-items:flex-start;gap:12px;margin:0;padding:8px 0;
 .cn-bar .cn-apps{margin-left:auto;color:var(--ink-2);flex:none}.cn-bar .cn-apps:hover{color:var(--ink)}
 #apGrid>.cn-more{margin:16px auto 0;display:flex}
 @media (prefers-reduced-motion:reduce){.tile.ap-card,.tsr-dot{animation:none}}
+
+/* audit 12 Nov 2026: Skip to content, the first Tab on every page; out of sight until focused */
+.skip-link{position:fixed;left:12px;top:12px;z-index:1000;min-height:40px;padding:0 16px;border-radius:var(--r-pill);background:var(--surface);color:var(--ink);box-shadow:var(--shadow-float);transform:translateY(-200%);opacity:0;transition:transform var(--t-fast) var(--ease),opacity var(--t-fast) var(--ease)}
+.skip-link:focus-visible{transform:none;opacity:1}
+#view:focus{outline:none}
+/* a control that only shows on hover shows when the keyboard reaches it, and a hidden one takes no Tab */
+.item .more:focus-visible{opacity:1}
+.toolbar .search:not(.has-q) .s-clear{visibility:hidden;transition:opacity var(--t-fast) var(--ease),transform var(--t-fast) var(--ease),visibility 0s linear var(--t-fast)}

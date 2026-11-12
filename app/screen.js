@@ -64,7 +64,7 @@ const Screen={
    if(f.data){img.src=f.data;img.hidden=false;note.hidden=true;note.dataset.h='';shown=true}};tick();this._m=setInterval(tick,1500);this._mt=tick},
  setMode(m){this.mode=m;store.set('screenMode',m);this.paint(true)},
  setControl(on){this.control=on;this.paint(true);if(on)setTimeout(()=>$('#scrFrame')?.focus(),400)},
- seg(){return `<span class="scr-seg" role="tablist" aria-label="Which screen"><button class="${this.src_==='box'?'on':''}" data-act="scr-src" data-v="box" title="The agent's screen on the AI box">AI box</button><button class="${this.src_==='mine'?'on':''}" data-act="scr-src" data-v="mine" title="The agent's tab in your own Chrome">My browser</button></span>`},
+ seg(){return `<span class="scr-seg" role="group" aria-label="Which screen"><button class="${this.src_==='box'?'on':''}" aria-pressed="${this.src_==='box'}" data-act="scr-src" data-v="box" title="The agent's screen on the AI box">AI box</button><button class="${this.src_==='mine'?'on':''}" aria-pressed="${this.src_==='mine'}" data-act="scr-src" data-v="mine" title="The agent's tab in your own Chrome">My browser</button></span>`},
  setSrc(v){this.src_=v;store.set('screenSrc',v);this.paint(true);this.mirror()},
  head(compact){const c=this.control;if(this.src_==='mine')return `<div class="screen-head ${compact?'compact':''}" ${compact?'data-drag="float"':''}><b>${icon('monitor',16)}</b>${this.seg()}<span class="grow"></span>
   <button data-act="lb-focus" title="Bring the agent's tab to the front in Chrome">${icon('mouse',15)}<span>Take over</span></button>

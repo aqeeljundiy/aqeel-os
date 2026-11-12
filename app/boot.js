@@ -79,6 +79,9 @@ document.addEventListener('click',e=>{
 });
 document.addEventListener('input',e=>{if(e.target.id==='chatSearch'){S.search=e.target.value;const pos=e.target.selectionStart;paintSide();placePills();const i=$('#chatSearch');i.focus();i.setSelectionRange(pos,pos)}});
 document.addEventListener('keydown',e=>{
+ // tabs: left/right (Home/End) move to the next tab and choose it, as on every desktop tab bar
+ if(e.target.matches?.('.tabs>[role=tab]')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){const bs=[...e.target.parentElement.children].filter(b=>b.matches('[role=tab]:not(:disabled)'));const i=bs.indexOf(e.target);
+  const n=bs[e.key==='Home'?0:e.key==='End'?bs.length-1:(i+(e.key==='ArrowRight'?1:-1)+bs.length)%bs.length];if(n){e.preventDefault();n.focus();n.click()}return}
  if(e.target.closest?.('[data-menu]')&&(e.key==='Enter'||e.key===' ')){e.preventDefault();openMenu(e.target.closest('[data-menu]'));return}
  const mod=isMac?e.metaKey:e.ctrlKey;if(!S.signedIn)return;
  if(mod&&e.key.toLowerCase()==='k'){e.preventDefault();palette()}
@@ -154,4 +157,6 @@ boot();
 
 // F26 rows you can reach with Tab (schedules, inbox items, file tiles, agent cards) open with Enter or Space too
 document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches?.('[tabindex="0"]:is([data-act],[data-inbox])')&&!e.target.matches('input,textarea,select,button')){e.preventDefault();e.target.click()}});
+// Skip to content (audit of 12 Nov 2026: a keyboard took some 25 Tabs through the menu and the top bar to reach a page)
+ACT.skip=()=>{const v=$('#view');if(!v)return;const m=v.querySelector('#msg');if(m&&m.offsetParent){m.focus();return}v.setAttribute('tabindex','-1');v.focus({preventScroll:true})};
 ACT['panel-full']=()=>window.open(location.origin+'/'+location.hash,'_blank');
