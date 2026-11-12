@@ -103,7 +103,8 @@ test('members are not offered Restart agents or Check for updates in the search 
 
 test('signed out, an invite or sign-in address opened in the same tab is drawn (Go to sign in on an expired invite did nothing)', ()=>{
  assert.ok(src('account-setup.js').includes(String.raw`if(!S.signedIn&&/^#\/?(reset|invite|signin)(\/|$)/.test(location.hash))render()`));
- assert.match(src('people.js'),/href="\/#signin"/,'the link it has to follow');
+ assert.match(src('people.js'),/id="invBack"[^>]*>Go to sign in<\/button>/,'the button it has to press');
+ assert.match(src('people.js'),/\$\('#invBack'\)\?\.addEventListener\('click',\(\)=>\{location\.hash='#signin'\}\)/,'and it goes to the sign-in address');
 });
 
 test('a drawer someone typed in asks before Escape, a click outside, Close or Cancel discards it', ()=>{
