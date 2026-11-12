@@ -122,7 +122,40 @@ setup_box(){
   # a Chrome every agent user may run (the engine's own copy lives in the closed part of the owner home)
   setup_wake || echo "agent users: could not set up the wake proxy"
   x11_dir
+  local_fw
   if [ -n "$CHROME_SRC" ] && [ ! -x "$CHROME" ]; then mkdir -p /opt/aqeelos; rm -rf /opt/aqeelos/chrome; cp -a --no-preserve=ownership "$CHROME_SRC" /opt/aqeelos/chrome; chmod -R a+rX /opt/aqeelos; fi
+}
+
+# CR-6, H-10, H-12 (security audit of 12 Nov 2026). The engine's dashboard (9119) gives its session token to whoever asks,
+# and the gateway (8642), the WhatsApp bridges (3000-3002), the shared screen (5900, 6080), every VNC port and the deploy
+# check's test copy (4402) take any caller on the box. Agents are users on the box. So: on the box's own addresses only
+# root and the owner's user may connect to those ports (everyone else is refused at once), and nothing from outside the
+# box reaches a VNC port. An agent reaches its own Chrome through the wake proxy as before (screen_up's rules) and its
+# screen through the socket in its folder. aqeelOS itself (4400) and what agents run for themselves stay open.
+# More ports: AQ_LOCAL_PORTS (the script's own environment). Safe to run again: it only adds what is missing.
+LOCAL_PORTS=${AQ_LOCAL_PORTS:-9119,8642,3000:3002,4402,5900:5999,6080}
+local_fw(){
+  local ipt ok=1 why=""
+  [[ "$LOCAL_PORTS" =~ ^[0-9:,]+$ ]] || { why="the port list is not a list of ports"; ok=0; }
+  command -v iptables >/dev/null 2>&1 || { why="iptables is not installed in the box"; ok=0; }
+  if [ "$ok" = 1 ]; then
+    for ipt in iptables ip6tables; do
+      command -v "$ipt" >/dev/null 2>&1 || continue
+      "$ipt" -N AQ-LOCAL 2>/dev/null
+      if ! { "$ipt" -C AQ-LOCAL -m owner --uid-owner 0 -j RETURN && "$ipt" -C AQ-LOCAL -m owner --uid-owner "$OWNER" -j RETURN && "$ipt" -C AQ-LOCAL -p tcp -m multiport --dports "$LOCAL_PORTS" -j REJECT --reject-with tcp-reset; } 2>/dev/null; then
+        "$ipt" -F AQ-LOCAL && "$ipt" -A AQ-LOCAL -m owner --uid-owner 0 -j RETURN && "$ipt" -A AQ-LOCAL -m owner --uid-owner "$OWNER" -j RETURN \
+          && "$ipt" -A AQ-LOCAL -p tcp -m multiport --dports "$LOCAL_PORTS" -j REJECT --reject-with tcp-reset \
+          && echo "local firewall ($ipt): only root and $OWNER may connect to $LOCAL_PORTS on this box" || { [ "$ipt" = iptables ] && { ok=0; why="iptables refused the rules (no right to set them in this box?)"; }; }
+      fi
+      "$ipt" -C OUTPUT -o lo -p tcp -j AQ-LOCAL 2>/dev/null || "$ipt" -I OUTPUT 1 -o lo -p tcp -j AQ-LOCAL 2>/dev/null || { [ "$ipt" = iptables ] && { ok=0; why=${why:-"iptables refused the rules (no right to set them in this box?)"}; }; }
+      "$ipt" -C INPUT ! -i lo -p tcp --dport 5900:5999 -j REJECT --reject-with tcp-reset 2>/dev/null || "$ipt" -I INPUT 1 ! -i lo -p tcp --dport 5900:5999 -j REJECT --reject-with tcp-reset 2>/dev/null
+    done
+  fi
+  mkdir -p "$RST"
+  if [ "$ok" = 1 ]; then rm -f -- "$RST/.fw-failed"; return 0; fi
+  echo "agent users: LOCAL FIREWALL NOT APPLIED: $why. Every agent can reach the engine's dashboard and gateway on this box."
+  [ -f "$RST/.fw-failed" ] || { : > "$RST/.fw-failed"; report default "local-firewall" "the box's local firewall could not be applied: $why. Until it is, every agent's user can call the engine's dashboard (9119), the gateway (8642) and the WhatsApp bridges directly. The box needs iptables and the NET_ADMIN right (the ai-box compose)." "Local firewall not applied"; }
+  return 1
 }
 
 # /tmp/.X11-unix (every display's socket) belonged to whichever agent started a display first, who could then remove or
@@ -672,7 +705,7 @@ screen_up(){
     cd '$ws'; export HOME='$ws' DISPLAY=:$disp XAUTHORITY='$sd/Xauthority'
     umask 007; : > \"\$XAUTHORITY\"; xauth -q add :$disp . \$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n') 2>/dev/null
     printf 'DISPLAY=:%s\nXAUTHORITY=%s\n' '$disp' \"\$XAUTHORITY\" > '$sd/env'
-    ( Xvnc :$disp -geometry 1280x800 -depth 24 -auth \"\$XAUTHORITY\" -SecurityTypes None -rfbport 0 -rfbunixpath '$sd/rfb.sock' -rfbunixmode 0660 -nolisten tcp -AlwaysShared >'$sd/xvnc.log' 2>&1 & echo \$! > '$sd/launcher.pid'; wait ) &
+    ( Xvnc :$disp -geometry 1280x800 -depth 24 -auth \"\$XAUTHORITY\" -SecurityTypes None -rfbport -1 -localhost -rfbunixpath '$sd/rfb.sock' -rfbunixmode 0660 -nolisten tcp -AlwaysShared >'$sd/xvnc.log' 2>&1 & echo \$! > '$sd/launcher.pid'; wait ) &
     for i in \$(seq 40); do [ -S '$sd/rfb.sock' ] && break; sleep 0.25; done
     $desk
     rm -f '$sd/chrome.stopped'
@@ -1109,5 +1142,5 @@ case "${1:-watch}" in
   reset) ok_name "${2:-}" && echo "$2" | own_add "$RESET" && take_resets ;;
   janitor) janitor ;;
   stop) ok_name "${2:-}" && echo "$2" | own_add "$REQ.stop" && take_stops ;;
-  watch) last=""; n=0; while true; do take_resets; take_stops; take_mem; take_wakes; proxy_up; [ $((n % 12)) -eq 0 ] && [ -f "$REQ" ] && { janitor; sleep_idle; setup_wake; }; [ $((n % 720)) -eq 0 ] && [ -f "$REQ" ] && trim_logs; [ $((n % 60)) -eq 0 ] && [ -f "$REQ" ] && { uploads_fix; orphan_sweep; }; [ $((n % 6)) -eq 0 ] && { date +%s | own_put "$ALIVE"; }; self_update && exec "$0" watch; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
+  watch) last=""; n=0; while true; do take_resets; take_stops; take_mem; take_wakes; proxy_up; [ $((n % 12)) -eq 0 ] && [ -f "$REQ" ] && { janitor; sleep_idle; setup_wake; local_fw; }; [ $((n % 720)) -eq 0 ] && [ -f "$REQ" ] && trim_logs; [ $((n % 60)) -eq 0 ] && [ -f "$REQ" ] && { uploads_fix; orphan_sweep; }; [ $((n % 6)) -eq 0 ] && { date +%s | own_put "$ALIVE"; }; self_update && exec "$0" watch; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
 esac
