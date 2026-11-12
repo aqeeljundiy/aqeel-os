@@ -1,3 +1,4 @@
+import {channelsPause,payHook,beforeEngineStop} from './route-handlers.mjs';
 import {setStoreHooks,sweepTmp,writeStore} from './store.mjs';
 import {spawn} from 'node:child_process';
 import {existsSync} from 'node:fs';
@@ -728,7 +729,7 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
   // engine started kept running without a Claude login for an hour); the wait above already gave them their time
   // the engine needs 30 to 45 s to shut down cleanly; it is waited for before its window closes (gateway-stop.mjs)
   // an agent with a gateway process of its own is restarted with it (on a shared gateway there is none: the default one serves every agent)
-  await syncDelegs().catch(()=>{});   // what runs now is journaled before the stop cuts it
+  await beforeEngineStop({syncDelegs,log:m=>console.warn(m)});   // what runs now is journaled before the stop cuts it (route-handlers.mjs)
   const own=ownGateways(parseGatewayList((await shx('hermes gateway list 2>/dev/null',30000)).out));if(own.length)console.log('gateway restart: agents with their own gateway too:',own.join(', '));
   for(const a of own)await shx(stopOwnGatewayCmd(a),90000);
   {const t0=Date.now(),st=await shx(stopGatewayCmd(),stopTimeoutMs());console.log('gateway restart: engine stopped after',Math.round((Date.now()-t0)/1000)+' s'+(/FORCED/.test(st.out)?' (it did not stop by itself in time and was closed)':' (clean)'))}
@@ -2758,7 +2759,7 @@ const server=createServer(async(req,res)=>{
   // Tripay and Xendit call here when a payment is paid, no sign-in: each call is checked with the agent's own provider secret (payment-callbacks.mjs)
   {const pm=/^\/hooks\/pay\/(tripay|xendit)\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(pm){if(req.method!=='POST')return send(res,405,{success:false});let raw;
    if(+req.headers['content-length']>65536)return send(res,413,{success:false});try{raw=await readRaw(req,65536)}catch{return send(res,413,{success:false})}
-   try{const r=await paymentCallbacks.receive(pm[1],pm[2],req.headers,raw);send(res,r.status,r.body);if(r.after&&LIVE_APP)setImmediate(()=>r.after().catch(e=>console.warn('payment callback',e.message)));return}catch(e){console.warn('payment callback',e.message);return send(res,500,{success:false})}}}
+   {const r=await payHook({provider:pm[1],agent:pm[2],headers:req.headers,raw,receive:(...a)=>paymentCallbacks.receive(...a),live:LIVE_APP});send(res,r.status,r.body);if(r.after)setImmediate(r.after);return}}}
   // one-time secret links (no sign-in: the token after # is the credential)
   // Kirimdev posts customer messages here, signed; nothing else is taken (kirimdev.mjs)
   {const km=/^\/kirimdev\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(km){if(req.method!=='POST')return send(res,405,{error:'POST only'});let raw;
@@ -3915,9 +3916,8 @@ const server=createServer(async(req,res)=>{
     if(ag==='default'){restartGateway('reconnect '+pf+' (main agent)',{bridges:pf==='whatsapp'}).catch(()=>{});return send(res,200,{ok:true,restarting:true,waiting:await waitingNow()})}
     let j;try{j=await reconnectOne(ag,pf)}catch(e){platCache.clear();return send(res,502,{error:e.message})}platCache.clear();
     console.log('reconnected',pf,'on',ag,j.hot_served?'(live)':'');return send(res,200,{ok:true,restarting:false})}
-   if(p==='/ui/channels/pause'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!ownsAgent(u,b.agent))return send(res,403,{error:'Only an admin or this agent’s owner pauses its channels.'});
-    const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf)||['api_server','webhook'].includes(pf))return send(res,400,{error:'Unknown channel'});
-    try{return send(res,200,await setChannelOn(ag,pf,b.on===true))}catch(e){return send(res,400,{error:e.message})}}
+   // an admin or the agent's owner (ownsAgent(u, agent) is checked inside: route-handlers.mjs, tested as a member, an owner and an admin)
+   if(p==='/ui/channels/pause'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const r=await channelsPause({u,body:b,ownsAgent,profiles:listAllProfiles,setChannelOn});return send(res,r.status,r.body)}
    if(p==='/ui/channels/move'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can move channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     try{return send(res,200,await channels.move(String(b.platform||''),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}   // the pause, sharing and note follow in channels' moved hook
    // QR codes (WhatsApp linking…): drawn here with the qrcode library that ships with the engine

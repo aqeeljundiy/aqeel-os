@@ -10,7 +10,7 @@ const src=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8');
 // the text of the handler that starts at a route test, up to the next route test at the same level
 const handler=(route)=>{const i=src.indexOf("p==='"+route+"'");assert.ok(i>=0,'route not found: '+route);return src.slice(i,i+900)};
 
-const OWN=['/ui/mcp/server','/ui/share/rename-mcp','/ui/channels/reconnect','/ui/channels/pause'];
+const OWN=['/ui/mcp/server','/ui/share/rename-mcp','/ui/channels/reconnect'];   // /ui/channels/pause is tested by what it does (route-handlers.test.mjs: member 403, owner and admin 200)
 const ADMIN_ONLY=['/ui/channels'];   // every agent's channels at once
 
 test('own-agent routes: an admin or the agent\'s owner',()=>{

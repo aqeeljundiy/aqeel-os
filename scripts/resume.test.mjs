@@ -216,7 +216,7 @@ test('a task in a web chat while a reply runs there, or while the provider is do
 
 test('background tasks are wired: read from the engine’s ledger on the tick, before aqeelOS restarts the engine, and counted on Health',()=>{
  const rd=f=>readFileSync(new URL(f,import.meta.url),'utf8'),s=rd('../app/server.mjs'),e=rd('../app/resume-engine.mjs');
- assert.ok(s.includes("resume.sync(dl,'deleg')")&&s.includes("probeDeleg:e=>resumeEng.probeDeleg(e)")&&s.includes('await syncDelegs().catch(()=>{});'),'tick, probe and the moment before an own restart');
+ assert.ok(s.includes("resume.sync(dl,'deleg')")&&s.includes("probeDeleg:e=>resumeEng.probeDeleg(e)")&&s.includes('await beforeEngineStop({syncDelegs'),'tick, probe and the moment before an own restart (behaviour: route-handlers.test.mjs)');
  assert.ok(e.includes('from async_delegations')&&e.includes('delegation_id')&&e.includes('mode=ro'),'read-only, the engine’s own ledger');
  assert.equal(healthLine({at:T0,chats:0,schedules:0,delegs:2,helpers:0,failed:[],waiting:0},{tz:'Asia/Jakarta',now:T0+6e4}),'Restarted at 00:10: 2 background tasks continued.')});
 
