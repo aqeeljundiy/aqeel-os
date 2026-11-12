@@ -49,6 +49,11 @@ LIMITS=$HOMEC/.aqeelos-agent-limits
 # an optional root-owned list of sha256 sums: when it exists, the watcher installs an updated copy of this script only if
 # its sum is listed (see self_update)
 PIN=${AQ_PIN:-/etc/aqeelos/agent-users.sha256}
+# AUD-15 part 3 (13 Nov 2026): what devtools_fw found and did on its last full pass, for the box user, who has no root and
+# cannot read iptables (devtools_status; Health in app/agent-health.mjs). SELF_SUM: the sum of the copy this bash started
+# from, so a copy left running after a deploy (self_update refused or never ran) shows as a sum other than the app's.
+FWST=$HOMEC/.aqeelos-devtools-fw.json
+SELF_SUM=$(sha256sum < "${BASH_SOURCE[0]}" 2>/dev/null | cut -d' ' -f1)
 
 # root runs commands only from folders that are root's own and that not everyone can write
 if [ "$EUID" = 0 ]; then
@@ -175,15 +180,41 @@ local_fw(){
 # A port of an agent held by another user (someone listening on it while the agent's Chrome sleeps) is that user's alone, so the
 # wake proxy cannot be led to it, and is reported. Looked at every pass of the watcher (5 s); a change is applied at once.
 DEVTOOLS_RX=${AQ_DEVTOOLS_RX:-'--remote-debugging-[p]ort=|/agent-browser|adspower_global|SunBrowser|adspower-bridge[.]mjs|wake-proxy[.]mjs'}
-# what listens, one "<port> <uid> <lo|any> <command line>" per TCP listener (root sees every process)
-devtools_scan(){
-  ss -Hltnpe 2>/dev/null | awk '{a=$4; u=0; p=""
-    for(i=5;i<=NF;i++){ if($i ~ /^uid:[0-9]+$/) u=substr($i,5); if(p=="" && match($i,/pid=[0-9]+/)) p=substr($i,RSTART+4,RLENGTH-4) }
+# what listens, as whoever runs it sees it: "<port> <uid> <lo|any> <inode> <process number or ->" per TCP listener
+devtools_ss(){
+  ss -Hltnpe 2>/dev/null | awk '{a=$4; u=0; p="-"; ino="-"
+    for(i=5;i<=NF;i++){ if($i ~ /^uid:[0-9]+$/) u=substr($i,5); if($i ~ /^ino:[0-9]+$/) ino=substr($i,5); if(p=="-" && match($i,/pid=[0-9]+/)) p=substr($i,RSTART+4,RLENGTH-4) }
     n=split(a,x,":"); port=x[n]; host=substr(a,1,length(a)-length(port)-1)
     sc=(host ~ /^(127[.]|[[]::1[]]|[[]::ffff:127[.])/)?"lo":"any"
-    if(port ~ /^[0-9]+$/ && p!="") print port, u, sc, p}' | sort -u | while read -r port uid sc pid; do
-      printf '%s %s %s %s\n' "$port" "$uid" "$sc" "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | head -c 400 | tr -d '\n')"
-    done
+    if(port ~ /^[0-9]+$/) print port, u, sc, ino, p}' | sort -u
+}
+devtools_cmd(){ tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null | head -c 400 | tr -d '\n'; }
+# "<uid> <inode> <command line>" of each listener (devtools_ss lines on stdin) whose process whoever runs it may see
+devtools_named(){ local port uid sc ino pid; while read -r port uid sc ino pid; do [ -n "$pid" ] && [ "$pid" != - ] && [ "$ino" != - ] && printf '%s %s %s\n' "$uid" "$ino" "$(devtools_cmd "$pid")"; done; }
+devtools_progs(){ devtools_ss | devtools_named; }
+# what listens, one "<port> <uid> <lo|any> <command line>" per TCP listener; no command line when nobody could see the process.
+# 13 Nov 2026 (after the first deploy of the rules, on both boxes): root in the ai-box container has no CAP_SYS_PTRACE (Docker's
+# default set, CapEff a80435fb), so ss -p as root names no process for another user's socket and every such line was dropped:
+# only the agents' own Chrome ports (from their port lines) got rules, while the AdsPower bridge (9333), agent-browser, the
+# engine's Chromes and the agents' AdsPower stayed open to every agent. Each user may see its own processes, so a listener root
+# cannot place is looked up as its own user, and only that user's sockets are taken from its answer. A socket keeps its inode
+# while it lives, so what was found (or not) is kept by inode ($RST/.devtools-progs) and looked up again on a full pass ($1=full).
+devtools_scan(){
+  local ss known more u n cache=$RST/.devtools-progs
+  ss=$(devtools_ss); [ -n "$ss" ] || return 0
+  known=$(printf '%s\n' "$ss" | devtools_named)
+  [ "${1:-}" != full ] && [ -f "$cache" ] && known+=$'\n'$(cat -- "$cache")
+  for u in $(awk 'NR==FNR { if(NF>=2) c[$1" "$2]=1; next } $2!=0 && $4!="-" && !(($2" "$4) in c) {print $2}' <(printf '%s\n' "$known") <(printf '%s\n' "$ss") | sort -un); do
+    n=$(getent passwd "$u" | cut -d: -f1); [[ "$n" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || continue
+    more=$(as_user "$n" timeout 5 bash -c "$(declare -f devtools_ss devtools_cmd devtools_named devtools_progs); devtools_progs" </dev/null 2>/dev/null | head -c 200000 | awk -v u="$u" '$1==u')
+    [ -n "$more" ] && known+=$'\n'$more
+  done
+  # each listener's command line from the first view that saw it: root's own, the kept ones, then its user's; one nobody could
+  # see is kept as "<uid> <inode>", so a plain pass does not ask again for it
+  known=$(awk 'NR==FNR { if(NF>=3 && !(($1" "$2) in c)) c[$1" "$2]=$0; next } { k=$2" "$4; if(k in c) print c[k]; else if($2!=0 && $4!="-") print $2, $4 }' <(printf '%s\n' "$known") <(printf '%s\n' "$ss") | sort -u)
+  mkdir -p "$RST" 2>/dev/null && printf '%s\n' "$known" > "$cache"
+  awk 'NR==FNR { if(NF>=3){ v=$0; sub(/^[^ ]+ +[^ ]+ +/,"",v); c[$1" "$2]=v } next }
+    { k=$2" "$4; if(k in c) print $1, $2, $3, c[k]; else print $1, $2, $3 }' <(printf '%s\n' "$known") <(printf '%s\n' "$ss")
 }
 # each agent with its own user: "A <agent> <outer port> <inner port> <its user number>"
 devtools_agents(){
@@ -221,22 +252,29 @@ devtools_rules(){
 }
 # applies them: what is missing is added, what is no longer wanted removed (after the adds), for iptables and ip6tables. $1=full:
 # every rule is looked for again (the watcher does this once a minute), else only a change is applied. Safe to run again.
+# Since AUD-15 part 3 (13 Nov 2026) it fails loudly: a command iptables refused is kept with its error (FW_ERR), a missing tool
+# is a failure too (it returned "fine" before), and each full pass writes the status file the box user can read (devtools_status).
 devtools_fw(){
-  command -v iptables >/dev/null 2>&1 && command -v ss >/dev/null 2>&1 || return 0
-  local ou wu rules ipt st kind args ok=1 good
-  ou=$(id -u "$OWNER" 2>/dev/null) || return 0; wu=$(id -u "$WAKE_USER" 2>/dev/null || echo -)
-  rules=$( { devtools_agents; devtools_scan | sed 's/^/L /'; } | devtools_rules "$ou" "$wu")
+  local ou wu scan rules ipt st kind args ok=1 good why="" full=${1:-}
+  FW_ERR=""
+  command -v iptables >/dev/null 2>&1 || why="iptables is not installed in the box"
+  command -v ss >/dev/null 2>&1 || why=${why:-"ss (iproute2) is not installed in the box, so what listens cannot be seen"}
+  ou=$(id -u "$OWNER" 2>/dev/null) || why=${why:-"there is no user $OWNER on the box"}
   mkdir -p "$RST"
+  if [ -n "$why" ]; then [ "$full" = full ] && devtools_status "" "" "$why"; devtools_failed "$why"; return 1; fi
+  wu=$(id -u "$WAKE_USER" 2>/dev/null || echo -)
+  scan=$(devtools_scan "$full")
+  rules=$( { devtools_agents; printf '%s\n' "$scan" | sed '/^$/d; s/^/L /'; } | devtools_rules "$ou" "$wu")
   for ipt in iptables ip6tables; do
     command -v "$ipt" >/dev/null 2>&1 || continue
     st="$RST/.devtools.$ipt"; good=1
-    [ "${1:-}" != full ] && [ "$rules" = "$(cat "$st" 2>/dev/null)" ] && continue
+    [ "$full" != full ] && [ "$rules" = "$(cat "$st" 2>/dev/null)" ] && continue
     "$ipt" -N AQ-DEVTOOLS 2>/dev/null; "$ipt" -N AQ-DEVIN 2>/dev/null
-    "$ipt" -C OUTPUT -o lo -p tcp -j AQ-DEVTOOLS 2>/dev/null || "$ipt" -I OUTPUT 1 -o lo -p tcp -j AQ-DEVTOOLS 2>/dev/null || good=0
-    "$ipt" -C INPUT ! -i lo -p tcp -j AQ-DEVIN 2>/dev/null || "$ipt" -I INPUT 1 ! -i lo -p tcp -j AQ-DEVIN 2>/dev/null || good=0
+    "$ipt" -C OUTPUT -o lo -p tcp -j AQ-DEVTOOLS 2>/dev/null || fw_run "$ipt" -I OUTPUT 1 -o lo -p tcp -j AQ-DEVTOOLS || good=0
+    "$ipt" -C INPUT ! -i lo -p tcp -j AQ-DEVIN 2>/dev/null || fw_run "$ipt" -I INPUT 1 ! -i lo -p tcp -j AQ-DEVIN || good=0
     while read -r kind args; do
-      case $kind in OUT) "$ipt" -C AQ-DEVTOOLS $args 2>/dev/null || "$ipt" -A AQ-DEVTOOLS $args 2>/dev/null || good=0 ;;
-                    IN) "$ipt" -C AQ-DEVIN $args 2>/dev/null || "$ipt" -A AQ-DEVIN $args 2>/dev/null || good=0 ;; esac
+      case $kind in OUT) "$ipt" -C AQ-DEVTOOLS $args 2>/dev/null || fw_run "$ipt" -A AQ-DEVTOOLS $args || good=0 ;;
+                    IN) "$ipt" -C AQ-DEVIN $args 2>/dev/null || fw_run "$ipt" -A AQ-DEVIN $args || good=0 ;; esac
     done <<< "$rules"
     # not all in place: nothing is removed and the record stays as it was, so the next pass tries again
     [ "$good" = 1 ] || { [ "$ipt" = iptables ] && ok=0; continue; }
@@ -262,9 +300,50 @@ devtools_fw(){
     [ -f "$RST/.squat-$1-$3" ] && continue; : > "$RST/.squat-$1-$3"
     report "$2" "devtools-port-taken" "another user (number $3) listens on port $1, which belongs to this agent's browser. Only that user may reach it now, and this agent's browser cannot start there until it stops." "Browser port taken"
   done <<< "$rules"
+  [ "$full" = full ] && devtools_status "$rules" "$scan"
   [ "$ok" = 1 ] && { rm -f -- "$RST/.devtools-fw-failed"; return 0; }
-  [ -f "$RST/.devtools-fw-failed" ] || { : > "$RST/.devtools-fw-failed"; report default "devtools-firewall" "the rules that keep each browser's debugging port to its own user could not be applied (iptables refused them). Until they are, every agent's user can control the engine's browsers and the other agents' Chromes." "Browser port rules not applied"; }
+  devtools_failed "iptables refused them: $(head -1 <<< "$FW_ERR")"
   return 1
+}
+# said once (one issue) until the rules are in place again
+devtools_failed(){
+  echo "agent users: BROWSER PORT RULES NOT APPLIED: $1"
+  [ -f "$RST/.devtools-fw-failed" ] || { : > "$RST/.devtools-fw-failed"; report default "devtools-firewall" "the rules that keep each browser's debugging port to its own user could not be applied ($1). Until they are, every agent's user can control the engine's browsers and the other agents' Chromes. What was tried and refused: ~/.aqeelos-devtools-fw.json." "Browser port rules not applied"; }
+}
+# an iptables command; when it fails, the command and its error go to FW_ERR (at most 20 lines, for the status file)
+fw_run(){
+  local e rc; e=$("$@" 2>&1 >/dev/null); rc=$?; [ "$rc" = 0 ] && return 0
+  [ "$(grep -c . <<< "$FW_ERR")" -lt 20 ] && FW_ERR+="$*: $(printf '%s' "${e:-exit $rc}" | tr '\n' ' ' | head -c 300)"$'\n'
+  return "$rc"
+}
+# does this tool load the owner match? A rule that is not there is "Bad rule (does a matching rule exist...)": the match loaded.
+# Any other answer (no xt_owner in the kernel: "No chain/target/match by that name", no extension: "Couldn't load match") is no.
+fw_owner(){
+  local e; e=$("$1" -C OUTPUT -o lo -p tcp -m owner --uid-owner 0 -j RETURN 2>&1 >/dev/null) && { echo yes; return; }
+  case "$e" in *"does a matching rule exist"*) echo yes ;; *) echo "no: $(printf '%s' "${e:-no answer}" | tr '\n' ' ' | head -c 200)" ;; esac
+}
+# JSON array of the lines on stdin (js: no control characters, no backslashes, double quotes made single)
+jlines(){ local l s=""; while IFS= read -r l; do [ -n "$l" ] && s+="${s:+,}\"$(js "$l")\""; done; printf '[%s]' "$s"; }
+# The status file (FWST, ~/.aqeelos-devtools-fw.json, written as the box user): when, the sum of the running copy of this script,
+# ok, why (a missing tool), per tool its version, whether the owner match loads, whether the chains are hooked into OUTPUT and
+# INPUT, the rules wanted, the wanted ones still missing after this pass (iptables -C), what the two chains hold (iptables -S),
+# the commands refused with their errors, and the listeners whose program nobody could see ("<port> <uid> <lo|any>", not root's).
+# Rules and port numbers only: no names, keys or command lines. Read by app/agent-health.mjs; $1 rules, $2 scan, $3 why.
+devtools_status(){
+  local rules=$1 scan=$2 why=${3:-} ipt tools="" ok=true miss hooked unseen n kind args
+  for ipt in iptables ip6tables; do
+    command -v "$ipt" >/dev/null 2>&1 || { tools+="${tools:+,}\"$ipt\":{\"installed\":false}"; continue; }
+    miss=$(while read -r kind args; do case $kind in OUT) "$ipt" -C AQ-DEVTOOLS $args 2>/dev/null || echo "OUT $args" ;; IN) "$ipt" -C AQ-DEVIN $args 2>/dev/null || echo "IN $args" ;; esac; done <<< "$rules")
+    hooked=true; { "$ipt" -C OUTPUT -o lo -p tcp -j AQ-DEVTOOLS && "$ipt" -C INPUT ! -i lo -p tcp -j AQ-DEVIN; } 2>/dev/null || hooked=false
+    { [ -n "$miss" ] || [ "$hooked" = false ]; } && ok=false
+    tools+="${tools:+,}\"$ipt\":{\"installed\":true,\"version\":\"$(js "$("$ipt" --version 2>&1 | head -1)")\",\"owner\":\"$(js "$(fw_owner "$ipt")")\",\"hooked\":$hooked"
+    tools+=",\"wanted\":$(grep -E '^(OUT|IN) ' <<< "$rules" | jlines),\"missing\":$(jlines <<< "$miss"),\"present\":$( { "$ipt" -S AQ-DEVTOOLS; "$ipt" -S AQ-DEVIN; } 2>&1 | head -300 | jlines)}"
+  done
+  [ -n "$why" ] && ok=false
+  [ -n "$FW_ERR" ] && ok=false
+  unseen=$(awk 'NF==3 && $2!=0 {print $1, $2, $3}' <<< "$scan" | sort -n | head -100)
+  n=$(grep -c . <<< "$scan")
+  printf '{"at":%s,"script":"%s","ok":%s,"why":"%s","tools":{%s},"errors":%s,"listeners":%s,"unseen":%s}\n' "$(date +%s)" "$SELF_SUM" "$ok" "$(js "$why")" "$tools" "$(jlines <<< "$FW_ERR")" "${n:-0}" "$(jlines <<< "$unseen")" | own_put "$FWST"
 }
 
 # CR-7 part 2 (13 Nov 2026): the on-box fixer ran as the owner's user, who holds every key. With the fixer's own user (aq-fixer) the

@@ -20,6 +20,8 @@ import {readFile,writeFile,mkdir,rename,readdir,readlink,open,stat} from 'node:f
 import {cpus} from 'node:os';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
+import {createHash} from 'node:crypto';
+import {fileURLToPath} from 'node:url';
 import {checkSkills} from './skill-check.mjs';
 import {personNeed} from './bottlenecks.mjs';
 
@@ -112,7 +114,7 @@ export function overview(agents,items,drops,nameOf=a=>a){const rows=agents.map(a
  for(const x of items){if(['invite','ticket','access'].includes(x.kind))continue;const base=x.agent?String(x.agent).split('--')[0]:null;(base&&idx.get(base)||(base?null:sys))?.problems.push(x)}
  for(const r of rows)r.ok=!r.problems.length;const list=[...rows.filter(r=>!r.ok),...rows.filter(r=>r.ok)];if(sys.problems.length)list.unshift({...sys,ok:false});return list}
 
-export function createAgentHealth({postingLine=async()=>null,pluginLine=()=>null,DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner=null,link,quiet=()=>null,fixFirst=null,fileIssue=null,healthGone=null,customerTools=null,kirimdevAgents=async()=>[],memInfo=readMem,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
+export function createAgentHealth({postingLine=async()=>null,pluginLine=()=>null,DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner=null,link,quiet=()=>null,fixFirst=null,fileIssue=null,healthGone=null,customerTools=null,kirimdevAgents=async()=>[],memInfo=readMem,ps=readPs,fwFile=null,fwScript=ROOT_SCRIPT,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
  const FILE=path.join(DATA,'agent-health.json');let st=null;
  const load=async()=>{if(!st){st=await readStore(FILE);st.told||={};st.seen||={};st.groups||={}}return st};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(st,null,1))};
@@ -187,10 +189,14 @@ print(json.dumps(out))`;
  async function checkFailing(agents){const found=[];for(const a of agents){let jobs=[];try{const d=JSON.parse(await readFile(path.join(home(a),'cron','jobs.json'),'utf8'));jobs=Array.isArray(d)?d:d.jobs||[]}catch{}
   for(const x of failingJobs(a,jobs))found.push({...x,agent:a,kind:'stopped'})}await keep('failing',found)}
  async function checkMemory(){await keep('memory',memProblems(await memInfo()).map(x=>({...x,kind:'memory'})))}
+ // the root script's status of the browser port rules (fwProblems); none on an install without the root script
+ async function checkFirewall(){let s=null,appSum=null,appMtime=0;try{s=JSON.parse(await readFile(fwFile||path.join(path.dirname(HERMES_HOME),FW_STATUS),'utf8'))}catch{}
+  try{const [b,st2]=await Promise.all([readFile(fwScript),stat(fwScript)]);appSum=createHash('sha256').update(b).digest('hex');appMtime=st2.mtimeMs}catch{}
+  await keep('firewall',fwProblems(s,{appSum,appMtime}).map(x=>({...x,kind:'firewall'})))}
  // every 5 minutes on the live app: the checks, then the alert for what is new
  let running=null;
  async function tick(){if(running)return running;running=(async()=>{const agents=(await listAgents()).filter(a=>!a.includes('--'));
-  for(const [n,f] of [['schedules',checkSchedules],['messages',checkDrops],['groups',checkGroups],['processes',checkTwice],['skills',checkSkillFiles],['engine',checkEngine],['tools',checkTools],['customer',checkCustomer],['failing',checkFailing],['memory',checkMemory]])await f(agents).catch(e=>console.warn('health check',n,e.message));
+  for(const [n,f] of [['schedules',checkSchedules],['messages',checkDrops],['groups',checkGroups],['processes',checkTwice],['skills',checkSkillFiles],['engine',checkEngine],['tools',checkTools],['customer',checkCustomer],['failing',checkFailing],['memory',checkMemory],['firewall',checkFirewall]])await f(agents).catch(e=>console.warn('health check',n,e.message));
   await load();const all=await items();const {send,logged,fixed,state}=alertPlan(st,all,Date.now(),{quiet});st.told=state.told;st.seen=state.seen;st.about=state.about||{};st.muted=state.muted||{};
   if(logged.length)console.log('health: not told (restart hold):',logged.map(x=>alertKey(x)+' '+String(x.title||'').slice(0,80)).join(' | '));
   // 7 Nov 2026 (owner: "agents fix themselves"; "people are messaged only when a fix needs a human"): Health tells
@@ -276,6 +282,26 @@ export function failingJobs(agent,jobs=[]){return jobs.filter(j=>j.enabled!==fal
 export function memProblems({used,max,load1,cpus:n},{memMax=0.9,loadMax=2}={}){const out=[];
  if(max&&used/max>memMax)out.push({topic:'health|aqeelos|memory',text:'The box is almost out of memory',detail:Math.round(used/max*100)+'% in use ('+(used/1e9).toFixed(1)+' of '+(max/1e9).toFixed(1)+' GB).'});
  if(n&&load1/n>loadMax)out.push({topic:'health|aqeelos|load',text:'The box is overloaded',detail:'Load '+load1.toFixed(1)+' on '+n+' CPUs.'});
+ return out}
+// AUD-15 part 3 (13 Nov 2026). The root script keeps every browser debugging port to its own user (devtools_fw in
+// scripts/agent-users.sh); after the first deploy an agent's user still reached the AdsPower bridge and nobody could see why: the
+// box user cannot read iptables. Each full pass (once a minute) the root script now writes ~/.aqeelos-devtools-fw.json
+// (devtools_status) and Health shows: the rules not in place (a wanted rule missing, the chains not hooked, a command iptables
+// refused, the owner match not loading, a tool missing), listeners whose program it could not see (not covered by any rule), a
+// running root script whose sum is not the deployed copy's (left running: its update refused or never done), and a status that
+// stopped being written. No status file: no root script on this install, nothing shown.
+export const FW_STATUS='.aqeelos-devtools-fw.json';
+const ROOT_SCRIPT=fileURLToPath(new URL('../scripts/agent-users.sh',import.meta.url));
+export function fwProblems(s,{now=Date.now(),appSum=null,appMtime=0}={}){const out=[],T='health|aqeelos|devtools';
+ if(!s||typeof s!=='object'||!Number.isFinite(s.at))return out;const at=s.at*1000,list=x=>Array.isArray(x)?x.map(String):[];
+ if(now-at>10*60e3)out.push({topic:T+'|stale',text:'Browser port rules not checked lately',detail:'The root script last checked them '+Math.round((now-at)/60e3)+' minutes ago (it does every minute). See whether aq-agent-users still runs (Agents page).'});
+ const tools=Object.entries(s.tools&&typeof s.tools==='object'?s.tools:{}).filter(([,t])=>t&&t.installed),errs=list(s.errors);
+ const missing=tools.flatMap(([n,t])=>list(t.missing).map(r=>n+' '+r)),unhooked=tools.filter(([,t])=>t.hooked===false).map(([n])=>n),noOwner=tools.filter(([,t])=>t.owner&&!/^yes\b/.test(String(t.owner))).map(([n,t])=>n+' '+t.owner);
+ if(s.ok===false||s.why||missing.length||unhooked.length||errs.length||noOwner.length)
+  out.push({topic:T+'|rules',text:'Browser port rules not in place',detail:[s.why&&String(s.why),missing.length&&missing.length+' wanted rule'+(missing.length>1?'s':'')+' missing, e.g. '+missing[0],unhooked.length&&'chains not hooked into OUTPUT/INPUT: '+unhooked.join(', '),noOwner.length&&'owner match: '+noOwner.join('; '),errs.length&&'refused: '+errs[0]].filter(Boolean).join(' · ').slice(0,700)+'. Until they are, agents can reach browsers that are not theirs. Full status: ~/'+FW_STATUS+'.'});
+ const unseen=list(s.unseen);
+ if(unseen.length)out.push({topic:T+'|unseen',text:'Programs listening that the root script cannot see',detail:unseen.length+' listening port'+(unseen.length>1?'s':'')+' ("port user lo|any"): '+unseen.slice(0,8).join(', ')+'. No rule covers them, as it cannot tell whether one is a browser\'s debugging port.'});
+ if(appSum&&s.script&&s.script!==appSum&&at-appMtime>2*60e3)out.push({topic:T+'|script',text:'The root script running is not the deployed copy',detail:'Running '+String(s.script).slice(0,12)+', deployed '+appSum.slice(0,12)+'. Its own update was refused or did not run: the Issues list has "Root script update refused" when root\'s list of allowed copies holds it back.'});
  return out}
 async function tail(f,bytes=1.5e6){let h;try{h=await open(f,'r');const {size}=await h.stat();const n=Math.min(size,bytes);const b=Buffer.alloc(n);await h.read(b,0,n,size-n);return b.toString('utf8')}catch{return ''}finally{await h?.close().catch(()=>{})}}
 async function readMem(){const n=async f=>Number((await readFile(f,'utf8').catch(()=>'')).trim())||0;
