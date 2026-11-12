@@ -450,9 +450,9 @@ test('held twice: the customer gets nothing wrong, a person gets the chat with t
  // the customer hears only the line's own "passed on" text
  assert.equal(t.sent.length,1);assert.match(t.sent[0].text.body,/teruskan ke tim/);assert.ok(!JSON.stringify(t.sent).includes('Budi'))});
 test('another customer\'s number never leaves through whatsapp_reply either; the customer\'s own number and a number the line allows do (audit C1)',async()=>{
- const t=await make({mode:'live',extra:{guard:{phones:['0811-2222-3333']}}});await t.post(meta('6281200001111','halo, nomor saya 0812-0000-1111'));await t.settle();const n=t.sent.length;
- await assert.rejects(t.k.reply('cove-support','6281200001111','Kemarin ada yang pesan juga, nomornya 0857-1111-2222 kak'),/not sent to the customer \(a phone number that is not this customer/);assert.equal(t.sent.length,n);
- await t.k.reply('cove-support','6281200001111','Nomor kakak 0812-0000-1111 sudah kami catat ya. Admin kami: 0811-2222-3333');assert.equal(t.sent.length,n+1)});
+ const t=await make({mode:'live',extra:{guard:{phones:['0812-0000-3333']}}});await t.post(meta('6281200001111','halo, nomor saya 0812-0000-1111'));await t.settle();const n=t.sent.length;
+ await assert.rejects(t.k.reply('cove-support','6281200001111','Kemarin ada yang pesan juga, nomornya 0812-0000-2222 kak'),/not sent to the customer \(a phone number that is not this customer/);assert.equal(t.sent.length,n);
+ await t.k.reply('cove-support','6281200001111','Nomor kakak 0812-0000-1111 sudah kami catat ya. Admin kami: 0812-0000-3333');assert.equal(t.sent.length,n+1)});
 test('the agent wrote nothing, or only pictures aqeelOS does not have: ONE team alert with the chat link, counted for Health, never silence (audit H7)',async()=>{
  const probs=[];const t=await make({mode:'live',agentSays:'',probs,health:true});
  await t.post(meta('628777','halo?','e1','cnv_Q'));await t.settle();await t.post(meta('628777','halo??','e2','cnv_Q'));await t.settle();

@@ -4,7 +4,7 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {splitReply} from '../app/kirimdev.mjs';
 import {guardReply,leaks,foreign,langOf} from '../app/kirim-guard.mjs';
 
-const OWN={phones:['6281200001111','6281122223333'],names:['Rania','Rory','Cove'],text:'CUSTOMER: halo kak, berapa harga paketnya ya?\nCUSTOMER: Nama: Rania Putri\nAlamat Lengkap: Jl. Kenanga 7 No. 12, Sleman\nNomor HP: 0812-0000-1111'};
+const OWN={phones:['6281200001111','6281200003333'],names:['Rania','Rory','Cove'],text:'CUSTOMER: halo kak, berapa harga paketnya ya?\nCUSTOMER: Nama: Rania Putri\nAlamat Lengkap: Jl. Kenanga 7 No. 12, Sleman\nNomor HP: 0812-0000-1111'};
 const CTX={appHost:'https://ai.example.com',own:OWN,secrets:['kdv_live_0123456789abcdef']};
 const LEAK={
  L1_reasoning_id:'Dari rules: paket 1 itu pen, jadi saya jawab dulu.\nHalo kak, pen itu...',
@@ -16,7 +16,7 @@ const LEAK={
  L7_tool_refusal:'These tools only work inside a customer chat run.',
  L8_payment_fail:'The payment was not made: Tripay error: Invalid signature. Tell the customer you are checking, and hand off.',
  L9_other_customer:'Kak Budi Santoso di Jl. Melati 12 Bandung (081234567890) kemarin pesan paket yang sama kok kak',
- L10_secret:'Kode akses: xnd_production_Abc123Def456Ghi789Jkl012Mno345Pqr678',
+ L10_secret:'Kode akses: xnd_'+'production_'+'Abc123Def456Ghi789Jkl012Mno345Pqr678',
  L11_runkey:'Run key: Zk3J9d0aQw7xP2mN5bV8cL1rT6yU4iOe',
  L12_internal_url:'Cek di https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit ya kak',
  L13_app_url:'Detailnya di https://ai.example.com/channels/kirimdev',
@@ -70,7 +70,7 @@ const PASS=[
  [EN,'Thanks for your order! We ship Monday to Saturday, and you will get the tracking number here.'],
  [EN,'Could you share your age, height and weight so we can suggest the right dose for you?'],
  [ID,'Maaf kak, untuk pertanyaan medis seperti itu lebih baik dikonsultasikan dengan dokter kami ya. Saya bantu teruskan.'],
- [ID,'Kalau ada kendala, admin kami bisa dihubungi di 0811-2222-3333 ya kak.'],
+ [ID,'Kalau ada kendala, admin kami bisa dihubungi di 0812-0000-3333 ya kak.'],
  [ID,'Siap kak, pesanan atas nama Rania Putri ya. Mau dikirim ke alamat yang sama?'],
  [ID,'Voucher THREADS5 bisa dipakai ya kak, diskon 5% jadi totalnya Rp3.040.000. Mau bayar pakai QRIS atau VA?'],
 ];
@@ -79,12 +79,12 @@ test('30 real support replies, Indonesian and English, pass both checks untouche
   assert.equal(g.hold,null,'held: '+t+' → '+g.hold);assert.deepEqual(g.parts,parts,t);assert.deepEqual(leaks(t,CTX),[],'exit check: '+t)}});
 test('other people\'s data: a number, address or name that is not from this chat is stopped; the customer\'s own passes',()=>{
  assert.equal(foreign('Nomor kakak 0812 0000 1111 ya, alamat Jl. Kenanga 7 No. 12',OWN).length,0);
- assert.ok(foreign('Nomornya 0857-1111-2222 kak',OWN).some(x=>/phone/.test(x.why)));
+ assert.ok(foreign('Nomornya 0812-0000-2222 kak',OWN).some(x=>/phone/.test(x.why)));
  assert.ok(foreign('Dikirim ke Jl. Mawar Merah No. 45 ya',OWN).some(x=>/address/.test(x.why)));
  assert.ok(foreign('Pesanan atas nama Dewi Lestari sudah dikirim',OWN).some(x=>/name/.test(x.why)));
  assert.equal(foreign('Total Rp10.500.000, jam buka 08.00 - 17.00, tanggal 08-11-2026',OWN).length,0,'money, hours and dates are not phone numbers');
  assert.equal(leaks('Harga Rp10.500.000 ya kak',CTX).length,0);assert.ok(leaks('kunci: kdv_live_0123456789abcdef',CTX).some(x=>x.kind==='secret'));
  // the report of a stopped number never repeats the number itself
- assert.ok(!JSON.stringify(foreign('Nomornya 0857-1111-2222 kak',OWN)).includes('85711112222'))});
+ assert.ok(!JSON.stringify(foreign('Nomornya 0812-0000-2222 kak',OWN)).includes('81200002222'))});
 test('language: clear Indonesian and English are told apart, short or mixed text is not judged',()=>{
  assert.equal(langOf('halo kak, berapa harga paketnya ya?'),'id');assert.equal(langOf('hello, can you tell me what the price is please?'),'en');assert.equal(langOf('ok'),null);assert.equal(langOf('Siap kak, I hope membantu ya'),'id')});

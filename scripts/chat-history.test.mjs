@@ -5,13 +5,13 @@ import {mkdtemp,writeFile} from 'node:fs/promises';import {tmpdir} from 'node:os
 import {createChatHistory,mask,searchAnswers,searchMine,parseLines,namesIn} from '../app/chat-history.mjs';
 
 const L=(c,dir,x,at)=>JSON.stringify({conversation_id:c,direction:dir,content:x,created_at:at});
-const FORM='Nama: Dewi Lestari\nEmail: dewi.lestari@example.com\nNomor HP: 0857-1111-2222\nAlamat Lengkap: Jl. Mawar Merah No. 45, RT 03/RW 07, Bandung 40123\nPesanan: 1x Reta 10mg\nTotal Pembayaran: Rp3.040.000';
+const FORM='Nama: Dewi Lestari\nEmail: dewi.lestari@example.com\nNomor HP: 0812-0000-2222\nAlamat Lengkap: Jl. Mawar Merah No. 45, RT 03/RW 07, Bandung 40123\nPesanan: 1x Reta 10mg\nTotal Pembayaran: Rp3.040.000';
 const FILE=[
  L('cnv_other','inbound','Halo kak, saya Dewi. Alamat lengkap saya Jl. Mawar Merah No. 45 Bandung, dosis 2 mg aman untuk diabetes saya?','2026-10-01T02:00'),
  L('cnv_other','outbound','Halo Kak Dewi 😊 Untuk dosis awal 2 mg per minggu ya, sebaiknya konsultasi dokter dulu untuk kondisi diabetes.','2026-10-01T02:01'),
  L('cnv_other','inbound',FORM,'2026-10-01T02:05'),
  L('cnv_other','outbound','Terima kasih kak, berikut order formnya:\n'+FORM+'\nSudah benar ya?','2026-10-01T02:06'),
- L('cnv_other','outbound','Paket untuk Dewi Lestari dikirim ke Jl. Mawar Merah No. 45, RT 03/RW 07, kurir akan hubungi 0857-1111-2222 atau dewi.lestari@example.com, resi 12345678901','2026-10-01T03:00'),
+ L('cnv_other','outbound','Paket untuk Dewi Lestari dikirim ke Jl. Mawar Merah No. 45, RT 03/RW 07, kurir akan hubungi 0812-0000-2222 atau dewi.lestari@example.com, resi 12345678901','2026-10-01T03:00'),
  L('cnv_other2','inbound','1 vial berapa cartridge kak?','2026-10-02T01:00'),
  L('cnv_other2','outbound','1 vial = 2 cartridge ya kak, harganya Rp3.200.000','2026-10-02T01:01'),
  L('cnv_mine','inbound','Kemarin saya tanya soal pen, alamat saya Jl. Kenanga 7','2026-10-03T01:00'),
@@ -19,10 +19,10 @@ const FILE=[
 ].join('\n');
 async function make(){const d=await mkdtemp(path.join(tmpdir(),'ch-'));await writeFile(path.join(d,'a.jsonl'),FILE);
  await writeFile(path.join(d,'chat-history.json'),JSON.stringify({agents:{a1:{files:[path.join(d,'a.jsonl')]}}}));return createChatHistory({DATA:d,log:()=>{}})}
-const PRIVATE=[/Dewi/,/Lestari/,/Mawar/,/0857/,/1111-2222/,/example\.com/,/RT 03/,/40123/,/12345678901/,/diabetes saya/,/Alamat Lengkap:/i,/Nomor HP:/i];
+const PRIVATE=[/Dewi/,/Lestari/,/Mawar/,/0812-0000-2222/,/81200002222/,/example\.com/,/RT 03/,/40123/,/12345678901/,/diabetes saya/,/Alamat Lengkap:/i,/Nomor HP:/i];
 
 test('a search across other chats returns the team\'s answers only: no customer text, no names, numbers, addresses or forms',async()=>{const h=await make();
- for(const q of ['alamat','Alamat Lengkap','dewi','dosis diabetes','nama email','0857 1111','081234567890','mawar','paket dikirim']){const r=await h.find('a1',q,{limit:15});
+ for(const q of ['alamat','Alamat Lengkap','dewi','dosis diabetes','nama email','0812 0000','081234567890','mawar','paket dikirim']){const r=await h.find('a1',q,{limit:15});
   const body=r.text.split('\n\n').slice(1).join('\n\n');   // after the first line, which repeats the words searched for
   for(const p of PRIVATE)assert.doesNotMatch(body,p,'query "'+q+'" leaked '+p);
   assert.doesNotMatch(r.text,/CUSTOMER:/,q);assert.ok(!/\d{8,}/.test(r.text.replace(/\D*\d{4}-\d{2}\D/g,' ')),'a long digit run for "'+q+'"')}

@@ -83,7 +83,7 @@ test('the protocol as text: this chat\'s one member only; two members on one num
  const two=await member({members:[{id:1,phone:'6281234567890',displayName:'Ani'},{id:2,whatsappNumber:'081234567890',displayName:'Budi'}],protocols:PROTO});
  for(const f of [two.make,two.make.text]){const r=await f('cove-support','6281234567890',CFG);assert.match(r.none,/More than one member/);assert.equal(r.text,undefined);assert.equal(r.pdf,undefined)}
  assert.ok(!two.calls.some(c=>/customers\/\d+$/.test(c[1])),'neither member\'s profile was even read');
- assert.match((await (await member()).make.text('cove-support','628999000111',CFG)).none,/No member/)});
+ assert.match((await (await member()).make.text('cove-support','6280000000009',CFG)).none,/No member/)});
 test('a member list that came back in part cannot prove "exactly one member": nothing is given',async()=>{
  for(const raw of [{customers:[{id:7,phone:'081234567890'}],total:240},{data:[{id:7,phone:'081234567890'}],pagination:{totalPages:3}},{customers:[{id:7,phone:'081234567890'}],hasMore:true},{data:[{id:7,phone:'081234567890'}],nextCursor:'abc'}]){
   const m=await member({members:raw,protocols:PROTO});assert.match((await m.make('cove-support','6281234567890',CFG)).none,/only part of its member list/);assert.match((await m.make.text('cove-support','6281234567890',CFG)).none,/only part/)}
