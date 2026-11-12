@@ -73,7 +73,8 @@ async function rig(){
  const http=httpServer((q,s)=>{s.writeHead(404);s.end()});http.on('upgrade',(q,s,h)=>link.upgrade(q,s,h).catch(()=>s.destroy()));
  await new Promise(r=>http.listen(0,'127.0.0.1',r));const port=http.address().port;
  // a browser's WebSocket: the handshake's answer, then the frames it receives
- function open(agent,{cookie,ticket,origin,ads}={}){return new Promise(res=>{const s=connect(port,'127.0.0.1');let buf=Buffer.alloc(0),status=null;const frames=[];
+ const opened=[];
+ function open(agent,{cookie,ticket,origin,ads}={}){return new Promise(res=>{const s=connect(port,'127.0.0.1');opened.push(s);let buf=Buffer.alloc(0),status=null;const frames=[];
   const q=new URLSearchParams({agent,...(ticket?{ticket}:{}),...(ads?{screen:'ads'}:{})});
   s.on('connect',()=>s.write(`GET /screen/websockify?${q} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${randomBytes(16).toString('base64')}\r\nSec-WebSocket-Protocol: binary\r\n${cookie?'Cookie: hui='+cookie+'\r\n':''}${origin?'Origin: '+origin+'\r\n':''}\r\n`));
   s.on('data',d=>{buf=Buffer.concat([buf,d]);if(status===null){const i=buf.indexOf('\r\n\r\n');if(i<0)return;const head=buf.subarray(0,i).toString();status=Number(head.split(' ')[1]);buf=buf.subarray(i+4);res({s,status,head,frames})}
@@ -81,7 +82,7 @@ async function rig(){
   s.on('close',()=>{if(status===null)res({s,status:0,frames})});s.on('error',()=>{})})}
  const send=(s,text)=>{const p=Buffer.from(text),m=randomBytes(4);s.write(Buffer.concat([Buffer.from([0x82,0x80|p.length]),m,Buffer.from(p.map((b,i)=>b^m[i%4]))]))};
  const ticketFor=(cookie,agent,ads=false)=>tickets.issue(req(cookie),agent,{ads});
- const close=()=>{http.close();http.closeAllConnections?.();vnc.a.srv.close();vnc.b.srv.close()};
+ const close=()=>{for(const s of opened)s.destroy();http.close();http.closeAllConnections?.();vnc.a.srv.close();vnc.b.srv.close()};
  return {open,send,ticketFor,vnc,people,close}}
 const wait=(f,ms=3000)=>new Promise((res,rej)=>{const t0=Date.now();const i=setInterval(()=>{if(f()){clearInterval(i);res()}else if(Date.now()-t0>ms){clearInterval(i);rej(new Error('timed out'))}},20)});
 

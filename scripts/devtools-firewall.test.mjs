@@ -40,7 +40,7 @@ test('the rules: each debugging port is its own user\'s (and root\'s and the box
  assert.deepEqual(r.out.split('\n'),[
   R(9333),                       // the AdsPower bridge: the engine only
   R(9600,999,2015),              // a1's own address: a1 (and the proxy that holds it)
-  R(9601,2016),                  // a2's own address while it sleeps: a2 only
+  R(9601,999,2016),              // a2's own address while it sleeps: a2 (and the proxy that holds it)
   R(19600,999,2015),             // a1's Chrome: a1 and the wake proxy
   R(19601),                      // a2's Chrome port, held by the box user's leftover: nobody else (not a2, not the proxy)
   'SQUAT 19601 a2 1001',

@@ -66,7 +66,8 @@ export function pipeWs(sock,up,head,onEnd){let done=false;
  const read=wsReader(d=>{if(!done&&!up.write(d))sock.pause()},(k,p)=>{if(k==='ping'){sock.write(wsFrame(p,10));return}if(k==='pong')return;end(k==='close'?1000:1002);return false});
  up.on('drain',()=>sock.resume());sock.on('drain',()=>up.resume());
  up.on('data',d=>{if(!sock.write(wsFrame(d)))up.pause()});
- sock.on('data',read);if(head?.length)read(head);
+ // the upgraded socket comes paused from the HTTP server: a 'data' listener alone does not start it
+ sock.on('data',read);if(head?.length)read(head);sock.resume();
  up.on('close',()=>end(1000));sock.on('close',()=>end());up.on('error',()=>end(1011));sock.on('error',()=>end());
  return end}
 
