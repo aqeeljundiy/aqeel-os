@@ -23,7 +23,11 @@
 // Rules: an entry is continued once (claimed on disk before the call; what happened is read from the engine before any
 // second try), nothing older than the limit (2 h unless the install says otherwise), three interruptions of the same
 // thing and it stops, a provider that does not answer is tried again later instead of dropped.
-// The rules are pure and tested (scripts/resume.test.mjs); the engine side is resume-engine.mjs; server.mjs wires both.
+// A thing that waited five minutes (the engine does not answer, or keeps refusing) becomes one Health item (topic resume-waiting) that goes
+// when nothing waits; an engine that does not answer is asked again after 30 s, 1 and 2 minutes. A schedule run started again by us and cut
+// again keeps its count (j.chain), so three cuts in a row stop it. A chat given up on is told so (peekFor) for a day.
+// The rules are pure and tested (scripts/resume.test.mjs, resume-stuck.test.mjs); the engine side is resume-engine.mjs; server.mjs wires both.
+// The whole chain, with the real app killed with SIGKILL, is proven by scripts/resume-e2e.test.mjs (fake engine, no network).
 import {storeHooks} from './store.mjs';
 import {readFileSync,writeFileSync,mkdirSync,renameSync,unlinkSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
@@ -131,11 +135,13 @@ export function healthLine(last,{tz='',now=Date.now()}={}){if(!last||!last.at||n
  const all=[cont,bad,wait].filter(Boolean);return head+(all.length?all.join(', ')+'.':'nothing was in progress.')}
 
 /* ---------- the journal and the pass ---------- */
-const BACKOFF=[60e3,120e3,300e3,600e3];
+const BACKOFF=[60e3,120e3,300e3,600e3],READY_BACKOFF=[30e3,60e3,120e3];
 export function createResume({DATA,actMs=180e3,now=()=>Date.now(),log=m=>console.log(m),on=true,maxAge=()=>7200e3,tz=()=>'',stagger=4000,sleep=ms=>new Promise(r=>setTimeout(r,ms)),
  // ready(): the app and the engine answer. probe*/act*: see the plans above. Each act answers {ok} | {retry,why} | {fail,why}
  ready=async()=>true,probeChat=async()=>null,sendChat=async()=>({fail:true,why:'not wired'}),probeRun=async()=>null,triggerRun=async()=>({fail:true,why:'not wired'}),
- probeChannel=async()=>null,probeDeleg=async()=>null,probeFixer=async()=>null,kickFixer=async()=>({ok:true}),nameOf=a=>a}={}){
+ probeChannel=async()=>null,probeDeleg=async()=>null,probeFixer=async()=>null,kickFixer=async()=>({ok:true}),nameOf=a=>a,
+ // health: the bottlenecks list (System › Health): one item while interrupted things have waited stuckAfter (5 minutes) without being continued
+ health=null,stuckAfter=300e3,backoff=false}={}){
  const FILE=path.join(DATA,'resume','journal.json'),NOTE=path.join(DATA,'resume','planned.json'),PROC=randomBytes(6).toString('hex');
  let j=null;
  const load=()=>{if(j)return j;try{j=JSON.parse(readFileSync(FILE,'utf8'))}catch(e){j=null;if(e.code!=='ENOENT'){const keep=FILE+'.corrupt-'+now();try{renameSync(FILE,keep)}catch{}log('resume: the journal could not be read ('+e.message+'); it is kept as '+path.basename(keep)+' and a new one starts');try{storeHooks.bad?.(FILE,'kept as '+path.basename(keep)+': '+e.message)}catch{}}}if(!j||typeof j!=='object'||!Array.isArray(j.entries))j={v:1,entries:[],done:[],last:null};j.done||=[];return j};
@@ -145,7 +151,9 @@ export function createResume({DATA,actMs=180e3,now=()=>Date.now(),log=m=>console
  const drop=e=>{j.entries=j.entries.filter(x=>x!==e)};
  const what=e=>e.kind==='chat'?nameOf(e.agent)+'’s chat'+(e.userName?' with '+e.userName:''):e.kind==='channel'?nameOf(e.agent)+'’s '+(e.platform||'channel')+' chat':e.kind==='schedule'?'“'+(e.name||e.job)+'”':e.kind==='deleg'?nameOf(e.agent)+'’s background task “'+(e.title||e.deleg)+'”':'fixer run '+(e.run||'');
  const event=(why,at)=>{load();if(!j.last||Math.abs(at-j.last.at)>10*60e3)j.last={at,why,chats:0,schedules:0,delegs:0,helpers:0,failed:[],waiting:0};else if(why==='update')j.last.why='update';return j.last};
- const finish=(e,result,why='')=>{drop(e);j.done.push({id:e.id,kind:e.kind,agent:e.agent,what:what(e),result,why,at:now(),...(e.kind==='channel'?{key:e.key,mk:e.mk}:{})});j.done=j.done.slice(-200);
+ const finish=(e,result,why='')=>{drop(e);j.done.push({id:e.id,kind:e.kind,agent:e.agent,what:what(e),result,why,at:now(),...(e.kind==='channel'?{key:e.key,mk:e.mk}:{}),...(e.kind==='chat'?{session:e.session,user:e.user,cause:e.why}:{}),...(e.kind==='schedule'?{exec:e.exec}:{})});
+  // a schedule run that was started again by us and is cut again is the SAME interruption: its count goes on (a replacement run is a new row in the engine's ledger)
+  if(e.kind==='schedule'){const k=e.agent+'|'+e.job;if(result==='resumed')(j.chain||={})[k]={n:e.n||1,cut0:e.cut0||e.cutAt||e.at,at:now()};else if(j.chain)delete j.chain[k]}j.done=j.done.slice(-200);
   if(result==='resumed'||result==='gaveup'){const L=event(e.why||'restart',e.cutAt||now());if(result==='resumed')L[e.kind==='chat'||e.kind==='channel'?'chats':e.kind==='schedule'?'schedules':e.kind==='deleg'?'delegs':'helpers']++;else L.failed.push({what:what(e),why})}
   if(result!=='skipped'||why!=='it finished')log('resume: '+what(e)+' '+(result==='resumed'?'continued':result==='gaveup'?'not continued: '+why:'left alone: '+why))};
 
@@ -159,9 +167,18 @@ export function createResume({DATA,actMs=180e3,now=()=>Date.now(),log=m=>console
   log('resume: '+what(e)+' was interrupted by '+(why==='update'?'an update':'a restart')+'; it continues by itself');return true}
  // the engine's runs (schedules, fixer runs) seen in progress now: [{kind:'schedule',agent,exec,job,name,since}|{kind:'fixer',run,pid}]
  // new ones are journaled; ones no longer in progress are looked at by the next pass (finished = dropped quietly)
- function sync(list,kind){if(!on)return 0;load();let changed=0;const key=x=>kind==='schedule'?x.agent+'|'+x.exec:kind==='deleg'?x.agent+'|'+x.deleg:String(x.run);const seen=new Set(list.map(key));
-  for(const x of list){if(j.entries.some(e=>e.kind===kind&&key(e)===key(x)))continue;
-   j.entries.push({id:randomBytes(8).toString('hex'),kind,...x,at:now(),state:'open',n:0});changed++}
+ function sync(list,kind){if(!on)return 0;load();let changed=0;
+  const chain=x=>{const c=kind==='schedule'&&j.chain?.[x.agent+'|'+x.job];return c&&now()-c.at<maxAge()&&(Date.parse(x.since)||0)>=c.at-60e3?{n:c.n,cut0:c.cut0}:{n:0}};
+  const key=x=>kind==='schedule'?x.agent+'|'+x.exec:kind==='deleg'?x.agent+'|'+x.deleg:String(x.run);
+  // a run the ledger still calls running whose owner process is gone was cut by an engine restart that never closed it (RES-1 end-to-end test, 12 Nov 2026: such a
+  // run stayed "open" for ever and was never continued); one that started longer ago than the limit is an old leftover and is not touched
+  const gone=x=>x.ownerLive===false,seen=new Set(list.filter(x=>!gone(x)).map(key)),old=now()-maxAge();
+  for(const x of list){const have=j.entries.find(e=>e.kind===kind&&key(e)===key(x));
+   if(gone(x)){if(have){if(have.state==='open'){have.state='cut';have.cutAt=now();have.cut0||=have.cutAt;have.why=have.why||j.planned?.why||'restart';have.quiet=true;changed++}continue}
+    const t0=Date.parse(x.since)||x.since||0;if(!t0||t0<old||j.done.some(d=>d.kind===kind&&d.agent===x.agent&&d.exec===x.exec))continue;const{ownerLive,...rest}=x;   // already dealt with: not looked at again
+    j.entries.push({id:randomBytes(8).toString('hex'),kind,...rest,at:now(),state:'cut',...chain(x),cutAt:now(),cut0:chain(x).cut0||t0,why:'restart',quiet:true});changed++;continue}
+   if(have)continue;const{ownerLive,...rest}=x;
+   j.entries.push({id:randomBytes(8).toString('hex'),kind,...rest,at:now(),state:'open',...chain(x)});changed++}
   for(const e of j.entries)if(e.kind===kind&&e.state==='open'&&!seen.has(key(e))){e.state='cut';e.cutAt=now();e.cut0||=e.cutAt;e.why=e.why||j.planned?.why||'restart';e.quiet=true;changed++}
   if(changed)save();return changed}
  // the engine's channel chats (Telegram, WhatsApp, ...) it has marked as cut off by a restart now: [{agent,key,platform,session,markedAt (ms)}].
@@ -194,12 +211,16 @@ export function createResume({DATA,actMs=180e3,now=()=>Date.now(),log=m=>console
   const L=event(why,at);L.boot=true;delete j.planned;save();
   log('resume: aqeelOS started after '+(why==='update'?'an update':'a restart')+'; '+(n?many(n,'reply','replies')+' to continue':'no reply was in progress'));return n}
 
- let running=null;
+ let running=null,readyFails=0,readyAt=0;
  // one pass over everything interrupted; safe to call often (one at a time, and each entry is claimed before it is acted on)
  function run(){return running||=pass().finally(()=>{running=null})}
  async function pass(){if(!on)return summary();load();const due=()=>j.entries.filter(e=>e.state==='cut'&&!(e.next>now()));
-  if(!due().length)return summary();
-  if(!await ready().catch(()=>false))return summary();
+  if(!due().length){await watch();return summary()}
+  // an engine that does not answer is asked again after 30 s, 1 and 2 minutes (not every tick), and what has waited five minutes becomes one Health item
+  if(backoff&&now()<readyAt)return summary();
+  if(!await ready().catch(()=>false)){readyAt=now()+READY_BACKOFF[Math.min(readyFails++,READY_BACKOFF.length-1)];   // (backoff: the app turns it on; a caller that asks once is never held back)
+  await watch('the engine is not answering');return summary()}
+  readyFails=0;readyAt=0;
   const order={chat:0,channel:0,deleg:1,schedule:1,fixer:2},list=due().sort((a,b)=>order[a.kind]-order[b.kind]||a.at-b.at),cfg={maxAge:maxAge(),tz:tz()};let acted=0;
   for(const e of list){if(e.state!=='cut')continue;let p=null,plan;
    try{p=await ({chat:probeChat,channel:probeChannel,schedule:probeRun,deleg:probeDeleg}[e.kind]||probeFixer)(e)}catch(er){log('resume: probe failed for '+what(e)+': '+er.message)}
@@ -225,13 +246,22 @@ export function createResume({DATA,actMs=180e3,now=()=>Date.now(),log=m=>console
    else if(r?.skip){finish(e,'skipped',r.why||'');save()}
    else if(r?.retry){e.state='cut';e.n--;later(e,r.why||'the provider did not answer')}
    else{finish(e,'gaveup',r?.why||'it could not be started');save()}}
-  return summary()}
+  await watch();return summary()}
+ // the one Health item: interrupted things that have waited a while, said once and taken away when nothing waits any more
+ async function watch(why=''){if(!health)return;const w=load().entries.filter(e=>e.state==='cut'||e.state==='resuming'),old=w.reduce((m,e)=>Math.min(m,e.cut0||e.cutAt||e.at),Infinity);
+  if(!w.length||now()-old<stuckAfter){if(j.stuck){delete j.stuck;save();await health.resolve('resume-waiting').catch(()=>{})}return}
+  if(j.stuck)return;j.stuck={at:now(),n:w.length};save();
+  await health.event('resume',many(w.length,'interrupted thing')+' could not be continued yet',(why||w.find(e=>e.lastWhy)?.lastWhy||'it is waiting')+'. '+w.slice(0,3).map(what).join(', ')+(w.length>3?' and '+(w.length-3)+' more':'')+' continues by itself as soon as it can, and for up to '+ageWhy(maxAge()).replace('older than ','')+'.',{topic:'resume-waiting'}).catch(()=>{})}
  function later(e,why){e.waits=(e.waits||0)+1;e.next=now()+BACKOFF[Math.min(e.waits-1,BACKOFF.length-1)];e.lastWhy=why;save()}
  function summary(){load();const waiting=j.entries.filter(e=>e.state==='cut'||e.state==='resuming').filter(e=>!e.quiet).length;if(j.last&&j.last.waiting!==waiting){j.last.waiting=waiting;save()}return j.last}
 
  const pendingFor=(agent,session)=>{const e=load().entries.find(e=>e.kind==='chat'&&e.agent===agent&&e.session===session&&(e.state==='cut'||e.state==='resuming'));return e?{why:e.why||'restart',at:e.cutAt,user:e.user}:null};
+ // what the chat page is told when it asks (GET /ui/live?peek): still to be continued, or given up on in the last day (the reason; what is left is the person's own Retry)
+ const peekFor=(agent,session)=>{const p=pendingFor(agent,session);if(p)return {user:p.user,peek:{interrupted:p.why}};
+  const d=[...load().done].reverse().find(d=>d.kind==='chat'&&d.agent===agent&&d.session===session&&now()-d.at<24*3600e3);
+  return d&&d.result==='gaveup'?{user:d.user,peek:{gaveUp:d.why||'it could not be continued',cause:d.cause||'restart'}}:null};
  const pending=()=>load().entries.filter(e=>e.state==='cut'||e.state==='resuming').length;
  const inFlight=()=>load().entries.filter(e=>e.state==='open').length;
  // how many things of one kind are in progress now (the maintenance-window restart waits gently for background tasks too)
  const openOf=kind=>load().entries.filter(e=>e.state==='open'&&e.kind===kind).length;
- return {begin,end,cut,sync,syncChannels,beat,planned,boot,run,pendingFor,pending,inFlight,openOf,last:()=>load().last,line:()=>healthLine(load().last,{tz:tz(),now:now()}),entries:()=>load().entries.map(e=>({...e})),_file:FILE}}
+ return {watch,begin,end,cut,sync,syncChannels,beat,planned,boot,run,pendingFor,peekFor,pending,inFlight,openOf,last:()=>load().last,line:()=>healthLine(load().last,{tz:tz(),now:now()}),entries:()=>load().entries.map(e=>({...e})),_file:FILE}}
