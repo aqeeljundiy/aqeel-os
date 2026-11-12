@@ -11,12 +11,13 @@
 //      [SILENT]" ran a full model turn every few minutes for nothing. It becomes a script-only schedule (no model, no
 //      tokens). The engine runs schedule scripts as the box's own user, so the script aqeelOS writes runs the agent's
 //      command as the agent's own user (ssh to 127.0.0.1 with aqeelOS's agent key), never with more rights than before.
-import {readFile,writeFile,readdir,stat,mkdir,chmod} from 'node:fs/promises';
+import {readFile,writeFile,readdir,stat,mkdir,chmod,lstat,open,realpath} from 'node:fs/promises';import {constants as FS} from 'node:fs';
 import {execFile} from 'node:child_process';
 import {createHash,createHmac} from 'node:crypto';
 import path from 'node:path';
 import {echoOf} from './design-guard.mjs';
 import {GATE_PREFIX} from './run-gates.mjs';
+export const SECRET_NAME=/^[A-Z][A-Z0-9_]{1,59}$/;   // a key file in an agent's .secrets (the names saveSecret writes)
 
 export const RETIRED=[
  {id:'wa-bridge',re:/\bbridge\.py\b|wa-agent\/bridge|\b(?:re)?start(?:s|ing)? (?:the )?(?:test |whatsapp |wa |kirimdev )?bridge\b|\bbridge (?:is|looks|seems) (?:down|dead|broken)|\btest bridge\b/i,
@@ -64,10 +65,20 @@ export function createAgentCare({HERMES_HOME,WORK,DATA=null,fpKey=async()=>'',te
   {const cfg=await readFile(path.join(home(a),'config.yaml'),'utf8').catch(()=>'');if(/^\s+\S*(authorization|api[_-]?key|token)\S*:\s*["']?(Bearer\s+)?\*{4,}\w{0,8}["']?\s*$/im.test(cfg))found.push({key:'masked-key',text:'a key in your config.yaml is only a masked copy (stars), so that tool server is refused. Report it with report_bottleneck system true: it needs the real key.'})}
   if(a===base(a)){const sec=path.join(WORK,a,'.secrets');const names=(await readdir(sec).catch(()=>[])).filter(n=>!n.startsWith('.'));
    if(names.length){const r=await asAgent(a,"cd '"+sec+"' 2>/dev/null && for f in *; do [ -f \"$f\" ] && { [ -r \"$f\" ] || echo \"$f\"; }; done");
-    if(r&&r.ok)for(const n of r.out.split('\n').map(x=>x.trim()).filter(Boolean))found.push({key:'secret|'+n,text:'your key '+n+' in .secrets cannot be read by you, so whatever uses it fails. Report it with report_bottleneck system true (aqeelOS fixes file rights).',fix:{secret:path.join(sec,n)}})}}
+    // the names come from the agent's own shell: only one the app itself lists in that folder, spelled like a key name, counts (audit H-4)
+    if(r&&r.ok)for(const n of [...new Set(r.out.split('\n').map(x=>x.trim()).filter(Boolean))].filter(n=>SECRET_NAME.test(n)&&names.includes(n)).slice(0,50))found.push({key:'secret|'+n,text:'your key '+n+' in .secrets cannot be read by you, so whatever uses it fails. Report it with report_bottleneck system true (aqeelOS fixes file rights).',fix:{secret:path.join(sec,n)}})}}
   return found}
  // file rights aqeelOS may fix by itself: a key file in an agent's own .secrets the agent's user cannot read (group rights back)
- async function fixRights(a,found){let fixed=0;const {user}=await own(a);for(const x of found.filter(x=>x.fix?.secret)){try{const st=await stat(x.fix.secret);await chmod(x.fix.secret,(st.mode&0o777)|0o060);if(/^ag-[\w-]+$/.test(user))await run('setfacl',['-m','u:'+user+':rw',x.fix.secret],10000);fixed++}catch{}}return fixed}
+ // Never through a link and never outside that folder: the agent owns the folder, so a name there may be a link to a file of the
+ // server's own user (audit H-4, 12 Nov 2026). The file is opened without following links and its rights changed on that handle.
+ async function fixRights(a,found){let fixed=0;const {user}=await own(a);const sec=path.join(WORK,base(a),'.secrets');
+  for(const x of found.filter(x=>x.fix?.secret)){let fh=null;try{const f=String(x.fix.secret),n=path.basename(f);
+    if(path.dirname(path.resolve(f))!==path.resolve(sec)||!SECRET_NAME.test(n))continue;
+    const dir=await lstat(sec);if(dir.isSymbolicLink()||!dir.isDirectory()||await realpath(sec)!==path.resolve(await realpath(path.join(WORK,base(a))),'.secrets'))continue;
+    const l=await lstat(f);if(l.isSymbolicLink()||!l.isFile()||l.nlink>1)continue;
+    fh=await open(f,FS.O_RDONLY|(FS.O_NOFOLLOW||0));const st=await fh.stat();if(!st.isFile()||st.ino!==l.ino||st.dev!==l.dev)continue;
+    await fh.chmod((st.mode&0o777)|0o060);
+    if(/^ag-[\w-]+$/.test(user))await run('setfacl',['--physical','-m','u:'+user+':rw','--',f],10000);fixed++}catch{}finally{await fh?.close().catch(()=>{})}}return fixed}
  // ---- 3) script-only schedules ----
  // A script that is only aqeelOS's run gate, with nothing of the person's behind it, is no script: the gate (run-gates.mjs) gives every AI
  // schedule one within 10 minutes, and "skip any job that has a script" then skipped every schedule this converter was written for.

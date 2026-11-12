@@ -108,7 +108,7 @@ import {createQuestions} from './questions.mjs';
 import {issueActs,itemActs} from './need-action.mjs';
 import {createBrowserChecks} from './browser-checks.mjs';
 import {createConnections} from './connections.mjs';
-import {createSecretLinks,createLimiter} from './secret-links.mjs';
+import {createSecretLinks,createLimiter,SECRETISH,RISKY} from './secret-links.mjs';
 import {createGoogleShares} from './google-shares.mjs';
 import {createGoogleFiles} from './google-files.mjs';
 import {createGoogleTools,GOOGLE_TOOLS,GOOGLE_TOOL_NAMES} from './google-tools.mjs';   // Google with no terminal (11 Nov 2026)
@@ -1521,7 +1521,13 @@ function askSecret(agent,a){return new Promise(resolve=>{const id=randomBytes(9)
 const secretDir=base=>path.join(homedir(),'workspaces',base,'.secrets');
 const secretAccess=createSecretAccess({sharing:shareLevels,secretDir,exists:async f=>!!await stat(f).catch(()=>null)});
 const RESERVED_KEY=/^(API_SERVER_|HERMES_|TELEGRAM_|WHATSAPP_|SLACK_|DISCORD_|SIGNAL_|MATRIX_|EMAIL_|SMS_|TWILIO_|GATEWAY_|DASHBOARD_|UI_)|_BASE_URL$|^(PATH|HOME|NODE_OPTIONS|PYTHONPATH|LD_PRELOAD)$/;
-async function saveSecret(base,name,value,{admin=false}={}){if(!admin&&RESERVED_KEY.test(name))throw new Error(name+' is part of how aqeelOS itself is wired; pick another name for this secret.');const home=base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base);
+// A secret's name is a line in the agent's .env, which the engine (and for the main agent the app itself) loads into its process.
+// So what anyone but an admin saves is held to an allow rule, not a block list (audit H-2, 12 Nov 2026): SECRET_<NAME>, or a name that
+// is plainly a credential and that no program reads to decide how it runs (secret-links.mjs nameProblem, the same rule as its links).
+const memberSecretName=n=>{n=String(n||'').toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,60);return /^SECRET_[A-Z0-9_]{1,54}$/.test(n)?n:('SECRET_'+n).slice(0,60)};
+const plainSecretName=n=>/^SECRET_[A-Z0-9_]{1,54}$/.test(n)||SECRETISH.test(n)&&!RISKY.test(n)&&!RESERVED_KEY.test(n)&&/^[A-Z][A-Z0-9_]{2,59}$/.test(n);
+async function saveSecret(base,name,value,{admin=false}={}){if(!admin&&RESERVED_KEY.test(name))throw new Error(name+' is part of how aqeelOS itself is wired; pick another name for this secret.');
+ if(!admin&&!plainSecretName(name))throw new Error(name+' is not a name for a secret. Use a name that ends in _KEY, _TOKEN, _SECRET or _PASSWORD, or starts with SECRET_.');const home=base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base);
  await editEnv(path.join(home,'.env'),cur=>{const lines=cur.split('\n').filter(l=>!l.startsWith(name+'='));while(lines.length&&lines[lines.length-1]==='')lines.pop();return [...lines,name+'='+value.replace(/[\r\n]/g,''),''].join('\n')});
  const dir=secretDir(base);await mkdir(dir,{recursive:true,mode:0o770});await writeFile(path.join(dir,name),value,{mode:0o660});await secretAccess.saved(base,name)?.catch(()=>{})}   // group-shared: an agent with its own user reads its own lock box; still closed to other agents
 const secretHow=(base,name)=>'To enter it on your screen, click the field and call type_secret with name '+name+'. In a command use "$(cat ~/workspaces/'+base+'/.secrets/'+name+')". Never print, echo or show the value.';
@@ -3433,8 +3439,9 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/mcp/server'||p==='/ui/mcp/keys'){let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
     const ag=String(b.agent||url.searchParams.get('agent')||'default'),ok=x=>send(res,200,x),bad=e=>send(res,e.status||400,{error:e.message});if(!(await agentNames()).includes(ag))return send(res,400,{error:'Unknown agent'});
     if(!ownsAgent(u,ag)||url.searchParams.get('all')==='1'&&!users.isAdmin(u))return send(res,403,{error:'Only an admin or this agent’s owner changes its apps and keys.'});
-    if(p==='/ui/mcp/server'&&req.method==='GET')return mcpEdit.get(ag,String(url.searchParams.get('name')||'')).then(ok,bad);
-    if(p==='/ui/mcp/server'&&req.method==='PUT')return mcpEdit.save(ag,b).then(ok,bad);
+    if(p==='/ui/mcp/server'&&req.method==='GET')return mcpEdit.get(ag,String(url.searchParams.get('name')||''),{own:users.isAdmin(u)}).then(ok,bad);
+    // the same rules as adding an app (/hapi/mcp/servers): a command needs the "unsafe" permission, an address must be public (audit H-3)
+    if(p==='/ui/mcp/server'&&req.method==='PUT')return mcpEdit.save(ag,b,{mayRunCode:users.isAdmin(u)||users.can(u,'unsafe'),own:users.isAdmin(u),privateAddress:users.isAdmin(u)?null:privateAddress,runsCodeMsg:RUNS_CODE_MSG}).then(ok,bad);
     if(p==='/ui/mcp/keys'&&req.method==='GET'){if(url.searchParams.get('all')==='1'){const out=[];for(const a of await agentNames())for(const k of await mcpEdit.keys(a).catch(()=>[]))out.push({...k,agent:a,agentName:NAMES[a]||a});return ok({keys:out})}return mcpEdit.keys(ag).then(k=>ok({keys:k}),bad)}
     if(p==='/ui/mcp/keys'&&req.method==='DELETE')return mcpEdit.removeKey(ag,String(b.key||'')).then(ok,bad);
     return send(res,405,{error:'Not allowed'})}
@@ -3712,7 +3719,8 @@ const server=createServer(async(req,res)=>{
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+base,'GET',new URLSearchParams(),base))return send(res,403,{error:'Not your agent.'});
     const label=String(b.label||'').trim().slice(0,140),value=String(b.value||'');if(!label)return send(res,400,{error:'Say what it is, so the agent knows when to use it.'});if(!value||value.length>8000)return send(res,400,{error:'Type or paste the value.'});
     let name=String(b.name||'').trim().toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);if(!/^[A-Z]/.test(name))name='SECRET_'+name;if(name.length<3)name='SECRET_'+Date.now().toString(36).toUpperCase();
-    if(RESERVED_KEY.test(name)&&!users.isAdmin(u))name='SECRET_'+name;
+    // anyone but an admin writes SECRET_<NAME> only: never a name the engine, a shell or the app reads (BASH_ENV, HTTPS_PROXY, PUBLIC_URL...)
+    if(!users.isAdmin(u))name=memberSecretName(name);
     // a member who may only chat cannot replace a key that already exists and was not given as a secret
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+base+'/soul','PUT',new URLSearchParams(),base)){const envT=await readFile(path.join(base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base),'.env'),'utf8').catch(()=>'');if(new RegExp('^'+name+'=','m').test(envT)&&!await stat(path.join(secretDir(base),name)).catch(()=>null))name='SECRET_'+name}
     try{await saveSecret(base,name,value,{admin:users.isAdmin(u)})}catch(e){return send(res,400,{error:e.message})}console.log('secret saved for',base,'('+name+')');
