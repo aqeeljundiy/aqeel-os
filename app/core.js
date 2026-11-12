@@ -865,6 +865,12 @@ const Late={seen:new WeakMap(),ms:260,
   const z={height:'0px',marginTop:'0px',marginBottom:'0px',paddingTop:'0px',paddingBottom:'0px'};
   n.style.overflow='hidden';const a=n.animate([{...z,opacity:0},{...to,opacity:0,offset:.62},{...to,opacity:1}],{duration:this.ms,easing:'cubic-bezier(.2,.7,.2,1)',id:'late'});
   n._late=a;const done=()=>{if(n._late===a){n.style.overflow='';n._late=null}};a.onfinish=done;a.oncancel=done}};
+/* A part that may arrive after its page is shown keeps the space it took last time (12 Nov 2026: Usage's Spending overview stood in a 120 px placeholder,
+   came 161 px taller, and when the engine was slow enough for the page to be shown without it, everything under it dropped by that much). While its
+   placeholder shows, the part's box is as tall as the part was the last time this browser drew it, so nothing below moves when it lands. */
+const Keep={h(k){const v=(store.get('ph',{})||{})[k];return v>0?v:0},
+ hold(k,el){const h=this.h(k);if(h)el.style.minHeight=h+'px';return h},
+ note(k,el){el.style.minHeight='';if(!el.isConnected)return;const h=Math.round(el.offsetHeight);if(!(h>0))return;const m=store.get('ph',{})||{};if(m[k]!==h){m[k]=h;store.set('ph',m)}}};
 // a list that changes length in place (a filter, a search): its box eases to the new height instead of jumping, and
 // what is below it glides along. fn redraws the box's content.
 function smoothHeight(box,fn){if(!box||calm()||!box.isConnected){fn();return}const h0=box.offsetHeight;fn();const h1=box.offsetHeight;if(Math.abs(h1-h0)<4)return;

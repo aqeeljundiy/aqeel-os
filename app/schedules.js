@@ -222,7 +222,9 @@ async function runRules(ag){let v;try{v=await UI('/ui/run-rules?agent='+encodeUR
 /* ---------- Models › Usage: where the money goes. This month by agent and by schedule, against last month, with a
    warning when the last week costs much more than usual. Subscription use is shown at pay-per-use prices. ---------- */
 {const base=PAGES.usage;PAGES.usage=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false)return;
- const panel=document.createElement('div');panel.className='panel card spend';panel.innerHTML='<h2>Spending overview</h2><p class="sub">Estimated at pay-per-use prices. What a subscription covers is included, so you can see what each part would cost.</p><div class="skel" style="height:120px"></div>';
+ const panel=document.createElement('div');panel.className='panel card spend';panel.innerHTML='<h2>Spending overview</h2><p class="sub">Estimated at pay-per-use prices. What a subscription covers is included, so you can see what each part would cost.</p><div class="skel" style="height:280px"></div>';
+ // the space it took last time (core.js Keep); 280 px before that: three facts and the costliest schedules, what it is on a box busy enough to be slow
+ {const h=Keep.hold('usage.spend',panel);if(h)panel.lastChild.style.height=Math.max(40,h-120)+'px'}
  el.prepend(panel);
  // the agent shown under Showing, or every agent and Help (1 Nov 2026: it showed every agent's totals for one agent too)
  const vl=await viewAgents().catch(()=>[]),who=usageWho(vl);if(gone())return;const agents=who==='*'?[...(vl.length?vl:['default']),HELP_ID]:[who];   /* the same agents as the rest of the page */
@@ -238,7 +240,7 @@ async function runRules(ag){let v;try{v=await UI('/ui/run-rules?agent='+encodeUR
   <div class="sd-facts"><div><small>This month so far</small><b>≈ ${usd(total)}</b></div><div><small>On pace for</small><b>≈ ${usd(total/dayOf*days)}</b></div><div><small>Last month</small><b>${lastT<0.01?'No use yet':'≈ '+usd(lastT)}</b></div></div>
   ${spikes.map(r=>`<div class="tz-note warn">${icon('alert',15)}<span><b>${esc(usageName(r.a))}</b> cost ≈ ${usd(r.wk)} in the last 7 days, about ${Math.round(r.wk/r.prev)}× a usual week.</span></div>`).join('')}
   
-  ${top.length?`<h3 class="sd-h">Costliest schedules this month</h3><div class="sd-runs">${top.map(x=>`<div class="sd-run" style="grid-template-columns:2fr 1fr 1fr" ${x.j?`data-act="spend-open" data-id="${esc(x.j.id)}" data-profile="${esc(x.j.profile||'default')}"`:''}><span>${esc(stripBracket(x.j?.name||x.k))}</span><span>${plural(x.r.runs.length,'run')}</span><span>≈ ${usd(x.r.cost)}</span></div>`).join('')}</div>`:''}`}}
+  ${top.length?`<h3 class="sd-h">Costliest schedules this month</h3><div class="sd-runs">${top.map(x=>`<div class="sd-run" style="grid-template-columns:2fr 1fr 1fr" ${x.j?`data-act="spend-open" data-id="${esc(x.j.id)}" data-profile="${esc(x.j.profile||'default')}"`:''}><span>${esc(stripBracket(x.j?.name||x.k))}</span><span>${plural(x.r.runs.length,'run')}</span><span>≈ ${usd(x.r.cost)}</span></div>`).join('')}</div>`:''}`;Keep.note('usage.spend',panel)}}
 ACT['spend-open']=a=>{const j=(Pages.cronJobs||[]).find(x=>x.id===a.dataset.id&&(x.profile||'default')===a.dataset.profile);if(j)cronDetail(j);else go('/automations/schedules')};
 
 /* ---------- Pages that belong to one agent (skills, apps, plugins, files, memory, webhooks, who can message, models,

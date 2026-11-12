@@ -237,3 +237,14 @@ test('Stage: a page whose reads keep answering is shown whole; one whose reads w
  x=mk();await x.open(Array.from({length:12},(_,i)=>(i+1)*1500));await x.clock.adv(5900);assert.deepEqual(x.shown,[]);await x.clock.adv(200);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=6000&&x.shown[0]<6100,'at '+x.shown[0]);
  // a quick page is shown the moment it is whole
  x=mk();await x.open([300]);await x.clock.adv(350);assert.equal(x.shown.length,1)});
+
+test('a part that lands late keeps the space it took last time (Keep): Usage\'s Spending overview no longer drops the page under it',()=>{
+ const mem=new Map(),store={get:(k,d)=>mem.has(k)?mem.get(k):d,set:(k,v)=>mem.set(k,v)};
+ const Keep=new Function('store',grab('core.js','const Keep={')+'\nreturn Keep')(store);
+ const el=h=>({style:{},isConnected:true,offsetHeight:h});
+ let p=el(0);assert.equal(Keep.hold('usage.spend',p),0,'never drawn in this browser: nothing held');assert.equal(p.style.minHeight,undefined);
+ p=el(402.4);p.style.minHeight='300px';Keep.note('usage.spend',p);assert.equal(p.style.minHeight,'','the content is in: the hold is let go');assert.deepEqual(mem.get('ph'),{'usage.spend':402});
+ p=el(0);assert.equal(Keep.hold('usage.spend',p),402);assert.equal(p.style.minHeight,'402px','the next visit: its box is that tall while the placeholder shows');
+ const gone={style:{minHeight:'1px'},isConnected:false,offsetHeight:0};Keep.note('usage.spend',gone);assert.equal(mem.get('ph')['usage.spend'],402,'a part that left the page records nothing');
+ const s=src('schedules.js');assert.match(s,/Keep\.hold\('usage\.spend',panel\)/);assert.match(s,/Keep\.note\('usage\.spend',panel\)/);
+ assert.match(s,/<div class="skel" style="height:280px"><\/div>';/,'before it is known: as tall as it usually is where the page is slow, not 120 px')});
