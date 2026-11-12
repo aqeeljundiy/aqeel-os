@@ -14,6 +14,25 @@ _Last updated: 12 Nov 2026_
 
 ## Now
 
+### Deep audit of 12 Nov (four reviewers, read-only; fixes live on both servers in 86efb86 unless a line says otherwise)
+Reports are kept outside the repo (private archive). `[x]` = fixed and live; `[~]` = fixed in part or not yet seen working; `[ ]` = open.
+- [x] **AUD-1 Secrets in the public repo**: no live credential found in any branch, tag, old commit or Actions log. Install notes with live prompts, real numbers, ids and addresses are out of the tree; a secret scan and a wider privacy test run in the `tests` check; GitHub secret scanning and push protection are on. Open: old history is still retrievable on GitHub (AUD-9).
+- [x] **AUD-2 Members and the main agent**: one place decides which agent a proxied request may act on; a member can no longer reach the main agent or another agent by any selector.
+- [x] **AUD-3 Agents changing their own settings**: an exact list of settings with plain values; no command-type providers; schedules' scripts, checks and hooks run as the agent's own user.
+- [x] **AUD-4 Root helper**: root no longer acts by path in folders an agent can write; pids, names and ports are checked; a rig of 66 checks guards it.
+- [x] **AUD-5 Local ports and logs**: logs are in a private folder; a firewall rule lets only the box user reach the engine's local ports; agent screens are off the network; the agents' signing key was replaced on both servers (12 Nov) because old signatures had been readable in a log.
+- [~] **AUD-6 Fixers and untrusted text**: reports reach every fixer as marked data. Open: the on-box fixer still has a shell as the box user (it needs its own Linux user).
+- [~] **AUD-7 Cloud fixer merge gate**: path allow-list gate run from main, CODEOWNERS, updates install only commits whose tests passed. **Needs the owner on GitHub before any routine is saved**: branch rule with code-owner review and no admin bypass, the write deploy key removed, a fixer token on a non-owner account.
+- [x] **AUD-8 Customer safety (WhatsApp lines, both still in Test)**: prices come from a price list in the app, not from the model; past chats return only the team's answers, masked; handoff and Draft are real gates; the exit guard stops the 24 leak cases; unanswered customers alert the team; payment and Kirimdev keys are out of the agents' folders. Open for the owner: items left out of the price lists, who may approve drafts, when to leave Test.
+- [ ] **AUD-9 Owner-only security steps**: rotate the GitHub password, two-step seed and token found in Elkiya's engine env file; change the member-app admin password; rotate the Telegram bot token of continue-threads (shown once in a reviewer's working output); decide on erasing old history (recreate the repo) and on firewalling the origins to Cloudflare only.
+- [x] **AUD-10 Threads posting limits**: limits per kind (comment 70/6/8, thread 8/1/60, dm 30/3/10, reply 80/20/0) bind in the posting scripts; every posting schedule is gated; the stray DM watcher (199 model runs in 48 h) is stopped. Watch: posts are recorded with the right kind.
+- [x] **AUD-11 Data files**: one safe store helper (a damaged file is never treated as empty and saved over; atomic writes; one writer at a time) used by about 50 modules.
+- [~] **AUD-12 Backups**: the backup runs detached and survives app restarts; a night without one alerts. Elkiya's last good backup was 9 Nov: confirm the next one completes.
+- [x] **AUD-13 Account pools**: calm by construction (move only near the limit, one-hour pin, at most 8 automatic moves per agent a day). Elkiya: 0 moves in the hour after deploy (was 9-18 an hour).
+- [x] **AUD-14 Deploys**: new files are switched in by rename; undo restores everything a deploy changed; the test copy is private and wiped.
+- [ ] **AUD-15 Left from the audit**: the screen viewer's own connection; the box user's Chrome debugging ports; `pepclub-social` as its own Linux user; a per-account sign-in limiter; the unsigned desktop installer; "never sleep" leaves a running Chrome unreachable (continue-threads is pinned to a 30-day sleep instead); mediums and lows listed in the reports.
+- [ ] **AUD-16 Not yet done**: the UI and functionality walkthrough of every page as owner, member and employee; maintainability (app/server.mjs is about 620 KB).
+
 ### Session of 11–12 Nov (token savings, reliability, "never fix by hand again")
 Live on both servers unless a line says otherwise. `[x]` = seen working live; `[~]` = live in code, not yet seen working.
 - [x] **EFF-1** Token savings (b64a4cd): chats shortened at 200k and folded at 180k, 1-hour chat cache, schedule gates, Efficiency view, Graphify pilot on Sesa, instruction size check. P&P's PC account moved last in Elkiya's account list.
