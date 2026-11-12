@@ -143,3 +143,11 @@ test('the usage of a run: tokens, cost, and the number of model calls and tool c
  assert.deepEqual(usageFromRow(['claude-sonnet-5-5',400,3200,250000,150000,0.6631234,12,11]),{model:'claude-sonnet-5-5',input:400,output:3200,cacheRead:250000,cacheWrite:150000,cost:0.66312,calls:12,tools:11});
  assert.deepEqual(usageFromRow(['m',1,2,3,4,0.5]),{model:'m',input:1,output:2,cacheRead:3,cacheWrite:4,cost:0.5,calls:0,tools:0},'an older engine database has no turn counts');
  assert.equal(usageFromRow(null),null);assert.match(RUN_USAGE_PY,/except sqlite3\.Error/)});
+
+// Review of 12 Nov 2026: a stop that spends no run must still reach a person.
+test('a problem that came back after a proven fix and is held (same evidence) is told to a person once, urgent or not; more reports of it are not told again',async()=>{
+ for(const urgent of [false,true]){const {fx,told,started,step}=await mk();const o={agent:'a',missing:'Customers get no reply on the shop line',evidence:'reply count 0 at 09:12',urgent};
+  await fx.file(o);const db=await fx._db(),old=db.items[0];old.state='fixed';old.fixed=T;old.updated=T;const before=told.length;
+  step(5*3600e3);const r=await fx.file({...o,evidence:'reply count 0 at 14:40'});assert.equal(r.issue.state,'needs_human');
+  assert.equal(told.length,before+1,'the person is told that it came back (urgent: '+urgent+')');assert.match(JSON.stringify(told.at(-1)),/came back/);assert.match(JSON.stringify(told.at(-1)),/Customers get no reply/);
+  step(3600e3);await fx.file({...o,evidence:'reply count 0 at 15:40'});await fx.tick();assert.equal(told.length,before+1,'once, not per report');assert.equal(started.length,0)}});

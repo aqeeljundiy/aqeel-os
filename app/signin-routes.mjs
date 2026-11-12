@@ -1,7 +1,7 @@
 // The routes that sign a person in before they have a session: password (/auth/login), the two-step code (/auth/code) and the invite
 // (/auth/invite, /auth/accept). They used to sit in server.mjs. Two limits apply to each: the per-address one (limited/miss/clear, server.mjs)
 // and the per-account one (signin-guard.mjs). A waiting account answers EXACTLY like a wrong password: same status, same words, same work.
-// The owner's own browser (a valid session cookie for that account) is never held up by the wait; see signin-guard.mjs.
+// The owner's own browser (a valid session cookie for that account) is never held up by other people's guesses; see signin-guard.mjs.
 import {burn} from './signin-guard.mjs';
 export function createSignInRoutes({users,guard,send,readBody,clientIp,ownerCheck,signIn,limited,miss,clear,needEmail=()=>false}){
  const TOO_MANY={error:'Too many attempts. Try again in a few minutes.'};
@@ -25,8 +25,8 @@ export function createSignInRoutes({users,guard,send,readBody,clientIp,ownerChec
    const b=await body(req),v=users.finishLogin(b.key,b.code);
    if(v.error){miss(ip);return send(res,401,{error:v.error}),true}
    return send(res,200,{ok:true},signIn(v.user.id)),true}
-  // Invite links: /#invite/<code> asks for a name and password, then signs the new person in. A code that matches nothing counts toward one shared
-  // bucket (there is no account yet); while it waits even a right code answers "expired".
+  // Invite links: /#invite/<code> asks for a name and password, then signs the new person in. A code that matches nothing counts per address
+  // (there is no account yet); while that address waits even a right code answers "expired".
   if(p==='/auth/invite'&&req.method==='GET'){const gone=()=>send(res,404,{error:GONE});if(guard.wait('invite:any'))return gone(),true;
    const i=await users.inviteInfo(url.searchParams.get('code')||'');if(!i){guard.fail('invite:any');return gone(),true}return send(res,200,i),true}
   if(p==='/auth/accept'&&req.method==='POST'){const ip=clientIp(req);if(limited(ip))return send(res,429,TOO_MANY),true;

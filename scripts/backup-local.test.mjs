@@ -71,3 +71,12 @@ test('the disk watchdog stops a backup that is filling the disk, says so, and le
  try{await assert.rejects(()=>s.b.run('by hand'),e=>/disk filled up while packing/.test(e.message)&&!/141/.test(e.message));
   assert.equal((await s.b.status()).last.ok,false);assert.deepEqual(readdirSync(s.TMP),[]);assert.deepEqual(readdirSync(s.LOCALDIR),[],'no half file, no notes')}
  finally{process.env.PATH=was;s.done()}});
+
+// Review of 12 Nov 2026: disk() gives free 0 when df itself gave nothing (it could not be started, or printed no line). That is not a full disk.
+test('a free-space reading that failed (read as 0) does not stop a backup that is doing fine',{skip:process.platform==='win32'&&'process groups are Linux-only'},async()=>{
+ const {execFileSync}=await import('node:child_process');const real=execFileSync('sh',['-c','command -v tar']).toString().trim();
+ let n=0;const s=scene({LOWFREE:1e9,WATCH:50,disk:async()=>({free:++n<2?1e12:0,dev:'d'})});const bin=s.T+'/bin';mkdirSync(bin);
+ writeFileSync(bin+'/tar','#!/bin/sh\nsleep 0.6\nexec '+real+' "$@"\n');chmodSync(bin+'/tar',0o755);   // slow enough for the watchdog to look several times
+ const was=process.env.PATH;process.env.PATH=bin+path.delimiter+was;
+ try{await s.b.run('by hand');assert.ok(n>=3,'the watchdog looked while it packed: '+n);assert.equal((await s.b.status()).last.ok,true);assert.equal(readdirSync(s.LOCALDIR).length,1)}
+ finally{process.env.PATH=was;s.done()}});

@@ -106,3 +106,44 @@ test('healText: only a signature made with another key changes, other text and o
  const text='a http://127.0.0.1:4400/posting-check/shop/'+old+' b /run-gate/shop/j-1/'+old+' c /mcp/notify/shop/'+k('relay:','shop')+' d /ordinary/path/'+old;
  const h=healText(text,k);assert.equal(h.n,2);assert.ok(h.text.includes('/posting-check/shop/'+k('relay:','shop')));assert.ok(h.text.includes('/run-gate/shop/j-1/'+k('relay:','shop')));assert.ok(h.text.includes('/ordinary/path/'+old));
  assert.equal(healText(h.text,k).n,0);assert.equal(healText('{"base": "http://x", "agent": "ct", "sig": "'+old+'"}\n',k).text,'{"base": "http://x", "agent": "ct", "sig": "'+k('relay:','ct')+'"}\n')});
+
+// Review of 12 Nov 2026. A workspace's .tools folder belongs to the agent's own user, and the app (a stronger user) writes there.
+const LINKS=process.platform!=='win32';
+test('a link in a workspace is never written through: a guard file swapped for a link to a file of the app\'s leaves that file as it was',{skip:!LINKS},async()=>{
+ const {symlink,rm,lstat}=await import('node:fs/promises');
+ const x=await box(),keys=createRelayKeys(x.D,UI),logs=[];const heal=createRelayHeal({HERMES_HOME:x.H,WORK:x.W,sign:keys.sign,log:m=>logs.push(m)});
+ const secret=path.join(x.H,'.env'),SECRET='API_KEY=made-up-value\n';await writeFile(secret,SECRET);
+ const tools=path.join(x.W,'shop','.tools'),g=path.join(tools,'posting-guard.json'),conf={base:'http://127.0.0.1:'+PORT,sig:keys.sign('relay:','shop')};
+ await writeFile(path.join(tools,'posting_guard.py'),'# guard\n');
+ // 1. the file is a link to an existing file of the app's
+ await symlink(secret,g);await assert.rejects(heal.guardFile('shop',conf));assert.equal(await readFile(secret,'utf8'),SECRET,'the app\'s file is untouched');
+ // 2. a link that points at nothing yet: no file is made where it points
+ await rm(g);const nowhere=path.join(x.H,'made-by-a-link');await symlink(nowhere,g);await assert.rejects(heal.guardFile('shop',conf));assert.equal(await stat(nowhere).catch(()=>null),null,'nothing was made through the link');
+ // 3. the posting limits report it as failed and do not throw
+ const pl=limits(x,keys,{logs});await pl.set('shop',{rules:RULES});assert.equal(await pl.staleKey('shop'),'raised');assert.equal(await stat(nowhere).catch(()=>null),null);
+ // 4. the whole .tools folder is a link to another agent's: that agent's guard file is not replaced by this one's
+ await rm(g);await rm(tools,{recursive:true});const theirs=path.join(x.W,'cafe','.tools','posting-guard.json'),THEIRS=guardConf({base:conf.base,agent:'cafe',sig:keys.sign('relay:','cafe')});
+ await writeFile(theirs,THEIRS);await symlink(path.join(x.W,'cafe','.tools'),tools);await assert.rejects(heal.guardFile('shop',conf));assert.equal(await readFile(theirs,'utf8'),THEIRS);
+ // 5. the sweep skips a link (a stale signature behind it is not rewritten through it) and still heals the plain files
+ await rm(tools);await mkdir(tools);const stale='U="http://127.0.0.1:'+PORT+'/google-files/shop/'+'o'.repeat(32)+'"\n';
+ const far=path.join(x.H,'far-file');await writeFile(far,stale);await symlink(far,path.join(tools,'linked'));await writeFile(path.join(tools,'sheet'),stale);
+ const r=await heal.sweep();assert.deepEqual(r.changed.map(f=>path.basename(f)),['sheet']);assert.equal(await readFile(far,'utf8'),stale,'not written through the link');
+ assert.ok((await lstat(path.join(tools,'linked'))).isSymbolicLink());
+ for(const l of logs)assert.equal(l.includes(conf.sig),false)});
+
+test('a file in one agent\'s workspace never comes back with ANOTHER agent\'s signature (made-up addresses, a made-up guard file)',async()=>{
+ const x=await box(),keys=createRelayKeys(x.D,UI);const heal=createRelayHeal({HERMES_HOME:x.H,WORK:x.W,sign:keys.sign});
+ const tools=path.join(x.W,'shop','.tools'),o='o'.repeat(32);
+ await writeFile(path.join(tools,'notes'),['/google-files/cafe/'+o,'/mcp/notify/cafe/'+o,'/mcp/self/cafe/'+o,'/mcp/code/cafe/'+o,'/posting-check/cafe/'+o,'/run-gate/cafe/j1/'+o,'/google-files/shop/'+o,'/posting-check/shop--queue/'+o,''].join('\n'));
+ await writeFile(path.join(tools,'fake.json'),guardConf({base:'http://127.0.0.1:'+PORT,agent:'cafe',sig:o}));
+ await heal.sweep();
+ const all=await readFile(path.join(tools,'notes'),'utf8')+await readFile(path.join(tools,'fake.json'),'utf8');
+ for(const l of ['relay:','google-files:','self-runs:','code-bridge:'])assert.equal(all.includes(keys.sign(l,'cafe')),false,'the '+l+' signature of another agent was handed out');
+ assert.ok(all.includes('/google-files/shop/'+keys.sign('google-files:','shop')),'its own signatures are still made again');
+ assert.ok(all.includes('/posting-check/shop--queue/'+keys.sign('relay:','shop--queue')),'and those of its own sub-addresses')});
+
+test('a refused signature while the guard file already holds the key in use raises nothing (a made-up signature from anywhere is not a stale key)',async()=>{
+ const x=await box(),keys=createRelayKeys(x.D,UI),events=[];let t=Date.parse('2026-11-12T10:00:00+07:00');const pl=limits(x,keys,{events,t:()=>t});
+ await writeFile(path.join(x.W,'shop','.tools','posting_guard.py'),'# guard\n');await pl.set('shop',{rules:RULES});
+ assert.equal(JSON.parse(await readFile(path.join(x.W,'shop','.tools','posting-guard.json'),'utf8')).sig,keys.sign('relay:','shop'),'the file is right');
+ for(let i=0;i<3;i++){t+=61e3;assert.equal(await pl.staleKey('shop'),'ignored')}assert.deepEqual(events,[],'no Health item about a key that is not out of date')});

@@ -652,7 +652,8 @@ function closeLayers(animate=true,{keepScrim=false}={}){const back=animate?docum
 const EscLayers=[];
 const escEl=l=>typeof l.el==='function'?l.el():l.el;
 const escTop=(layers,hasAbove)=>{for(let i=layers.length-1;i>=0;i--){const l=layers[i],el=escEl(l);if(!el?.isConnected)continue;if(l.when&&!l.when())continue;return hasAbove&&hasAbove(l)?null:l}return null};
-function escLayer(o){const l={el:o.el,close:o.close,when:o.when,back:o.back===undefined?document.activeElement:o.back};   // el and back may be functionsEscLayers.push(l);
+function escLayer(o){const l={el:o.el,close:o.close,when:o.when,back:o.back===undefined?document.activeElement:o.back};   // el and back may be functions
+ EscLayers.push(l);   // on its own line: it once sat behind the comment above, so no layer was ever kept and Escape closed nothing (review of 12 Nov 2026)
  return ()=>{const i=EscLayers.indexOf(l);if(i>=0)EscLayers.splice(i,1)}}
 document.addEventListener('keydown',e=>{if(e.key!=='Escape'||e.isComposing||e.defaultPrevented)return;
  const l=escTop(EscLayers,l=>[...document.querySelectorAll('.drawer:not(.closing),.palette:not(.closing),.menu:not(.closing),.scrim.stack:not(.closing),.plug-layer')].some(x=>escEl(l).compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING));

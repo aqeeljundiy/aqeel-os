@@ -373,6 +373,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   // MODEL-3: one short call sorts it before it joins the line (duplicate, person-only, or the fixer's); urgent ones go at once
   if(i.state==='queued'&&!i.urgent&&sortRun)i.sorting=now();
   db.items.unshift(i);cap();await save();log('issue '+i.id+' filed by '+(i.source==='health'?'Health':i.agent)+': '+i.state);
+  // held with no run (came back with the same evidence): a person is told, once, like every other stop. Without this the fix that did not hold sat on
+  // Health unseen, also for an urgent agent (review of 12 Nov 2026); later reports with the same evidence only count on it.
+  if(i.cameBack){const to=await tell(i,nameOf(i.agent)+': a problem came back after its fix\n\nProblem: '+i.missing+'\nWhat is needed from you: '+i.need).catch(e=>{log('issues: '+i.id+' came back, not told: '+e.message);return null});i.told=to;await save();log('issues: '+i.id+' came back after the fix of '+i.cameBack.of+' with the same evidence; needs a person, told '+to)}
   if(i.sorting)defer(()=>sortNext().catch(e=>log('issues: sort: '+e.message)));return {issue:view(i)}});
  // the item a merged one ended up in (it may have been merged on in turn)
  const endOf=x=>{for(let k=0;x?.mergedInto&&k<20;k++){const n=db.items.find(y=>y.id===x.mergedInto);if(!n)break;x=n}return x};

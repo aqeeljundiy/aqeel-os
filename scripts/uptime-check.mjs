@@ -1,9 +1,10 @@
 // SYS-50: is aqeelOS up? Run from outside the server by .github/workflows/uptime.yml (a server that is off cannot report itself).
-//   AQEELOS_URLS  comma separated list of sites (a repository variable); AQEELOS_URL (one site) is the fallback; neither set = skip quietly
+//   AQEELOS_URLS  comma separated list of sites (a repository SECRET: a variable is printed in the public run log); AQEELOS_URL (one site) is
+//   the fallback for a run by hand; neither set = skip quietly, unless the list still sits in a repository variable: then the run fails and says so
 // A site is down only after 2 failed tries 30 s apart; its login page (the site's address with a slash) must answer 200.
 // A down site fails the run (GitHub emails the owner on a failed scheduled workflow) and opens or updates ONE issue labelled `uptime`;
 // the issue is closed with a comment when the site answers again. This repository is public, so neither an issue nor the log names
-// the address: a site is called by a short code of its address (the same code every run), the list stays in the repository variable.
+// the address: a site is called by a short code of its address (the same code every run), the list stays in the repository secret.
 import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -27,7 +28,7 @@ export async function isUp(url,{fetch:f=globalThis.fetch,sleep=ms=>new Promise(r
 export function createIssues({fetch:f=globalThis.fetch,repo,token,api='https://api.github.com'}){
  const call=async(method,p,body)=>{const r=await f(api+'/repos/'+repo+p,{method,headers:{authorization:'Bearer '+token,accept:'application/vnd.github+json','x-github-api-version':'2022-11-28','content-type':'application/json','user-agent':'aqeelos-uptime-check'},body:body?JSON.stringify(body):undefined});
   if(!r.ok)throw Error('GitHub '+method+' '+p+' answered '+r.status);return r.status===204?null:r.json()};
- const text=(url,why)=>'The outside check could not reach this site: its login page did not answer 200 in 2 tries 30 s apart ('+why+').'+'\n\nThe site is listed in the repository variable AQEELOS_URLS (code '+siteCode(url)+'). Check the server host panel: if the server says Stopped, start it. The check closes this issue itself when the site answers again.';
+ const text=(url,why)=>'The outside check could not reach this site: its login page did not answer 200 in 2 tries 30 s apart ('+why+').'+'\n\nThe site is listed in the repository secret AQEELOS_URLS (code '+siteCode(url)+'). Check the server host panel: if the server says Stopped, start it. The check closes this issue itself when the site answers again.';
  const open=async title=>{const l=await call('GET','/issues?state=open&labels='+LABEL+'&per_page=100');return (l||[]).find(i=>!i.pull_request&&i.title===title)||null};
  return {
   async down(url,why,now=new Date()){const title=issueTitle(url),have=await open(title),body=text(url,why)+'\n\nLast checked not answering: '+now.toISOString()+'.';
@@ -41,7 +42,8 @@ export function createIssues({fetch:f=globalThis.fetch,repo,token,api='https://a
 // the whole run; returns {down:[codes],skipped}. Exit code is the caller's: 1 when anything is down.
 export async function run({env=process.env,fetch:f=globalThis.fetch,sleep,gap,log=console.log}={}){
  const urls=parseUrls(env.AQEELOS_URLS||env.AQEELOS_URL);
- if(!urls.length){log('::notice::Uptime check skipped: set the repository variable AQEELOS_URLS (comma separated site addresses).');return {down:[],skipped:true}}
+ if(!urls.length&&env.AQEELOS_URLS_IN_VARIABLE==='true'){log('::error::The site list is in a repository VARIABLE, which a public run log prints. Move it to a repository SECRET named AQEELOS_URLS (Settings > Secrets and variables > Actions > Secrets) and delete the variable. Nothing was checked.');return {down:[],skipped:true,misplaced:true}}
+ if(!urls.length){log('::notice::Uptime check skipped: set the repository secret AQEELOS_URLS (comma separated site addresses).');return {down:[],skipped:true}}
  const issues=env.GITHUB_TOKEN&&env.GITHUB_REPOSITORY?createIssues({fetch:f,repo:env.GITHUB_REPOSITORY,token:env.GITHUB_TOKEN}):null;
  if(!issues)log('::warning::No GITHUB_TOKEN here: the job fails when a site is down, but no issue is opened.');
  const results=await Promise.all(urls.map(async u=>({u,code:siteCode(u),...await isUp(u,{fetch:f,sleep,gap})})));
@@ -52,4 +54,4 @@ export async function run({env=process.env,fetch:f=globalThis.fetch,sleep,gap,lo
   if(issues)await issues.down(r.u,r.why).then(x=>log('site '+r.code+': issue #'+x.issue+(x.created?' opened':' updated')),e=>log('::warning::site '+r.code+': '+e.message))}
  return {down,skipped:false}}
 
-if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){const r=await run();process.exit(r.down.length?1:0)}
+if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){const r=await run();process.exit(r.down.length||r.misplaced?1:0)}
