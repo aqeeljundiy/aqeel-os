@@ -55,10 +55,10 @@ const isGuardConf=t=>{try{const j=JSON.parse(t);return !!j&&typeof j.agent==='st
 // the signatures in a text: [{label, agent, sig}]
 export function signedIn(text){const out=[],t=String(text);for(const u of SIGNED_URLS)for(const m of t.matchAll(u.rx()))out.push({label:u.label,agent:m[2],sig:m[4]});
  if(isGuardConf(t)){const j=JSON.parse(t);out.push({label:'relay:',agent:j.agent,sig:j.sig})}return out}
-// the same text with every signature made again with the key in use (sign: (label, agent) => signature), and how many were not that one already
+// the same text with every signature made again with the key in use (sign: (label, agent) => signature, or null to leave that one alone), and how many were not that one already
 export function healText(text,sign){let n=0,t=String(text);
- for(const u of SIGNED_URLS)t=t.replace(u.rx(),(all,a,ag,mid,sg)=>{const w=sign(u.label,ag);if(w===sg)return all;n++;return a+ag+mid+w});
- if(isGuardConf(t)){const j=JSON.parse(t),w=sign('relay:',j.agent);if(w!==j.sig){n++;t=t.replace(GUARD_SIG,(all,a,v,b)=>a+w+b)}}
+ for(const u of SIGNED_URLS)t=t.replace(u.rx(),(all,a,ag,mid,sg)=>{const w=sign(u.label,ag);if(!w||w===sg)return all;n++;return a+ag+mid+w});
+ if(isGuardConf(t)){const j=JSON.parse(t),w=sign('relay:',j.agent);if(w&&w!==j.sig){n++;t=t.replace(GUARD_SIG,(all,a,v,b)=>a+w+b)}}
  return {text:t,n}}
 // what the posting guard reads (scripts/posting-guard-install.py writes the same text)
 export const guardConf=({base,agent,sig})=>'{"base": "'+base+'", "agent": "'+agent+'", "sig": "'+sig+'"}\n';
