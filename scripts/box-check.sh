@@ -62,7 +62,7 @@ echo "$r" | grep -q '"errors":\[\]' || { echo "✗ a page did not load: $r" | cu
 # When it fails, a page flickers (it says which, what and when) or never finished loading: fix that, do not skip the check.
 if [ "${FLICKER_CHECK:-1}" = 0 ]; then echo "· 2/5 fast page switching: skipped (FLICKER_CHECK=0)"; else
 echo "· 2/5 fast page switching and flicker (replays, jumps, pictures loading again, the bell, pop-ups, the shell drawn again, pages that move while they load)"
-sweep(){ timeout 720 node scripts/shot.mjs /tmp/sweep.png "#/chat" "" "" 1280 900 "$(cat scripts/sweep.js)" 2>&1 | head -1; }
+sweep(){ timeout 840 node scripts/shot.mjs /tmp/sweep.png "#/chat" "" "" 1280 900 "$(cat scripts/sweep.js)" 2>&1 | head -1; }
 s=$(sweep); echo "$s" | grep -q '\\"bad\\":0' || { again "fast page switching" "$s"; s=$(sweep); }
 echo "$s" | grep -q '\\"bad\\":0' || { echo "✗ fast page switching found problems (twice):"; echo "$s" | cut -c1-900; exit 1; }
 # slow is not a flicker, but it is said: the pages that took over 6 s to settle (Stage.hard: the longest anyone looks at the ring)

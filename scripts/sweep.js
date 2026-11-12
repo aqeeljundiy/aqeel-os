@@ -12,7 +12,7 @@
 //     the sidebar's own list for the section (.side-sub) and the title in the topbar (.crumbs);
 //   a page that moves: the browser's own layout-shift score, summed per page from the moment it is opened, above SHIFT_MAX.
 // SWEEP_ONLY (a list of addresses set on window before this runs) checks only those pages: the quick run in GitHub Actions.
-// SWEEP_WATCH: how long a settled page is watched (ms, 5500); SWEEP_LOAD_MAX: how long a page may take to settle (ms, 60000).
+// SWEEP_WATCH: how long a settled page is watched (ms, 7000); SWEEP_LOAD_MAX: how long a page may take to settle (ms, 60000).
 (async()=>{const errs=[];window.addEventListener('error',e=>errs.push('script error: '+e.message));
 // the app is up and signed in before anything is watched (it used to start a fixed 3.5 s after the page was opened: on a slow start the sidebar was not
 // there yet, so nothing watched the shell and the run passed without that check, or the script stopped on a name that did not exist yet)
@@ -63,7 +63,9 @@ const pages=window.SWEEP_ONLY||[...new Set(['#/chat',...SECTIONS.flatMap(x=>x.pa
 //     waits for the engine) fails, as "never finished loading", with the reads it was still waiting for.
 // the reads on their way, by address (only to say which one a page that does not settle is waiting for)
 const inAir=new Map();{const f0=window.fetch;window.fetch=function(u,o){const k={},p=f0.apply(this,arguments);inAir.set(k,[String(u?.url||u).split('?')[0].slice(0,70),performance.now()]);const end=()=>inAir.delete(k);p.then(end,end);return p}}
-const WATCH=window.SWEEP_WATCH||5500,QUIET=400,LOAD_MAX=window.SWEEP_LOAD_MAX||60000,SLOW=6000,slowPages=[];let worst=0,worstAt='',worstBy=[],slow=0,slowAt='';
+// WATCH 7 s (was 5.5): a list shown from a kept copy asks again 6 s later and redraws itself (Cx.follow); at 5.5 s the watch ended 0.1 s before it on a
+// quick page, so that redraw was judged only when the page happened to settle late (12 Nov 2026: Skills' rows rose again at 6.0 s, unseen by the check)
+const WATCH=window.SWEEP_WATCH||7000,QUIET=400,LOAD_MAX=window.SWEEP_LOAD_MAX||60000,SLOW=6000,slowPages=[];let worst=0,worstAt='',worstBy=[],slow=0,slowAt='';
 const sl=ms=>new Promise(r=>setTimeout(r,ms));const out=[];let bad=0;
 const LAYER='.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu';
 const sig=t=>(t.textContent||'').replace(/\s+/g,' ').trim().slice(0,80),who=t=>t.id?'#'+t.id:String(t.className?.baseVal??t.className??'').trim().split(/\s+/).slice(0,3).join('.')||t.tagName.toLowerCase();
@@ -121,10 +123,8 @@ if(bellOn&&bellPops){bad++;out.push('✗ the bell popped in or rang again '+bell
 // pop-ups: the palette fades in (Calm must leave it alone) and closes from where it is; a panel closed during its own
 // entrance fades out from there instead of snapping to fully shown first
 {const fr=()=>new Promise(r=>requestAnimationFrame(r)),sl=ms=>new Promise(r=>setTimeout(r,ms));closeLayers(false);await sl(300);
- // judged on its second frame only when that frame came within 120 ms of the click: its fade (pop) is about 200 ms, and a busy browser can take longer
- // than that for two frames, so the fade had really run and ended (12 Nov 2026: a PC running several sweeps at once). A slow sample is taken again, 3 tries.
- const pb=document.querySelector('[data-act="palette"]');if(pb){let p=null,o=1,el=0;for(let k=0;k<3;k++){const c0=performance.now();pb.click();await fr();await fr();el=performance.now()-c0;p=document.querySelector('.palette');o=p?+getComputedStyle(p).opacity:1;if(!p||el<120||k===2)break;closeLayers(false);await sl(300)}
-  if(p&&o>.9&&el<120){bad++;out.push('✗ the search palette appears without fading in (opacity '+o.toFixed(2)+' on its second frame)')}else if(p&&el>=120)out.push('· the palette fade was not judged: two frames took '+Math.round(el)+' ms, three times')
+ const pb=document.querySelector('[data-act="palette"]');if(pb){pb.click();await fr();await fr();const p=document.querySelector('.palette');const o=p?+getComputedStyle(p).opacity:1;
+  if(p&&o>.9){bad++;out.push('✗ the search palette appears without fading in (opacity '+o.toFixed(2)+' on its second frame)')}
   if(p){await sl(400);const y0=p.getBoundingClientRect().top;closeLayers();let worst=0;for(let i=0;i<10&&p.isConnected;i++){await fr();if(p.isConnected)worst=Math.max(worst,Math.abs(p.getBoundingClientRect().top-y0))}
    if(worst>20){bad++;out.push('✗ the search palette jumps '+Math.round(worst)+' px as it closes')}}}
  await sl(300);const bb=document.querySelector('.topbar [data-act="inbox"]');if(bb){bb.click();await sl(70);const d=document.querySelector('.drawer:not(.closing)');if(d&&!d.contains(document.activeElement)){bad++;out.push('✗ the notifications panel opened with the focus left behind it (Tab would leave the panel)')}if(d){let last=+getComputedStyle(d).opacity,up=0;closeLayers();{const o=+getComputedStyle(d).opacity;if(o>last+.05)up=o-last;last=o}

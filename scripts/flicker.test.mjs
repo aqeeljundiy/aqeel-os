@@ -216,8 +216,12 @@ test('the sweep: waits for settled instead of a timer, fails a page that never s
  assert.match(sw,/document\.querySelector\('\.side'\)&&document\.querySelector\('\.topbar'\)/,'the shell is there before it is watched');
  assert.ok(src('core.js').includes('const Stage={ms:450,max:2200,hard:6000,'));
  assert.match(sw,/SLOW=6000,/,'every page a person looked at the ring for as long as Stage holds it is named (Stage.hard)');
- // the palette's fade is judged by time, not by frames: two frames on a busy browser can outlast the whole fade; never judged is said, not passed quietly
- assert.match(sw,/if\(p&&o>\.9&&el<120\)\{bad\+\+;/);assert.match(sw,/the palette fade was not judged/)});
+ assert.match(sw,/const WATCH=window\.SWEEP_WATCH\|\|7000,/,'a settled page is watched past the 6 s after which a list from a kept copy redraws itself (Cx.follow)');
+ assert.match(src('connections.js'),/this\.repaint\(el\)\}else if\(\+\+n<4\)go\(\);else\{Pages\._cx\.stale=false;this\.stamp\(el\)\}\},6000\)/,'if that wait grows, WATCH grows with it')});
+test('a grouped list (Skills, Plugins) drawn again changes in place and no row rises again',()=>{
+ const g=grab('unified-lists.js','UL.groups=function(');
+ assert.match(g,/if\(first\|\|!box\.firstChild\)box\.innerHTML=html;else\{morph\(box,html\);box\.querySelectorAll\('\.cn-row'\)\.forEach\(x=>x\.style\.animation='none'\)\}/);
+ assert.doesNotMatch(g,/box\.innerHTML=sec\(/,'not every row made anew on a redraw')});
 
 /* a drawing slower than Stage.max: shown as far as it is once it has stalled, held a little longer while its reads still answer (12 Nov 2026) */
 test('Stage: a page whose reads keep answering is shown whole; one whose reads went silent for 2.2 s is shown as far as it is; none waits past 6 s',async()=>{
