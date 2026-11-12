@@ -45,7 +45,7 @@ test('when putting it back fails (it does not answer, or there is nothing to put
  assert.equal(r.status,1);assert.match(r.stdout,/no previous version/);assert.match(readFileSync(c.log,'utf8'),/telegram/)});
 
 test('box-live.sh keeps the running version before unpacking the new one',()=>{
- assert.ok(src.indexOf('.deployed.prev.tgz')<src.indexOf('tar -xzf $HT -C ~/apps/hermes-ui'));assert.match(src,/cp ~\/apps\/hermes-ui\/\.deployed-commit ~\/apps\/hermes-ui\/\.deployed\.prev-commit/)});
+ assert.ok(src.indexOf('cp ~/apps/hermes-ui/.deployed.tgz ~/apps/hermes-ui/.deployed.prev.tgz')<src.indexOf('\naq_stage_new "$HT"'));assert.match(src,/cp ~\/apps\/hermes-ui\/\.deployed-commit ~\/apps\/hermes-ui\/\.deployed\.prev-commit/)});
 
 // 12 Nov 2026: ~/services.sh returned 1 after the new files were unpacked; with set -e the deploy said "FAILED go live" and left the
 // new version running untested. Now any unhandled failure after the unpack puts the previous version back (aq_exit), and a failing
@@ -76,5 +76,58 @@ test('no previous version to put back: the log names the NEW version as running,
  assert.equal(r.status,1);assert.match(r.stdout,/no previous version/);assert.match(r.stdout,/the NEW version bbbbbbbb is running: it was not live-tested/)});
 
 test('box-live.sh: the stage is set after both unpacks, and the launcher call cannot fail the go-live',()=>{
- assert.ok(src.indexOf('\nAQ_STAGE=golive')>src.indexOf('tar -xzf $HT -C ~/apps/hermes-ui'));assert.ok(src.indexOf('\nAQ_STAGE=done')>src.indexOf('scripts/live-test.mjs'));
+ assert.ok(src.indexOf('\nAQ_STAGE=golive')>src.indexOf('\naq_stage_new "$HT"')&&src.indexOf('\nAQ_STAGE=golive')<src.indexOf('\naq_switch ||'),'the stage is set after the new files are built beside the live ones and BEFORE the switch (H7)');
+ assert.equal(src.includes('tar -xzf $HT -C ~/apps/hermes-ui'),false,'the new version is never unpacked over the live folder');assert.ok(src.indexOf('\nAQ_STAGE=done')>src.indexOf('scripts/live-test.mjs'));
  assert.match(src,/trap aq_exit EXIT/);assert.doesNotMatch(src,/^~\/services\.sh;/m);assert.match(src,/services-install\.sh/)});
+
+// H7 and H8 (audit of 12 Nov 2026): the real aq_stage_new / aq_switch / aq_undo of box-live.sh on a fake home.
+const pack=(b,name,files)=>{const d=path.join(b.H,'src-'+name);for(const [p,c] of Object.entries(files)){mkdirSync(path.dirname(path.join(d,p)),{recursive:true});writeFileSync(path.join(d,p),c)}
+ const t=path.join(b.H,name+'.tgz');execFileSync('tar',['-czf',t,'-C',d,...new Set(Object.keys(files).map(p=>p.split('/')[0]))]);return t};
+// a box that runs "old" from its own archive, with a file of its own in scripts/ and a data folder beside the code
+function liveBox(){const b=box({prev:false});const old=pack(b,'old',{'app/v.txt':'old','app/gone.mjs':'removed from git later','scripts/live-test.mjs':'process.exit(1)','engine/patches/a.patch':'a'});
+ execFileSync('rm',['-rf',path.join(b.A,'app'),path.join(b.A,'scripts')]);execFileSync('tar',['-xzf',old,'-C',b.A]);execFileSync('cp',[old,path.join(b.A,'.deployed.tgz')]);
+ writeFileSync(path.join(b.A,'.deployed-commit'),'aaaaaaaa1111\n');writeFileSync(path.join(b.A,'.deployed-commits'),'aaaaaaaa1111\n');
+ writeFileSync(path.join(b.A,'scripts','features.mjs'),'box only');mkdirSync(path.join(b.A,'data'));writeFileSync(path.join(b.A,'data','keep.json'),'{}');
+ b.next=pack(b,'new',{'app/v.txt':'new','app/added.mjs':'x','scripts/live-test.mjs':'process.exit(1)','engine/patches/a.patch':'a','engine/patches/b.patch':'b','assets/logo.txt':'new top-level folder'});return b}
+const tree=b=>execFileSync('bash',['-c','cd "$1" && find . -type f ! -name "calls.log" | sort | xargs cksum',"_",b.A],{encoding:'utf8'});
+
+test('H7: an unpack that fails (a broken archive, a full disk) leaves the live folder exactly as it was, and nothing is undone',()=>{
+ const b=liveBox();const before=tree(b);writeFileSync(b.next,readFileSync(b.next).subarray(0,200));   // cut off: tar fails part way
+ const r=run(b,'aq_stage_new "'+b.next+'" || { rm -rf "$HOME/apps/hermes-ui/.next" "$HOME/apps/hermes-ui/.deployed.tgz.new"; echo UNPACK-FAILED; exit 1; }');
+ assert.equal(r.status,1);assert.match(r.stdout,/UNPACK-FAILED/);assert.doesNotMatch(r.stdout,/putting .* back/);
+ assert.equal(tree(b).replace(/^.*\.prev\.commit\n/m,''),before.replace(/^.*\.prev\.commit\n/m,''));assert.equal(readFileSync(path.join(b.A,'app','v.txt'),'utf8'),'old')});
+
+test('H7: the switch puts the new version in whole: files git dropped are gone (M22), the box\'s own files and data stay',()=>{
+ const b=liveBox();const r=run(b,'aq_stage_new "'+b.next+'" && AQ_STAGE=golive && aq_switch && AQ_STAGE=done');
+ assert.equal(r.status,0,r.stdout+r.stderr);assert.match(r.stdout,/1 file\(s\) that git no longer has/);
+ assert.equal(readFileSync(path.join(b.A,'app','v.txt'),'utf8'),'new');assert.ok(existsSync(path.join(b.A,'app','added.mjs')));assert.ok(!existsSync(path.join(b.A,'app','gone.mjs')));
+ assert.equal(readFileSync(path.join(b.A,'scripts','features.mjs'),'utf8'),'box only');assert.ok(existsSync(path.join(b.A,'data','keep.json')));
+ assert.equal(readFileSync(path.join(b.A,'.deployed-commit'),'utf8').trim(),'bbbbbbbb2222');assert.deepEqual(readFileSync(path.join(b.A,'.deployed.tgz')),readFileSync(b.next))});
+
+test('H8: a failed live test after the switch brings everything back: removed files, ~/services.sh, the commit; the list of live commits never changed',()=>{
+ const b=liveBox();const before=tree(b);const sv=readFileSync(path.join(b.H,'services.sh'),'utf8');mkdirSync(b.D,{recursive:true});writeFileSync(path.join(b.D,'services.shipped'),'shipped-old');
+ const r=run(b,'aq_stage_new "'+b.next+'"; aq_services_keep; AQ_STAGE=golive; aq_switch; printf "#!/bin/bash\\necho services >> '+b.log+'\\n# new launcher\\n" > ~/services.sh; echo shipped-new > "$UI_DATA_DIR/services.shipped"; T0=0\n'+live+'\necho reached-end');
+ assert.equal(r.status,1,r.stdout+r.stderr);assert.match(r.stdout,/aaaaaaaa is back and answers/);assert.match(r.stdout,/services\.sh is the previous one again/);
+ assert.equal(tree(b),before,'the app folder is byte for byte what it was');
+ assert.ok(existsSync(path.join(b.A,'app','gone.mjs'))&&!existsSync(path.join(b.A,'app','added.mjs'))&&!existsSync(path.join(b.A,'assets')),'a file the new version removed is back; what it added is gone');
+ assert.equal(readFileSync(path.join(b.H,'services.sh'),'utf8'),sv);assert.equal(readFileSync(path.join(b.D,'services.shipped'),'utf8'),'shipped-old');
+ assert.equal(readFileSync(path.join(b.A,'.deployed-commit'),'utf8').trim(),'aaaaaaaa1111');assert.equal(readFileSync(path.join(b.A,'.deployed-commits'),'utf8').trim(),'aaaaaaaa1111');
+ for(const x of ['.prev','.prev.tgz','.prev.commit','.next','.undone','.services.prev'])assert.ok(!existsSync(path.join(b.A,x)),x+' left behind')});
+
+test('H7: a switch that stops half way is put back by the exit handler',()=>{
+ const b=liveBox();const before=tree(b);
+ const r=run(b,'aq_stage_new "'+b.next+'"; AQ_STAGE=golive; mv(){ case "$*" in *"/.next/engine "*) return 1;; esac; command mv "$@"; }; aq_switch || { unset -f mv; echo SWITCH-FAILED; exit 1; }');
+ assert.equal(r.status,1);assert.match(r.stdout,/SWITCH-FAILED/);assert.match(r.stdout,/aaaaaaaa is back and answers/);assert.equal(tree(b),before)});
+
+test('H8: engine patches, the Code files and the list of live commits are touched only after the live test passed; the UI stops after the launcher is installed (L8)',()=>{
+ const done=src.indexOf('\nAQ_STAGE=done');assert.ok(done>0);
+ for(const step of ['scripts/apply-skill-patches.mjs','tar -xzf $CT -C $C','$A/.deployed-commits','echo "$CODE_V" > $C/VERSION'])assert.ok(src.indexOf(step)>done,step+' must come after the live test');
+ assert.equal(src.slice(src.indexOf('# the files arrived whole'),done).includes('.deployed-commits'),false);
+ assert.ok(src.indexOf('tmux kill-session -t "=ui" 2>/dev/null || true   #')>src.indexOf('bash ~/apps/hermes-ui/scripts/services-install.sh'))});
+
+test('M17: deploying the live commit again keeps the real previous version; the lock has an owner and a heartbeat',()=>{
+ assert.match(src,/\[ "\$NOW_SHA" != "\$SHA" \]; then cp ~\/apps\/hermes-ui\/\.deployed\.tgz ~\/apps\/hermes-ui\/\.deployed\.prev\.tgz/);
+ assert.match(src,/echo \$\$ > \$L\/owner/);assert.match(src,/touch \$L 2>\/dev\/null; sleep 60/);
+ const b=box();mkdirSync('/tmp/aq-live.lock-test-'+process.pid,{recursive:true});
+ const r=run(b,'aq_unlock(){ [ "$(cat "$L/owner" 2>/dev/null)" = "$$" ] && rm -rf "$L"; return 0; }; L=/tmp/aq-live.lock-test-'+process.pid+'; echo 1 > $L/owner; aq_unlock; [ -d $L ] && echo KEPT; echo $$ > $L/owner; aq_unlock; [ -d $L ] || echo REMOVED; AQ_STAGE=done');
+ assert.match(r.stdout,/KEPT/);assert.match(r.stdout,/REMOVED/)});
