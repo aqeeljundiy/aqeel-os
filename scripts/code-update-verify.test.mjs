@@ -1,7 +1,7 @@
 // Security audit H-7 (12 Nov 2026): Code on a person's computer unpacks an update only when every file is what GitHub's
 // main holds for that version. A changed file, an extra file, a version that is not on main, or no answer from GitHub: refused.
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
-import {verifyUpdate,blobSha} from '../code/update-verify.mjs';
+import {verifyUpdate,blobSha,repoIn} from '../code/update-verify.mjs';
 const V='8201603e6487',SHA=V+'0'.repeat(28),TREE='1'.repeat(40),CODE='2'.repeat(40),BASE='https://ai.example.com';
 const FILES=[['server.mjs',Buffer.from('console.log(1)\n')],['desktop/main.cjs',Buffer.from('// main\n')]];
 const cfg=(o={})=>['aqeelos.json',Buffer.from(JSON.stringify({aqeelos:{base:BASE,origins:[BASE],version:V,...o}}))];
@@ -21,10 +21,12 @@ test('a changed file, an extra file, a path trick or another address in the sett
  await assert.rejects(check([...FILES,['evil.mjs',Buffer.from('x')],cfg()]),/not part of this version/);
  await assert.rejects(check([...FILES,['../x',Buffer.from('x')]]),/not allowed/);await assert.rejects(check([...FILES,['a\\..\\x',Buffer.from('x')]]),/not allowed/);
  await assert.rejects(check([...FILES,cfg({base:'https://evil.example'})]),/another address/);await assert.rejects(check([...FILES,cfg({origins:[BASE,'https://evil.example']})]),/another address/);
- await assert.rejects(check([...FILES,cfg({extra:1})]),/another address/);await assert.rejects(check([cfg()]),/empty/)});
+ await assert.rejects(check([...FILES,cfg({extra:1})]),/another address/);await assert.rejects(check([...FILES,cfg({repo:'evil/fork'})]),/another address/,'an update cannot move the app to another repository');assert.equal(await check([...FILES,cfg({repo:'o/r'})]),2);
+ await assert.rejects(verifyUpdate([...FILES,cfg()],V,BASE,{fetchFn:github(),repo:''}),/does not know which GitHub repository/);assert.equal(repoIn([cfg({repo:'o/r'})]),'o/r');assert.equal(repoIn([cfg({repo:'../x'})]),'');await assert.rejects(check([cfg()]),/empty/)});
 test('a version that is not on main, that GitHub does not know, or that cannot be checked is refused',async()=>{
  await assert.rejects(check([...FILES,cfg()],{compare:{status:'diverged',behind_by:3}}),/not on the main branch/);await assert.rejects(check([...FILES,cfg()],{compare:{status:'behind',behind_by:2}}),/not on the main branch/);
  await assert.rejects(check([...FILES,cfg()],{unknown:true}),/did not confirm/);await assert.rejects(check([...FILES,cfg()],{down:true}),/could not be reached/);await assert.rejects(check([...FILES,cfg()],{truncated:true}),/incomplete/);
- await assert.rejects(verifyUpdate(FILES,'main',BASE,{fetchFn:github()}),/not a commit id/)});
+ await assert.rejects(verifyUpdate(FILES,'main',BASE,{fetchFn:github(),repo:'o/r'}),/not a commit id/)});
 test('the app checks before it writes a single file',async()=>{const s=await readFile(new URL('../code/aqeelos.mjs',import.meta.url),'utf8');
- const at=s.indexOf('await verifyUpdate('),wr=s.indexOf('await writeFile(to,data)');assert.ok(at>0&&wr>at,'verifyUpdate runs before the first write')});
+ const at=s.indexOf('await verifyUpdate('),wr=s.indexOf('await writeFile(to,data)');assert.ok(at>0&&wr>at,'verifyUpdate runs before the first write');
+ const c=await readFile(new URL('../app/code.mjs',import.meta.url),'utf8');assert.match(c,/repo:UPDATE_REPO/,'the server names its source repository in the install')});

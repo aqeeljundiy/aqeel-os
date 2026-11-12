@@ -4,6 +4,7 @@
 // channels, automations) and to fetch updates. Downloads are built here from the app's source on the box
 // (~/apps/aqeel-code, filled from this repo's code/ folder by scripts/deploy.sh), with this install's address inside, plus a small installer for Windows and for Mac.
 import {readFile,writeFile,mkdir,readdir,stat,rename} from 'node:fs/promises';
+import {repoSlug,DEFAULT_REPO} from './fixer-git.mjs';
 import {randomBytes,createHash} from 'node:crypto';
 import path from 'node:path';
 
@@ -20,6 +21,8 @@ const SKIP=/^(\.git|node_modules|data|outputs|projects|\.claude|launcher|.*\.exe
 async function walk(dir,base=''){const out=[];for(const f of await readdir(dir).catch(()=>[])){if(SKIP.test(f))continue;const p=path.join(dir,f),rel=base?base+'/'+f:f;const s=await stat(p).catch(()=>null);if(!s)continue;
  if(s.isDirectory())out.push(...await walk(p,rel));else if(s.size<5e6)out.push([rel,await readFile(p)])}return out}
 
+// the GitHub repository an installed Code app checks its updates against (code/update-verify.mjs): this install's source
+const UPDATE_REPO=repoSlug(process.env.AQ_REPO||DEFAULT_REPO);
 export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  const FILE=path.join(DATA,'code-devices.json');let db=null;
  const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.devices||={};return db};
@@ -59,10 +62,10 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  const version=async()=>{const v=(await readFile(path.join(SRC,'VERSION'),'utf8').catch(()=>'')).trim();if(v)return v.slice(0,12);try{const head=(await readFile(path.join(SRC,'.git','HEAD'),'utf8')).trim();if(!head.startsWith('ref:'))return head.slice(0,12);const ref=head.slice(4).trim();
    const sha=await readFile(path.join(SRC,'.git',ref),'utf8').catch(async()=>((await readFile(path.join(SRC,'.git','packed-refs'),'utf8')).split('\n').find(l=>l.endsWith(' '+ref))||'').split(' ')[0]);return String(sha).trim().slice(0,12)||'0'}catch{return '0'}};
  // what an installed app fetches to update itself: the source, and this install's address and version
- async function update(){const v=await version();const files=await walk(SRC);files.push(['aqeelos.json',Buffer.from(JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:v}},null,1))]);return {version:v,zip:zip(files.map(f=>[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}}
+ async function update(){const v=await version();const files=await walk(SRC);files.push(['aqeelos.json',Buffer.from(JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:v,...(UPDATE_REPO?{repo:UPDATE_REPO}:{})}},null,1))]);return {version:v,zip:zip(files.map(f=>[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}}
  // the download for one kind of computer
  async function download(os){const files=(await walk(SRC)).map(([n,b])=>['aqeelOS Code/'+n,b]);
-  const cfg=JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:await version(),brand:globalThis.AQ_BRAND||'aqeelOS'}},null,1);files.push(['aqeelOS Code/aqeelos.json',Buffer.from(cfg)]);
+  const cfg=JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:await version(),brand:globalThis.AQ_BRAND||'aqeelOS',...(UPDATE_REPO?{repo:UPDATE_REPO}:{})}},null,1);files.push(['aqeelOS Code/aqeelos.json',Buffer.from(cfg)]);
   const tpl=f=>readFile(path.join(ROOT,'code-installer',f));
   if(os==='windows'){files.push(['aqeelOS Code/Install aqeelOS Code.cmd',await tpl('install.cmd')],['aqeelOS Code/install.ps1',await tpl('install.ps1')],['aqeelOS Code/uninstall.ps1',await tpl('uninstall.ps1')])}
   else files.push(['aqeelOS Code/Install aqeelOS Code.command',await tpl('install.command'),true],['aqeelOS Code/Uninstall aqeelOS Code.command',await tpl('uninstall.command'),true]);

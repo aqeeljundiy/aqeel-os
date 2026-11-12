@@ -102,7 +102,9 @@ Code updates itself from the aqeelOS server it is paired with. Since 12 Nov 2026
 is a commit on GitHub's main and every file in it is byte for byte the file GitHub lists for `code/` at that commit
 (`code/update-verify.mjs`; GitHub is asked directly, the server cannot answer in its place). Still open, and what they need:
 
-- An app installed before this change takes one more update the old way; after that every update is checked.
+- An app installed before this change takes one more update the old way; after that every update is checked. The
+  repository it checks against is named by the server once (at install, or at that first update) and then kept on the
+  computer in `data/update-source`; no later update can change it.
 - The desktop installer ("Restart and update", `code/desktop/main.cjs`) still runs the downloaded installer unsigned. It
   needs: code signing (an Authenticode certificate for Windows, an Apple Developer ID and notarisation for Mac; both cost
   money and are the owner's to buy), the download limited to the release host, and the installer's SHA-256 published in
