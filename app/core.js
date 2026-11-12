@@ -419,7 +419,10 @@ function runPage(P,r,pg){const nav=S._nav;let gone=pageRun(pg);return Promise.re
    then one swap in one frame. A drawing slower than Stage.ms shows the new heading and the loading ring meanwhile, and
    one slower than Stage.max is shown as far as it is. The new drawing sits in the document before the old one, so every
    lookup by id finds the new one; it is laid out (sizes can be measured) but takes no room and shows nothing. */
-const Stage={ms:450,max:2200,
+// max: a drawing slower than this is shown as far as it is, and what is still to come lands in view. 2.2 s was too short on a busy box: Health and
+// Settings read for 3 to 4 s on P&P, were shown half drawn at 2.2 s and then moved 0.46 and 0.45 (layout shift) as their last parts landed (sweep, 12 Nov
+// 2026). The loading ring is up from 0.45 s, so the wait is not a blank page.
+const Stage={ms:450,max:6000,
  drop(v){const st=v._stage;if(st){clearTimeout(st.t);clearTimeout(st.t2);v._stage=null;st.fin?.()}for(const x of v.querySelectorAll('.staged'))x.remove()},
  // st: {pg (the content being drawn, out of sight), kind, early (optional: show the heading and the ring), reveal (show pg)}
  hold(v,st,run){const prev=v._stage;v._stage=st;v._run=run;if(prev){clearTimeout(prev.t);clearTimeout(prev.t2);prev.fin?.()}
@@ -448,7 +451,7 @@ const Stage={ms:450,max:2200,
   this.drop(v);const live=$('#pg');if(!live)return;
   live._rt=(live._rt||0)+1;const pg=document.createElement('div');pg.id='pg';pg.className='staged';live.before(pg);
   this.hold(v,{pg,kind:'pg',reveal(){const a=document.activeElement,keep=a&&a.id&&live.contains(a)?a:null;
-   live.remove();pg.classList.remove('staged');
+   live.remove();pg.classList.remove('staged');Calm.settle(pg);   // the same page drawn again is an update in place: its entrances (started while it was out of sight, or inside the opening window) are over, not replayed
    if(keep){const b=pg.querySelector('#'+CSS.escape(keep.id));if(b){b.focus({preventScroll:true});try{b.setSelectionRange(keep.selectionStart,keep.selectionEnd)}catch{}}}}},run)},
  // newer answers came in after a page was drawn from its last-known ones (Swr): draw it once more, unless someone is in
  // the middle of something on it (a pop-up open, typing in a field): then a little later
@@ -517,8 +520,9 @@ const Calm={until:0,names:null,
  // layers that open on top (palette, scrim, dialogs, pop-ups) always play their own entrance: finishing it made the
  // palette appear in one frame
  LAYERS:'.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu,.palette,.scrim,.plug-dlg,.plug-scrim,.meter-card,.cron-pop,.new-version',
- calm(n){if(performance.now()<this.until||n.closest?.(this.LAYERS))return;
-  for(const a of n.getAnimations?.({subtree:true})||[]){const t=a.effect?.getTiming?.();if(a.animationName&&t&&t.iterations!==Infinity&&this.entry().has(a.animationName))a.finish()}}};
+ calm(n){if(performance.now()<this.until||n.closest?.(this.LAYERS))return;this.settle(n)},
+ // the entrances inside n are over now (whatever the opening window says)
+ settle(n){for(const a of n.getAnimations?.({subtree:true})||[]){const t=a.effect?.getTiming?.();if(a.animationName&&t&&t.iterations!==Infinity&&!a.effect.target?.closest?.(this.LAYERS)&&this.entry().has(a.animationName))a.finish()}}};
 new MutationObserver(list=>{for(const m of list)for(const n of m.addedNodes)if(n.nodeType===1)Calm.calm(n)}).observe(document.documentElement,{childList:true,subtree:true});
 Calm.opening(1500);
 function sidebar(r){
@@ -537,7 +541,7 @@ function sidebar(r){
 }
 // the bell drawn with its count (as Inbox.paintBell leaves it): drawn empty, every topbar redraw (each page switch) hid the
 // count until the next 2-second paint, which then popped it in and rang the bell again
-function bellBtn(){const n=typeof Inbox!=='undefined'?Inbox.unread():0;return `<button class="ghost icon bell${n>0?' has':''}" data-act="inbox" data-n="${n}" title="Notifications" aria-label="${n?n+' notifications':'Notifications'}">${icon('bell',18)}<span class="bell-n">${n?(n>99?'99+':n):''}</span></button>`}
+function bellBtn(){const n=typeof Inbox!=='undefined'?Inbox.shown():0;return `<button class="ghost icon bell${n>0?' has':''}" data-act="inbox" data-n="${n}" title="Notifications" aria-label="${n?n+' notifications':'Notifications'}">${icon('bell',18)}<span class="bell-n">${n?(n>99?'99+':n):''}</span></button>`}
 // "Agents > Agents", "Models > Models and accounts": a page named after its section shows one crumb
 function sameCrumb(sec,page){const a=String(sec||'').trim().toLowerCase(),b=String(page||'').trim().toLowerCase();return !!a&&(a===b||b.startsWith(a+' '))}
 function topbar(r){
@@ -586,7 +590,8 @@ function gwState(s){if(!s)return typeof noAgent==='function'&&noAgent()?{label:'
 /* ---------- page helpers ---------- */
 function head(p,actions=''){return `<div class="page-head"><div><h1>${p.label}</h1><p>${p.desc||''}</p></div><div class="head-actions" style="display:flex;gap:8px;flex-wrap:wrap">${actions}</div></div>`}
 function setActions(html){const a=$('.head-actions');if(!a)return;const vp=a.querySelector('.view-pick');a.innerHTML=html;if(vp)a.prepend(vp);requestAnimationFrame(()=>edgeFade(a))}
-function tabs(key,list,cur){cur=cur||S.tab[key]||list[0];return `<div class="tabs" data-tabs="${key}">${list.map(t=>`<button class="${t===cur?'on':''}" data-tab="${esc(t)}">${esc(t)}</button>`).join('')}<span class="pill"></span></div>`}
+// drawn with its roles (the same ones ariaTabs keeps up to date): a row of tabs first painted without them, and read so by anything that looks before placePills has run (OPS-14, sweep: "Health has tabs without tab roles")
+function tabs(key,list,cur){cur=cur||S.tab[key]||list[0];return `<div class="tabs" role="tablist" data-tabs="${key}">${list.map(t=>`<button class="${t===cur?'on':''}" data-tab="${esc(t)}" role="tab" aria-selected="${t===cur}" tabindex="${t===cur?0:-1}">${esc(t)}</button>`).join('')}<span class="pill"></span></div>`}
 const toggle=(on,label,attrs='')=>`<input type="checkbox" class="switch" ${on?'checked':''} aria-label="${esc(label)}" ${attrs}>`;
 const st=i=>`style="animation-delay:${Math.min(i,10)*30}ms"`;
 const skeleton=()=>`<div class="skel loading" role="status" aria-label="Loading"><span class="ring"></span></div>`;

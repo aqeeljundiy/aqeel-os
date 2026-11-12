@@ -79,12 +79,20 @@ test('the sidebar, topbar, banners, composer bar, Kirimdev, Teams and Connection
  assert.doesNotMatch(src('kirimdev-page.js')+src('teams-page.js'),/classList\.add\('km-fresh'\)/,'no whole-list fade for one changed line')});
 
 test('the topbar draws the bell with its count, so a page switch never blanks or re-pops it',()=>{
- const Inbox={unread:()=>3},icon=()=>'<svg></svg>';const bell=new Function('Inbox','icon',grab('core.js','function bellBtn(')+'\nreturn bellBtn()')(Inbox,icon);
+ const Inbox={shown:()=>3},icon=()=>'<svg></svg>';const bell=new Function('Inbox','icon',grab('core.js','function bellBtn(')+'\nreturn bellBtn()')(Inbox,icon);
  assert.match(bell,/class="ghost icon bell has"/);assert.match(bell,/data-n="3"/);assert.match(bell,/<span class="bell-n">3<\/span>/);
- const none=new Function('Inbox','icon',grab('core.js','function bellBtn(')+'\nreturn bellBtn()')({unread:()=>0},icon);assert.match(none,/class="ghost icon bell"/);
+ const none=new Function('Inbox','icon',grab('core.js','function bellBtn(')+'\nreturn bellBtn()')({shown:()=>0},icon);assert.match(none,/class="ghost icon bell"/);
  assert.equal((src('core.js').match(/\$\{bellBtn\(\)\}/g)||[]).length,2,'full topbar and the side-panel topbar');
  // what paintBell compares against: drawn already, it has nothing to do
- assert.match(src('notices.js'),/if\(b\.dataset\.n===String\(n\)\)return/)});
+ assert.match(src('notices.js'),/if\(b\.dataset\.n===String\(n\)\)return/);
+
+ // OPS-14 (12 Nov 2026): before this page load's first answer the bell shows the count this browser last saw, so a reload or a first page
+ // never draws it at 0 and then pops it in; after the first answer it is the real count (which is saved for the next load)
+ const mem=new Map(),mk=()=>new Function('store',grab('notices.js','const Inbox=').replace('const Inbox=','return '))({get:(k,d)=>mem.has(k)?mem.get(k):d,set:(k,v)=>mem.set(k,v)});
+ const I=mk();mem.set('bellN',4);assert.equal(I.shown(),4,'nothing answered yet: the last known count');
+ I.items=[{read:false}];assert.equal(I.shown(),1,'an item of this tab is counted at once');
+ const J=mk();J.loaded=true;assert.equal(J.shown(),0,'answered: the real count, even when it is 0');
+ mem.set('bellN','x');assert.equal(mk().shown(),0,'a damaged saved count is ignored')});
 
 test('pop-ups play their own entrance (the palette was finished in one frame) and leave from where they are',()=>{
  const core=src('core.js');const layers=core.match(/LAYERS:'([^']+)'/)[1];
@@ -116,7 +124,7 @@ test('late cards open their space and lists change height smoothly',()=>{
 test('the sweep never counts a first entrance as a replay: text round a block still fading in is not "shown" yet',()=>{
  const sw=readFileSync(new URL('./sweep.js',import.meta.url),'utf8');
  assert.match(sw,/const snap=\(\)=>\{shown=new Set\(\);const fl=\$\('#view'\)\?\.getAnimations\(\{subtree:true\}\)/);
- assert.match(sw,/if\(fl\.some\(f=>el\.contains\(f\)\)\)continue/)});
+assert.match(sw,/if\(el\.closest\('\.staged'\)\|\|fl\.some\(f=>el\.contains\(f\)\)\)continue/,'a page still drawn out of sight is not on screen')});
 
 /* ---------- 12 Nov 2026: a page is drawn out of sight and shown whole; last-known answers while it is drawn ---------- */
 test('opening a page never blanks the view: render hands the drawing to Stage, which keeps what is on screen until the new page is whole',()=>{
@@ -166,3 +174,20 @@ test('the flicker check fails on a redrawn shell and on a page that moves, and r
  assert.match(bc,/if \[ "\$\{FLICKER_CHECK:-1\}" = 0 \]; then echo "· 2\/5 fast page switching: skipped/);assert.match(bc,/node scripts\/shot\.mjs \/tmp\/sweep\.png "#\/chat" "" "" 1280 900 "\$\(cat scripts\/sweep\.js\)"/);
  assert.doesNotMatch(readFileSync(new URL('../app/browser-checks.mjs',import.meta.url),'utf8'),/FLICKER_CHECK/,'the nightly run never switches the flicker check off');
  const wf=readFileSync(new URL('../.github/workflows/tests.yml',import.meta.url),'utf8');assert.match(wf,/node scripts\/flicker-ci\.mjs/)});
+
+
+/* ---------- OPS-14 (12 Nov 2026): what the sweep found on P&P's test copy ---------- */
+test('a row of tabs is drawn with its tab roles and its chosen tab (not only after placePills has run)',()=>{
+ const esc=x=>String(x),S={tab:{}};const t=new Function('esc','S',grab('core.js','function tabs(key,list,cur)')+'\nreturn tabs')(esc,S);
+ const h=t('health',['Now','History'],'History');
+ assert.match(h,/<div class="tabs" role="tablist" data-tabs="health">/);assert.match(h,/class="on" data-tab="History" role="tab" aria-selected="true" tabindex="0"/);assert.match(h,/data-tab="Now" role="tab" aria-selected="false" tabindex="-1"/)});
+test('a file tile and a file row are not a button inside a button: the open action is a real button, the options button is its sibling',()=>{
+ const f=src('files.js');
+ for(const name of ['const tile=','const row=','const upTile=','const upRow=']){const l=f.split('\n').find(x=>x.includes(name));assert.ok(l,name);assert.doesNotMatch(l,/tabindex="0"/,name+' holds no tab stop of its own');assert.match(l,/ rm[ "]/,name+' is a row-main row');assert.match(l,/<button type="button" class="row-main" data-act="f-(open|cd)"/,name)}
+ assert.match(src('app.css'),/\.ftile\.rm \.fmore\{position:absolute;z-index:1\}/)});
+test('Stage waits up to 6 s for a page that reads slowly (Health, Settings on a busy box) so it is shown whole; the sweep treats the page own first show as its entrance',()=>{
+ assert.ok(src('core.js').includes('const Stage={ms:450,max:6000,'));
+ assert.ok(readFileSync(new URL('./sweep.js',import.meta.url),'utf8').includes("if(t.id==='pg'||t.closest?.("))});
+test('the same page drawn again (Stage.same) shows no entrance again: its animations are finished at the swap; the sweep ignores what still runs out of sight',()=>{
+ const c=src('core.js');assert.ok(c.includes("live.remove();pg.classList.remove('staged');Calm.settle(pg);"));assert.ok(c.includes(' settle(n){for(const a of n.getAnimations'));
+ assert.ok(readFileSync(new URL('./sweep.js',import.meta.url),'utf8').includes("if(t.isConnected&&!t.closest('.staged')&&t.getAnimations()")); assert.ok(readFileSync(new URL('./sweep.js',import.meta.url),'utf8').includes("fetch('/ui/connections?fresh=1'"))});

@@ -1,6 +1,6 @@
 // The night's browser page checks (12 Nov 2026, owner: deploys were heavy on boxes that are CPU-bound). The four checks that every
 // deploy used to run on a test copy next to the agents (pages, fast switching, buttons and tabs, My browser) now run here, once a night
-// in the maintenance window after the update (maintenance.mjs browserChecksDue), by scripts/box-check.sh with BROWSER_ONLY=1 against
+// after the maintenance window has closed (maintenance.mjs browserChecksDue), by scripts/box-check.sh with BROWSER_ONLY=1 against
 // the version that is live (<app>/.deployed.tgz). Result in DATA/browser-checks.json; a failure is ONE Health item (topic
 // browser-checks), a pass takes it away. Never undoes a deploy. Only on a Docker box (~/services.sh and .deployed.tgz); install.json
 // "nightlyBrowserChecks": false switches it off.

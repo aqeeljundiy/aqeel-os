@@ -28,7 +28,7 @@ const Notices={max:1,box(){let b=document.querySelector('.cron-pops');if(!b){b=d
 const RanNow={norm:n=>String(n||'').replace(/^\s*\[[^\]]*\]\s*/,'').trim().toLowerCase(),
  mark(n){const l=store.get('ranNow',{}),now=Date.now();for(const k in l)if(now-l[k]>2*3600e3)delete l[k];l[this.norm(n)]=now;store.set('ranNow',l)},
  hit(n){const t=store.get('ranNow',{})[this.norm(n)];return !!t&&Date.now()-t<2*3600e3}};
-const Inbox={items:[],needs:[],ids:{},
+const Inbox={items:[],needs:[],ids:{},loaded:false,
  // to-dos that live in Bottlenecks (their pop-ups come from people.js and mcp-share.js), and the usage-stats question (boot.js)
  todo:o=>!!o.todo||/^(cronFail:|chAlert:|signin\||metrics-ask)/.test(o.key||''),
  all(){return this.items},
@@ -36,7 +36,7 @@ const Inbox={items:[],needs:[],ids:{},
  // server does not list yet was dropped by each minute's load, and a busy server's "needs" that failed came back empty,
  // so the badge went to 0 and popped in and rang again on the next load
  async load(){if(!S.signedIn||document.hidden)return;await this.migrate();try{const d=await UI('/ui/news'),l=Array.isArray(d.items)?d.items:[];
-  this.items=[...this.items.filter(x=>String(x.id).startsWith('l')&&!(x.key&&l.some(y=>y.key===x.key))),...l];if(Array.isArray(d.needs))this.needs=d.needs}catch{return}this.paintBell();if($('.drawer.inbox'))this.paintList()},
+  this.items=[...this.items.filter(x=>String(x.id).startsWith('l')&&!(x.key&&l.some(y=>y.key===x.key))),...l];if(Array.isArray(d.needs))this.needs=d.needs}catch{return}this.loaded=true;this.paintBell();if($('.drawer.inbox'))this.paintList()},
  // the list this browser kept before it moved to the server (1 Nov 2026): the last week's news goes up once (as Activity)
  async migrate(){const old=store.get('inbox',null);if(!Array.isArray(old))return;store.set('inbox',null);
   const items=old.filter(x=>Date.now()-x.t<7*864e5&&!this.todo({key:x.id})).slice(0,30).map(x=>({key:'old:'+x.id,icon:x.icon,kind:x.kind,title:x.title,text:x.text,go:x.go,label:x.label,read:!!x.read}));
@@ -53,9 +53,12 @@ const Inbox={items:[],needs:[],ids:{},
  async read(id){if(!id)return;const x=this.items.find(y=>y.id===id);if(x&&!x.read){x.read=true;this.paintBell()}const s=await this.sid(id);if(s&&!s.startsWith('l'))post(UI,'/ui/news/read',{ids:[s]}).catch(()=>{})},
  // the badge: what needs you, plus what you started that finished and you have not seen
  unread(){return this.needs.length+this.items.filter(x=>!x.read).length},
+ // what the bell shows: before the first answer of this page load, the count this browser last saw (a bell drawn at 0 and then
+ // given its count popped in and rang on every reload and first page); from then on the real one
+ shown(){if(this.loaded||this.items.length||this.needs.length)return this.unread();const k=store.get('bellN',0);return Number.isInteger(k)&&k>0?k:0},
  // the badge pops in and the bell rings only when the count goes from none to some (bell-new), never because the bell
  // was drawn again
- paintBell(){const n=this.unread();$$('[data-act="inbox"]').forEach(b=>{if(b.dataset.n===String(n))return;const was=+b.dataset.n||0;b.dataset.n=String(n);b.classList.toggle('has',n>0);
+ paintBell(){const n=this.shown();if(this.loaded&&this._bn!==n){this._bn=n;store.set('bellN',n)}$$('[data-act="inbox"]').forEach(b=>{if(b.dataset.n===String(n))return;const was=+b.dataset.n||0;b.dataset.n=String(n);b.classList.toggle('has',n>0);
   if(n>0&&!was){b.classList.add('bell-new');clearTimeout(b._newT);b._newT=setTimeout(()=>b.classList.remove('bell-new'),1300)}else if(!n)b.classList.remove('bell-new');const c=b.querySelector('.bell-n');if(c)c.textContent=n>99?'99+':String(n);b.setAttribute('aria-label',n?n+' notifications':'Notifications')})},
  async clear(x,node){if(node){node.classList.add('out');await new Promise(r=>setTimeout(r,200))}this.items=this.items.filter(y=>y!==x);this.paintBell();this.paintList();this.sid(x.id).then(s=>post(UI,'/ui/news/hide',{id:s})).catch(()=>{})},
  open(){const d=sideDrawer('Notifications','<div id="inboxList"></div>','<a class="ib-activity" href="#/system/activity" data-ib-activity>'+icon('activity',15)+'Activity: everything that happened by itself</a>');d.classList.add('inbox');

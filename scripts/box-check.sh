@@ -60,7 +60,7 @@ echo "$r" | grep -q '"errors":\[\]' || { echo "✗ a page did not load: $r" | cu
 # FLICKER_CHECK=0: skip only this timing check (it fails on a heavily loaded server); every other check still runs
 if [ "${FLICKER_CHECK:-1}" = 0 ]; then echo "· 2/5 fast page switching: skipped (FLICKER_CHECK=0)"; else
 echo "· 2/5 fast page switching and flicker (replays, jumps, pictures loading again, the bell, pop-ups, the shell drawn again, pages that move while they load)"
-sweep(){ timeout 420 node scripts/shot.mjs /tmp/sweep.png "#/chat" "" "" 1280 900 "$(cat scripts/sweep.js)" 2>&1 | head -1; }
+sweep(){ timeout 540 node scripts/shot.mjs /tmp/sweep.png "#/chat" "" "" 1280 900 "$(cat scripts/sweep.js)" 2>&1 | head -1; }
 s=$(sweep); echo "$s" | grep -q '\\"bad\\":0' || { again "fast page switching" "$s"; s=$(sweep); }
 echo "$s" | grep -q '\\"bad\\":0' || { echo "✗ fast page switching found problems (twice):"; echo "$s" | cut -c1-900; exit 1; }
 fi

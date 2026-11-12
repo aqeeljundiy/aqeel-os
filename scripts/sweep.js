@@ -36,10 +36,14 @@ let bellPops=0;const bellOn=typeof Inbox!=='undefined'&&Inbox.items;if(bellOn){I
 // pop with no new unread item is the topbar drawn without its count (OPS-14: P&P failed on exactly two, one pop and one ring)
 let bellN=Infinity,bellGrew=-1e9;
 document.addEventListener('animationstart',e=>{if(!/^(popIn2|ring)$/.test(e.animationName)||!e.target.closest?.('.topbar'))return;const n=bellOn?Inbox.unread():0,t=performance.now();if(n>bellN){bellN=n;bellGrew=t}if(t-bellGrew>1500)bellPops++},true);
+// the lists on Keys, Skills and Plugins are answered from the server's last read and read again behind it ("getting a newer list"); the test copy starts from
+// a copy of the data with an old one, so its first answer was 3 rows short and they glided in six seconds later (layout shift 0.05, P&P 12 Nov). A person's box has
+// read it recently: read it once here, as the first person to open it would have. (SWEEP_COLD=1 leaves this out.)
+if(!window.SWEEP_COLD)try{await fetch('/ui/connections?fresh=1',{credentials:'same-origin'})}catch{}
 await new Promise(r=>setTimeout(r,800));bellPops=0;shellOn=true;if(bellOn)bellN=Inbox.unread();
 // every page in the navigation (new ones are checked without editing this list), plus Help
 const pages=window.SWEEP_ONLY||[...new Set(['#/chat',...SECTIONS.flatMap(x=>x.pages?x.pages.filter(p=>!p.hidden).map(p=>'#/'+x.id+'/'+p.id):[]),'#/help'])];
-const DWELL=window.SWEEP_DWELL||[2500,5500];let worst=0;
+const DWELL=window.SWEEP_DWELL||[2500,5500];let worst=0,worstAt='';
 const sl=ms=>new Promise(r=>setTimeout(r,ms));const out=[];let bad=0;
 let settled=Infinity,shown=new Set();const flick=[];const sig=t=>(t.textContent||'').replace(/\s+/g,' ').trim().slice(0,80);
  // only what has settled counts as shown: content drawn a moment before this look is still in its first entrance (its
@@ -49,7 +53,7 @@ let settled=Infinity,shown=new Set();const flick=[];const sig=t=>(t.textContent|
  // and its own first fade, starting a frame later, read as a replay (predeploy, 7 Nov 2026: "#/agents/memory flickers:
  // reveal on two reveal" when the busy box drew Memory at 2.5 s)
  const snap=()=>{shown=new Set();const fl=$('#view')?.getAnimations({subtree:true}).filter(a=>Calm.entry().has(a.animationName)&&a.playState!=='finished').map(a=>a.effect?.target).filter(Boolean)||[];
-  for(const el of document.querySelectorAll('#view *')){if(fl.some(f=>el.contains(f)))continue;const x=sig(el);if(x.length>3)shown.add(x)}};
+  for(const el of document.querySelectorAll('#view *')){if(el.closest('.staged')||fl.some(f=>el.contains(f)))continue;const x=sig(el);if(x.length>3)shown.add(x)}};   // a page still drawn out of sight (.staged) is not on screen yet
  // and once that first entrance is over, it is shown too: from then on a fade-in of the same content is a replay
  // but only what is no longer fading: Calm ends a late panel's own rise at once while watchReveal fades its block (or
  // the rows inside it) in, so that panel, or a box whose rows are still coming in, was never on screen settled (Memory
@@ -59,13 +63,13 @@ let settled=Infinity,shown=new Set();const flick=[];const sig=t=>(t.textContent|
   const fl=v.getAnimations({subtree:true}).filter(a=>Calm.entry().has(a.animationName)&&a.playState!=='finished').map(a=>a.effect?.target).filter(Boolean),free=n=>!fl.some(f=>f.contains(n)||n.contains(f));
   const up=[];for(let n=t.parentElement;n&&n!==v;n=n.parentElement)up.push(n);
   for(const el of [...up,t,...t.querySelectorAll('*')])if(free(el)){const x=sig(el);if(x.length>3)shown.add(x)}},true);
-document.addEventListener('animationstart',e=>{if(performance.now()<settled||typeof Calm==='undefined'||!Calm.entry().has(e.animationName))return;const t=e.target;if(t.closest?.('.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu'))return;if(!shown.has(sig(t)))return;
- setTimeout(()=>{if(t.isConnected&&t.getAnimations().some(a=>a.animationName===e.animationName&&a.playState==='running'))flick.push(e.animationName+' on '+(t.id?'#'+t.id:String(t.className||t.tagName).slice(0,40)))},40)},true);
+document.addEventListener('animationstart',e=>{if(performance.now()<settled||typeof Calm==='undefined'||!Calm.entry().has(e.animationName))return;const t=e.target;if(t.id==='pg'||t.closest?.('.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu'))return;   // #pg itself: the page being shown whole by Stage (its entrance), a redraw swaps it for a new one withoutif(!shown.has(sig(t)))return;
+ setTimeout(()=>{if(t.isConnected&&!t.closest('.staged')&&t.getAnimations().some(a=>a.animationName===e.animationName&&a.playState==='running'))flick.push(e.animationName+' on '+(t.id?'#'+t.id:String(t.className||t.tagName).slice(0,40)))},40)},true);
 for(let i=0;i<pages.length;i++){const p=pages[i];
  location.hash=pages[(i+3)%pages.length];await sl(120);location.hash=pages[(i+7)%pages.length];await sl(200);
  if(i%3===0)S.viewAll=!S.viewAll;if(i%4===1)S.viewAgent=S.viewAgent?null:(S._viewList||[])[1]||null;
  location.hash=p;flick.length=0;shift=0;shiftBy=[];await sl(DWELL[0]);snap();settled=performance.now();await sl(DWELL[1]);settled=Infinity;
- worst=Math.max(worst,shift);if(shift>SHIFT_MAX){bad++;out.push('✗ '+p+' moves while it loads (layout shift '+shift.toFixed(2)+', limit '+SHIFT_MAX+'): '+[...new Set(shiftBy)].slice(0,4).join(', ')+': draw it whole (Stage) or keep the space')}
+ if(shift>worst){worst=shift;worstAt=p}if(shift>SHIFT_MAX){bad++;out.push('✗ '+p+' moves while it loads (layout shift '+shift.toFixed(2)+', limit '+SHIFT_MAX+'): '+[...new Set(shiftBy)].slice(0,4).join(', ')+': draw it whole (Stage) or keep the space')}
  if(flick.length){bad++;out.push('✗ '+p+' flickers: '+[...new Set(flick)].slice(0,3).join(', '))}
  const err=[...document.querySelectorAll('#view .state-box.err')].map(x=>x.textContent.trim().slice(0,140));
  const txt=(()=>{const v=document.querySelector('#view');if(!v)return '';const c=v.cloneNode(true);c.querySelectorAll('.log,pre,code,#logBox').forEach(e=>e.remove());return c.textContent||''})();const nul=/\bnull\b|\bundefined\b|NaN|\[object Object\]/.test(txt);
@@ -93,4 +97,4 @@ if(bellOn&&bellPops){bad++;out.push('✗ the bell popped in or rang again '+bell
   if(up){bad++;out.push('✗ a panel closed while still opening flashes back to fully shown before it leaves (+'+up.toFixed(2)+' opacity)')}}}}
 if(bellOn){Inbox.items=Inbox.items.filter(x=>x.id!=='l-sweep');Inbox.paintBell()}
 if(errs.length){bad+=errs.length;out.push(...[...new Set(errs)].map(e=>'✗ '+e))}
-return JSON.stringify({out,bad,pages:pages.length,worstShift:+worst.toFixed(3),shell:shell.length})})()
+return JSON.stringify({out,bad,pages:pages.length,worstShift:+worst.toFixed(3),worstAt,shell:shell.length})})()

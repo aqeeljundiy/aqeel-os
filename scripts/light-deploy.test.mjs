@@ -19,23 +19,34 @@ test('the window that contains a moment opened at its start, whatever zone the s
  assert.equal(windowOpened(at('2026-11-11T17:42:31Z')).toISOString(),'2026-11-11T17:00:00.000Z');
  const w={from:'23:30',to:'00:30',tz:'UTC'};assert.equal(windowOpened(at('2026-11-12T00:10:00Z'),w).toISOString(),'2026-11-11T23:30:00.000Z','a window may pass midnight')});
 
-test('the night\'s browser checks: once, inside the window, after the update has had its turn, never twice for a version that passed',()=>{
+test('the night browser checks start AFTER the window (00:00-01:00 Jakarta = 17:00-18:00 UTC), once a night, never twice for a version that passed',()=>{
  const base={w:DEFAULT_WINDOW,sha:'abc'};const d=(iso,o={})=>browserChecksDue({...base,now:at(iso),...o});
- assert.equal(d('2026-11-11T12:00:00Z').due,false,'midday');
- assert.match(d('2026-11-11T17:10:00Z').why,/update goes first/,'10 minutes in: the update ticks every 15');
- assert.equal(d('2026-11-11T17:30:00Z').due,true);
- assert.match(d('2026-11-11T17:30:00Z',{updating:true}).why,/update is running/);assert.match(d('2026-11-11T17:30:00Z',{running:true}).why,/already running/);
- assert.match(d('2026-11-11T17:40:00Z',{last:{at:at('2026-11-11T17:31:00Z').getTime(),ok:false,sha:'abc'}}).why,/already ran in this window/);
- assert.equal(d('2026-11-11T17:30:00Z',{last:{at:at('2026-11-10T17:31:00Z').getTime(),ok:false,sha:'abc'}}).due,true,'a failed run is tried again the next night');
- assert.match(d('2026-11-11T17:30:00Z',{last:{at:at('2026-11-10T17:31:00Z').getTime(),ok:true,sha:'abc'}}).why,/already passed/);
- assert.equal(d('2026-11-11T17:30:00Z',{last:{at:at('2026-11-10T17:31:00Z').getTime(),ok:true,sha:'old'}}).due,true,'a new version is checked');
- assert.equal(d('2026-11-11T17:30:00Z',{last:{at:at('2026-11-01T17:31:00Z').getTime(),ok:true,sha:'abc'}}).due,true,'and the same one again after a week');
- const short={from:'03:00',to:'03:30',tz:'UTC'};assert.equal(browserChecksDue({now:at('2026-11-11T03:16:00Z'),w:short}).due,true,'a short window waits half its length at most')});
+ const last=(iso,ok,sha='abc')=>({at:at(iso).getTime(),ok,sha});
+ assert.equal(d('2026-11-11T12:00:00Z').due,false,'19:00 Jakarta: too long after the window');
+ assert.match(d('2026-11-11T17:30:00Z').why,/window is open/,'inside the window the update goes first; the checks never start there (an update restart cut them off)');
+ assert.match(d('2026-11-11T17:59:00Z').why,/window is open/);
+ assert.match(d('2026-11-11T18:02:00Z').why,/just finished/,'01:02: the update has just finished');
+ assert.equal(d('2026-11-11T18:05:00Z').due,true,'01:05: due');
+ assert.equal(d('2026-11-12T01:00:00Z').due,true,'08:00 Jakarta: still inside the catch-up time (box was busy or restarting)');
+ assert.match(d('2026-11-12T02:30:00Z').why,/too long after/,'09:30 Jakarta: waits for tonight');
+ assert.match(d('2026-11-11T18:30:00Z',{updating:true}).why,/update is running/);assert.match(d('2026-11-11T18:30:00Z',{running:true}).why,/already running/);
+ assert.match(d('2026-11-11T19:00:00Z',{last:last('2026-11-11T18:31:00Z',false)}).why,/already ran after this window/,'once a night, a failed run too');
+ assert.equal(d('2026-11-11T18:30:00Z',{last:last('2026-11-10T18:31:00Z',false)}).due,true,'a failed run is tried again the next night');
+ assert.equal(d('2026-11-11T18:30:00Z',{last:last('2026-11-11T16:00:00Z',false)}).due,true,'a run from before the window does not count for this night');
+ assert.match(d('2026-11-11T18:30:00Z',{last:last('2026-11-10T18:31:00Z',true)}).why,/already passed/);
+ assert.equal(d('2026-11-11T18:30:00Z',{last:last('2026-11-10T18:31:00Z',true,'old')}).due,true,'a new version is checked');
+ assert.equal(d('2026-11-11T18:30:00Z',{last:last('2026-11-01T18:31:00Z',true)}).due,true,'and the same one again after a week');
+ // the afternoon the feature shipped (12 Nov 17:12 Jakarta): nothing runs until the first window has passed
+ assert.equal(d('2026-11-12T10:12:00Z').due,false);assert.equal(d('2026-11-12T18:10:00Z').due,true,'first night: 01:10 Jakarta on 13 Nov');
+ // an install own window, passing midnight, in another zone
+ const own={from:'23:30',to:'00:30',tz:'UTC'};assert.equal(browserChecksDue({now:at('2026-11-12T00:10:00Z'),w:own}).due,false,'inside');assert.equal(browserChecksDue({now:at('2026-11-12T00:40:00Z'),w:own}).due,true);
+ assert.equal(browserChecksDue({now:at('2026-11-12T00:40:00Z'),w:own,last:{at:at('2026-11-11T23:20:00Z').getTime(),ok:false,sha:'x'}}).due,true,'a run from before this window opened');
+ assert.equal(browserChecksDue({now:at('2026-11-12T00:40:00Z'),w:own,last:{at:at('2026-11-12T00:36:00Z').getTime(),ok:false,sha:'x'}}).due,false,'one from after it closed')});
 
 async function boxFixture({sha='abc',auto=null,settings={}}={}){const root=await mkdtemp(path.join(tmpdir(),'bc-')),APP=path.join(root,'app'),DATA=path.join(root,'data');
  await mkdir(path.join(APP,'scripts'),{recursive:true});await mkdir(DATA,{recursive:true});await writeFile(path.join(APP,'scripts','box-check.sh'),'#!/bin/bash\n');await writeFile(path.join(APP,'.deployed.tgz'),'x');
  if(auto)await writeFile(path.join(DATA,'auto-update.json'),JSON.stringify(auto));
- const events=[],resolved=[],calls=[];let t=at('2026-11-11T17:30:00Z').getTime();
+ const events=[],resolved=[],calls=[];let t=at('2026-11-11T18:30:00Z').getTime();
  const mk=(out,code=0,timedOut=false)=>createBrowserChecks({DATA,APP,HOME:root,settings:()=>settings,now:()=>t,log:()=>{},live:async()=>({box:true,sha}),
   bottlenecks:{event:async(...a)=>{events.push(a)},resolve:async x=>{resolved.push(x)}},exec:async(f,a,o)=>{calls.push({f,a,o});t+=60e3;return {code,out,timedOut}}});
  return {mk,events,resolved,calls,DATA,APP,tick:m=>{t+=m*60e3}}}
@@ -56,9 +67,9 @@ test('a failed night run is one Health item and changes nothing else',async()=>{
 
 test('a run stopped at its limit counts as a failure with a plain reason; nothing runs when an update is running, the box has no deployed copy, or it is switched off',async()=>{
  const fx=await boxFixture();const bc=fx.mk('',1,true);await bc.tick();assert.match((await bc.last()).failed[0],/did not finish within 80 minutes/);
- assert.equal((await (await boxFixture({auto:{running:{at:at('2026-11-11T17:20:00Z').getTime()}}})).mk('').due()).why,'an update is running');
+ assert.equal((await (await boxFixture({auto:{running:{at:at('2026-11-11T18:10:00Z').getTime()}}})).mk('').due()).why,'an update is running');
  assert.equal((await (await boxFixture({settings:{nightlyBrowserChecks:false}})).mk('').due()).why,'switched off');
- const f2=await boxFixture();const off=createBrowserChecks({DATA:f2.DATA,APP:f2.APP,now:()=>at('2026-11-11T17:30:00Z').getTime(),live:async()=>({box:false,sha:''}),exec:async()=>{throw Error('must not run')}});
+ const f2=await boxFixture();const off=createBrowserChecks({DATA:f2.DATA,APP:f2.APP,now:()=>at('2026-11-11T18:30:00Z').getTime(),live:async()=>({box:false,sha:''}),exec:async()=>{throw Error('must not run')}});
  assert.match((await off.tick()).why,/not a box/)});
 
 test('box-check.sh: the browser checks are not part of the default deploy; FULL_CHECK=1 and BROWSER_ONLY=1 run them; the engine update check stays',()=>{

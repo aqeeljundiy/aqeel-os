@@ -39,17 +39,23 @@ export const restartWaitPolls=grace=>Math.max(0,Math.ceil(grace/RESTART_POLL_MS)
 export function beforeWindow(date,w=DEFAULT_WINDOW,lead=30){const d=(mins(w.from)-minuteIn(date,w.tz)+1440)%1440;return d>0&&d<=lead}
 
 // The night's browser page checks (12 Nov 2026): the four checks that used to run at every deploy on the box that also runs the agents
-// (pages, fast switching, buttons and tabs, My browser; scripts/box-check.sh BROWSER_ONLY=1) run once a night instead, inside the window,
-// after the nightly update had its turn. A failure goes on Health as one item; it never undoes a deploy. Pure rules, tested in
-// scripts/maintenance.test.mjs; app/browser-checks.mjs runs them.
+// (pages, fast switching, buttons and tabs, My browser; scripts/box-check.sh BROWSER_ONLY=1) run once a night instead, AFTER the
+// maintenance window has closed (the update and its restart have had their turn; a check started inside the window was cut off when the
+// update restarted the app, and one that missed the 35 minutes between "update first" and the end of the window never ran). For up to
+// `catchUpHours` after the window closes any tick may start it, so a restart, a busy moment or a box that was down at 01:00 does not skip
+// the night. A failure goes on Health as one item; it never undoes a deploy. Pure rules, tested in scripts/light-deploy.test.mjs;
+// app/browser-checks.mjs runs them.
 // when the window that contains `date` opened
 export function windowOpened(date,w=DEFAULT_WINDOW){const d=(minuteIn(date,w.tz)-mins(w.from)+1440)%1440;return new Date(date.getTime()-d*60e3-date.getUTCSeconds()*1e3-date.getUTCMilliseconds())}
 // {due, why}. last = {at, ok, sha} of the latest run; sha = the version live now; updating = an update is running; running = a check is
-export function browserChecksDue({now=new Date(),w=DEFAULT_WINDOW,last=null,sha='',updating=false,running=false,sameVersionDays=7}={}){
- if(!inWindow(now,w))return {due:false,why:'outside the maintenance window'};
- if(running)return {due:false,why:'already running'};if(updating)return {due:false,why:'an update is running'};
- const open=windowOpened(now,w),len=(mins(w.to)-mins(w.from)+1440)%1440,wait=Math.min(25,Math.floor(len/2));
- if(now-open<wait*60e3)return {due:false,why:'the nightly update goes first ('+wait+' minutes into the window)'};
- if(last&&last.at>=open.getTime())return {due:false,why:'already ran in this window'};
+export function browserChecksDue({now=new Date(),w=DEFAULT_WINDOW,last=null,sha='',updating=false,running=false,sameVersionDays=7,catchUpHours=8,settleMin=5}={}){
+ if(running)return {due:false,why:'already running'};
+ if(inWindow(now,w))return {due:false,why:'the maintenance window is open: the update goes first, the checks start after it'};
+ if(updating)return {due:false,why:'an update is running'};
+ const since=(minuteIn(now,w.tz)-mins(w.to)+1440)%1440;   // minutes since the window closed
+ if(since<settleMin)return {due:false,why:'the update has just finished ('+settleMin+' minutes after the window)'};
+ if(since>catchUpHours*60)return {due:false,why:'too long after the window; waits for tonight'};
+ const open=windowOpened(new Date(now.getTime()-(since+1)*60e3),w);   // the window that closed this morning
+ if(last&&last.at>=open.getTime())return {due:false,why:'already ran after this window'};
  if(last&&last.ok&&sha&&last.sha===sha&&now.getTime()-last.at<sameVersionDays*864e5)return {due:false,why:'this version already passed'};
- return {due:true,why:'once a night, after the update'}}
+ return {due:true,why:'once a night, after the maintenance window'}}
