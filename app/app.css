@@ -2964,7 +2964,7 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
  .ag-list .ag-meta{display:flex;grid-area:e;padding-left:52px}
  .ag-list .ag-meta>span+span::before{content:"·";margin:0 7px}
  .ag-list .ag-own,.ag-list .ag-st{font-size:12.5px;color:var(--muted)}.ag-list .ag-st.on{color:var(--ok)}.ag-list .ag-ol{display:inline}
- .ag-list .agent-foot>.agent-go{display:none}   /* the row itself opens the chat */
+ .ag-list .agent-foot>.agent-go{position:absolute;width:1px;height:1px;min-height:0;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}   /* the row itself opens the chat */
 }
 @container page (max-width:520px){.ag-bar .search{flex:1 1 0;min-width:0}}
 /* People: the email on its own line, then role and last seen (no dot left hanging at a line end); one action per card */
@@ -3203,3 +3203,8 @@ label.cf-gh{display:flex;align-items:flex-start;gap:12px;margin:0;padding:8px 0;
 /* a control that only shows on hover shows when the keyboard reaches it, and a hidden one takes no Tab */
 .item .more:focus-visible{opacity:1}
 .toolbar .search:not(.has-q) .s-clear{visibility:hidden;transition:opacity var(--t-fast) var(--ease),transform var(--t-fast) var(--ease),visibility 0s linear var(--t-fast)}
+/* the card's Chat button looks as the text link it was */
+button.agent-go{background:none;border:0;box-shadow:none;padding:0;min-height:0;height:auto;border-radius:var(--r-sm);font:inherit;font-size:13px;font-weight:600;color:var(--blue-deep)}
+.dark button.agent-go{color:var(--blue-2)}
+button.agent-go:hover{background:none;transform:none}
+.agent-card:has(.agent-go:focus-visible){border-color:var(--blue-2)}

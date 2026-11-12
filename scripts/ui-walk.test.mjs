@@ -85,3 +85,11 @@ test('AdsPower: asking about an agent without it is "none", not a 404', async ()
   assert.deepEqual(got[0],[200,{state:'none'}]);
   assert.equal(got[1][0],404,'starting it is still refused')}finally{rmSync(tmp,{recursive:true,force:true})}
 });
+
+test('an agent card is not a button with buttons inside: its Chat is the button', ()=>{
+ const p=src('people.js');
+ assert.ok(!/data-act="agent-card" tabindex="0" role="button"/.test(p),'the card itself is no longer role=button');
+ assert.match(p,/<button type="button" class="agent-go" data-act="agent-card-go" aria-label="Chat with \$\{esc\(id\.name\)\}">/);
+ assert.match(p,/ACT\['agent-card-go'\]=/);
+ assert.ok(!/\.ag-list \.agent-foot>\.agent-go\{display:none\}/.test(src('app.css')),'in the list it is out of sight, still reachable by keyboard');
+});
