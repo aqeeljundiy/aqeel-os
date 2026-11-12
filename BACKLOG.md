@@ -14,6 +14,18 @@ _Last updated: 12 Nov 2026_
 
 ## Now
 
+### Late evening of 12 Nov (live on both servers in 089f216)
+- [x] **FIX-ISO** No fixer run has a shell as the box user (AUD-6). Isolation check passes on both servers.
+- [x] **SPLIT-2** app/server.mjs 643 KB -> 373 KB in two slices; route rights unchanged. Left for a third slice: hermesCall, writeAgentContext, the /secret page.
+- [x] **BACKUP-2** Large unchanged files stored once in media packs; restore round trip proven on Elkiya (187,938 files, 0 unexplained differences). Watch: the first scheduled night with the Drive upload.
+- [x] **MODEL-ROUTE** A failed call stays on the same model on another account first; the owner's fallback list only after that; every switch is recorded.
+- [x] **PLUGIN-SYNC** Deploys and app start keep every engine plugin copy current (P&P's stale Claude plugin caused 483 switches to Gemini).
+- [x] **AUD-15a** Screen viewer: single-use tickets bound to one agent and one sign-in. Not tried by the owner in a browser yet.
+- [x] **AUD-15b** Browser debugging ports, the AdsPower bridge and AdsPower ports refused to other users; display :99 needs its key. Reach check 37/37 Elkiya, 31/31 P&P; state in ~/.aqeelos-devtools-fw.json.
+- [x] **PEPCLUB-USER** pepclub-social has its own Linux user; sign-ins kept. Its engine moves over at the maintenance window.
+- [x] **SMALL-12** Equal sign-in refusals for suspended accounts; two retired engine patch steps (deploys quiet); three timing-flaky tests fixed; secret scan fixtures.
+- [~] **CI-RESUME** GitHub's tests check fails on resume-e2e on its 2-core runner (a race in the test's fake engine); fix in progress on w-resume3.
+
 ### Evening of 12 Nov (live on both servers in 45620a6)
 - [x] **FONT-1** Numbers are drawn in Google Sans Flex (owner, 12 Nov): a digits-only file under the same family name, so text stays Plus Jakarta Sans. Main app and the sign-in and message pages; the Code app and the extension are not changed. Checked on the live sign-in page.
 - [x] **FIXCOST-1** Fixer spending: $3 per issue and $10 a day, 30 turns a run, the strong model only after cheap tries that got somewhere, finished fixes no longer rolled back before the commit, no run on an issue that is stuck or came back within 72 h unless its evidence changed. Watch: cost per issue on Health once the fixer has run.
