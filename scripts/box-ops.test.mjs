@@ -130,3 +130,16 @@ test('limits: nothing is written until the AdsPower state is known, then the 8 G
  writeFileSync(f,'continue-threads 8192 0 lean\nother 4096 15 lean\n');assert.equal(await ops.writeLimits(),null);assert.match(readFileSync(f,'utf8'),/continue-threads 8192/,'the last written value stays');
  known=true;keep=true;await ops.writeLimits();assert.match(readFileSync(f,'utf8'),/continue-threads 8192 0 lean/);
  keep=false;await ops.writeLimits();assert.match(readFileSync(f,'utf8'),/continue-threads 4096 15/,'once known, the rule applies as before')});
+
+// 12 Nov 2026: continue-threads has its own Linux user, so it is not in the engine-screen keep set; its AdsPower is what gives it 8 GB.
+// Real shapes (read on ai-vps): agent-adspower.json ports + off, agent-optins.json adspower:{"continue-threads":true}.
+test('limits: an agent with its own AdsPower on its own user gets 8 GB without a pinned override; sleep is left to the root script',async()=>{
+ const cfgAds=JSON.parse('{"off":{},"ports":{"default":50400,"continue-threads":50402,"sesa":50404},"next":15}'),optins={adspower:{'continue-threads':true}};
+ const own=a=>!!optins.adspower[a]&&!!cfgAds.ports[a]&&!cfgAds.off[a];
+ const NL='\n';
+ assert.equal(limitLines(['continue-threads','sesa'],{default:{screen_mode:'lean'}},()=>false,own),['continue-threads 8192 15 lean','sesa 4096 15 lean',''].join(NL));
+ assert.equal(limitLines(['continue-threads'],{agents:{'continue-threads':{memory_cap_gb:6}}},()=>false,own),'continue-threads 6144 15 lean'+NL,'an explicit cap still wins');
+ // through the module: the app's own flag reaches the file
+ const HOME=mkdtempSync(path.join(tmpdir(),'aq-boxops-')),DATA=path.join(HOME,'d');mkdirSync(DATA);writeFileSync(HOME+'/.aqeelos-agent-users','continue-threads'+NL+'sesa'+NL);
+ const ops=createBoxOps({HOME,DATA,HERMES_HOME:HOME,keepOn:()=>false,hasOwnAds:own,keepKnown:()=>true});
+ assert.equal(await ops.writeLimits(),['continue-threads 8192 15 lean','sesa 4096 15 lean',''].join(NL))});

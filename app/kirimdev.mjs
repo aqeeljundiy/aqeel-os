@@ -27,7 +27,7 @@
 import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,unlink,stat,appendFile,readdir} from 'node:fs/promises';
 import {publicUrl} from './install.mjs';   // Your address (System › Settings), read at the moment a webhook is made
-import {createHmac,timingSafeEqual,randomUUID} from 'node:crypto';
+import {createHmac,createHash,timingSafeEqual,randomUUID} from 'node:crypto';
 import path from 'node:path';
 import {homedir} from 'node:os';
 
@@ -125,6 +125,8 @@ const RESET=/^(reset|\/reset|mulai baru)$/i;
 // a tester's reset: the usual words, or the line's own (Connect dialog)
 const isReset=(line,t)=>RESET.test(t)||(line.resetWords||[]).some(w=>w&&String(t).toLowerCase()===String(w).trim().toLowerCase());
 const tail=n=>'…'+String(n||'').slice(-4);
+// the page lists a held chat by this reference, never by the customer's number (a release on the page asks for it)
+const holdRef=n=>createHash('sha256').update('hold:'+String(n||'')).digest('hex').slice(0,12);
 
 // Delivery checks (11 Nov 2026, if734729a): the main agent's own WhatsApp (the engine's bridge) gets a picture from the line,
 // marked "aqeelos-probe:<id>", and the bridge records whether it downloaded (probe_watch.js, engine/patches). So "did the
@@ -709,7 +711,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
     paused:Object.entries(st.paused).filter(([k,v])=>k.startsWith(agent+'|')&&v>t&&/^\d+$/.test(k.split('|')[1])).map(([k,v])=>({who:tail(k.split('|')[1]),until:v})).filter(x=>!seen.has(x.who)&&seen.add(x.who)),
     drafts:Object.values(st.drafts).filter(d=>d.agent===agent&&d.status==='waiting').sort((a,b)=>a.id-b.id).map(d=>({id:d.id,name:d.name,who:tail(d.from),text:d.parts.join('\n\n'),at:d.at,posted:!!d.posted,canSend:within24h(agent,d.from)})),
     handoffsWaiting:Object.values(st.handoffs).filter(h=>h.agent===agent).length,phoneNumberId:String(l.phoneNumberId||''),health:health().lines[agent]||null,
-    holds:Object.values(st.holds).filter(h=>h.agent===agent&&h.until>t).map(h=>({who:tail(h.from),since:h.at,until:h.until,wrote:h.n||0})),noReply:{today:st.noreply?.[agent]?.day===new Date(t).toISOString().slice(0,10)?st.noreply[agent].n:0,last:st.noreply?.[agent]?.last||null},modeSet:st.modes[agent]||null,
+    holds:Object.values(st.holds).filter(h=>h.agent===agent&&h.until>t).map(h=>({ref:holdRef(h.from),who:tail(h.from),since:h.at,until:h.until,wrote:h.n||0})),noReply:{today:st.noreply?.[agent]?.day===new Date(t).toISOString().slice(0,10)?st.noreply[agent].n:0,last:st.noreply?.[agent]?.last||null},modeSet:st.modes[agent]||null,
     delivery:pollsNow(agent,l,sec)?'poll':'webhook',polledAt:st.poll?.[agent]?.at||null,pollError:st.poll?.[agent]?.error||null,
     settings:{persona:l.persona||'',business:l.business||'',language:l.language||'',pauseMin:Number(l.pauseMin??DEFAULT_PAUSE),resetWords:l.resetWords||['reset'],resetText:l.resetText||'',
      testers:(l.testers||[]).map(t=>({who:t.who||'',phone:String(t.phone||''),chat:!!t.conversationId})),payment:l.payment||null,orders:l.orders||null,labels:l.labels?.allowed||[],approvers:(l.approvers||[]).map(a=>({who:a.who||'',telegramId:String(a.telegramId||'')}))}}}))}
@@ -896,4 +898,4 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   await fixQuiet().catch(e=>log('kirimdev quiet time: '+e.message));
   if(!civ){civ=setInterval(()=>check().catch(e=>log('kirimdev check: '+e.message)),checkEvery);civ.unref?.();setTimer(()=>check().catch(e=>log('kirimdev check: '+e.message)),60e3)?.unref?.()}
   for(const a of Object.keys(await lines()))await ensureEvents(a).catch(e=>log('kirimdev '+a+': could not add message.sent to the webhook: '+e.message))}
- return {msgText,teamPost:telegram,receive,reply,teamMessage,external,alertTeam,sweepQueries,release:async(agent,num,by='')=>{await state();const r=release(agent,String(num||'').replace(/\D/g,''),'released by '+(by||'an admin'));if(r){for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===String(num).replace(/\D/g,''))schedule(k,{debounceSec:5});await saveState()}return r},sendDocument,deliveryCheck,draft,labelContact,labelList,connect,webhook,ensureEvents,status,check,health,setKey,numbers,saveLine,connectWebhook,disconnect,renewSecret,testSend,poll,fixQuiet,account:async()=>{await state();return health().account},setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}
+ return {msgText,teamPost:telegram,receive,reply,teamMessage,external,alertTeam,sweepQueries,release:async(agent,num,by='')=>{await state();const r=release(agent,String(num||'').replace(/\D/g,''),'released by '+(by||'an admin'));if(r){for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===String(num).replace(/\D/g,''))schedule(k,{debounceSec:5});await saveState()}return r},releaseRef:async(agent,ref,by='')=>{await state();const h=Object.values(st.holds).find(x=>x.agent===agent&&x.until>now()&&holdRef(x.from)===String(ref||''));if(!h)return false;const num=String(h.from);const r=release(agent,num,'released by '+(by||'an admin'));if(r){for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===num)schedule(k,{debounceSec:5});await saveState()}return r},sendDocument,deliveryCheck,draft,labelContact,labelList,connect,webhook,ensureEvents,status,check,health,setKey,numbers,saveLine,connectWebhook,disconnect,renewSecret,testSend,poll,fixQuiet,account:async()=>{await state();return health().account},setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}

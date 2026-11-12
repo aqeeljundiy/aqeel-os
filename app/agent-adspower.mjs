@@ -143,6 +143,10 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
  async function list(){const r=await running();return Promise.all((await agents()).map(a=>status(a,r)))}
  // kept on while it runs: the agent's engine screen is not stopped as idle (screens.mjs asks this, and the activity file is touched)
  let keepSet=new Set(),keepKnown=false;const keepOn=a=>keepSet.has(baseOf(a));
+ // Has its own AdsPower (switched on, not stopped by an admin), whatever user its screen runs as. keepOn covers only the agents
+ // on the engine's screen (nobody else touches that screen's activity file); an agent with its own Linux user is not in it, so
+ // the memory rule "8 GB with its own AdsPower" read it as "no AdsPower" and wrote 4096 MB for continue-threads (12 Nov 2026).
+ let ownSet=new Set();const hasOwn=a=>ownSet.has(baseOf(a));
 
  // the AdsPower tool of every agent (and the main agent's extra numbers) talks to its own copy; through the engine's MCP route
  // (DELETE then POST, one agent at a time) so the running engine picks it up
@@ -191,8 +195,8 @@ its own data and its own sign-in. No other agent uses it.
 
  // every minute: each agent's AdsPower runs unless an admin stopped it; the main agent's screen stays on while its AdsPower runs
  let ticking=false;const errs=new Map();   // a failure is logged once, not every minute
- async function tick(){if(ticking)return;if(!await installed())return;ticking=true;try{const r=await running(),keep=new Set();let moved=false;
-  for(const a of await agents()){await load();const port=(await ports())[a];if(!port||db.off[a])continue;const p=r.get(port)||{};
+ async function tick(){if(ticking)return;if(!await installed())return;ticking=true;try{const r=await running(),keep=new Set(),own=new Set();let moved=false;
+  for(const a of await agents()){await load();const port=(await ports())[a];if(!port||db.off[a])continue;own.add(a);const p=r.get(port)||{};
    if(!p.loop){const e=await start(a,{why:p.app?'loop started again':'started'}).then(()=>'',e=>e.message);if(e&&errs.get(a)!==e)log('AdsPower '+a+': '+e);errs.set(a,e)}
    // signed in on another port than its tool knows (just signed in, or restarted with the shim): the tools follow
    // (or back to its own port once its copy no longer listens elsewhere)
@@ -200,7 +204,7 @@ its own data and its own sign-in. No other agent uses it.
    if(!await codeUser(a).catch(()=>null)){keep.add(a);const t=new Date();await utimes(path.join(screens.homeOf(a),'bot-desktop','activity'),t,t).catch(()=>{})}}
   // a copy still running for an agent switched off (or after the switch was turned off): stopped
   const on=new Set(await agents());for(const [a,port] of Object.entries(db.ports||{})){if(on.has(a)||!NAME.test(a)||help(a))continue;const p=r.get(port)||{};if(p.loop||p.app)await retire(a).catch(()=>{})}
-  keepSet=keep;keepKnown=true;if(moved)tools().catch(()=>{})}finally{ticking=false}}
+  keepSet=keep;ownSet=own;keepKnown=true;if(moved)tools().catch(()=>{})}finally{ticking=false}}
  if(live){setTimeout(()=>{tick().catch(e=>log('AdsPower tick: '+e.message));tools().catch(()=>{});skill().catch(()=>{})},45000).unref?.();
   setInterval(()=>tick().catch(()=>{}),60000).unref();setInterval(()=>{tools().catch(()=>{});skill().catch(()=>{})},600000).unref()}
 
@@ -212,4 +216,4 @@ its own data and its own sign-in. No other agent uses it.
   if(!m[2])return req.method==='GET'?send(res,200,await status(a)):send(res,405,{error:'GET only'});
   if(req.method!=='POST')return send(res,405,{error:'POST only'});if(!admin)return send(res,403,{error:'Only admins can start or stop AdsPower.'});
   try{return send(res,200,m[2]==='start'?await start(a):await stop(a))}catch(e){return send(res,409,{error:e.message})}}
- return {handle,status,list,start,stop,tick,tools,skill,ports,keepOn,keepKnown:()=>keepKnown,retire}}
+ return {handle,status,list,start,stop,tick,tools,skill,ports,keepOn,hasOwn,keepKnown:()=>keepKnown,retire}}
