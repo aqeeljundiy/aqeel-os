@@ -5,7 +5,7 @@
    the fixer refresh every 15 s while you look. #/system/status and #/system/host open this page. ---------- */
 {const oldStatus=PAGES.status,oldHost=PAGES.host;
  PAGES.health=async(p,el,r)=>{const tok=S._htok=(S._htok||0)+1,stale=()=>tok!==S._htok,admin=S.me?.admin!==false,V={};
-  const sk=h=>'<div class="skel" style="height:'+h+'px;border-radius:18px;margin-bottom:14px"></div>',hist=admin&&S.tab.health==='History';
+  const sk=h=>'<div class="skel" style="height:'+h+'px;border-radius:var(--r-md);margin-bottom:14px"></div>',hist=admin&&S.tab.health==='History';
   setActions('');el.innerHTML=admin?'<div id="hVerdict">'+sk(104)+'</div>'+tabs('health',['Now','History'],hist?'History':'Now')+'<div id="hNow"'+(hist?' hidden':'')+'><div id="hNeed"></div><div id="hFixer"></div><div id="hCode"></div><h2 class="ach-cat">Agents</h2><div id="hAgents">'+sk(120)+'</div><div id="hStatus">'+sk(110)+'</div><div id="hCost"></div><div id="hEff"></div><div id="hEsc"></div><h2 class="ach-cat">The AI box</h2><div id="hHost">'+sk(160)+'</div></div><div id="hHist"'+(hist?'':' hidden')+'></div>'
    :'<h2 class="ach-cat" style="margin-top:0">Agents</h2><div id="hStatus">'+sk(110)+'</div><h2 class="ach-cat">The AI box</h2><div id="hHost">'+sk(160)+'</div>';
   const q=s=>el.querySelector(s),sBox=q('#hStatus'),hBox=q('#hHost'),aBox=q('#hAgents'),vBox=q('#hVerdict');

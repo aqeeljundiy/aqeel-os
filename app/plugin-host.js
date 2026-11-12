@@ -118,7 +118,7 @@ const Plugins={list:[],slotNames:new Set(),reg:new Map(),slotReg:new Map(),errs:
   function DialogTrigger(p){const c=useContext(DlgCtx);return asBtn(p,()=>c?.set(true))}
   function DialogClose(p){const c=useContext(DlgCtx);return asBtn({variant:'ghost',...p},()=>c?.set(false))}
   function DialogContent(p){const c=useContext(DlgCtx);const [shown,closing]=useShown(c?.open);const box=useRef(null);
-   useEffect(()=>{if(!c?.open)return;const k=e=>{if(e.key==='Escape'){e.stopPropagation();c.set(false)}};document.addEventListener('keydown',k,true);const t=setTimeout(()=>box.current?.querySelector('input:not([type=checkbox]),textarea,select,button.primary')?.focus(),40);return ()=>{document.removeEventListener('keydown',k,true);clearTimeout(t)}},[c?.open]);
+   useEffect(()=>{if(!c?.open)return;const off=escLayer({el:()=>box.current,close:()=>c.set(false)});const t=setTimeout(()=>box.current?.querySelector('input:not([type=checkbox]),textarea,select,button.primary')?.focus(),40);return ()=>{off();clearTimeout(t)}},[c?.open]);
    if(!shown)return null;return RD.createPortal(h('div',{className:'plug-layer plug-host','data-anim':''},h('div',{className:cn('plug-scrim',closing&&'closing'),onClick:()=>c?.set(false)}),
     h('div',{ref:box,role:'dialog','aria-modal':'true',className:cn('plug-dlg',closing&&'closing',p.className)},h('button',{type:'button',className:'ghost icon plug-x','aria-label':'Close',onClick:()=>c?.set(false),dangerouslySetInnerHTML:{__html:icon('x',18)}}),p.children)),document.body)}
   const DialogHeader=div('plug-dlg-head'),DialogTitle=div('plug-dlg-title','h2'),DialogDescription=div('hint plug-dlg-desc','p'),DialogFooter=div('plug-dlg-foot');

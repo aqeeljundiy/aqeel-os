@@ -4,7 +4,7 @@
    After that each person presses Connect for their agent and clicks Allow on Slack (app/slack-connect.mjs). Uses the
    same look as Connect Google (gc-* styles). ---------- */
 const SlackSetup={
- async open(opt={}){this.opt=opt;const d=drawer('Connect Slack','<div class="gc-body"><div class="skel" style="height:64px;border-radius:12px"></div><div class="skel" style="height:64px;border-radius:12px;margin-top:8px"></div></div>',`<span class="gc-foot-l hint"></span><button class="ghost" data-act="close">Done</button>`,{size:'md'});d.classList.add('gc-dlg');this.d=d;
+ async open(opt={}){this.opt=opt;const d=drawer('Connect Slack','<div class="gc-body"><div class="skel" style="height:64px;border-radius:var(--r-md)"></div><div class="skel" style="height:64px;border-radius:var(--r-md);margin-top:8px"></div></div>',`<span class="gc-foot-l hint"></span><button class="ghost" data-act="close">Done</button>`,{size:'md'});d.classList.add('gc-dlg');this.d=d;
   try{this.st=await UI('/ui/slack/state')}catch(e){if(d.isConnected)d.querySelector('.gc-body').innerHTML=errLine('the Slack settings');return}if(!d.isConnected)return;this.paint()},
  body(){return this.d?.querySelector('.gc-body')},
  swap(html){const b=this.body();if(!b)return;b.classList.remove('gc-in');b.innerHTML=html;void b.offsetWidth;b.classList.add('gc-in')},

@@ -17,7 +17,7 @@ const GSetup={
  url(p,api){const q=this.project?(p.includes('?')?'&':'?')+'project='+encodeURIComponent(this.project):'';return 'https://console.cloud.google.com/'+(api?'apis/library/'+api:p)+q},
  async open(opt={}){this.opt=opt;const m=this.mem();this.project=this.pid(m.project);this.seen=new Set(Array.isArray(m.seen)?m.seen:[]);
   this.i=opt.step==='file'?6:Math.min(Math.max(+m.i||0,0),6);if(!this.project&&this.i>0&&opt.step!=='file')this.i=0;
-  const d=drawer('Set up Google',`<div class="gs-wrap"><div class="skel" style="height:44px;border-radius:12px"></div><div class="skel" style="height:220px;border-radius:14px;margin-top:14px"></div></div>`,
+  const d=drawer('Set up Google',`<div class="gs-wrap"><div class="skel" style="height:44px;border-radius:var(--r-md)"></div><div class="skel" style="height:220px;border-radius:var(--r-md);margin-top:14px"></div></div>`,
    `<span class="gs-count hint"></span><div class="gs-nav"><button class="ghost" id="gsBack">Back</button><button class="primary" id="gsNext">Next</button></div>`,{size:'lg'});
   d.classList.add('gs-dlg');this.d=d;
   try{this.st=await UI('/ui/google/state')}catch{if(d.isConnected)d.querySelector('.gs-wrap').innerHTML=errLine('the Google settings');return}if(!d.isConnected)return;

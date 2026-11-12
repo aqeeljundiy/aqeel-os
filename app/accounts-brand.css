@@ -9,9 +9,9 @@
 .pw-wrap{position:relative}.pw-wrap input{padding-right:44px}
 .pw-wrap .pw-eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:36px;height:36px;min-height:36px;padding:0;display:grid;place-items:center;color:var(--muted)}
 .signin input.mono,.rc-box code{font-family:var(--mono);letter-spacing:.04em}
-.rc-box{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 12px 12px 16px;border:1px solid var(--border);border-radius:14px;background:var(--soft-2);margin:0 0 14px}
+.rc-box{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 12px 12px 16px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--soft-2);margin:0 0 14px}
 .rc-box code{font-size:14px;font-weight:600;color:var(--ink);word-break:normal;overflow-wrap:normal;line-height:1.5}
-.signin label.rc-ok{display:flex;align-items:center;gap:10px;margin:0;padding:10px 12px;border:1px solid var(--border);border-radius:14px;font-size:14px;color:var(--ink);cursor:pointer;background:none;min-height:44px}
+.signin label.rc-ok{display:flex;align-items:center;gap:10px;margin:0;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-md);font-size:14px;color:var(--ink);cursor:pointer;background:none;min-height:44px}
 .signin button.primary:disabled{opacity:.5}
 
 /* People: a suspended person and expired invites */
@@ -21,7 +21,7 @@
 
 /* System › Branding */
 .brand-page h2{font-size:16px;margin:0 0 4px}.brand-page .sub{margin:0 0 10px}
-.brand-prev{display:grid;grid-template-columns:1fr 1fr;gap:10px}.brand-prev .bp{border:1px solid var(--border);border-radius:14px;padding:22px;display:grid;place-items:center;min-width:0}
+.brand-prev{display:grid;grid-template-columns:1fr 1fr;gap:10px}.brand-prev .bp{border:1px solid var(--border);border-radius:var(--r-md);padding:22px;display:grid;place-items:center;min-width:0}
 .brand-prev .bp.light{background:#fff}.brand-prev .bp.dark{background:#111}.brand-prev .bp.light .wordmark{color:#0b0c10}.brand-prev .bp.dark .wordmark{color:#fff}.brand-prev .bp.light img.mark{filter:grayscale(1)!important}.brand-prev .bp.dark img.mark{filter:grayscale(1) invert(1)!important}
 .brand-prev .wordmark{font-size:20px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .brand-page .row-in{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.brand-page .row-in input{flex:1 1 200px;min-width:0}
@@ -59,11 +59,11 @@
 /* Home-screen icon preview (12 Nov 2026) */
 .pwa-prev{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;margin:14px 0 4px}.pwa-prev figure{margin:0;display:grid;gap:8px;justify-items:center;animation:pwaIn .32s var(--ease) both}.pwa-prev figure:nth-child(2){animation-delay:.04s}.pwa-prev figure:nth-child(3){animation-delay:.08s}.pwa-prev figure:nth-child(4){animation-delay:.12s}.pwa-prev figure:nth-child(5){animation-delay:.16s}
 .pwa-prev figcaption{font-size:12px;color:var(--muted)}@keyframes pwaIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-.pwa-tab{display:flex;align-items:center;gap:8px;height:34px;padding:0 14px 0 10px;border-radius:12px 12px 0 0;background:var(--soft);border:1px solid var(--border);border-bottom:0;font-size:12px;max-width:170px}.pwa-tab img{width:16px;height:16px;border-radius:4px;flex:none}.pwa-tab span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pwa-tab{display:flex;align-items:center;gap:8px;height:34px;padding:0 14px 0 10px;border-radius:var(--r-md) var(--r-md) 0 0;background:var(--soft);border:1px solid var(--border);border-bottom:0;font-size:12px;max-width:170px}.pwa-tab img{width:16px;height:16px;border-radius:4px;flex:none}.pwa-tab span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pwa-ios,.pwa-and,.pwa-src{width:72px;height:72px;overflow:hidden;background:var(--soft);transition:transform var(--t-med) var(--ease),box-shadow var(--t-med) var(--ease);box-shadow:var(--shadow-card)}
-.pwa-ios{border-radius:22.37%}.pwa-and.circle{border-radius:50%}.pwa-and.squircle{border-radius:32%}.pwa-src{border-radius:18px;background:repeating-conic-gradient(var(--soft) 0 25%,var(--soft-2) 0 50%) 0 0/14px 14px;box-shadow:none;border:1px solid var(--border)}
+.pwa-ios{border-radius:22.37%}.pwa-and.circle{border-radius:50%}.pwa-and.squircle{border-radius:32%}.pwa-src{border-radius:var(--r-md);background:repeating-conic-gradient(var(--soft) 0 25%,var(--soft-2) 0 50%) 0 0/14px 14px;box-shadow:none;border:1px solid var(--border)}
 .pwa-ios:hover,.pwa-and:hover{transform:scale(1.06)}.pwa-ios img,.pwa-and img,.pwa-src img{width:100%;height:100%;display:block;object-fit:cover}.pwa-src img{object-fit:contain;padding:8px;box-sizing:border-box}
-.pwa-from{font-size:13px;color:var(--ink-2);margin:12px 0 0;line-height:1.5}.pwa-warn{background:var(--soft-2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;font-size:13.5px;margin:6px 0 4px}
-.pwa-dot{width:36px;height:36px;border-radius:12px;border:1px solid var(--border);flex:none;transition:background var(--t-med) var(--ease)}.pwa-sw{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.pwa-s{width:28px;height:28px;border-radius:10px;border:1px solid var(--border);padding:0;cursor:pointer;transition:transform var(--t-fast) var(--ease)}.pwa-s:hover{transform:scale(1.12)}.pwa-how{margin-top:16px}
+.pwa-from{font-size:13px;color:var(--ink-2);margin:12px 0 0;line-height:1.5}.pwa-warn{background:var(--soft-2);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px;font-size:13.5px;margin:6px 0 4px}
+.pwa-dot{width:36px;height:36px;border-radius:var(--r-md);border:1px solid var(--border);flex:none;transition:background var(--t-med) var(--ease)}.pwa-sw{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.pwa-s{width:28px;height:28px;border-radius:var(--r-md);border:1px solid var(--border);padding:0;cursor:pointer;transition:transform var(--t-fast) var(--ease)}.pwa-s:hover{transform:scale(1.12)}.pwa-how{margin-top:16px}
 @media (prefers-reduced-motion:reduce){.pwa-prev figure{animation:none}}
 .signin .ac-btns{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 0}.signin .ac-btns button{flex:1 1 160px}

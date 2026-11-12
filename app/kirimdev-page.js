@@ -165,7 +165,7 @@ const Kirim={
  async show(el){const gone=pageTok(el);
   if(S.me?.admin===false){el.innerHTML=emptyBox('Only admins','Kirimdev holds the team’s API key, so only admins see it.');return}
   setActions(`<button data-act="km-check">${icon('refresh',15)}Check now</button>`);const fresh=Kirim.fresh;Kirim.fresh=false;
-  if(!el.querySelector('.km'))el.innerHTML='<div class="skel" style="height:150px;border-radius:18px;margin-bottom:16px"></div><div class="skel" style="height:220px;border-radius:18px"></div>';
+  if(!el.querySelector('.km'))el.innerHTML='<div class="skel" style="height:150px;border-radius:var(--r-md);margin-bottom:16px"></div><div class="skel" style="height:220px;border-radius:var(--r-md)"></div>';
   let d;try{d=await UI('/ui/kirimdev'+(fresh?'?fresh=1':''))}catch(e){if(!gone())el.innerHTML=emptyBox('Kirimdev did not load',e.message||'Try again in a moment.');return}if(gone())return;
   const teams={};await Promise.all((d.lines||[]).map(l=>UI('/ui/team-group?agent='+encodeURIComponent(l.agent)).then(r=>{teams[l.agent]=r.group;(Team.cache||={})[l.agent]=r}).catch(()=>{})));if(gone())return;
   Kirim.paint(el,d,teams)},

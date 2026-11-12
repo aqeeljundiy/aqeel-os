@@ -23,7 +23,7 @@ const Activity={
   const text=!x.text?'':raw?`<span>${esc(Activity.plain(x))}</span><button type="button" class="act-more" aria-expanded="false">Details${icon('chevR',12)}</button><div class="act-raw"><div><div>${esc(x.text)}</div></div></div>`:`<span>${esc(x.text)}</span>`;
   return `<div class="row act-row${x.go?' rm':''}" ${st(Math.min(i,12))}><div class="main-c"><span class="ic ${esc(tn.kind)}">${icon(tn.icon,15)}</span><div class="txt"><b>${x.go?`<button type="button" class="row-main" data-go="${esc(x.go)}">${esc(agentText(x.title))}</button>`:esc(agentText(x.title))}</b>${text}<small>${esc(times)}${x.resolved?' · over':''}${x.ask?' · <span class="act-ask">asks you to act</span>':''}</small></div></div></div>`}};
 PAGES.activity=async(p,el)=>{const gone=pageTok(el);setActions('');
- el.innerHTML='<div id="actList"><div class="skel" style="height:160px;border-radius:18px"></div></div>';
+ el.innerHTML='<div id="actList"><div class="skel" style="height:160px;border-radius:var(--r-md)"></div></div>';
  let d,iss=null;try{[d,iss]=await Promise.all([UI('/ui/activity'),S.me?.admin===false?null:UI('/ui/health/issues').catch(()=>null)])}catch(e){if(!gone())el.querySelector('#actList').innerHTML=alertBox(esc(e.message));return}if(gone())return;
  const l=d.items||[],box=el.querySelector('#actList');
  // the summary line counts what Health's Needs you counts (the same needGroups) plus the rows here that ask you to act, so it matches the list

@@ -618,7 +618,7 @@ const accessChip=(text,tip,kind='')=>`<span class="chip access ${kind}" title="$
 /* ---------- Telegram: set up with Telegram's own @BotFather (no outside pairing service) ---------- */
 {const base=ACT['onboard'];ACT['onboard']=async a=>{if(a.dataset.id!=='telegram')return base(a);const box=$('#onboard');if(!box)return base(a);
  const bf='https://t.me/BotFather';
- box.innerHTML=`<div style="margin-top:12px"><img src="/ui/qr?d=${encodeURIComponent(bf)}" alt="QR code" style="width:170px;height:170px;display:block;margin:0 auto 10px;border-radius:12px;background:#fff;padding:8px">
+ box.innerHTML=`<div style="margin-top:12px"><img src="/ui/qr?d=${encodeURIComponent(bf)}" alt="QR code" style="width:170px;height:170px;display:block;margin:0 auto 10px;border-radius:var(--r-md);background:#fff;padding:8px">
   <ol class="qr-steps"><li>Open <a href="${bf}" target="_blank" rel="noopener">@BotFather</a> in Telegram (scan this code with your phone, or tap the link).</li><li>Send <b>/newbot</b>, give it a name (e.g. <i>aqeelOS</i>) and a username ending in <i>bot</i>.</li><li>BotFather replies with a token like <code>123456789:AA…</code>. Copy it.</li><li>Paste it below in <b>Telegram bot token</b>, switch the channel on, and press <b>Save</b>. Then message your bot.</li></ol>
   <p class="hint">Only people you approve under Channels › Who can message can talk to it.</p></div>`;
  a.hidden=true;document.querySelector('.drawer [data-env="TELEGRAM_BOT_TOKEN"]')?.focus()}}
@@ -910,11 +910,11 @@ ACT['meter-card']=a=>{document.querySelector('.meter-card')?.remove();const prov
  const row=w=>{const u=Math.round(Number(w.used_percent)||0),c=u>=90?'bad':u>=70?'warn':'ok';return `<div class="mc-row"><div class="mc-top"><span>${esc(w.label||'Limit')}</span><b>${u}%</b></div><i class="mc-bar ${c}"><s style="width:${Math.min(100,u)}%"></s></i>${w.resets_at?`<small>Resets ${esc(when(w.resets_at))}</small>`:''}</div>`};
  card.innerHTML=`<div class="mc-head"><b>${esc(m?.providerName||provLabel(prov))}</b><span>${esc(m?.label||'')}</span></div>${ws.map(row).join('')}
   ${S.me?.admin!==false?`<button class="ghost small mc-more" data-go="/models/accounts">See all accounts${icon('chevR',14)}</button>`:''}`;
- document.body.append(card);const r=a.getBoundingClientRect(),w=Math.min(300,innerWidth-24);card.style.width=w+'px';
+ document.body.append(card);const offEsc=escLayer({el:card,back:a,close:()=>card.remove()});new MutationObserver((m,o)=>{if(!card.isConnected){offEsc();o.disconnect()}}).observe(document.body,{childList:true});const r=a.getBoundingClientRect(),w=Math.min(300,innerWidth-24);card.style.width=w+'px';
  card.style.left=Math.max(12,Math.min(r.left+r.width/2-w/2,innerWidth-w-12))+'px';card.style.top=Math.max(12,r.top-card.offsetHeight-10)+'px';
  const off=e=>{if(!card.contains(e.target)&&!e.target.closest('[data-act="meter-card"]')){card.remove();document.removeEventListener('pointerdown',off,true)}};
  setTimeout(()=>document.addEventListener('pointerdown',off,true),0);card.querySelector('.mc-more')?.addEventListener('click',()=>card.remove())};
-addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelector('.meter-card')?.remove()});
+
 addEventListener('hashchange',()=>document.querySelector('.meter-card')?.remove());
 
 /* ---------- Channel checks: a button on every connection, and a pop-up when one needs attention ---------- */

@@ -21,7 +21,7 @@ const placesFor=()=>!S.me?.admin&&S.me?[['My files',FILE_HOME,'folder','own']]:[
 
 const FV={view:store.get('filesView','grid'),sort:store.get('filesSort','name'),hidden:store.get('filesHidden',false),q:''};
 PAGES.files=async(p,el)=>{const stale=pageTok(el);
- if(S._fileAgent!==fAgent()){S._fileAgent=fAgent();S.filePath=fWork();S._placesOk=null}
+ if(S._fileAgent!==fAgent()){const first=S._fileAgent===undefined;S._fileAgent=fAgent();if(first||S.me?.admin!==false||!S.filePath)S.filePath=fWork();S._placesOk=null}   // a member's folder is theirs, not the agent's: picking another agent keeps them where they are
  // quick places that exist (Workspace and Home always); checked once per agent
  if(!S._placesOk){const all=placesFor();S._placesOk=new Set([fWork(),FILE_HOME]);UI('/ui/files/exist',{method:'POST',body:{paths:all.map(x=>x[1])}}).then(r=>{for(const x of r.exist||[])S._placesOk.add(x);paintPlaces()}).catch(()=>{S._placesOk=new Set(all.map(x=>x[1]));paintPlaces()})}
  const path=S.filePath||fWork();let d;
@@ -89,15 +89,15 @@ function downloadPath(f){const a=document.createElement('a');a.href=fileUrl(f.pa
 /* ---------- preview window ---------- */
 let PV=null;
 // fades out when closed; switching to the next file swaps at once
-function closePreview(animate=true){if(!PV)return;const e=PV.el;if(animate&&!calm()){e.style.pointerEvents='none';e.animate([{opacity:1},{opacity:0}],{duration:200,easing:'cubic-bezier(.4,0,1,1)',fill:'forwards'}).finished.then(()=>e.remove(),()=>e.remove())}else e.remove();PV.blob&&URL.revokeObjectURL(PV.blob);document.removeEventListener('keydown',PV.keys,true);PV=null}
+function closePreview(animate=true){if(!PV)return;const e=PV.el;if(animate&&!calm()){e.style.pointerEvents='none';e.animate([{opacity:1},{opacity:0}],{duration:200,easing:'cubic-bezier(.4,0,1,1)',fill:'forwards'}).finished.then(()=>e.remove(),()=>e.remove())}else e.remove();PV.blob&&URL.revokeObjectURL(PV.blob);document.removeEventListener('keydown',PV.keys,true);PV.off?.();PV=null}
 async function preview(i){const files=(Pages._items||[]).filter(x=>!x.is_directory&&!x.broken_link);const f=Pages._items[i];if(!f||f.broken_link)return;let idx=files.indexOf(f);
- closePreview(false);const el=document.createElement('div');el.className='pv';el.setAttribute('role','dialog');el.setAttribute('aria-label','Preview '+f.name);
+ const opener=PV?PV.opener:document.activeElement;closePreview(false);const el=document.createElement('div');el.className='pv';el.setAttribute('role','dialog');el.setAttribute('aria-label','Preview '+f.name);
  el.innerHTML=`<div class="pv-head"><span class="fk-sm fk-${kindOf(f)}">${icon(KIND_ICON[kindOf(f)],16)}</span><div class="pv-title"><b>${esc(f.name)}</b><small>${KIND_LABEL[kindOf(f)]} · ${bytes(f.size)}${f.mtime?` · <span title="${esc(new Date(f.mtime*1000).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}))}">${ago(f.mtime)}</span>`:''}</small></div><span class="grow"></span>
   <button class="ghost icon" data-pv="prev" aria-label="Previous" ${idx<=0?'disabled':''}>${icon('chevL',18)}</button><button class="ghost icon" data-pv="next" aria-label="Next" ${idx>=files.length-1?'disabled':''}>${icon('chevR',18)}</button>
   <button data-pv="download">${icon('download',15)}Download</button><button class="ghost icon" data-pv="delete" aria-label="Delete">${icon('trash',17)}</button><button class="ghost icon" data-pv="close" aria-label="Close">${icon('x',18)}</button></div><div class="pv-body"><div class="pv-stage"><span class="spinner"></span></div></div>`;
- document.body.append(el);PV={el,f};const stage=el.querySelector('.pv-stage');
- const keys=e=>{if(e.key==='Escape'){e.stopPropagation();closePreview()}if(e.key==='ArrowLeft'&&idx>0){e.preventDefault();preview(Pages._items.indexOf(files[idx-1]))}if(e.key==='ArrowRight'&&idx<files.length-1){e.preventDefault();preview(Pages._items.indexOf(files[idx+1]))}};
- document.addEventListener('keydown',keys,true);PV.keys=keys;
+ document.body.append(el);PV={el,f,opener};const stage=el.querySelector('.pv-stage');
+ const keys=e=>{if(e.key==='ArrowLeft'&&idx>0){e.preventDefault();preview(Pages._items.indexOf(files[idx-1]))}if(e.key==='ArrowRight'&&idx<files.length-1){e.preventDefault();preview(Pages._items.indexOf(files[idx+1]))}};
+ document.addEventListener('keydown',keys,true);PV.keys=keys;PV.off=escLayer({el,back:opener,close:()=>closePreview()});
  el.onclick=e=>{const b=e.target.closest('[data-pv]');if(e.target===el||e.target.classList.contains('pv-body'))return closePreview();if(!b)return;const a=b.dataset.pv;if(a==='close')closePreview();if(a==='download')downloadPath(f);if(a==='delete')deleteFile(f);if(a==='prev')preview(Pages._items.indexOf(files[idx-1]));if(a==='next')preview(Pages._items.indexOf(files[idx+1]))};
  const k=kindOf(f);
  try{
