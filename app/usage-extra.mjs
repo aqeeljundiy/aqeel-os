@@ -1,7 +1,7 @@
 // Usage readings the engine does not give: (1) Google AI plan through Antigravity, (2) a Claude account whose usage call Anthropic refuses.
 // Checked on the boxes 12 Nov 2026 (no secrets printed):
 //  - agy keeps its Google sign-in in ~/.gemini/antigravity-cli/antigravity-oauth-token (a JSON file: token.access_token, refresh_token, expiry;
-//    agy renews it when it runs). Not signed in = no file (pnp-box: "You are not logged into Antigravity").
+//    agy renews it when it runs). Not signed in = no file (the P&P host: "You are not logged into Antigravity").
 //  - agy's own quota manager asks cloudcode-pa.googleapis.com/v1internal: loadCodeAssist (plan, project) and fetchAvailableModels
 //    (per model quotaInfo {remainingFraction, resetTime}). Both answer 200 with that sign-in as a plain Bearer call.
 //  - Anthropic's /api/oauth/usage refuses with 429 (Retry-After ~5 min, counting down) for a token that is also asked by the engine's
@@ -55,6 +55,6 @@ export async function claudeHeaderUsage(token,{fetchImpl=fetch}={}){
  catch{return null}}
 
 // Providers whose sign-in the engine marked dead (auth.json credential_pool: last_status 'dead', 401 / token_revoked). Such a provider
-// has no usage to read: the card says why instead of staying blank (pnp-box, ChatGPT: dead since 10 Nov, usage call answers 401).
+// has no usage to read: the card says why instead of staying blank (the P&P host, ChatGPT: dead since 10 Nov, usage call answers 401).
 export async function deadLogins(authFile){try{const cp=JSON.parse(await readFile(authFile,'utf8')).credential_pool||{};
  return new Set(Object.entries(cp).filter(([,v])=>Array.isArray(v)&&v.length&&v.every(e=>e?.last_status==='dead')).map(([k])=>k))}catch{return new Set()}}

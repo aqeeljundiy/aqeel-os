@@ -17,7 +17,19 @@ const Bottlenecks={items:[],
  // a schedule name on a button: no [tag] in front, cut at a word, never mid-word
  short(n){n=String(n||'').replace(/^\[[^\]]*\]\s*/,'');return n.length<=26?n:n.slice(0,26).replace(/\s+\S*$/,'').replace(/[:,;.]$/,'')+'…'},
  // acts: [label, run, primary]; only the first primary is drawn as one (one main button per item); run({box,after}) may turn the box into an inline field (a key, words) and call after() itself, then it returns a promise that never settles
- paint(box,acts,after){box.replaceChildren();let main=false;for(const [label,run,pri] of acts){const primary=pri&&!main;main||=!!pri;const b=document.createElement('button');b.type='button';b.className=primary?'primary small':'ghost small';b.textContent=label;b.onclick=async()=>{b.disabled=true;try{const r=await run({box,after,acts});if(r===false){b.disabled=false;return}await after()}catch(e){b.disabled=false;fail(e)}};box.append(b)}},
+ // a 4th entry {step,say,alt,done} (need-action.mjs): when a need has several steps they are a short numbered list, each
+ // with its own line and its own button (and its alternative next to it); a step already done shows a tick and no button
+ paint(box,acts,after){box.replaceChildren();let main=false;
+  const mk=([label,run,pri])=>{const primary=pri&&!main;main||=!!pri;const b=document.createElement('button');b.type='button';b.className=primary?'primary small':'ghost small';b.textContent=label;b.title=label;b.onclick=async()=>{b.disabled=true;try{const r=await run({box,after,acts});if(r===false){b.disabled=false;return}await after()}catch(e){b.disabled=false;fail(e)}};return b};
+  const nums=[...new Set(acts.filter(a=>a[3]?.step&&!a[3].alt).map(a=>a[3].step))],many=nums.length>1;
+  if(many){const ol=document.createElement('ol');ol.className='bn-stepl';
+   for(const n of nums){const mine=acts.filter(a=>a[3]?.step===n),head=mine.find(a=>!a[3].alt)||mine[0],li=document.createElement('li');if(head[3].done)li.className='done';
+    const num=document.createElement('i');num.className='bn-num';if(head[3].done)num.innerHTML=icon('check',12);else num.textContent=n;const say=document.createElement('span');say.className='bn-say';say.textContent=head[3].say||head[0];
+    const bs=document.createElement('span');bs.className='bn-sbtns';for(const a of mine)if(!a[3].done)bs.append(mk(a));li.append(num,say,bs);ol.append(li)}
+   box.append(ol)}
+  const row=document.createElement('div');row.className='bn-row';for(const a of acts)if(!a[3]?.done&&!(many&&a[3]?.step))row.append(mk(a));if(row.childElementCount)box.append(row)},
+ // the server's acts of a need as buttons: [label, run, primary, {step,say,alt,done}]
+ needBtns(acts,x){const first=acts.find(a=>a.do!=='done'&&!a.alt);return acts.map(a=>[a.label,()=>this.act(a,x),a===first,a.step?{step:a.step,say:a.say,alt:!!a.alt,done:a.do==='done'}:null])},
  // a small inline field in the item itself: placeholder text, the button's label, what saving does; Cancel puts the buttons back
  field({box,after,acts},{ph,go,secret,rows},save){box.innerHTML='<div class="bn-in">'+(rows?'<textarea rows="2" maxlength="400" placeholder="'+esc(ph)+'"></textarea>':'<input type="'+(secret?'password':'text')+'" autocomplete="off" spellcheck="false" placeholder="'+esc(ph)+'">')+'<button type="button" class="primary small">'+esc(go)+'</button><button type="button" class="ghost small">Cancel</button></div>';
   const [ok,no]=box.querySelectorAll('button'),inp=box.querySelector('input,textarea');inp.focus();no.onclick=()=>this.paint(box,acts,after);
@@ -27,10 +39,15 @@ const Bottlenecks={items:[],
   switch(a.do){
    case 'signin-app':return away(()=>Signins.go({agent:a.agent,name:a.name,label:a.app,agentName:typeof ident==='function'?ident(a.agent)?.name:a.agent}));
    case 'signin-account':return away(()=>Pages.reconnect(a.key,a.name));
+   // the stated alternative to signing in again: agents stop trying this account (it stays connected; Models puts it back)
+   case 'unlist-account':return confirmBox('Take '+a.name+' out of the priority list?','Agents stop trying '+a.name+'. It stays on Models › AI accounts, where you can sign in to it later and put it back in the list.','Take it out',false).then(ok=>ok?post(UI,'/ui/accounts/unlist',{key:a.key}).then(()=>{toast(a.name+' is out of the priority list')}):false);
+   // an app entry that can never work (a Google file link added as an app): removed from that agent, as its Connections panel does
+   case 'remove-app':return confirmBox('Remove '+(a.app||a.name)+' from '+(typeof ident==='function'?ident(a.agent)?.name:a.agent)+'?','That agent stops trying to use it. Nothing else changes.','Remove').then(ok=>ok?del(H,'/mcp/servers/'+encodeURIComponent(a.name)+'?profile='+encodeURIComponent(a.agent)).then(()=>{toast((a.app||a.name)+' removed')}):false);
    case 'google':return away(()=>GC.open({agent:a.agent}));
    case 'screen':return away(()=>openAgentScreen(a.agent));
    case 'copy':return navigator.clipboard.writeText(a.cmd).then(()=>toast('Copied · run it on the server, then press Check again'),()=>{throw new Error('Could not copy. The command is: '+a.cmd)});
-   case 'go':return away(()=>go(a.to));
+   case 'go':return away(()=>{if(a.tab)S.tab[a.tab[0]]=a.tab[1];go(a.to)});
+   case 'done':return Promise.resolve(false);
    case 'recheck':return post(UI,'/ui/health/issues/retry',{id:x.id}).then(()=>toast('Checking it again'));
    default:throw new Error('Unknown action')}},
  // a question (questions.mjs): one button per option, the recommended one first and primary; Something else takes words
@@ -45,7 +62,7 @@ const Bottlenecks={items:[],
   // the fixer needs its GitHub token (issues.mjs): a field right here, saved on the server
   if(x.kind==='github_token')return [['Paste the token',c=>this.field(c,{ph:'github_pat_…',go:'Save token',secret:true},async v=>{await post(UI,'/ui/health/fixer-token',{token:v});toast('Saved · the fixer opens its pull requests')}),true],['Not now',later]];
   // a need the server worked out a direct button for (a sign-in to an app or account, Google, the agent's screen): that is the primary
-  if(x.acts?.length&&['report','alerts','apps'].includes(x.kind)){const rest=x.kind==='report'?[['Ask '+(x.agentName||'the agent')+' to retry',()=>this.retryReport(x,done),false]]:[];return [...x.acts.map((a,i)=>[a.label,()=>this.act(a,x),i===0]),...rest,['Not now',later]]}
+  if(x.acts?.length&&['report','alerts','apps'].includes(x.kind)){const rest=x.kind==='report'?[['Ask '+(x.agentName||'the agent')+' to retry',()=>this.retryReport(x,done),false]]:[];return [...this.needBtns(x.acts,x),...rest,['Not now',later]]}
   // an agent's new instructions wait for approval: review the before/after in Edit agent › History
   if(x.kind==='instructions')return [['Read the changes',()=>{closeLayers();editAgent(x.agent,'History');return new Promise(()=>{})},true]];
   if(x.kind==='signin')return [['Sign in to '+(x.signin?.app||x.signin?.label||x.signin?.name||'it'),()=>{closeLayers();Signins.open(x.signin);return new Promise(()=>{})},true],['Not now',later]];

@@ -8,7 +8,7 @@ import {createGoogleFiles} from '../app/google-files.mjs';
 
 async function make(levels={}){const H=await mkdtemp(path.join(tmpdir(),'gf-')),W=path.join(H,'ws');
  await mkdir(path.join(W,'bot','.tools'),{recursive:true});await mkdir(path.join(W,'bot','.hermes'),{recursive:true});
- await writeFile(path.join(H,'aqeelos-accounts.json'),JSON.stringify({google:{'me@x.com':{agents:{bot:['read','edit']}}},google_files:{'me@x.com':{bot:['OWN']}}}));
+ await writeFile(path.join(H,'aqeelos-accounts.json'),JSON.stringify({google:{'me@example.com':{agents:{bot:['read','edit']}}},google_files:{'me@example.com':{bot:['OWN']}}}));
  const calls=[];const fetchImpl=async(u,o)=>{calls.push({u,o});return {ok:true,status:200,json:async()=>({ok:1,u})}};
  const f=createGoogleFiles({HERMES_HOME:H,WORK:W,PORT:1,sig:a=>'S'+a,levelOf:async(e,a)=>levels[a]||'edit',token:async()=>'TOK',fetchImpl,log:()=>{}});
  return {f,H,W,calls}}
@@ -22,7 +22,7 @@ test('another file, an unknown method and an unlisted agent are refused without 
  assert.equal((await f.call('bot',{service:'drive',method:'files.list',params:{}})).status,400);
  assert.equal((await f.call('bot',{service:'drive',method:'files.copy',params:{fileId:'OWN'}})).status,400);
  assert.equal((await f.call('stranger',{service:'sheets',method:'spreadsheets.get',params:{spreadsheetId:'OWN'}})).status,403);
- assert.equal((await f.call('bot',{service:'sheets',method:'spreadsheets.get',params:{spreadsheetId:'OWN'},account:'other@x.com'})).status,403);
+ assert.equal((await f.call('bot',{service:'sheets',method:'spreadsheets.get',params:{spreadsheetId:'OWN'},account:'other@example.com'})).status,403);
  assert.equal(calls.length,0)});
 
 test('read level may not change the file',async()=>{const {f,calls}=await make({bot:'read'});

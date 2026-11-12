@@ -10,7 +10,7 @@ import path from 'node:path';
 import {createPaidLabels} from '../app/paid-labels.mjs';
 import {commandOf,remoteCommand,cleanHook,writeFeed,fallbackScript,createEventHooks,BUSY} from '../app/event-hooks.mjs';
 
-const A='continue-support',B='biomarkers-support',CHAT='telegram:-1003999095054:5';
+const A='continue-support',B='biomarkers-support',CHAT='telegram:-1001000000001:5';
 const HOOK={id:'sales-recap',on:['payment.paid','order.posted'],run:'python3 -I sales-recap/run.py',deliver:CHAT,feed:'sales-recap/feed',minGapSec:60};
 const ev=(type='payment.paid')=>({type,data:{kind:'qris'}});
 
@@ -111,14 +111,14 @@ async function engine(job){const calls=[];const srv=createServer((req,res)=>{let
   res.end(req.method==='GET'?JSON.stringify({jobs:[job]}):'{"ok":true}')})});await new Promise(r=>srv.listen(0,'127.0.0.1',r));return {calls,url:'http://127.0.0.1:'+srv.address().port,close:()=>srv.close()}}
 
 test('hooks-wire: a dry run only prints; --apply writes the hook and the fallback and turns the model schedule into the hourly script-only one; --undo puts it back',async()=>{
- const job={id:'8181388f19ee',name:'Sales Recap',no_agent:false,script:'aqeelos-gate-8181388f19ee.sh',schedule_display:'every 5m',deliver:'origin',origin:{platform:'telegram',chat_id:'-1003999095054',thread_id:'3'}};
+ const job={id:'8181388f19ee',name:'Sales Recap',no_agent:false,script:'aqeelos-gate-8181388f19ee.sh',schedule_display:'every 5m',deliver:'origin',origin:{platform:'telegram',chat_id:'-1001000000001',thread_id:'3'}};
  const eng=await engine(job),DATA=await mkdtemp(path.join(tmpdir(),'aq-hw-')),home=await mkdtemp(path.join(tmpdir(),'aq-hwh-'));await writeFile(path.join(DATA,'ui-secret'),'s'.repeat(40));
  const base=['--agent',A,'--job',job.id,'--run','python3 -I sales-recap/run.py','--feed','sales-recap/feed','--data',DATA,'--home',home,'--port','4400'],env={HERMES_DASH:eng.url,HERMES_DASHBOARD_SESSION_TOKEN:'tok',UI_SECRET:''};
- const dry=await run(WIRE,base,env);assert.equal(dry.code,0,dry.stderr);assert.match(dry.stdout,/\[dry run\] 1\. in .*event-hooks\.json/);assert.match(dry.stdout,/"deliver":"telegram:-1003999095054:3"/,'origin when the schedule says origin');
+ const dry=await run(WIRE,base,env);assert.equal(dry.code,0,dry.stderr);assert.match(dry.stdout,/\[dry run\] 1\. in .*event-hooks\.json/);assert.match(dry.stdout,/"deliver":"telegram:-1001000000001:3"/,'origin when the schedule says origin');
  assert.match(dry.stdout,/"updates":\{"no_agent":true,"script":"aqeelos-hook-8181388f19ee\.sh","schedule":"17 \* \* \* \*"\}/);assert.doesNotMatch(dry.stdout,/s{32}/);
  assert.equal(await stat(path.join(DATA,'event-hooks.json')).then(()=>1,()=>0),0);assert.deepEqual(eng.calls.map(c=>c[0]),['GET']);
  const ap=await run(WIRE,[...base,'--apply'],env);assert.equal(ap.code,0,ap.stderr);
- const hooks=JSON.parse(await readFile(path.join(DATA,'event-hooks.json'),'utf8'));assert.deepEqual(hooks[A],[{id:'sales-recap',on:['payment.paid','order.posted'],run:'python3 -I sales-recap/run.py',deliver:'telegram:-1003999095054:3',feed:'sales-recap/feed',minGapSec:60}]);
+ const hooks=JSON.parse(await readFile(path.join(DATA,'event-hooks.json'),'utf8'));assert.deepEqual(hooks[A],[{id:'sales-recap',on:['payment.paid','order.posted'],run:'python3 -I sales-recap/run.py',deliver:'telegram:-1001000000001:3',feed:'sales-recap/feed',minGapSec:60}]);
  assert.ok(cleanHook(hooks[A][0]),'the app accepts what the script wrote');
  const sc=await readFile(path.join(home,'scripts','aqeelos-hook-8181388f19ee.sh'),'utf8');assert.match(sc,/event-hook\/continue-support\/sales-recap\/[\w-]{32}'/);
  const put=eng.calls.find(c=>c[0]==='PUT');assert.match(put[1],/^\/api\/cron\/jobs\/8181388f19ee\?profile=continue-support$/);assert.deepEqual(JSON.parse(put[2]),{updates:{no_agent:true,script:'aqeelos-hook-8181388f19ee.sh',schedule:'17 * * * *'}});

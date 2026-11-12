@@ -1,0 +1,46 @@
+# Secret scan settings (gitleaks), used by .github/workflows/tests.yml and scripts/hooks/pre-push.
+# Everything gitleaks knows by default stays on. The ONLY exceptions are the known test fixtures below: each one is allowed by path AND by its value
+# (an allowlist with condition AND), so the same pattern in any other file, or another value in the same file, is still a finding.
+# Do not add a real credential here, ever: a real one is rotated, not allowed. New fake values should look fake (sk-ant-EXAMPLE..., 000000...), and
+# then they need no entry at all.
+title = "aqeelOS"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixtures: made-up keys and signing secrets that tests feed to the code, never real"
+condition = "AND"
+paths = [
+  '''^scripts/(agent-versions|agent-access|team-view|agent-graph|microsoft-connect|slack-connect|tebar)\.test\.mjs$''',
+  '''^scripts/kirim-signature\.test\.py$''',
+]
+regexes = [
+  '''^sk-abc123456789$''',
+  '''^sk-abcdefghijklmnop123$''',
+  '''^abcd1234efgh$''',
+  '''^AKIAABCDEFGHIJKLMNOP$''',
+  '''^abcdef0123456789abcdef$''',
+  '''^Abc8Q~xyzXYZ0123456789_abcdefghijklmnop$''',
+  '''^0123456789abcdef0123456789ABCDEF$''',
+  '''^whsec_test_0123456789abcdef$''',
+  '''^kirim-route-secret-7d1f$''',
+]
+
+[[allowlists]]
+description = "Throwaway test-account password of the browser check scripts (they create and delete their own test people)"
+condition = "AND"
+paths = ['''^scripts/(people|owner|roles|limits|creator)-check\.mjs$''']
+regexes = ['''^family-pass-123$''']
+
+[[allowlists]]
+description = "Placeholder Discord id shown in an input field"
+condition = "AND"
+paths = ['''^app/pages\.js$''']
+regexes = ['''^123456789012345678$''']
+
+[[allowlists]]
+description = "The Chrome extension's PUBLIC key (manifest key): public by nature, it only fixes the extension id"
+condition = "AND"
+paths = ['''^extension/manifest\.json$''']
+regexes = ['''^MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA[A-Za-z0-9+/=]+$''']

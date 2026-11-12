@@ -9,7 +9,7 @@
 import {readFile,stat,writeFile,mkdir,rename} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
-import {decide,clean} from './posting-limits.mjs';
+import {decide,clean,ruleFor,entriesOf,hasSubjects,jobDecision,defaultKind,KIND_NAME} from './posting-limits.mjs';
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const getJson=u=>fetch(u,{signal:AbortSignal.timeout(4000)}).then(r=>r.ok?r.json():null).catch(()=>null);
@@ -79,12 +79,16 @@ export async function unansweredComments({key,accountId,platform,status='unrepli
 // ---- posting limits ----------------------------------------------------------------------------------------------------
 // may this agent post now: the same decision as the posting gate (app/posting-limits.mjs), read from DATA. allow=null:
 // limits not switched on for this agent, so they say nothing.
-export async function postingAllowed({DATA,WORK,agent,now=Date.now()}){let d;try{d=JSON.parse(await readFile(path.join(DATA,'posting-limits.json'),'utf8'))}catch{return {allow:null,known:false,why:'no posting limits file'}}
+export async function postingAllowed({DATA,WORK,agent,kinds=[],now=Date.now()}){let d;try{d=JSON.parse(await readFile(path.join(DATA,'posting-limits.json'),'utf8'))}catch{return {allow:null,known:false,why:'no posting limits file'}}
  const raw=d?.agents?.[agent];if(!raw?.on)return {allow:null,known:false,why:'posting limits are not on for this agent'};
  let r;try{r=clean(raw)}catch(e){return {allow:null,known:false,why:e.message}}
  let entries=[];try{entries=JSON.parse(await readFile(path.join(DATA,'posting-log',agent+'.json'),'utf8'))}catch{}
  const stopped=!!(r.stopFile&&WORK&&await stat(path.join(WORK,agent,r.stopFile)).then(()=>true,()=>false));
- const x=decide(r,entries,{now,stopped});return {allow:x.allow,known:true,why:x.allow?'room to post ('+x.n+')':x.reason}}
+ // limits per kind: the run may start while any of the kinds it posts (kinds, else every kind with a rule) has room
+ const ks=kinds.length?kinds:hasSubjects(r)?Object.keys(r.subjects):[defaultKind(r)],list=[];
+ for(const kind of ks){const rk=ruleFor(r,kind);if(!rk){list.push({kind,d:{allow:false,n:0,reason:'there is no Run rule for '+(KIND_NAME[kind]||kind)+'.'}});continue}
+  const st=!!(rk.stopFile&&WORK&&await stat(path.join(WORK,agent,rk.stopFile)).then(()=>true,()=>false));list.push({kind,d:decide(rk,entriesOf(r,entries,kind),{now,stopped:st})})}
+ const j=jobDecision(list);return {allow:j.allow,known:true,why:j.allow?'room to post ('+Math.max(...list.map(x=>x.d.n))+')':list.length===1?list[0].d.reason:j.reason}}
 
 // ---- the answer ----------------------------------------------------------------------------------------------------------
 // work = checks that count things to do (any one above zero, or unknown, means there is something); need = checks that

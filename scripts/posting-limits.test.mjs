@@ -76,7 +76,7 @@ test('a check browser that fails is retried, not reported as a missing post',asy
 
 test('the pause file and over-limit posts are honoured and shown',async()=>{const x=await rig({pages:['']});await x.pl.set('ct',{rules:R});
  const y=await rig({pages:[''],stop:true});await y.pl.set('ct',{rules:R});assert.match(await y.pl.gate('ct'),/Paused/);
- const r=await y.pl.record('ct',{text:'abcdefghijklmnop qrs'});assert.match(r.text,/over the limits/);assert.ok(y.events.some(e=>/over its limits/.test(e[1])))});
+ const r=await y.pl.record('ct',{text:'abcdefghijklmnop qrs'});assert.equal(r.isError,true,'audit H1: over the limits or with the pause file there is an error that says stop');assert.match(r.text,/^STOP posting this run/);assert.match(r.text,/over the limits/);assert.ok(y.events.some(e=>/over its limits/.test(e[1])))});
 
 test('allowNow: the gate\'s decision as numbers for a script that posts without a model; it counts what record() recorded and logs no gate call',async()=>{
  const text='banyak yg nanya ini kak, patokannya simpel: brandnya jelas';const x=await rig({pages:['continue.products\n'+text]});

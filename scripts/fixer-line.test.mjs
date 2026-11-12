@@ -103,7 +103,7 @@ await t('a duplicate that already had tries is not merged but linked, so Needs y
  const src=await readFile(new URL('../app/issues.mjs',import.meta.url),'utf8');assert.match(src,/db\.dupLink=1/)});
 
 await t('sorting helpers: the answer line, the prompt, the model, days in the install’s time zone',()=>{
- assert.deepEqual(parseSort('x\nSORT: {"kind":"duplicate","duplicateOf":"i0123abcd","title":" T ","need":"","group":""}'),{kind:'duplicate',duplicateOf:'i0123abcd',title:'T',need:'',group:''});
+ assert.deepEqual(parseSort('x\nSORT: {"kind":"duplicate","duplicateOf":"i0123abcd","title":" T ","need":"","group":""}'),{kind:'duplicate',duplicateOf:'i0123abcd',title:'T',need:'',group:'',steps:[]});
  assert.equal(parseSort('SORT: {"kind":"maybe"}'),null);assert.equal(parseSort('nothing'),null);assert.equal(parseSort('SORT: {"kind":"fixer","duplicateOf":"../x"}').duplicateOf,null);
  const p=sortPrompt({id:'i1',agent:'Donna',missing:'m'},[{id:'i2',agent:'Sesa',missing:'other'}]);assert.match(p,/ISSUE i1/);assert.match(p,/i2 · Sesa · other/);assert.doesNotMatch(p,/claude|gpt|gemini/i,'no model names');
  assert.deepEqual(fixerModel({fixer:{models:{proof:'p',sort:'s'},effort:{sort:'minimal'}}},'sort'),{model:'s',effort:'minimal'});
