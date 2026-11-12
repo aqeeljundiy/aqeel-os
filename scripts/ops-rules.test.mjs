@@ -18,8 +18,8 @@ test('rule 1: agent screens start only in screen_up, which stops what an earlier
  const up=body('screen_up');
  const kill=up.indexOf('screen_kill '),start=up.indexOf('Xvnc :');
  assert.ok(kill>0&&kill<start,'screen_up must call screen_kill before it starts Xvnc (OPERATIONS.md rule 1)');
- // the only Xvnc, desktop and Chrome launches in the script are in screen_up
- for(const [what,re] of [['Xvnc',/Xvnc :\$disp -geometry/g],['the desktop',/\( dbus-launch --exit-with-session bash/g],['Chrome',/--remote-debugging-port=/g]]){
+ // the only Xvnc, desktop and Chrome launches in the script are in screen_up (a headless start check in a throwaway profile is not a screen)
+ for(const [what,re] of [['Xvnc',/Xvnc :\$disp -geometry/g],['the desktop',/\( dbus-launch --exit-with-session bash/g],['Chrome',/^(?!.*--headless).*--remote-debugging-port=/gm]]){
   const all=[...USERS.matchAll(re)].length,inUp=[...up.matchAll(re)].length;
   assert.equal(all,inUp,what+' is started outside screen_up in agent-users.sh: start it there, after screen_kill (rule 1)')}});
 
