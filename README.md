@@ -38,7 +38,7 @@ The Mac and Windows apps are on [the latest release](https://github.com/aqeeljun
 - **Browser profiles (AdsPower)** and **sign-in apps** are off for every agent until switched on in Edit agent › Abilities (AdsPower alone runs about a gigabyte per agent). Off, the agent has none of their tools and nothing asks it to sign in. On an existing install the first start keeps each only for agents that ran its tools in the last 14 days, with backups (`*.bak-optins-*`) and a note in Activity.
 - **Apps connect directly.** Agents reach an outside app through its own catalog MCP tool and sign-in, its own API key, or aqeelOS's own skills, MCP tools and browser; aqeelOS never offers or installs a middleman connector (Composio was removed on 11 Nov 2026).
 - **Sign-in apps** (Notion, Slack, any app that signs in through a page) are switched per agent the same way, in Edit agent › Abilities. The first count keeps an app only where the agent ran its tools in the last 14 days; the main agent keeps all its own (the owner's sign-ins). Agents can turn off an app they do not need themselves with the `switch_my_app_off` tool (never on). Their own reports about sign-ins for apps that are now off close by themselves.
-- The name, logo and contact are set in the app (System › Branding); the engine persona name also with `AQEELOS_BRAND_NAME`/`AQEELOS_BRAND_MAKER` or `branding:` in `~/.hermes/config.yaml`.
+- The name, logo and contact are kept in `brand.json` and `brand-logo.*` in the data folder and read by the app, sign-in, emails and the Code app. The System › Branding page was taken out of the menu on 7 Nov 2026 (and its script removed on 12 Nov), so they are not edited in the app now; the engine persona name is set with `AQEELOS_BRAND_NAME`/`AQEELOS_BRAND_MAKER` or `branding:` in `~/.hermes/config.yaml`.
 - Apply the engine patches once and after every engine update: `node scripts/apply-skill-patches.mjs`.
 - System › Health shows what else is missing (engine, gateway, screen). Channels › Who can message decides who may write to each agent; Abilities › Connections holds sign-ins.
 - Data (users, shares, issues, logs, the install's settings in `install.json`) lives in `UI_DATA_DIR` (default `../hermes-ui-data`); back it up.
@@ -50,10 +50,10 @@ Only the live copy runs the background jobs that change agents (Help, backups, h
 `app/install.mjs` exports `publicUrl()` (the current address; use it for every callback), `installTz()`, `isLive()` and `engineKeys()`. `PUBLIC_URL_REF` and `urlRef(suffix)` read as the current address wherever a string was passed at start.
 
 ## Tests
-`node --test --test-timeout=120000 scripts/*.test.mjs` (unit tests, no network). End-to-end checks such as `scripts/e2e-check.mjs` need a running install.
+`node --test --test-timeout=120000 scripts/*.test.mjs` (unit tests, no network; run them on Linux, about 78 fail on Windows for platform reasons) and `node scripts/premerge-check.mjs` (conflict markers, parse of every JS/shell/JSON/YAML/Python file, lost regex backslashes). The code app has its own: `cd code && npm ci && node --test test.mjs *.test.mjs desktop/*.test.mjs`. Where everything lives and how to change it: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); working rules for assistants: [AGENTS.md](AGENTS.md). End-to-end checks such as `scripts/e2e-check.mjs` need a running install.
 
 ### Before you push: the pre-push hook
-Once per clone: `git config core.hooksPath scripts/hooks`. The hook (`scripts/hooks/pre-push`) runs the privacy test (`scripts/repo-privacy.test.mjs`: no real phone numbers, chat ids, addresses, e-mails, sheet ids or keys in any tracked file) and, when [gitleaks](https://github.com/gitleaks/gitleaks) is installed, scans the commits being pushed. CI runs the same checks (`.github/workflows/tests.yml`, settings in `.gitleaks.toml`) and fails on a new finding. Install-specific notes belong in the install's data folder, never in the repo: see `CONTRIBUTING.md`.
+Once per clone: `git config core.hooksPath scripts/hooks`. The hook (`scripts/hooks/pre-push`) runs the pre-merge check (`scripts/premerge-check.mjs`), the privacy test (`scripts/repo-privacy.test.mjs`: no real phone numbers, chat ids, addresses, e-mails, sheet ids or keys in any tracked file) and, when [gitleaks](https://github.com/gitleaks/gitleaks) is installed, scans the commits being pushed. CI runs the same checks (`.github/workflows/tests.yml`, settings in `.gitleaks.toml`) and fails on a new finding. Install-specific notes belong in the install's data folder, never in the repo: see `CONTRIBUTING.md`.
 
 ## Kirimdev delivery semantics
 - Customer turns resume an isolated, durable engine session keyed by agent, phone line, conversation and reset epoch. Pending inbound remains stored until the turn completes; interruption before completion can replay the turn after restart.
@@ -88,7 +88,7 @@ aqeelOS also installs [graphify](https://github.com/Graphify-Labs/graphify) by G
 - Code: `app/alert-quiet.mjs`; tests `scripts/alert-quiet.test.mjs`, `scripts/busy.test.mjs`.
 
 ### Local development
-`node --env-file=<dev.env> app/server.mjs` with `HERMES_DASH`/`HERMES_API` pointing at an SSH tunnel to the box (see `.claude/launch.json`). `dev.env` holds `API_SERVER_KEY`, `HERMES_DASHBOARD_SESSION_TOKEN`, `UI_PASSWORD_HASH`, `UI_SECRET` and `UI_INSECURE_COOKIE=1`; keep it out of this folder.
+`node --env-file=<dev.env> app/server.mjs` with `HERMES_DASH`/`HERMES_API` pointing at an SSH tunnel to the box (a launch configuration such as `.claude/launch.json`, which is git-ignored, holds the command). `dev.env` holds `API_SERVER_KEY`, `HERMES_DASHBOARD_SESSION_TOKEN`, `UI_PASSWORD_HASH`, `UI_SECRET` and `UI_INSECURE_COOKIE=1`; keep it out of this folder.
 
 ### Live screen
 The box runs a virtual display (`:99`, Xvfb + fluxbox), shared with x11vnc and streamed by noVNC on 127.0.0.1:6080. The app proxies it at `/screen/` behind the login (WebSocket only from this site). Hermes runs its browser headed (`browser.headed: true`) on that display. If the screen is blank, `~/services.sh` on the server restarts anything missing.
