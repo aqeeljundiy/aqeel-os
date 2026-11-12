@@ -120,7 +120,7 @@ await t('a held run is not silently stuck: Health says why at once, a "Needs you
  let clock=Date.now();const L=await loop({sorted:'fixer',ready:false,now:()=>clock});await L.I.tick();
  let v=await L.I.fixerView();assert.equal(L.runs.length,0,'nothing runs as the box user');
  assert.ok(v.held,'the fixer card says the line is held');assert.match(v.held.why,/aq-fixer\) is not made yet/);assert.equal(v.held.since,clock);assert.deepEqual(v.line.map(i=>i.id),[L.id],'the issue stays in the line');
- assert.match(waitLine(v),/^The fixer waits since .+: The fixer's own user \(aq-fixer\) is not made yet.+No fixer run ever starts as the box user/,'what the person reads under the fixer card');
+ assert.match(waitLine(v),/^Waiting since .+\. The fixer's own user \(aq-fixer\) is not made yet.+No fixer run starts as the box user/,'what the person reads under the fixer card');
  assert.equal(L.fullNotes.length,0,'no "Needs you" in the first half hour: the root script makes the user within a minute of the request');
  clock+=31*60e3;await L.I.tick();assert.equal(L.runs.length,0);assert.equal(L.fullNotes.length,1,'after half an hour a person is asked to look');assert.match(L.fullNotes[0],/not made yet/);
  clock+=11*60e3;await L.I.tick();assert.equal(L.fullNotes.length,1,'asked once');assert.equal((await L.I.fixerView()).held.since,v.held.since,'held since the first wait');

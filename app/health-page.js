@@ -54,6 +54,7 @@ const HealthVerdict={
    sub.push(need.slice(0,2).map(g=>g.title).join('; ')+(n>2?'; and '+(n-2)+' more':'')+'.')}
   else if(f.paused){tone='need';head='Nothing needs you. The fixer is paused'+(line?' with '+pl(line,'problem','problems')+' in line':'')+'.';sub.push('Press Resume on the fixer when it may go on.')}
   else if(f.on===false){tone='need';head='Nothing needs you, but the fixer is switched off.';sub.push('New problems wait until it is on again (System › Teams).')}
+  else if(line&&f.held&&!f.now){tone='work';head='Nothing needs you yet. The fixer waits for its own user, with '+pl(line,'problem','problems')+' in line.';sub.push(HealthIssues.waitLine(f))}
   else if(line){tone='work';head='Nothing needs you. The fixer is working on '+pl(line,'problem','problems')+'.';sub.push(HealthIssues.waitLine(f)||'You hear only if one turns out to need a person.')}
   else if(bad){tone='work';head=pl(bad,'agent has','agents have')+' a problem. The fixer looks at it by itself.'}
   else head='Everything is patched and working.';
@@ -278,7 +279,7 @@ const HealthIssues={
    return what+' reloads as soon as no agent is in the middle of a reply.'}
   const l=f.line||[];if(!l.length)return '';
   // AUD-6: a run waits for the fixer's own user (or its check); said at once, so the line is never silently stuck
-  if(f.held&&!f.now)return 'The fixer waits since '+at(f.held.since)+': '+f.held.why+' No fixer run ever starts as the box user, so nothing starts until then.';
+  if(f.held&&!f.now)return 'Waiting since '+at(f.held.since)+'. '+f.held.why+' No fixer run starts as the box user, so the line waits until then.';
   if(f.cap&&f.cap.used>=f.cap.cap&&!l.some(i=>i.why!=='line'))return 'All '+f.cap.cap+' fix runs of today are used. The next fix starts '+day(f.cap.resetAt)+' at '+at(f.cap.resetAt)+'.';
   const nb=l.find(i=>i.notBefore);if(!f.now&&nb&&l.every(i=>i.notBefore))return 'The next try starts at '+at(nb.notBefore)+'.';
   return ''},
