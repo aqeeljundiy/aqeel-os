@@ -22,6 +22,7 @@ import {createAgentMemory} from './agent-memory.mjs';
 import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
 import {createFixerGit} from './fixer-git.mjs';
+import {createFixerSandbox} from './fixer-sandbox.mjs';
 import {createCloudFixer} from './cloud-fixer.mjs';
 import {createLiveDrift} from './live-drift.mjs';
 import {withTebar} from './tebar-app.mjs';   // Tebar in the catalog: one click sign-in, or a pasted API key (11 Nov 2026)
@@ -1018,7 +1019,11 @@ const newerApp=(a,b)=>{if(!a)return false;if(!b)return true;const x=String(a).sp
 const teamSettings=createTeamSettings({DATA,HERMES_HOME,listAgents:()=>listAgents()});
 // GIT-2: the fixer ships through GitHub: its own git checkout, a branch per issue, a pull request (fixer-git.mjs); and the live app folder
 // is checked against the deployed commit for hand edits (live-drift.mjs), no model
-const fixerGit=createFixerGit({DATA,home:homedir(),log:m=>console.log(m)});
+const fixerGit=createFixerGit({DATA,home:homedir(),log:m=>console.log(m),clean:d=>fixerSandbox.clean(d)});
+// CR-7: the fixer's own Linux user and the signed routes it uses (fixer-sandbox.mjs); the issues module decides per fix whether to confine it
+const fixerSandbox=createFixerSandbox({DATA,home:homedir(),sign:v=>sign(v),redactText,appPort:PORT,isActive:(a,b)=>issues.runActive(a,b),issueText:id=>issues.textFor(id),diffOf:id=>fixerGit.diffWork(id),
+ logs:async id=>{const db=await issues._db(),i=db.items.find(x=>x.id===id),a=String(i?.agent||'default');if(!/^[\w-]+$/.test(a))return '';
+  const t=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'logs','errors.log'),'utf8').catch(()=>'');return t.split('\n').slice(-120).join('\n')}});
 const liveDrift=createLiveDrift({DATA,live:root,repo:fixerGit.src});
 const codeChanges=createCodeChanges({DATA,fileIssue:o=>issues.file(o),fixes:()=>issues.reviews(),hand:()=>liveDrift.item(),diff:id=>fixerGit.diff(id)});   // fixes waiting for review, hand edits, deploy drift, fixer patches (System › Health)
 if(LIVE_APP){setTimeout(()=>liveDrift.check().catch(e=>console.warn('hand-edit check',e.message)),3*60e3).unref();setInterval(()=>liveDrift.check().catch(()=>{}),30*60e3).unref()}
@@ -1827,7 +1832,7 @@ accountHooks.exhausted=until=>{if(until)providerLimits.set(until,'every AI accou
 const questions=createQuestions({DATA,names:a=>agentName(a),onAnswer:async q=>{if(q.kind==='fixer'&&q.issue)await issues.answered(q.issue,q);if(q.kind==='app'&&q.issue==='brand-logo'&&q.answered?.choice==='b'){await brand.setMono(true);await pwa.current()}if(q.kind==='app'&&String(q.issue).startsWith('live-logo-')&&q.answered?.choice==='b')await live.useLetter(String(q.issue).slice(10))}});
 // the cloud fixer (cloud-fixer.mjs, 12 Nov 2026): code fixes are written by a Claude Code routine in Anthropic's cloud; the account with the most room is used
 const cloudFixer=createCloudFixer({DATA,accounts:async()=>{const b=accountsApi.backup,d=await b.load();return Promise.all(b.all(d).map(a=>b.details(a)))},github:id=>fixerGit.mergedPr(id)});
-const issues=createIssues({DATA,watch:createFixerWatch({list:()=>protectedFiles({HOME:homedir(),HERMES_HOME,DATA}),log:m=>console.warn(m)}),onOver:n=>n?bottlenecks.event('issues',n+' open issues: more than the list is meant to hold','None is dropped. Close or decline the ones that no longer matter under System › Health, so new ones stay easy to find.',{topic:'issues-over'}):bottlenecks.resolve('issues-over'),ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
+const issues=createIssues({DATA,watch:createFixerWatch({list:()=>protectedFiles({HOME:homedir(),HERMES_HOME,DATA}),log:m=>console.warn(m)}),onOver:n=>n?bottlenecks.event('issues',n+' open issues: more than the list is meant to hold','None is dropped. Close or decline the ones that no longer matter under System › Health, so new ones stay easy to find.',{topic:'issues-over'}):bottlenecks.resolve('issues-over'),ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,sandbox:fixerSandbox,needFull:why=>bottlenecks.event('fixer_full_rights','The fixer runs with full rights',String(why||'')+' A code fix then runs with the owner\'s user, which holds every key. Make the fixer\'s own user on the box (the root script does it; Health shows when it is ready) or accept this.',{topic:'fixer_full_rights'}),fullOk:()=>bottlenecks.resolve('fixer_full_rights'),cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
  needCloud:()=>bottlenecks.event('cloud_fixer','Set up the cloud fixer','A bug in aqeelOS\'s own code is fixed in the cloud. Add a routine on System › Settings › Cloud fixer; until then the older way runs.',{topic:'cloud_fixer'}),cloudOk:()=>bottlenecks.resolve('cloud_fixer'),needToken:()=>bottlenecks.event('github_token','The fixer needs a GitHub token','Fixes wait for review as branches on the box. Add the token and their pull requests open by themselves.',{topic:'github_token'}),tokenOk:()=>bottlenecks.resolve('github_token'),usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
  tz:()=>installTz()||process.env.TZ||'',sortRun:engineSortRun({bin:path.join(homedir(),'.local','bin','aqeelos'),home:homedir(),dir:path.join(DATA,'issues','sort')}),
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,engineOk:()=>inQuiet(new Date(),installTz()||process.env.TZ||''),envFiles:issueEnvFiles,
@@ -2542,6 +2547,10 @@ const server=createServer(async(req,res)=>{
   {const mo=/^\/agent-ops\/([\w-]+)\/([\w-]+)$/.exec(p);if(mo){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
    const x=Buffer.from(String(mo[2])),y=Buffer.from(sign('agent-ops:'+mo[1]).slice(0,32));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad signature'});
    let body;try{body=JSON.parse(await readBody(req,1e6))}catch{return send(res,400,{error:'bad json'})}const r=await agentOps.call(mo[1],body).catch(e=>({status:500,json:{error:e.message}}));return send(res,r.status,r.json)}}
+  // the confined fixer's routes (fixer-sandbox.mjs, CR-7): from this box only, signed for one run, closed when the run ends
+  {const mf=/^\/fixer-ops\/([\w-]+)\/([\w-]+)\/([A-Za-z0-9_-]{32})\/(\w+)$/.exec(p);if(mf){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
+   let body={};try{body=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'bad json'})}
+   const r=await fixerSandbox.ops(mf[4],mf[1],mf[2],mf[3],body).catch(e=>({status:500,json:{error:String(e.message).slice(0,200)}}));return send(res,r.status,r.json)}}
   // a person's message in the team's Telegram topic, from the engine's hook (audit H5): from this box only, signed per agent. The sender
   // is checked against the line's approvers in kirimdev.teamMessage; nothing here trusts the text alone.
   {const mt=/^\/team-message\/([\w-]+)\/([\w-]+)$/.exec(p);if(mt){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
