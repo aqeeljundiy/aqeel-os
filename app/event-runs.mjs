@@ -26,7 +26,9 @@ export function createEventRuns({DATA,trigger,now=()=>Date.now(),log=m=>console.
  const load=async()=>{db=await readStore(FILE);db.rules||={};db.runs||={};return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const go=async(agent,r,type)=>{const k=agent+'/'+r.job;last.set(k,now());pending.delete(k);
-  try{await trigger(agent,r.job);const row=(db.runs[k]||={n:0});row.n++;row.at=now();row.by=type;await save().catch(()=>{});log('event run: '+agent+' job '+r.job+' started by '+type)}
+  // the file is read again before the count is written: a start that waited out its gap must not save an old copy over a rule that
+  // events-wire.mjs wrote meanwhile (audit M20)
+  try{await trigger(agent,r.job);await load();const row=(db.runs[k]||={n:0});row.n++;row.at=now();row.by=type;await save().catch(()=>{});log('event run: '+agent+' job '+r.job+' started by '+type)}
   catch(e){log('event run: '+agent+' job '+r.job+' not started: '+e.message)}};
  // an event arrived: start every matching schedule (or queue one trailing start inside the gap). Returns the job ids touched.
  async function fire(agent,ev){if(!AGENT.test(String(agent||'')))return [];await load();const out=[];

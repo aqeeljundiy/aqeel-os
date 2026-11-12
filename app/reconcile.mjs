@@ -62,7 +62,7 @@ export function createReconciler({loops=createLoops(),now=()=>Date.now(),log=m=>
  const sigOf=async(t,w)=>[w.list,w.fixed,...t.reads.map(k=>w[k]),await statSig(t.files)].join('#');
  // each task has a time limit (audit M24): one that hangs (a child process with no limit of its own) is treated like one that threw, and the
  // pass goes on; before, go() handed the same never-ending pass to every later call and no task ran again until the app restarted
- async function exec(t,w,why){const t0=now();let timer;try{await Promise.race([t.run({why}),new Promise((_,rej)=>{timer=setTimeout(()=>rej(Error('still running after '+Math.round(taskMs/60e3)+' minutes; left behind')),taskMs);timer.unref?.()})]);loops.note(t.name,{ms:now()-t0});t.at=now();t.retry=0;t.fp=await sigOf(t,await world())}   // the fingerprint after the work: its own writes do not start it again
+ async function exec(t,w,why){const t0=now();let timer;try{await Promise.race([t.run({why}),new Promise((_,rej)=>{timer=setTimeout(()=>rej(Error('still running after '+Math.round(taskMs/60e3)+' minutes; left behind')),taskMs)})]);loops.note(t.name,{ms:now()-t0});t.at=now();t.retry=0;t.fp=await sigOf(t,await world())}   // the fingerprint after the work: its own writes do not start it again
   catch(e){loops.note(t.name,{ms:now()-t0,err:true});t.fp=null;t.retry=now()+10*60e3;log('reconcile '+t.name+': '+e.message)}finally{clearTimeout(timer)}}
  // one pass: tasks whose inputs moved (or that were asked for, or whose safety sweep is due) run, one after the other
  async function pass(){const ask=dirty,askAll=allDirty;dirty=new Set();allDirty=false;   // taken now: a trigger during the pass is kept for the next one
