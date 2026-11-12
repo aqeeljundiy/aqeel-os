@@ -33,11 +33,15 @@ const PEOPLE_DIR=path.join(homedir(),'people');      // members' own folders: ~/
 // For 14 days after this version first runs, the old username (or name) still signs in, and the page says to use the email
 // next time; an account with no email keeps signing in by username until it adds one (the app asks at sign-in), so nobody
 // is locked out. relaxed: a test copy (deploy checks), where the owner may still sign in with the password alone.
+const AGENT_ID={test:a=>/^[a-z0-9][a-z0-9_-]{0,63}$/.test(String(a))&&!(String(a) in Object.prototype)};   // an agent's id in an address or a body: never a name every object has (constructor, __proto__)
 export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=async()=>'aqeelOS',relaxed=true,ownerSeesAll=()=>false}={}){
  const hooks={};   // onJoin(person): the server makes their lead agent
  const FILE=path.join(DATA,'users.json');
  let db=null;
- const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}
+ // Only a file that is not there yet means a new install. One that cannot be read or parsed must stop the app: going on would save an
+ // empty people list over it and leave the install open to whoever opens it first (audit A4, 12 Nov 2026).
+ const load=async()=>{if(db)return db;let t=null;try{t=await readFile(FILE,'utf8')}catch(e){if(e.code!=='ENOENT')throw Error('The people file '+FILE+' cannot be read ('+e.code+'). aqeelOS will not start with it like this.')}
+  if(t===null||!t.trim())db={};else{try{db=JSON.parse(t)}catch{db=null;throw Error('The people file '+FILE+' is damaged (not valid JSON). Put back a backup (users.json.bak-*) before starting aqeelOS.')}if(!db||typeof db!=='object'||Array.isArray(db)){db=null;throw Error('The people file '+FILE+' is damaged.')}}
   db.users||=[];db.invites||=[];db.shares||={};db.owners||={};db.agentOwners||={};db.privateAgents||={};db.roles||=JSON.parse(JSON.stringify(DEFAULT_ROLES));db.leads||={};db.resets||=[];
   // the owner's name and username: chosen at first run (OWNER_NAME / OWNER_USERNAME, else neutral), then kept in users.json.
   // Older data had only a name; its username was the name in lower case, so sign-in keeps working
@@ -311,11 +315,11 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
     const lp=leadPerson(a);out[a]={access:lv,private:isPrivate(a)||lockedByOwner(a),privateOn:lockedByOwner(a),canPrivate:isAdmin(u)&&agentOwner(a)===u.id,invitee:iv?{name:iv.name}:null,tier:tierOf(a),lead:lp?{id:lp,name:byId(lp)?.name||''}:null,owner:{id:o.id,name:o.name,...face(o)},shared:lv?Object.entries(db.shares[a]||{}).filter(([id])=>id!==o.id&&byId(id)).map(([id,l])=>{const x=byId(id);return {id,name:x.name,...face(x),level:l}}):[]}}
    return send(res,200,out)}
   const pv=/^\/ui\/agents\/([^/]+)\/private$/.exec(p);
-  if(pv&&req.method==='PUT'){const a=decodeURIComponent(pv[1]),b=await body();
+  if(pv&&req.method==='PUT'){const a=decodeURIComponent(pv[1]),b=await body();if(!AGENT_ID.test(a))return send(res,400,{error:'Unknown agent'});
    if(agentOwner(a)!==u.id||!isAdmin(u))return send(res,403,{error:'Only its owner can make this agent private, and only an admin’s agent can be private from admins.'});
    if(b.on)db.privateAgents[a]=true;else delete db.privateAgents[a];await save();console.log('agent',a,b.on?'made private':'no longer private','by',u.id);return send(res,200,{ok:true,private:!!b.on})}
   const ag=/^\/ui\/agents\/([^/]+)\/(share|owner)$/.exec(p);
-  if(ag&&req.method==='PUT'){const a=decodeURIComponent(ag[1]),b=await body();if(level(u,a)!=='owner')return send(res,403,{error:'Only the owner of this agent can change who has it.'});
+  if(ag&&req.method==='PUT'){const a=decodeURIComponent(ag[1]),b=await body();if(!AGENT_ID.test(a))return send(res,400,{error:'Unknown agent'});if(level(u,a)!=='owner')return send(res,403,{error:'Only the owner of this agent can change who has it.'});
    const to=byId(String(b.user||''));if(!to)return send(res,400,{error:'Unknown person'});
    // handing the agent over is for its real owner (or the owner of aqeelOS), not someone shared it at "Owner": taking an
    // admin's agent would make it private and lock every admin out
@@ -342,7 +346,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
    try{await mail.deliver(String(b.to||'').trim(),(byId(u.id)?.name||'Someone')+' invited you to aqeelOS',`Hi${i.name?' '+i.name:''},\n\n${byId(u.id)?.name||'Someone'} invited you to aqeelOS. Open this link to pick a username and password:\n\n${String(b.link||'')}\n\nThe link works once and expires in 7 days.`);return send(res,200,{ok:true})}catch(e){return send(res,502,{error:e.message})}}
   if(p==='/ui/people'&&req.method==='GET')return send(res,200,{caps:CAPS,presets:PRESETS,owner:pub(owner()),roles:db.roles,users:db.users.map(x=>({...pub(x),lead:db.leads[x.id]||null,roleId:x.roleId||'custom',caps:x.caps||[],models:x.models||null,limit:x.limit||null})),invites:db.invites.filter(i=>!i.used&&i.expires>Date.now()).map(i=>({code:i.code,name:i.name,role:i.role,agents:i.agents,expires:i.expires})),expired:expiredInvites(),shares:db.shares});
   if(p==='/ui/people/invite'&&req.method==='POST'){const b=await body();if(b.roleId&&unsafeRole(b.roleId))return send(res,403,UNSAFE_ROLE);const role=b.role==='admin'&&u.role==='owner'?'admin':'member';
-   const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?Object.fromEntries(Object.entries(b.agents).filter(([a])=>!(isPrivate(a)||lockedByOwner(a))||level(u,a)==='owner')):{},expires:Date.now()+7*864e5,by:u.id,...(EMAIL.test(norm(b.email))?{email:norm(b.email)}:{})};
+   const inv={code:randomBytes(18).toString('base64url'),name:String(b.name||'').trim().slice(0,60),role,roleId:b.roleId&&db.roles[b.roleId]?b.roleId:null,caps:(Array.isArray(b.caps)?b.caps:[]).filter(k=>k in CAPS&&(k!=='unsafe'||u.role==='owner')),agents:b.agents&&typeof b.agents==='object'?Object.fromEntries(Object.entries(b.agents).filter(([a])=>AGENT_ID.test(a)).filter(([a])=>!(isPrivate(a)||lockedByOwner(a))||level(u,a)==='owner')):{},expires:Date.now()+7*864e5,by:u.id,...(EMAIL.test(norm(b.email))?{email:norm(b.email)}:{})};
    // the agent made for them in this invite becomes theirs (private) when they accept, if the inviter still owns it then
    if(typeof b.ownAgent==='string'&&inv.agents[b.ownAgent]==='owner'&&(agentOwner(b.ownAgent)===u.id||isAdmin(u)&&!(b.ownAgent in db.agentOwners)))inv.ownAgent=b.ownAgent;
    // "Also make them their own agent" unticked: no lead agent is made for them when they join (7 Nov 2026)

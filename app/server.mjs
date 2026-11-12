@@ -152,6 +152,7 @@ import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // 
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
 
+delete Object.prototype.__proto__;   // a key named __proto__ from a request is an ordinary key: no lookup reaches Object.prototype (security audit, 12 Nov 2026)
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'..');
 const env=process.env;
@@ -231,6 +232,12 @@ const codeProvName=p=>{const s=String(p?.slug||''),n=String(p?.name||s);if(s==='
 function liveStart(key,user){const rec={user,chunks:[],size:0,subs:new Set(),done:false,t:Date.now(),last:Date.now(),gw:gwPidNow};LIVE.set(key,rec);return rec}
 setInterval(()=>{for(const [k,r] of LIVE)if(!r.done&&!r.asking&&Date.now()-r.last>20*60e3){console.warn('live stream idle for 20 min, ending it:',k);liveEnd(k,r)}},60000).unref();
 function liveEnd(key,rec){if(rec.done)return;rec.done=true;resumeLiveEnd(rec);saveThinking(key,rec);for(const r of rec.subs)r.end();rec.subs.clear();setTimeout(()=>{if(LIVE.get(key)===rec)LIVE.delete(key)},120000)}
+// A file from the engine's file routes (an agent may have written it) is shown inline only when it is a picture, sound, video or
+// PDF; everything else (html, svg, js, xml...) is a download of plain bytes, sandboxed (audit B-M3, 12 Nov 2026).
+function safeFileHeaders(out){const ct=String(out['content-type']||'').split(';')[0].trim().toLowerCase();
+ const inline=/^(image\/(png|jpeg|gif|webp|avif|bmp|x-icon)|audio\/[\w.+-]+|video\/[\w.+-]+|application\/pdf|application\/json)$/.test(ct);
+ if(!inline){if(!/^text\/plain$/.test(ct))out['content-type']='application/octet-stream';const cd=String(out['content-disposition']||'');out['content-disposition']=/^attachment/i.test(cd)?cd:'attachment'+(/filename/i.test(cd)?';'+cd.split(';').slice(1).join(';'):'')}
+ if(!inline)out['content-security-policy']="sandbox; default-src 'none'";out['x-content-type-options']='nosniff';return out}
 function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
  const url=new URL(req.url,'http://x');
  // /hapi/status → dashboard /api/status · /gapi/api/sessions → gateway /api/sessions
@@ -255,7 +262,8 @@ function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
   // a file uploaded through the engine (chat attachments, /hapi/files): readable by the agents once it is written (OPS-18; the engine's own
   // writer has the same fix, this covers an engine without it)
   if(prefix==='/hapi'&&req.method==='POST'&&url.pathname==='/hapi/files'&&(r.statusCode||500)<300)res.on('finish',()=>boxOps.uploadsReadable().catch(()=>{}));
-  res.writeHead(r.statusCode||502,{...out,...security});r.pipe(res);
+  if(prefix==='/hapi'&&/^\/hapi\/files\/(download|stream|read)$/.test(url.pathname))safeFileHeaders(out);
+  res.writeHead(r.statusCode||502,{...out,...security,...(out['content-security-policy']?{'content-security-policy':out['content-security-policy']}:{})});r.pipe(res);
  });
  up.on('error',e=>{if(live?.jid&&!live.started)resume.end(live.jid);if(!res.headersSent)send(res,502,{error:'The aqeelOS engine is not reachable',detail:e.code||e.message});else res.end()});
  req.on('aborted',()=>{if(!live?.started)up.destroy()});res.on('close',()=>{if(!res.writableEnded&&!live?.started)up.destroy()});
@@ -264,7 +272,7 @@ function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
 
 async function serveFile(res,rel){
  const file=path.resolve(root,rel);
- if(!file.startsWith(root+path.sep)||/\.(mjs|env|md)$|[\\/]\./i.test(rel))return send(res,404,'Not found');
+ if(!file.startsWith(root+path.sep)||/\.(mjs|env|md)$|[\\/]\./i.test(rel)||/\.(mjs|env|md)$|[\\/]\./i.test(path.relative(root,file))||!Object.hasOwn(types,path.extname(file).toLowerCase()))return send(res,404,'Not found');
  try{const st=await stat(file);if(!st.isFile())throw 0;let body=await readFile(file);const ext=path.extname(file);if(ext==='.html'&&rel.startsWith('assets/'))body=Buffer.from(legalFill(body.toString('utf8').replaceAll('{{OWNER_CONTACT}}',(globalThis.AQ_CONTACT||OWNER_CONTACT).replace(/[<>&"]/g,c=>'&#'+c.charCodeAt(0)+';'))));
   const etag=ext==='.html'?'"h'+Date.now().toString(36)+'"':'"'+st.size.toString(36)+'-'+Math.round(st.mtimeMs).toString(36)+'"';if(ext!=='.html'&&res.req?.headers?.['if-none-match']===etag){res.writeHead(304,{etag,'cache-control':'no-cache'});return res.end()}
   res.writeHead(200,{'content-type':types[ext]||'application/octet-stream','cache-control':ext==='.png'&&rel.startsWith('assets/emoji/')?'public, max-age=604800':ext==='.woff2'||ext==='.svg'||ext==='.png'?'public, max-age=86400':'no-cache',etag,...security});res.end(body)}
@@ -2156,6 +2164,9 @@ async function privateAddress(u){let url;try{url=new URL(String(u))}catch{return
   if(/^\d+\.\d+\.\d+\.\d+$/.test(a)){const [x,y]=a.split('.').map(Number);return x===0||x===10||x===127||(x===169&&y===254)||(x===172&&y>=16&&y<=31)||(x===192&&y===168)||(x===100&&y>=64&&y<=127)||x>=224}
   return a==='::'||a==='::1'||/^f[cd]/.test(a)||/^fe[89ab]/.test(a)};
  return !addrs.length||addrs.some(x=>bad(x.address))}
+// aqeelOS's own tools (aqeelos-*) in an app list: their address ends in the agent's signature, so it is not sent to a browser
+function hideOwnTools(d){const fix=s=>s&&typeof s==='object'&&/^aqeelos-/.test(String(s.name||''))&&s.url?{...s,url:hideSigned(String(s.url))}:s;
+ if(Array.isArray(d))return d.map(fix);if(d&&typeof d==='object'){const o={...d};for(const k of ['servers','mcp_servers','items'])if(Array.isArray(o[k]))o[k]=o[k].map(fix);else if(o[k]&&typeof o[k]==='object')o[k]=Object.fromEntries(Object.entries(o[k]).map(([n,s])=>[n,/^aqeelos-/.test(n)&&s?.url?{...s,url:hideSigned(String(s.url))}:s]));return o}return d}
 async function hermesCall(req,res,u,url){
  const p=url.pathname,q=url.searchParams;
  if(['profile','path','name','agent'].some(k=>q.getAll(k).length>1))return send(res,400,{error:'Each setting may appear only once.'});
@@ -2178,6 +2189,9 @@ async function hermesCall(req,res,u,url){
  // the forwarded request names that one agent and nothing else: every other selector is overwritten or dropped
  {const rw=proxyAgent.rewrite(p,q,jb,agent);if(rw.changed){jb=rw.body;body=Buffer.from(JSON.stringify(jb))}const qs=q.toString();req.url=p+(qs?'?'+qs:'')}
  if(jb&&typeof jb==='object'&&!Array.isArray(jb)&&p==='/hapi/profiles'&&jb.name===HELP_AGENT)return send(res,403,{error:'That name is taken by Help.'});
+ if(jb&&typeof jb==='object'&&!Array.isArray(jb)&&p==='/hapi/profiles'&&req.method==='POST'&&String(jb.name??'').includes('--'))return send(res,400,{error:'An agent name cannot contain "--".'});
+ // A10: a member's new chat gets the id the engine gives it, never one the request names (an existing chat would become theirs)
+ if(!users.isAdmin(u)&&req.method==='POST'&&/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)){let b={};try{b=JSON.parse((await readRaw(req,65536)).toString('utf8')||'{}')}catch{}if(b&&typeof b==='object'&&!Array.isArray(b)){delete b.id;delete b.session_id;delete b.sessionId}else b={};body=Buffer.from(JSON.stringify(b))}
  if(u.role==='owner'&&agent&&users.lockedByOwner(agent)){const o=users.byId(users.agentOwner(String(agent).split('--')[0]));if(o&&o.id!=='owner')teamView.lookedAgent(u.name||'Owner',o.name,agent).catch(()=>{})}
  {const rm=/\/v1\/runs\/([^/]+)/.exec(p);if(rm&&!users.isAdmin(u)){const own=runOwner.get(decodeURIComponent(rm[1]));if(!own||own.user!==u.id)return send(res,403,{error:'That reply is not yours.'})}}
  if(p.startsWith('/gapi/p/')&&agent&&agent!=='default'&&!keyOk.has(agent)){const envF=path.join(HERMES_HOME,'profiles',agent,'.env');const e=await readFile(envF,'utf8').catch(()=>null);
@@ -2359,6 +2373,7 @@ async function hermesCall(req,res,u,url){
   :p==='/hapi/mcp/catalog'&&req.method==='GET'?async d=>withTebar(d,await readConfig(agent).catch(()=>null))
   // System › Logs: the agents' tool addresses carry a secret part (/mcp/<kind>/<agent>/<secret>), and keys can turn up in a line: hidden before they reach the page
   :p==='/hapi/logs'&&req.method==='GET'?d=>Array.isArray(d?.lines)?{...d,lines:d.lines.map(l=>redactText(String(l)))}:d
+  :/^\/hapi\/mcp\/servers$/.test(p)&&req.method==='GET'?d=>hideOwnTools(d)
   :p==='/hapi/status'&&req.method==='GET'?d=>Array.isArray(d?.profiles)?{...d,profiles:d.profiles.filter(x=>(x?.name||x)!==HELP_AGENT)}:d
   :/^\/gapi(\/p\/[^/]+)?\/api\/model\/options$/.test(p)&&users.allowedModels(u)?d=>({...d,providers:(d.providers||[]).map(pv=>({...pv,models:(pv.models||[]).filter(m=>users.modelOk(u,pv.slug,m))})).filter(pv=>pv.models.length)})
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}
@@ -2779,6 +2794,7 @@ const server=createServer(async(req,res)=>{
    if(req.method!=='POST')return send(res,405,'POST only');let msg={};try{msg=JSON.parse(await readBody(req,262144))}catch{return send(res,400,{error:'bad json'})}
    {const w=msg.method==='tools/call'&&smokeWatch.get(String(msg.params?.arguments?.run||''));if(w)w.push({name:String(msg.params?.name||''),path:String(msg.params?.arguments?.path||'')})}
    const r=await customerTools.mcp(cm[1],String(req.headers['x-aqeelos-run']||''),msg);return r.status===202?send(res,202,''):send(res,r.status,r.body)}}
+  if(p.startsWith('/agent-live/')&&!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(req.socket.remoteAddress||''))return send(res,403,{error:'local only'});
   if(p==='/agent-live/team-view'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});if(String(b.agent||'')!==agentAccess.MAIN)return send(res,403,{error:'Only the main agent has this.'});
    try{return send(res,200,await teamView.call({session:String(b.session||'').slice(0,120)},b.args&&typeof b.args==='object'?b.args:{}))}catch(e){return send(res,200,{error:e.message})}}
@@ -3001,7 +3017,7 @@ const server=createServer(async(req,res)=>{
    const no=users.gate(u,p,req.method,url.searchParams,sm?decodeURIComponent(sm[1]):agentOf(p,url.searchParams));if(no)return send(res,no.status,{error:no.error});
    if(/\/type$/.test(p)&&url.searchParams.get('screen')==='ads'&&!users.isAdmin(u))return send(res,403,{error:'Only admins can type into the shared screen.'});
    if(/^\/ui\/screens\/[^/]+\/adspower(\/(start|stop))?$/.test(p))return agentAds.handle(req,res,p,send,{admin:users.isAdmin(u)});
-   return p==='/ui/screen/browser'?openBrowser(res,url.searchParams.get('agent')):screens.handle(req,res,p,send)}
+   return p==='/ui/screen/browser'?openBrowser(res,sm?decodeURIComponent(sm[1]):agentOf(p,url.searchParams)):screens.handle(req,res,p,send)}
   if(p==='/ui/adspower'){const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'});return agentAds.handle(req,res,p,send,{admin:users.isAdmin(u)})}
   if(p.startsWith('/auth/')&&await accountAuth(req,res,p,url))return;
   if(p==='/auth/login'&&req.method==='POST'){
@@ -3677,7 +3693,9 @@ const server=createServer(async(req,res)=>{
     // everyone sees the agents they may use (admins: every agent); only admins change who uses what, and see keys
     if(req.method==='GET'){const kind=String(url.searchParams.get('kind')||'');if(!KINDS.includes(kind))return send(res,400,{error:'Unknown kind'});
      if(users.isAdmin(u))return send(res,200,{...await access.list(kind),canEdit:true});if(kind==='key')return send(res,403,{error:'Only admins can see keys.'});
-     return send(res,200,{...await access.list(kind,new Set((await listAgents()).filter(a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a)))),canEdit:false})}
+     {const l=await access.list(kind,new Set((await listAgents()).filter(a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a))));
+      const host=d=>{try{return new URL(String(d)).host}catch{return String(d||'').split(/\s+/)[0].split('/').pop().slice(0,40)}};
+      return send(res,200,{...l,items:(l.items||[]).filter(x=>!/^aqeelos-/.test(String(x.id))).map(x=>kind==='mcp'?{...x,detail:host(x.detail)}:x),canEdit:false})}}
     if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change who uses a connection.'});
     if(req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const kind=String(b.kind||''),id=String(b.id||''),agent=String(b.agent||'');
      if(!KINDS.includes(kind)||!id||!(await listAgents()).includes(agent))return send(res,400,{error:'Bad request'});

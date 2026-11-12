@@ -62,7 +62,7 @@ export function createOptins({DATA,HERMES_HOME,listAgents,readConfig,python,live
  // on for this agent? Copies follow their agent. Before the first-start count has run, everything stays as it was (on),
  // so nothing is stopped before the count decides; after it, an agent not listed is off.
  async function on(kind,a){await load();if(!db?.migration)return true;return !!db?.[kind]?.[baseOf(a)]}
- async function set(kind,a,v){if(!KINDS[kind])throw Error('Unknown ability');await load();db||={v:1};db[kind]||={};if(v)db[kind][baseOf(a)]=true;else delete db[kind][baseOf(a)];await save();log('abilities: '+KINDS[kind]+' '+(v?'on':'off')+' for '+baseOf(a))}
+ async function set(kind,a,v){if(!Object.hasOwn(KINDS,kind))throw Error('Unknown ability');await load();db||={v:1};db[kind]||={};if(v)db[kind][baseOf(a)]=true;else delete db[kind][baseOf(a)];await save();log('abilities: '+KINDS[kind]+' '+(v?'on':'off')+' for '+baseOf(a))}
  async function state(a){await load();return Object.fromEntries(Object.keys(KINDS).map(k=>[k,{on:!!db?.[k]?.[baseOf(a)],label:KINDS[k],used:db?.migration?.counts?.[baseOf(a)]?.[k]||null}]))}
 
  async function usage(days=14,namesOf=toolNames){const agents=await listAgents();const spec={},configs={};

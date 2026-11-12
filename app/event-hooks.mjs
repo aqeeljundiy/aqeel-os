@@ -54,6 +54,12 @@ export const fallbackScript=({agent,id,port,sig})=>['#!/bin/bash','# Written by 
  'r=$(curl -s -m 1200 -X POST -w \'\\n%{http_code}\' \'http://127.0.0.1:'+port+'/event-hook/'+agent+'/'+id+'/'+sig+'\')','code=${r##*$\'\\n\'}; body=${r%$\'\\n\'*}','[ "$code" = 200 ] && exit 0',
  'echo "aqeelOS event hook '+id+' did not run: ${body:-no answer} ($code)"','exit 1',''].join('\n');
 
+// A hook's keep pattern comes from an agent and runs here, in the app's own process: one that can backtrack without end
+// (a repeated group, a back-reference, a repeat of a repeat) is not used at all, and lines are cut to 2,000
+// characters (audit C-M6, 12 Nov 2026). null = the pattern is unsafe or does not compile: every line is kept.
+export function safePattern(p){const s=String(p||'');if(!s||s.length>120)return null;
+ if(/\\[1-9]/.test(s)||/\)\s*(?:[+*]|\{)/.test(s)||/(?:[+*]|\{\d+,?\d*\})\s*(?:[+*]|\{)/.test(s))return null;   // a repeated group, a back-reference, a repeat of a repeat
+ try{return new RegExp(s)}catch{return null}}
 export function createEventHooks({DATA,WORK,runAs,deliver,problem=async()=>{},solved=async()=>{},enabled=()=>true,now=()=>Date.now(),log=m=>console.log(m),setTimer=(fn,ms)=>{const t=setTimeout(fn,ms);t.unref?.();return t}}){
  const CFG=path.join(DATA,'event-hooks.json'),ST=path.join(DATA,'event-hooks-state.json');let cache={at:0,v:{}},st=null;const last=new Map(),pending=new Map(),chains=new Map();
  const config=async()=>{if(now()-cache.at>30e3){let v={};try{v=JSON.parse(await readFile(CFG,'utf8'))}catch{}if(v&&typeof v.hooks==='object'&&!Array.isArray(v.hooks))v=v.hooks;
@@ -62,7 +68,7 @@ export function createEventHooks({DATA,WORK,runAs,deliver,problem=async()=>{},so
  const save=async()=>{const t=now();for(const [k,v] of Object.entries(st.sent))if(t-v>DEDUPE_MS)delete st.sent[k];await mkdir(DATA,{recursive:true});await writeFile(ST+'.tmp',JSON.stringify(st,null,1));await rename(ST+'.tmp',ST)};
  // the text to send: lines kept by the hook's filter, not sent before when the hook dedupes, with its prefix
  const shape=(out,h,s,k)=>{let lines=String(out||'').split('\n').map(l=>l.replace(/\s+$/,'')).filter(l=>l.trim());
-  if(h.keep){const re=new RegExp(h.keep);lines=lines.filter(l=>re.test(l))}
+  if(h.keep){const re=safePattern(h.keep);lines=re?lines.slice(0,2000).filter(l=>re.test(l.slice(0,2000))):lines}
   if(h.dedupe)lines=lines.filter(l=>{const at=s.sent[sha(k+'|'+l)];return !at||now()-at>=DEDUPE_MS});
   return {text:lines.map(l=>h.prefix+l).join('\n'),lines}};
  const failText=(r,h)=>r.code===124?'it ran longer than '+h.timeoutSec+' s and was stopped':r.code===BUSY?'another script of this agent held the lock for '+LOCK_WAIT+' s':
