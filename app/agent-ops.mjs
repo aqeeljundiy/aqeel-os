@@ -28,7 +28,7 @@ export function createAgentOps({WORK,PORT,sig,kirimdev,log=m=>console.log(m)}){
   if(op!=='kirim')return fail(400,'aqeelOS offers kirim (read your own line, send a text through the guards), label and whoami here. Payments are made only with create_payment in a customer chat.');
   const method=String(req.method||'GET').toUpperCase(),raw=String(req.path||'').replace(/^\/+/,''),[p,qs='']=raw.split('?'),parts=p.replace(/\/+$/,'').split('/');
   if(method==='GET'){
-   if(p==='labels'){}else if(parts[0]!==pid)return fail(403,/^\d{6,20}$/.test(parts[0])?'That is another Kirimdev line. You read only your own line ('+pid+'); another brand\'s chats are never yours.':'You can read your own line only: '+pid+'/conversations, '+pid+'/messages, '+pid+'/contacts, and labels.');
+   if(p==='labels'){}else if(parts[0]!==pid)return fail(403,/^\d+$/.test(parts[0])?'That is another Kirimdev line. You read only your own line ('+pid+'); another brand\'s chats are never yours.':'You can read your own line only: '+pid+'/conversations, '+pid+'/messages, '+pid+'/contacts, and labels.');
    else if(!READ.test(parts.slice(1).join('/')))return fail(403,'Reading '+parts.slice(1).join('/')+' is not offered. Allowed: conversations, messages, contacts, labels.');
    if(qs&&!/^[\w=&%.:+@,-]*$/.test(qs))return fail(400,'The query has characters that are not allowed.');
    try{const j=await kirimdev._api(p+(qs?'?'+qs:''));log('agent ops: '+a+' read '+parts.slice(1,2).join('')+(p==='labels'?'labels':''));return {status:200,json:j}}catch(e){return fail(e.status>=400&&e.status<600?e.status:502,e.message)}}

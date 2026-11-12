@@ -40,3 +40,26 @@ test('the engine hook for team approvals only forwards who wrote what, to a sign
  assert.equal(await ensureTeamHook({HERMES_HOME:H,agent:'cove-support',url:'http://127.0.0.1:4400/team-message/cove-support/sig'}),2);assert.equal(await ensureTeamHook({HERMES_HOME:H,agent:'cove-support',url:'http://127.0.0.1:4400/team-message/cove-support/sig'}),0);
  const y=await readFile(path.join(H,'profiles','cove-support','hooks','aqeelos-team','HOOK.yaml'),'utf8'),h=teamHookHandler('http://127.0.0.1:4400/team-message/cove-support/sig');
  assert.match(y,/events:\n  - agent:start/);assert.match(h,/def handle\(event_type,context\):/);assert.match(h,/'userId':str\(context\.get\('user_id'\)/);assert.doesNotMatch(h,/draft|send|approve/i)});
+
+// the migration that takes the keys out of the agents' folders: a dry run changes nothing; --apply moves, checks, then deletes
+import {migrate} from './migrate-agent-keys.mjs';
+test('migrate-agent-keys: dry run by default; apply moves the keys to the app, retires the scripts that read them, and never prints a key',async()=>{
+ const R0=await mkdtemp(path.join(tmpdir(),'mg-')),DATA=path.join(R0,'data'),WORK=path.join(R0,'work'),HERMES=path.join(R0,'hermes'),W=path.join(WORK,'cove-support');
+ for(const d of [DATA,path.join(W,'.secrets'),path.join(W,'.tools'),path.join(HERMES,'secrets'),path.join(HERMES,'profiles','cove-support')])await mkdir(d,{recursive:true});
+ await writeFile(path.join(DATA,'kirimdev.json'),JSON.stringify({lines:{'cove-support':{phoneNumberId:'111',mode:'test',payment:{min:10000,max:5000000,card:'.tools/card'}}}}));
+ await writeFile(path.join(HERMES,'secrets','kirimdev.env'),'KIRIMDEV_API_KEY=kdv_secret_value\n');await writeFile(path.join(HERMES,'profiles','cove-support','.env'),'TELEGRAM_BOT_TOKEN=keepme\nKIRIMDEV_API_KEY=kdv_secret_value\nOTHER=1\n');
+ for(const [n,v] of [['KIRIMDEV_API_KEY','kdv_secret_value'],['TRIPAY_API_KEY','tp_secret_value'],['TRIPAY_PRIVATE_KEY','tp_private_value'],['XENDIT_SECRET_KEY','xnd_secret_value'],['STORE_PASSWORD','stays-here']])await writeFile(path.join(W,'.secrets',n),v+'\n');
+ await writeFile(path.join(W,'.tools','qris'),"key = (W / '.secrets/TRIPAY_API_KEY').read_text()\nMC = 'T12345'\n");await writeFile(path.join(W,'.tools','card'),"key = (W / '.secrets/XENDIT_SECRET_KEY').read_text()\n");
+ await writeFile(path.join(W,'.tools','kirim.bak-1105'),'K="$(cat .secrets/KIRIMDEV_API_KEY)"');await writeFile(path.join(W,'.tools','sheet'),'no key here');
+ const out=[];const dry=await migrate({DATA,WORK,HERMES,log:m=>out.push(m)});
+ assert.ok(dry.steps.length>=7);assert.equal(dry.left,4);assert.equal((await readFile(path.join(W,'.secrets','TRIPAY_API_KEY'),'utf8')).trim(),'tp_secret_value','a dry run changes nothing');assert.equal(await stat(path.join(DATA,'agent-keys')).catch(()=>null),null);
+ const done=await migrate({DATA,WORK,HERMES,apply:true,log:m=>out.push(m)});assert.equal(done.left,0);
+ for(const n of ['KIRIMDEV_API_KEY','TRIPAY_API_KEY','TRIPAY_PRIVATE_KEY','XENDIT_SECRET_KEY'])assert.equal(await stat(path.join(W,'.secrets',n)).catch(()=>null),null,n+' left the workspace');
+ assert.equal((await readFile(path.join(W,'.secrets','STORE_PASSWORD'),'utf8')).trim(),'stays-here','other keys are not touched');
+ const keys=createAgentKeys({DATA,WORK,log:()=>{}});assert.equal(await keys.get('cove-support','TRIPAY_PRIVATE_KEY'),'tp_private_value');assert.equal(await keys.where('cove-support','XENDIT_SECRET_KEY'),'app');assert.deepEqual(await keys.list('cove-support'),['TRIPAY_API_KEY','TRIPAY_PRIVATE_KEY','XENDIT_SECRET_KEY']);
+ assert.equal(await readFile(path.join(HERMES,'profiles','cove-support','.env'),'utf8'),'TELEGRAM_BOT_TOKEN=keepme\nOTHER=1\n');
+ assert.match(await readFile(path.join(W,'.tools','qris'),'utf8'),/payments are made by aqeelOS itself/);assert.match(await readFile(path.join(W,'.tools','qris.before-keys-moved'),'utf8'),/T12345/);
+ assert.equal(await stat(path.join(W,'.tools','kirim.bak-1105')).catch(()=>null),null);assert.equal(await readFile(path.join(W,'.tools','sheet'),'utf8'),'no key here');
+ const conf=JSON.parse(await readFile(path.join(DATA,'kirimdev.json'),'utf8')).lines['cove-support'];assert.deepEqual(conf.payment.provider,{tripay:{merchantCode:'T12345',refPrefix:'BM'},xendit:{}});assert.equal(conf.payment.card,undefined);assert.equal(conf.mode,'test','the mode is not touched');
+ assert.ok(!out.join('\n').match(/secret_value|private_value/),'no key is ever printed');
+ const again=await migrate({DATA,WORK,HERMES,log:m=>out.push(m)});assert.equal(again.steps.length,0);assert.match(out.at(-1),/Nothing left to move/)});
