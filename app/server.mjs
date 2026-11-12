@@ -1672,7 +1672,7 @@ async function ensureCustomerServer(){if(!LIVE_APP)return;for(const a of Object.
 if(LIVE_APP)setTimeout(()=>ensureCustomerServer().catch(e=>console.warn('customer tools',e.message)),40000).unref();
 /* Run rules (posting-limits.mjs, 5 Nov 2026): per agent, its schedules one at a time (one browser), and posting limits
    with a public, signed-out check of every post. Live box only: the gate script names this app's port, and checks run once */
-const postingLimits=createPostingLimits({DATA,WORK:path.join(homedir(),'workspaces'),HERMES_HOME,PORT,live:LIVE_APP,
+const postingLimits=createPostingLimits({DATA,WORK:path.join(homedir(),'workspaces'),HERMES_HOME,PORT,live:LIVE_APP,signAll:relayKeys.sign,
  reconnect:a=>withAgent(a,async()=>{const m=(x,b)=>fetch(`${DASH.origin}/api/mcp/servers${x}?profile=${encodeURIComponent(a)}`,{method:b?'POST':'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined});
   await m('/aqeelos-notify');const r=await m('',{name:'aqeelos-notify',url:`http://127.0.0.1:${PORT}/mcp/notify/${a}/${relay.sig(a)}`});if(!r.ok)throw Error('MCP '+r.status)}),sig:a=>relay.sig(a),setKey,readConfig,pick,nameOf:a=>NAMES[a]||a,
  // a post the public cannot see is an agent problem: System › Health, Bottlenecks and one alert to the owner (agent-health.mjs)
@@ -2574,7 +2574,7 @@ const server=createServer(async(req,res)=>{
   // for a script that posts without a model (the comment queue, 12 Nov 2026): GET ?json=1&kind=comment on the gate says {allow,n,reason} (it reserves nothing); POST /posting-record does what the record_post tool does.
   // The guard of every script that posts (scripts/posting-guard.py, posting-limits.mjs): POST /posting-check {kind} -> {allow,ticket,reason}, /posting-sending {ticket}, /posting-record {ticket,kind,ref,text}, /posting-cancel {ticket}
   {const mj=/^\/posting-(gate|record|check|sending|cancel)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mj&&(mj[1]!=='gate'||url.searchParams.get('json')==='1')){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   if(!relayKeys.ok(mj[3],'relay:',mj[2]))return send(res,403,'bad signature');
+   if(!relayKeys.ok(mj[3],'relay:',mj[2])){postingLimits.staleKey(mj[2]);return send(res,403,'bad signature')}
    if(mj[1]==='gate')return send(res,200,await postingLimits.allowNow(mj[2].split('--')[0],url.searchParams.get('kind')||'').catch(e=>({allow:false,n:0,reason:'aqeelOS could not check the limits ('+e.message+')'})));
    if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}
    const ag=mj[2].split('--')[0];
@@ -2583,7 +2583,7 @@ const server=createServer(async(req,res)=>{
    const r=await postingLimits.record(ag,b).catch(e=>({isError:true,text:e.message}));return send(res,r.isError?409:200,{ok:!r.isError,text:r.text})}}
   // the posting gate an agent's posting schedule runs first (posting-limits.mjs): from this box only, signed per agent
   {const mg=/^\/posting-gate\/([\w-]+)\/([\w-]+)$/.exec(p);if(mg){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   if(!relayKeys.ok(mg[2],'relay:',mg[1]))return send(res,403,'bad signature');
+   if(!relayKeys.ok(mg[2],'relay:',mg[1])){postingLimits.staleKey(mg[1]);return send(res,403,'bad signature')}
    const t=await postingLimits.gate(mg[1]).catch(e=>'aqeelOS could not check the limits ('+e.message+'), so no post this run.\n{"wakeAgent": false}');res.writeHead(200,{'content-type':'text/plain; charset=utf-8'});return res.end(t+'\n')}}
   // the "notify me" tool agents call (from this box only; each agent's address is signed)
   const mn=/^\/mcp\/notify\/([\w-]+)\/([\w-]+)$/.exec(p);

@@ -39,6 +39,29 @@ export async function reissue({HERMES_HOME,agents,cur,old,log=()=>{}}){if(!old||
   let n=t;for(const [o,c] of pairs)if(n.includes(o))n=n.split(o).join(c);if(n===t)continue;
   try{const tmp=f+'.'+process.pid+'.rk.tmp';await writeFile(tmp,n,{mode:st.mode&0o777});await rename(tmp,f);changed.push(f)}catch(e){log('relay keys: could not re-issue '+f+': '+e.message)}}
  return changed}
+// Where a signature sits in a text file an agent can run (12 Nov 2026): every signed address, with the label its signature is made with,
+// and the posting guard's own file (<workspace>/.tools/posting-guard.json: {"base","agent","sig"}). Groups: 1 the path before the agent, 2 the agent,
+// 3 what follows it up to the signature, 4 the signature. This is the one list: healing (relay-heal.mjs) and the test that rotates the key read it.
+const SIG='[A-Za-z0-9_-]{32}(?![\\w-])';
+const SIGNED_URLS=[
+ {label:'relay:',rx:()=>new RegExp('(/posting-(?:gate|record|check|sending|cancel)/)([\\w-]+)(/)('+SIG+')','g')},
+ {label:'relay:',rx:()=>new RegExp('(/mcp/notify/)([\\w-]+)(/)('+SIG+')','g')},
+ {label:'relay:',rx:()=>new RegExp('(/(?:run-gate|event-hook)/)([\\w-]+)(/[\\w.-]+/)('+SIG+')','g')},
+ {label:'google-files:',rx:()=>new RegExp('(/google-files/)([\\w-]+)(/)('+SIG+')','g')},
+ {label:'self-runs:',rx:()=>new RegExp('(/mcp/self/)([\\w-]+)(/)('+SIG+')','g')},
+ {label:'code-bridge:',rx:()=>new RegExp('(/mcp/code/)([\\w-]+)(/)('+SIG+')','g')}];
+const GUARD_SIG=/("sig"\s*:\s*")([^"]*)(")/;
+const isGuardConf=t=>{try{const j=JSON.parse(t);return !!j&&typeof j.agent==='string'&&typeof j.sig==='string'&&typeof j.base==='string'}catch{return false}};
+// the signatures in a text: [{label, agent, sig}]
+export function signedIn(text){const out=[],t=String(text);for(const u of SIGNED_URLS)for(const m of t.matchAll(u.rx()))out.push({label:u.label,agent:m[2],sig:m[4]});
+ if(isGuardConf(t)){const j=JSON.parse(t);out.push({label:'relay:',agent:j.agent,sig:j.sig})}return out}
+// the same text with every signature made again with the key in use (sign: (label, agent) => signature), and how many were not that one already
+export function healText(text,sign){let n=0,t=String(text);
+ for(const u of SIGNED_URLS)t=t.replace(u.rx(),(all,a,ag,mid,sg)=>{const w=sign(u.label,ag);if(w===sg)return all;n++;return a+ag+mid+w});
+ if(isGuardConf(t)){const j=JSON.parse(t),w=sign('relay:',j.agent);if(w!==j.sig){n++;t=t.replace(GUARD_SIG,(all,a,v,b)=>a+w+b)}}
+ return {text:t,n}}
+// what the posting guard reads (scripts/posting-guard-install.py writes the same text)
+export const guardConf=({base,agent,sig})=>'{"base": "'+base+'", "agent": "'+agent+'", "sig": "'+sig+'"}\n';
 // Every signed address of aqeelOS's own routes, hidden wherever text is shown or sent on (logs an agent or a person
 // reads, evidence sent to a fixer). The signature is 32 characters, under what the general "long token" rule catches.
 export const hideSigned=t=>String(t).replace(/(\/(?:mcp\/[\w-]+|run-gate|event-hook|posting-(?:gate|record|check|sending|cancel)|google-files)\/(?:[\w.-]+\/){1,2})[A-Za-z0-9_-]{16,}/g,'$1(hidden)');
