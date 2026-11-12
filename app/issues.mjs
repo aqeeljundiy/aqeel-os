@@ -31,6 +31,7 @@ import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
 import {providerUnavailable,retryAt} from './provider-limits.mjs';
+import {readRecords,runRoute,recordFor} from './route-order.mjs';
 import {beforeWindow,DEFAULT_WINDOW} from './maintenance.mjs';
 import {evHash} from './cloud-fixer.mjs';
 import {cleanQuestion} from './questions.mjs';
@@ -476,6 +477,10 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // every open item, and the last 120 that ended (History, HEALTH-4)
  const list=async()=>{await load();const end=['fixed','declined','gone','closed','expired'];
   return {items:[...db.items.filter(i=>!end.includes(i.state)),...db.items.filter(i=>end.includes(i.state)).slice(0,120)].map(view),policy:await policy(),spend:spend(),fixer:await fixerView()}};
+ // runs of the last day that asked for one vendor's model and ran on another's, with the engine's reason (it may arrive after the run ended)
+ async function elsewhere(t){const recs=await readRecords(DATA,{days:2}).catch(()=>[]);
+  return Object.values(db.runs).filter(r=>r.route&&r.done>t-864e5).sort((a,b)=>b.done-a.done).slice(0,5).map(r=>{const w=r.route.reason?null:recordFor(recs,{kind:'fixer',from:r.at,to:r.done}),i=db.items.find(x=>x.id===r.issue);
+   return {run:r.id,title:i?.title||null,at:r.done,kind:r.kind,asked:r.route.asked,actual:r.route.actual,reason:r.route.reason||w?.reason||'',why:r.route.why||w?.why||''}})}
  // what the fixer is doing now and why the rest waits (HEALTH-2)
  async function fixerView(){const pol=await policy(),t=now(),cap=pol.fixer?.cap||20,used=fixRunsToday();
   const cur=Object.values(db.runs).find(r=>!r.done),ci=cur&&db.items.find(i=>i.id===cur.issue);
@@ -486,7 +491,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const now_=ci?{...card(ci),kind:cur.kind||'fix',step:cur.kind==='proof'?'prove':'fix',model:cur.model||null,effort:cur.effort||null,at:cur.at,minutes:cur.kind==='proof'?Math.min(30,pol.fixer?.proof_minutes||15):Math.min(40,pol.fixer?.minutes||25)}:null;
   const wait=ap?{...card(ap),step:step(ap.state),kind:ap.applyKind||'engine',since:ap.waitingSince||ap.updated,back:ap.state!=='applying',quiet:engineOk(),
    model:db.runs[ap.run]?.model||null,effort:db.runs[ap.run]?.effort||null}:null;
-  return {cloud:await cloudStatus().catch(()=>null),on:pol.fixer?.on!==false,paused:db.pause||null,provider:limits?.hold?.()||null,now:now_,wait,cap:{used,cap,resetAt:nextDay(t,tz()),cost:Math.round(costToday(db.runs,today())*100)/100,costLimit:costCaps(pol).day},quiet:{from:1,to:5},
+  return {elsewhere:await elsewhere(t),cloud:await cloudStatus().catch(()=>null),on:pol.fixer?.on!==false,paused:db.pause||null,provider:limits?.hold?.()||null,now:now_,wait,cap:{used,cap,resetAt:nextDay(t,tz()),cost:Math.round(costToday(db.runs,today())*100)/100,costLimit:costCaps(pol).day},quiet:{from:1,to:5},
    line:lineOf(db.items,t).map(card),skipped:db.items.filter(i=>i.skipUntil>t&&['queued','verify'].includes(i.state)).map(card),
    sorting:db.items.filter(i=>i.sorting).length,stuck:db.items.filter(i=>i.state==='stuck'&&!i.need).map(card)}}
  // move one place up or down in the line; the two swap their places
@@ -706,6 +711,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  async function check(r,pol){const dir=path.join(DIR,r.id);const ex=await readFile(path.join(dir,'exit'),'utf8').catch(()=>null);
   const up=r.pid&&(alive?await alive(r):(()=>{try{process.kill(r.pid,0);return true}catch{return false}})());
   if(ex===null&&up)return;const out=await readFile(path.join(dir,'out.txt'),'utf8').catch(()=>'');r.done=now();r.exit=ex===null?null:Number(ex);r.usage=await usageOf(r).catch(()=>null)||undefined;
+  // asked one vendor's model, ran on another's (route-order.mjs): kept on the run with the engine's reason, shown on Health
+  {const rt=runRoute(r,recordFor(await readRecords(DATA,{days:2}).catch(()=>[]),{kind:'fixer',from:r.at,to:r.done}));if(rt){r.route=rt;log('issues: '+r.id+' asked for '+rt.asked+' and ran on '+rt.actual+(rt.reason?' ('+rt.reason+')':''))}}
   const i=db.items.find(x=>x.id===r.issue);const kind=r.kind||'fix';const res=parseResult(out,kind);
   if(!i){await save();return}i.updated=now();
   // the AI provider was not available (limit, used up, no model reachable): inconclusive, not a try, again after the reset time

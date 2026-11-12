@@ -111,3 +111,26 @@ First live document check (12 Nov, Elkiya): Kirimdev said "delivered" but the br
 that has a caption in `documentWithCaptionMessage`, and `probe_watch.js` looked only at the plain `documentMessage`, so it never
 saw the `aqeelos-probe:` mark (the message even went on to the agent). `inner()` now unwraps it. Applies on top of the
 `delivery-probe-document` patch; takes effect after the engine's WhatsApp bridge restarts.
+
+## 2026-11-12-route-order.patch (route order, applied by step 17b)
+
+A run asked for one model stayed on its vendor only by accident: the fallback list fired on the first failed call, whatever it was
+(Elkiya, 9 to 12 Nov: 9 of 34 fixer runs that asked for Claude ran on GPT or Gemini, about $15.77; 241 chat and schedule replies on a
+fallback; P&P pixel-agent: 483 switches to Gemini on an engine ValueError). The patch adds `agent/aqeelos_route.py` (pure, no engine
+imports) and one hook in `try_activate_fallback` (`agent/chat_completion_helpers.py`); the two callers that know the error text
+(`turn_api_error.py`, `turn_recovery.py`) pass it as `message=`. The order:
+
+1. a different vendor is only tried when the ACCOUNT failed (billing, used up, signed out, refused). A timeout, an overload, an engine
+   error, or the relay's "Server is temporarily limiting requests (not your usage limit)" 429 (classified as billing) never moves the run;
+2. not while another signed-in account of the agent's pool has room for the same model: the app (accounts.mjs poolRoom, backup-models.mjs)
+   moves the agent there. The app says so in `<home>/aqeelos-route.json` (written every 5 minutes; the engine ignores one older than 15);
+3. a background run (fixer `AQEELOS_FIXER=1`, schedule `platform=cron`) waits when the provider's reset is within `waitMinutes`;
+4. then the owner's explicit list (`fallback_providers`, written from Models › If an account fails), in its order; else the run stops and
+   the reply says why.
+
+Every switch and every refusal is a line in `<home>/logs/route-switches.jsonl` (asked model, actual model, reason, step, kind chat /
+schedule / fixer). The app reads them (backup-models.mjs) for Health (System › Health › Tools and schedules, the fixer card), Usage
+(Model switches) and one Health item when an agent has been answering on a fallback for `route.fallbackHours` (default 3). Settings, in
+`team-policy.json`: `route.waitMinutes` (default 15, 0 = never wait) and `route.fallbackHours`. Tests: `tests/agent/test_aqeelos_route.py`
+(12 cases, run on Elkiya's Python in memory: 12 passed) and `scripts/route-order.test.mjs`. Not covered: auxiliary calls (title
+generation) still walk `fallback_providers` in `agent/auxiliary_client.py`.
