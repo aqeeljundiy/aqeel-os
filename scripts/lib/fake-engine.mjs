@@ -9,7 +9,11 @@ import {createServer} from 'node:http';import {spawn} from 'node:child_process';
 
 export const NOTE_START='[System note from aqeelOS: you were interrupted by ';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const sleeper=()=>spawn(process.execPath,['-e','setInterval(()=>{},1e6)'],{stdio:'ignore'});
+// the engine's process runs with the app's HOME (the folder above HERMES_HOME), as the real engine does. On Linux the app's gateway watch reads
+// /proc/<pid>/environ, and a process with the test runner's HOME was "an engine started with the wrong home folder": the app restarted it after
+// every start, and while it restarts ready() is false and every resume pass waits. That cost seconds of real time on a slow box, which the 60x clock
+// turns into minutes (12 Nov 2026, "cut again and again" on GitHub's 2-core runner)
+const sleeper=home=>spawn(process.execPath,['-e','setInterval(()=>{},1e6)'],{stdio:'ignore',env:{...process.env,HOME:path.dirname(home),USERPROFILE:path.dirname(home)}});
 
 export class FakeEngine{
  constructor({home,warp=1,r0=Date.now()}){this.home=home;this.warp=warp;this.r0=r0;
@@ -25,7 +29,7 @@ export class FakeEngine{
   writeFileSync(this.file('state.db'),JSON.stringify({sessions:this.sessions,routing:this.routing}));
   writeFileSync(this.file('cron','executions.db'),JSON.stringify({executions:this.executions}));
   writeFileSync(this.file('cron','jobs.json'),JSON.stringify({jobs:this.jobs}))}
- async start(){this.dash=await this.listen();this.gate=await this.listen();this.proc=sleeper();this.gen=1;this.flush();this.pidFile();return this}
+ async start(){this.dash=await this.listen();this.gate=await this.listen();this.proc=sleeper(this.home);this.gen=1;this.flush();this.pidFile();return this}
  pidFile(){writeFileSync(this.file('gateway.pid'),String(this.proc.pid))}
  listen(){return new Promise(r=>{const s=createServer((q,a)=>this.handle(q,a).catch(e=>{try{a.writeHead(500);a.end(String(e.message))}catch{}}));s.listen(0,'127.0.0.1',()=>r(s))})}
  get dashUrl(){return 'http://127.0.0.1:'+this.dash.address().port}
@@ -36,7 +40,7 @@ export class FakeEngine{
  // the engine process restarts: new process id, every turn and run in progress is cut off and never ends
  restart(){for(const t of this.turns)t.abort();for(const r of this.runs)r.abort();
   // the cut runs keep their row and the process id of the engine that died (an id no later process can get: Windows hands ids out again at once)
-  for(const x of this.executions)if(x.pid===this.proc.pid)x.pid=2e9+(++this.n);try{this.proc.kill()}catch{};this.proc=sleeper();this.gen++;this.pidFile();this.flush()}
+  for(const x of this.executions)if(x.pid===this.proc.pid)x.pid=2e9+(++this.n);try{this.proc.kill()}catch{};this.proc=sleeper(this.home);this.gen++;this.pidFile();this.flush()}
  // a hanging turn or run goes on to its end (the engine kept working while aqeelOS was away)
  release(){for(const t of this.turns)t.release();for(const r of this.runs)r.release()}
  session(sid,source='api_server'){return this.sessions[sid]||={source,messages:[]}}

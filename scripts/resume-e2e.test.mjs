@@ -36,8 +36,12 @@ test.before(async()=>{
  tmp=await mkdtemp(path.join(tmpdir(),'resume-e2e-'));home=path.join(tmp,'home');hh=path.join(home,'.hermes');data=path.join(tmp,'data');logf=path.join(tmp,'e2e.log');await mkdir(data,{recursive:true});await writeFile(logf,'');
  fakePy=path.join(hh,'installs','i1','environments','e1','venv','bin','python');await mkdir(path.dirname(fakePy),{recursive:true});await writeFile(fakePy,'');
  await writeFile(path.join(hh,'config.yaml'),'{}');
- // a quarter of an hour is the shortest time the app keeps trying (install.json resumeMaxHours)
- await writeFile(path.join(data,'install.json'),JSON.stringify({timezone:'Asia/Jakarta',resumeMaxHours:0.25}));
+ // how long the app keeps trying (install.json resumeMaxHours): the install's default, 2 h. It was the shortest, a quarter of an hour, and on
+ // GitHub's 2-core runner "cut again and again" failed every time (12 Nov 2026): the app's clock runs WARP (60) times quicker, so 15 app minutes
+ // are 15 real seconds, and three SIGKILL-and-start cycles of the real app take longer than that on a slow box (each start, its 20 s first look
+ // and the 45 s "is the engine still working" wait cost seconds there). The chat was then given up as "older than 15 min" before its third note
+ // (the engine-down test can run out the same way). The age rule is proven in resume.test.mjs; here it stays out of the way (2 h = 120 real s).
+ await writeFile(path.join(data,'install.json'),JSON.stringify({timezone:'Asia/Jakarta',resumeMaxHours:2}));
  // one problem waiting for the fixer, so a fixer run exists early (the app's own start-up checks may file others)
  await writeFile(path.join(data,'issues.json'),JSON.stringify({items:[{id:'ie2e00001',key:'default|the weekly sheet is not updated',agent:'default',state:'queued',tries:0,count:1,created:R0,updated:R0,notBefore:0,history:[],missing:'The weekly sheet is not updated',evidence:'The sheet job ends with an empty answer.',sorted:'unique'}],runs:{}}));
  // AUD-6: every fixer run is confined to the fixer's own user and none starts before it exists and its canary passed. This box is one where
@@ -165,7 +169,9 @@ const issuesDb=()=>{try{return JSON.parse(readFileSync(path.join(data,'issues.js
 const liveRun=()=>Object.values(issuesDb().runs||{}).find(r=>!r.done&&r.pid);
 const alive=p=>{try{process.kill(p,0);return true}catch{return false}};
 test('fixer run: its process outlives the app: after a kill it is looked at, never started a second time, and taken over once when it ends',async()=>{
- const r1=await until('a fixer run is going',()=>liveRun()&&journal().entries.some(e=>e.kind==='fixer'&&e.run===liveRun().id&&e.state==='open'),30000);
+ // journaled: open, or already cut by an earlier test's kill and looked at again while it lives (it once became "open" again only because the
+ // 15-minute limit, 15 real seconds at the test's clock, dropped the entry and the next look journaled it anew)
+ const r1=await until('a fixer run is going',()=>liveRun()&&journal().entries.some(e=>e.kind==='fixer'&&e.run===liveRun().id&&(e.state==='open'||e.state==='cut')),30000);
  const run=liveRun(),before=launches().length;assert.ok(alive(run.pid));
  // it runs confined (AUD-6): its tools over SSH as aq-fixer, its folder given to that user; the process the app tracks is the one it started itself
  assert.equal(run.confined,'env');assert.equal(launches().find(l=>l.which==='fixer'&&l.pid===run.pid)?.confined,'aq-fixer','launched with the terminal of aq-fixer');assert.ok(acls().length>=1,'its work folder got the access list for aq-fixer');
