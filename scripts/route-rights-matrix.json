@@ -988,6 +988,8 @@
   "POST /ui/screens/a/start": { "cells": "DAADADD", "src": "screens.mjs:173" },
   "GET /ui/screens/a/stop": { "cells": "DAADADD", "src": "screens.mjs:173" },
   "POST /ui/screens/a/stop": { "cells": "DAADADD", "src": "screens.mjs:173" },
+  "GET /ui/screens/a/ticket": { "cells": "DNNDNDD", "src": "screens.mjs:160" },
+  "POST /ui/screens/a/ticket": { "cells": "DAADADD", "src": "screens.mjs:160" },
   "GET /ui/screens/a/type": { "cells": "DNNDNDD", "src": "screens.mjs:173" },
   "POST /ui/screens/a/type": { "cells": "DAADADD", "src": "screens.mjs:173" },
   "GET /ui/screens/zz-probe": { "cells": "DAADDDD", "src": "server.mjs:3066" },
