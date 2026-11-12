@@ -4,8 +4,9 @@
 // out: programs, caches and browser data, which are reinstalled. The newest 14 are kept by default; older ones go to the
 // Drive bin. A restore test downloads the newest backup, decrypts and unpacks it into a scratch folder and checks the
 // important files. The Google account, the time, how many to keep and the Drive folder are settings (System › Health).
-// Restoring: RESTORE.md.
-import {readStore,writeStore} from './store.mjs';
+// Large files that did not change are kept once in media packs (backup-media.mjs) and only named in each night's manifest; what can be made
+// again is left out; unreadable files are listed once. Restoring: RESTORE.md.
+import {readStore,writeStore,atomicWrite} from './store.mjs';
 import {spawn} from 'node:child_process';
 import {readFile,writeFile,mkdir,rm,stat,lstat,readdir,chmod,rename,copyFile,symlink,readlink,utimes,unlink} from 'node:fs/promises';
 import {createReadStream,createWriteStream,openSync,writeSync,closeSync,existsSync} from 'node:fs';
@@ -15,6 +16,7 @@ import {randomBytes} from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {localParts} from './tz.mjs';
+import {EXCLUDE_MORE,MANIFEST,MEDIA_PREFIX,scan,excludeTester,plan,forgetMissing,buildManifest,manifestPacks,prunable,dropNights,readIndex,saveIndex,sha256File,stillSame,readable,parseSkips,reasonFor,passwdUids,mergeSkipped,summarizeSkipped,restoreMedia,plainName,chunkBySize,PACK_MAX} from './backup-media.mjs';
 
 export const DEFAULTS={account:'',hour:3,keep:14,folder:'aqeelOS backups'};
 const INCLUDE=['.hermes','apps/hermes-ui-data','apps/hermes-ui.env','workspaces','people','.claude','.claude-accounts'];
@@ -29,6 +31,9 @@ export const EXCLUDE=['.hermes/installs','.hermes/hermes-agent','.hermes/tools',
  '.cache','.npm','.next','.turbo','.vercel','playwright-report','test-results','__pycache__',
  'Cache','Code Cache','GPUCache','CacheStorage','ScriptCache','GrShaderCache','ShaderCache','*venv.broken*','.claude/remote',
  '.hermes/home/.local','.hermes/profile-exports','workspaces/.aqeelos-python'];
+
+// everything a backup leaves out by name: EXCLUDE here, EXCLUDE_MORE in backup-media.mjs (the measured big re-creatable things, 13 Nov 2026)
+export const EXCLUDE_ALL=[...EXCLUDE,...EXCLUDE_MORE];
 
 /* ---------- Restore (switched on 7 Nov 2026). Every finding of the 1 Nov reviews, and how it is handled now:
    - rsync is not needed any more: the copy is done here, file by file (copyOver), so it works on any box;
@@ -52,7 +57,7 @@ const HELD='.aqeelos-held';
 const SKIPF=/\.(pid|lock|sock)$/;   // running programs' own files stay the box's
 export const DB=/\.(db|sqlite3?)$/;
 // a tar --exclude pattern (from EXCLUDE, about the home folder) as a test on a path inside .hermes
-export function excluded(rel,exclude=EXCLUDE){return exclude.some(e=>{if(/^(apps|workspaces|\.claude)\//.test(e))return false;const top=e.startsWith('.hermes/');const p=top?e.slice(8):e;
+export function excluded(rel,exclude=EXCLUDE_ALL){return exclude.some(e=>{if(/^(apps|workspaces|\.claude)\//.test(e))return false;const top=e.startsWith('.hermes/');const p=top?e.slice(8):e;
  const re=new RegExp((top?'^':'(^|/)')+p.replace(/[.+?^${}()|[\]\\]/g,'\\$&').replace(/\*/g,'.*')+'$');return re.test(rel)})}
 // what a restore would change, without changing anything: the backup's .hermes (src) against the box's (dest)
 export async function preview(src,dest,{cap=200000}={}){
@@ -143,7 +148,7 @@ export async function memFree(root='/sys/fs/cgroup',meminfo='/proc/meminfo'){
 
 // what a backup cut off by an app restart left in /tmp (its finally never ran): the archive and its .err/.skipped notes.
 // Called when the app starts, before any backup can run (11 Nov 2026: 186 GB of them on Elkiya).
-export const LEFTOVER=/^aqeelos-\d{4}-\d\d-\d\d-\d\d-\d\d\.tar\.gz\.enc(\.err|\.skipped|\.oerr|\.tcode)?$/;
+export const LEFTOVER=/^aqeelos-(media-)?\d{4}-\d\d-\d\d-\d\d-\d\d(-[0-9a-f]{4})?(-\d+)?\.tar\.gz\.enc(\.err|\.skipped|\.oerr|\.tcode|\.excl|\.list|\.perr)?$/;
 /* No Google account (P&P never had one, so no backup was ever made there): the nightly backup stays on the box itself, in
    LOCALDIR, encrypted the same way. The newest LOCAL_KEEP are kept, none older than LOCAL_DAYS, all of them together under
    LOCAL_MAX bytes; the newest is never removed. A newest good backup (Drive or local) older than STALE_H hours is one
@@ -160,7 +165,7 @@ export function pruneLocal(files,{keep=LOCAL_KEEP,days=LOCAL_DAYS,max=LOCAL_MAX,
 export const staleBackup=(at,since,now=Date.now(),hours=STALE_H)=>{const age=now-(at||since||now);return age>hours*3600e3?{hours:Math.round(age/3600e3),never:!at}:null};
 export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=process.env.BACKUP_GOOGLE_ACCOUNT||'',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{},fetchImpl=fetch,tar='tar',TMP='/tmp',LOCALDIR=path.join(HOME,'aqeelos-local-backups'),MIN=1e6,LOWFREE=3e9,WATCH=20000,disk:diskImpl,mem=memFree,drop=dropCache,PIECE=64*1024*1024,
  detach=false,jobCmd=null,jobPoll=5000,jobQuiet=3*60e3,readOnly=false,now=()=>Date.now()}){   // detach: the backup runs in its own process (backup-job.mjs) and outlives an app restart; readOnly: that process never writes backups.json
- const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key'),JOURNAL=path.join(DATA,'restore-journal.jsonl');let state=null,running=null,job=null,preparing=null,copying=false,held=false,testing=null,prep=null;   // prep: the running Prepare's stop switch
+ const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key'),JOURNAL=path.join(DATA,'restore-journal.jsonl');let state=null,running=null,progress=null,job=null,preparing=null,copying=false,held=false,testing=null,prep=null;   // prep: the running Prepare's stop switch
  const load=async()=>{if(!state){state=await readStore(STATE)
    // the old switched-off restore's "running" mark (before 7 Nov 2026)
    if(state.restore?.running){state.restore={...state.restore,running:false,ok:false,phase:'failed',error:'Interrupted: aqeelOS stopped during the restore.'};await save().catch(()=>{})}
@@ -194,29 +199,85 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   const j=await r.json();if(!j.access_token)throw Error('Google did not give access ('+String(j.error_description||j.error||r.status).replace(/\.$/,'')+'). Reconnect '+(t.account||'the backup account')+' under Connect Google.');return {token:j.access_token,account:t.account||''}}
  const drive=async(g,p,opt={})=>{const r=await fetchImpl('https://www.googleapis.com/'+p,{...opt,headers:{authorization:'Bearer '+g.token,...(opt.headers||{})},signal:AbortSignal.timeout(opt.long?3600000:30000)});
   if(!r.ok)throw Error('Google Drive said '+r.status+': '+(await r.text()).slice(0,200));return opt.raw?r:r.json()};
- async function folder(g){const name=settings().folder.replace(/'/g,"\\'");const q=encodeURIComponent("name='"+name+"' and mimeType='application/vnd.google-apps.folder' and trashed=false and 'root' in parents");
+ async function folder(g,fname=settings().folder){const name=fname.replace(/'/g,"\\'");const q=encodeURIComponent("name='"+name+"' and mimeType='application/vnd.google-apps.folder' and trashed=false and 'root' in parents");
   const l=await drive(g,'drive/v3/files?q='+q+'&fields=files(id)');if(l.files?.[0])return l.files[0].id;
-  return (await drive(g,'drive/v3/files',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:settings().folder,mimeType:'application/vnd.google-apps.folder'})})).id}
+  return (await drive(g,'drive/v3/files',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:fname,mimeType:'application/vnd.google-apps.folder'})})).id}
+ // the media packs live in their own Drive folder next to the nightly one, so nothing that lists the backups ever sees them
+ const mediaFolder=g=>folder(g,settings().folder+' media');
+ // every pack in that folder: {name: {id, size}}
+ async function listPacks(g,fid){const out={};let tok='';do{const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&fields=nextPageToken,files(id,name,size)&pageSize=1000'+(tok?'&pageToken='+tok:''));
+   for(const f of l.files||[])out[f.name]={id:f.id,size:Number(f.size)||0};tok=l.nextPageToken||''}while(tok);return out}
  const sh=(cmd,envx,ctl)=>new Promise((res,rej)=>{const p=spawn('bash',['-c',cmd],{cwd:HOME,env:{...process.env,...envx},stdio:['ignore','ignore','pipe'],detached:!!ctl});if(ctl)ctl.child=p;let err='';p.stderr.on('data',d=>err+=d);p.on('close',c=>c===0?res():rej(Error(err.trim().split('\n').slice(-2).join(' ')||'exit '+c)))});
  const q=sq;
  // the upload in 64 MB pieces on Google's resumable session: one dropped connection no longer loses a multi-GB upload
  // ("fetch failed", "aborted due to timeout" on 30 and 31 Oct 2026). A failed piece asks Google how much it has and goes on
- // from there, up to 5 times in a row
- async function sendFile(loc,file,size){const PIECE=64*1024*1024;let at=0,fails=0;
+ // from there, up to UPFAILS times in a row with a growing wait (2 minutes at most): a 28 GB upload is not thrown away because Google or the
+ // network was away for ten minutes. onProgress(sent, size, bytes per second) is called after every piece (shown on the Backups card).
+ async function sendFile(loc,file,size,onProgress=()=>{}){const PIECE=64*1024*1024,UPFAILS=10,t0=Date.now();let at=0,fails=0;
   const have=async()=>{const r=await fetchImpl(loc,{method:'PUT',headers:{'content-length':'0','content-range':'bytes */'+size},signal:AbortSignal.timeout(60000)});
    if(r.ok)return {done:await r.json()};if(r.status!==308)throw Error('Google lost the upload ('+r.status+').');const g=/bytes=0-(\d+)/.exec(r.headers.get('range')||'');return {at:g?Number(g[1])+1:0}};
   while(true){const end=Math.min(at+PIECE,size)-1;
    try{const r=await fetchImpl(loc,{method:'PUT',headers:{'content-length':String(end-at+1),'content-range':'bytes '+at+'-'+end+'/'+size,'content-type':'application/octet-stream'},body:Readable.toWeb(createReadStream(file,{start:at,end})),duplex:'half',signal:AbortSignal.timeout(15*60000)});
-    if(r.ok)return await r.json();if(r.status!==308)throw Error('The upload stopped ('+r.status+').');const g=/bytes=0-(\d+)/.exec(r.headers.get('range')||'');at=g?Number(g[1])+1:end+1;fails=0}
-   catch(e){if(++fails>5)throw Error('The upload kept dropping: '+e.message);await new Promise(r=>setTimeout(r,fails*15000));const h=await have().catch(()=>null);if(h?.done)return h.done;if(h)at=h.at}}}
+    if(r.ok)return await r.json();if(r.status!==308)throw Error('The upload stopped ('+r.status+').');const g=/bytes=0-(\d+)/.exec(r.headers.get('range')||'');at=g?Number(g[1])+1:end+1;fails=0;onProgress(at,size,Math.round(at/Math.max(1,(Date.now()-t0)/1000)))}
+   catch(e){if(++fails>UPFAILS)throw Error('The upload kept dropping: '+e.message);await new Promise(r=>setTimeout(r,Math.min(fails*15000,120000)));const h=await have().catch(()=>null);if(h?.done)return h.done;if(h)at=h.at}}}
  // each isolated agent (terminal over SSH as its own ag-* user) re-grants aqeelOS read access to the files it owns
  async function grantRead(){const prof=path.join(HOME,'.hermes','profiles');for(const a of await readdir(prof).catch(()=>[])){
   const y=await readFile(path.join(prof,a,'config.yaml'),'utf8').catch(()=>'');const u=/\n\s*ssh_user:\s*['"]?(ag-[\w-]+)/.exec(y)?.[1],k=/\n\s*ssh_key:\s*['"]?([^'"\n]+)/.exec(y)?.[1]?.trim(),ws=path.join(HOME,'workspaces',a);
   if(!u||!k||!await stat(ws).catch(()=>null))continue;
   await sh('ssh -i '+q(k)+' -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=15 '+q(u+'@127.0.0.1')+' '+q('find '+q(ws)+' -user '+u+' \\( -type d -o -type f \\) -print0 2>/dev/null | xargs -0 -r setfacl -m u:claude:rwX,m::rwX 2>/dev/null; true')).catch(e=>console.warn('backup: read access for',a,e.message))}}
- /* One backup from start to end: pack, encrypt, upload (or keep on the box), prune. Returns {last, note}: what backups.json's "last" becomes
-    and the log line; throws with the reason. It writes nothing to backups.json, so it runs the same in the app and in the detached job. */
- async function pack(why,at,name,onPhase=()=>{}){const tmp=path.join(TMP,name);let work=tmp;
+ /* One backup from start to end: scan, media pack (Drive only), pack, encrypt, upload (or keep on the box), prune. Returns {last, note}: what
+    backups.json's "last" becomes and the log line; throws with the reason. It writes nothing to backups.json, so it runs the same in the app
+    and in the detached job (it does write DATA/backup-media.json and backup-skipped.json, which only the backup writes).
+    onPhase(phase, {done,total,bps}): what the Backups card shows while it runs. The parts of a backup, with Elkiya's measured sizes
+    (12 Nov 2026) in backup-media.mjs: the nightly archive holds everything that is small, a database or recent; large files that did not
+    change are in media packs (one new pack a night, only what became stable since the last one) and the archive's manifest names them. */
+ // a disk watchdog around one packing step: it never fills the disk it writes to (11 Nov 2026: 99%, the agents suffered)
+ async function guarded(dir,body){const ctl={};let full=null,wd=null,over=false;
+  const watch=async()=>{if(over||full)return;const f=(await disk(dir).catch(()=>null))?.free;if(f!=null&&f<LOWFREE){full='The disk filled up while packing: only '+gb(f)+' was left in '+dir+', so the backup was stopped and its half file removed.';try{process.kill(-ctl.child.pid,'SIGKILL')}catch{}}if(!over&&!full){wd=setTimeout(watch,WATCH);wd.unref?.()}};wd=setTimeout(watch,WATCH);wd.unref?.();
+  try{return await body(ctl)}catch(e){throw full?Error(full):e}finally{over=true;clearTimeout(wd)}}
+ // one file to Drive on a resumable session, its size checked afterwards
+ async function upload(g,fid,name,file,size,props,onProgress){
+  const start=await drive(g,'upload/drive/v3/files?uploadType=resumable&fields=id,name,size',{method:'POST',raw:true,headers:{'content-type':'application/json; charset=UTF-8','x-upload-content-type':'application/octet-stream','x-upload-content-length':String(size)},body:JSON.stringify({name,parents:[fid],...(props?{appProperties:props}:{})})});
+  const f=await sendFile(start.headers.get('location'),file,size,onProgress);
+  if(f?.size!=null&&Number(f.size)!==size)throw Error('Google Drive holds '+f.size+' bytes of '+name+', but '+size+' were sent.');return f}
+ // the skipped files: written once to DATA/backup-skipped.json with a reason; only files new on the list are said
+ async function recordSkipped(found,at){const SK=path.join(DATA,'backup-skipped.json'),prev=await readStore(SK,{});
+  const users=passwdUids(await readFile('/etc/passwd','utf8').catch(()=>'')),by=new Map();
+  for(const f of found)if(!by.has(f.path)){const s=await lstat(path.join(HOME,f.path)).catch(()=>null);by.set(f.path,{path:f.path,reason:reasonFor(f.path,{uid:s?.uid,mode:s?.mode},users.size?users:null)})}
+  const {list,fresh}=mergeSkipped(prev,[...by.values()],at);if(by.size||prev?.files)await writeStore(SK,JSON.stringify(list),{mode:0o600});return {count:by.size,fresh:fresh.length}}
+ /* The media packs of one night (Drive only). Files of PACK_MIN bytes or more that are not databases and were not written in the last 3
+    hours are kept in packs: one already in a pack (same path, size, mtime) is only named in the manifest, a new one is read, hashed, packed
+    (gzip 1, encrypted), uploaded to the media folder and recorded in the index. A file that changed while it was read, or that tar could not
+    read, is not recorded: it stays in the nightly archive (or is skipped there). Returns the entries the manifest will carry. */
+ async function mediaPacks({g,files,name,onPhase,parts}){
+  const IX=path.join(DATA,'backup-media.json'),ix=await readIndex(IX),mf=await mediaFolder(g),have=await listPacks(g,mf);
+  forgetMissing(ix,Object.fromEntries(Object.entries(have).map(([n,p])=>[n,p.size])));for(const [n,p] of Object.entries(ix.packs))p.id=have[n].id;
+  const {reused,fresh:want}=plan(files,ix,{now:Date.now(),never:MUST}),fresh=[];for(const f of want)if(await readable(HOME,f))fresh.push(f);
+  const packed=[];let packBytes=0;// the agents' files and everything else go in different packs, so restoring the agents fetches only the first kind
+  const chunks=[fresh.filter(f=>f.rel.startsWith('.hermes/')),fresh.filter(f=>!f.rel.startsWith('.hermes/'))].flatMap(a=>chunkBySize(a)),all=name.replace(/^aqeelos-/,MEDIA_PREFIX).replace('.tar.gz.enc','-'+randomBytes(2).toString('hex')+'.tar.gz.enc');
+  for(const [i,chunk] of chunks.entries()){const total=chunk.reduce((n,f)=>n+f.size,0),at={part:i+1,parts:chunks.length};
+   const free=(await disk(TMP)).free,need=total*1.05+1e9;if(free<need)throw Error('Not enough free disk space for a media pack: it needs about '+gb(need)+' in '+TMP+', and there is '+gb(free)+'.');
+   let t=Date.now(),doneB=0;onPhase('reading media',{...at,done:0,total});const todo=[...chunk];
+   await Promise.all(Array.from({length:4},async()=>{for(let f;f=todo.shift();){try{f.sha=await sha256File(path.join(HOME,f.rel))}catch{f.sha=null}doneB+=f.size;onPhase('reading media',{...at,done:doneB,total})}}));
+   const hashed=chunk.filter(f=>f.sha),packName=chunks.length>1?all.replace('.tar.gz.enc','-'+(i+1)+'.tar.gz.enc'):all,pp=path.join(TMP,packName),list=pp+'.list',perr=pp+'.perr',oerr=pp+'.oerr';parts.read=(parts.read||0)+Math.round((Date.now()-t)/1000);t=Date.now();
+   try{await writeFile(list,hashed.map(f=>f.rel).join('\0')+'\0');
+    // how far the pack is: the size of its file so far (a timeout chain, not a new timer loop)
+    let ticking=true,tick=null;const poll=()=>{tick=setTimeout(()=>stat(pp).then(s=>onPhase('packing media',{...at,done:Math.min(s.size,total),total})).catch(()=>{}).finally(()=>{if(ticking)poll()}),5000);tick.unref?.()};poll();onPhase('packing media',{...at,done:0,total});
+    try{await guarded(TMP,async ctl=>sh('tar --null -T '+q(list)+' --hard-dereference --ignore-failed-read -cf - 2>'+q(perr)+' | gzip -1 | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:AQ_BK -out '+q(pp)+' 2>'+q(oerr)+'; ps=("${PIPESTATUS[@]}"); '
+     +'[ "${ps[2]}" = 0 ] || { echo "encrypting the media pack failed (openssl exit ${ps[2]}): $(tail -c 300 '+q(oerr)+' | tr "\\n" " ")" >&2; exit 1; }; [ "${ps[1]}" = 0 ] || { echo "gzip stopped (exit ${ps[1]})" >&2; exit 1; }; '
+     +'[ "${ps[0]}" -le 1 ] || { tail -2 '+q(perr)+' >&2; echo "tar stopped (exit ${ps[0]})" >&2; exit "${ps[0]}"; }',{AQ_BK:await key()},ctl))}finally{ticking=false;clearTimeout(tick)}
+    parts.pack=(parts.pack||0)+Math.round((Date.now()-t)/1000);t=Date.now();
+    const unread=new Set(parseSkips(await readFile(perr,'utf8').catch(()=>'')).map(s=>s.path)),{ok}=await stillSame(HOME,hashed),got=ok.filter(f=>!unread.has(f.rel)).map(f=>({...f,pack:packName}));
+    if(got.length){const size=(await stat(pp)).size;onPhase('uploading media',{...at,done:0,total:size});
+     const gm=await google().catch(()=>g),file=await upload(gm,mf,packName,pp,size,null,(done,tot,bps)=>onPhase('uploading media',{...at,done,total:tot,bps}));
+     // recorded the moment it is in Drive: a night that fails later does not pack these again
+     ix.packs[packName]={id:file.id,size,at:Date.now()};for(const e of got)ix.files[e.rel]={size:e.size,mtime:e.mtime,sha:e.sha,pack:packName};await saveIndex(IX,ix);
+     packed.push(...got);packBytes+=size;parts.uploadMedia=(parts.uploadMedia||0)+Math.round((Date.now()-t)/1000)}}
+   finally{for(const x of ['','.list','.perr','.oerr'])await rm(pp+x,{force:true}).catch(()=>{})}}
+  const entries=[...reused,...packed];ix.files={};for(const e of entries)ix.files[e.rel]={size:e.size,mtime:e.mtime,sha:e.sha,pack:e.pack};await saveIndex(IX,ix);
+  const sum=a=>a.reduce((n,e)=>n+e.size,0);
+  return {ix,IX,entries,stats:{files:entries.length,bytes:sum(entries),newFiles:packed.length,newBytes:sum(packed),packBytes,hermesBytes:sum(entries.filter(e=>e.rel.startsWith('.hermes/')))}}}
+ async function pack(why,at,name,onPhase=()=>{}){const tmp=path.join(TMP,name);let work=tmp;const parts={};
   try{let g0=null,gwhy='';try{g0=await google()}catch(e){if(e.code!=='NOGOOGLE')throw e;if(!/Connect Google first/.test(e.message))gwhy=e.message}   // a Google account that cannot be used is said on the result, the backup still happens   // no Google: the backup stays on this box (LOCALDIR)
    const local=!g0,dest=path.join(LOCALDIR,name);
    if(local){await mkdir(LOCALDIR,{recursive:true,mode:0o700});work=dest+'.part'}
@@ -227,31 +288,46 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
    // read them and every nightly backup failed from 24 Oct (30 Oct 2026). Before packing, each agent's own user (the SSH
    // login its terminal already uses) gives aqeelOS read access to its files again; the owner of a file may do that
    await grantRead();
+   let t=Date.now();onPhase('scanning');const {files,venvs}=await scan({root:HOME,include:inc,excl:excludeTester(EXCLUDE_ALL)});parts.scan=Math.round((Date.now()-t)/1000);
+   const media=local?null:await mediaPacks({g:g0,files,name,onPhase,parts});
+   // what the archive leaves out besides the patterns: the virtual environments (named in the manifest) and the files now in packs, one exact
+   // path per line (anchored, so a path never matches a same-named one deeper down)
+   // (the manifest is added from the data folder below; when that folder is inside the home folder its copy there is left out, or tar would store the
+   // same file twice, the second as a hard link that a partial restore cannot follow)
+   const own=path.relative(HOME,path.join(DATA,MANIFEST)).split(path.sep).join('/'),excl=work+'.excl',dyn=[...venvs.map(v=>v.path),...(media?.entries||[]).map(e=>e.rel),...(own.startsWith('..')?[]:[own])].filter(plainName);await writeFile(excl,dyn.join('\n')+(dyn.length?'\n':''));
+   const manifest=buildManifest({name,at,entries:media?.entries||[],venvs});await atomicWrite(path.join(DATA,MANIFEST),JSON.stringify(manifest),{mode:0o600});
    // tar exits 1 when a file changes while it reads (fine for a backup). A file that still can't be read (a browser's lock
-   // link) is skipped and counted instead of failing the whole backup; anything else tar can't do still fails it
-   const terr=q(work+'.err'),tcnt=q(work+'.skipped'),oerr=q(work+'.oerr'),tcode=q(work+'.tcode'),junk=[terr,oerr,tcode].join(' ');
+   // link) is skipped and listed (recordSkipped) instead of failing the whole backup; anything else tar can't do still fails it
+   const terr=q(work+'.err'),oerr=q(work+'.oerr'),tcode=q(work+'.tcode'),junk=[terr,oerr,tcode].join(' ');
    // tar and openssl each report on their own (PIPESTATUS): when openssl stops first (disk full, file unwritable) tar only gets
    // SIGPIPE, exit 141, and the old one-line check reported that instead of the cause (11 Nov 2026). openssl's own error comes first.
-   const ctl={};let full=null;   // the disk watchdog: a backup never fills the disk it writes to (11 Nov 2026: 99%, the agents suffered)
-   let wd=null,over=false;const watch=async()=>{if(over||full)return;const f=(await disk(path.dirname(work)).catch(()=>null))?.free;if(f!=null&&f<LOWFREE){full='The disk filled up while packing: only '+gb(f)+' was left in '+path.dirname(work)+', so the backup was stopped and its half file removed.';try{process.kill(-ctl.child.pid,'SIGKILL')}catch{}}if(!over&&!full){wd=setTimeout(watch,WATCH);wd.unref?.()}};wd=setTimeout(watch,WATCH);wd.unref?.();
-   try{await sh('{ tar -czf - --ignore-failed-read '+EXCLUDE.map(e=>'--exclude='+q(e)).join(' ')+' '+inc.map(q).join(' ')+' 2>'+terr+'; echo $? >'+tcode+'; } | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:AQ_BK -out '+q(work)+' 2>'+oerr+'; oc=${PIPESTATUS[1]}; tc=$(cat '+tcode+' 2>/dev/null); tc=${tc:-1}; '
-    +'grep -c "Cannot open\\|Cannot stat\\|Cannot read" '+terr+' >'+tcnt+' 2>/dev/null; '
+   onPhase('packing');t=Date.now();
+   await guarded(path.dirname(work),async ctl=>sh('{ tar -czf - --ignore-failed-read --hard-dereference --no-anchored '+EXCLUDE_ALL.map(e=>'--exclude='+q(e)).join(' ')+' --anchored --exclude-from='+q(excl)+' '+inc.map(q).join(' ')+' -C '+q(DATA)+' '+MANIFEST+' 2>'+terr+'; echo $? >'+tcode+'; } | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:AQ_BK -out '+q(work)+' 2>'+oerr+'; oc=${PIPESTATUS[1]}; tc=$(cat '+tcode+' 2>/dev/null); tc=${tc:-1}; '
     +'[ "$oc" = 0 ] || { echo "encrypting the backup failed (openssl exit $oc): $(tail -c 300 '+oerr+' | tr "\\n" " ")" >&2; rm -f '+junk+'; exit 1; }; '
-    +'[ "$tc" -le 1 ] || { grep -v "socket ignored\\|Cannot open\\|Cannot stat\\|Cannot read" '+terr+' | tail -2 >&2; echo "tar stopped (exit $tc)" >&2; rm -f '+junk+'; exit "$tc"; }; rm -f '+junk,{AQ_BK:await key()},ctl)}catch(e){throw full?Error(full):e}finally{over=true;clearTimeout(wd)}
-   const skipped=Number((await readFile(work+'.skipped','utf8').catch(()=>'0')).trim())||0;await rm(work+'.skipped',{force:true}).catch(()=>{});
-   const size=(await stat(work)).size;if(size<MIN)throw Error('The backup came out too small ('+size+' bytes).');
+    +'[ "$tc" -le 1 ] || { grep -v "socket ignored\\|Cannot open\\|Cannot stat\\|Cannot read" '+terr+' | tail -2 >&2; echo "tar stopped (exit $tc)" >&2; rm -f '+junk+'; exit "$tc"; }; rm -f '+oerr+' '+tcode,{AQ_BK:await key()},ctl));
+   parts.archive=Math.round((Date.now()-t)/1000);
+   const sk=await recordSkipped(parseSkips((await readFile(work+'.err','utf8').catch(()=>'')).slice(0,5e6)),at).catch(e=>{console.warn('backup: skipped list',e.message);return {count:0,fresh:0}});
+   const skipped=sk.count,size=(await stat(work)).size;if(size<MIN)throw Error('The backup came out too small ('+size+' bytes).');
+   const mb=media?.stats,mnote=mb?(mb.newFiles?', '+gb(mb.packBytes)+' of new media in a pack':'')+(mb.files?' ('+mb.files.toLocaleString('en')+' files, '+gb(mb.bytes)+' of media kept in packs)':''):'',snote=sk.fresh?', '+sk.fresh+' new unreadable file(s) skipped ('+skipped+' in the skipped list)':'';
+   const base={at,ok:true,name,size,why,secs:Math.round((Date.now()-at)/1000),skipped,skippedNew:sk.fresh,parts,...(mb?{media:mb,mediaHermes:mb.hermesBytes,uploaded:size+mb.packBytes}:{}),venvs:venvs.length};
    if(local){await rename(work,dest);const pruned=await pruneLocalDir();
-    return {last:{at,ok:true,name,size,local:true,...(gwhy?{googleWhy:gwhy}:{}),why,secs:Math.round((Date.now()-at)/1000),skipped},
-     note:name+' ('+Math.round(size/1e6)+' MB) kept on this box in '+LOCALDIR+' (no Google account)'+(pruned?', '+pruned+' older one(s) removed':'')+(skipped?', '+skipped+' unreadable file(s) skipped':'')}}
-   onPhase('uploading');
+    return {last:{...base,local:true,...(gwhy?{googleWhy:gwhy}:{})},
+     note:name+' ('+Math.round(size/1e6)+' MB) kept on this box in '+LOCALDIR+' (no Google account)'+(pruned?', '+pruned+' older one(s) removed':'')+snote}}
+   onPhase('uploading',{done:0,total:size});t=Date.now();
    const g=await google().catch(()=>g0),fid=await folder(g);
-   const start=await drive(g,'upload/drive/v3/files?uploadType=resumable',{method:'POST',raw:true,headers:{'content-type':'application/json; charset=UTF-8','x-upload-content-type':'application/octet-stream','x-upload-content-length':String(size)},body:JSON.stringify({name,parents:[fid]})});
-   const file=await sendFile(start.headers.get('location'),tmp,size);
+   const file=await upload(g,fid,name,tmp,size,{media:'1'},(done,total,bps)=>onPhase('uploading',{done,total,bps}));parts.upload=Math.round((Date.now()-t)/1000);
+   // the upload can take over an hour: a token from before it may have run out, so prune with a fresh one
+   const gp=await google().catch(()=>g);
    // keep the newest N (older ones go to the Drive bin, where Google keeps them 30 more days)
-   const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name)&pageSize=100');
-   for(const f of (l.files||[]).slice(settings().keep))await drive(g,'drive/v3/files/'+f.id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({trashed:true})}).catch(()=>{});
-   await pruneLocalDir().catch(()=>{});return {last:{at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000),skipped},note:name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+(skipped?', '+skipped+' unreadable file(s) skipped':'')}}
-  finally{await rm(work,{force:true}).catch(()=>{});for(const x of ['.skipped','.err','.oerr','.tcode'])await rm(work+x,{force:true}).catch(()=>{});await rm(tmp,{force:true}).catch(()=>{})}}
+   const l=await drive(gp,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name,appProperties)&pageSize=100');
+   for(const f of (l.files||[]).slice(settings().keep))await drive(gp,'drive/v3/files/'+f.id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({trashed:true})}).catch(()=>{});
+   // the packs: tonight's manifest names its packs; packs no kept night names go to the Drive bin (never when that cannot be known: see prunable)
+   if(media){const {ix,IX}=media,kept=[{name,media:true},...(l.files||[]).slice(0,settings().keep).filter(f=>f.name!==name).map(f=>({name:f.name,media:f.appProperties?.media==='1'}))];
+    ix.nights[name]=manifestPacks(manifest);dropNights(ix,kept.map(k=>k.name));const bin=prunable(ix,kept,Date.now())||[];
+    for(const n of bin){await drive(gp,'drive/v3/files/'+ix.packs[n].id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({trashed:true})}).then(()=>{delete ix.packs[n]}).catch(()=>{})}
+    for(const [rel,e] of Object.entries(ix.files))if(!ix.packs[e.pack])delete ix.files[rel];await saveIndex(IX,ix)}
+   await pruneLocalDir().catch(()=>{});return {last:{...base,id:file.id,account:g.account},note:name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+mnote+snote}}
+  finally{await rm(work,{force:true}).catch(()=>{});for(const x of ['.skipped','.err','.oerr','.tcode','.excl'])await rm(work+x,{force:true}).catch(()=>{});await rm(tmp,{force:true}).catch(()=>{})}}
  const nameOf=at=>'aqeelos-'+new Date(at+7*3600e3).toISOString().slice(0,16).replace(/[:T]/g,'-')+'.tar.gz.enc';
  const good=async r=>{state.last=r.last;state.lastOkAt=r.last.at;state.lastSize=r.last.size;state.made=true;delete state.staleTold;await save();console.log('backup: '+r.note);solved();return state.last};
  // a failed scheduled backup is tried again within the hour, 3 times a morning; only the third failure is told (a
@@ -273,6 +349,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
  const jobAlive=j=>{if(!j?.pid||j.done)return false;if(Date.now()-(j.beat||j.at||0)>jobQuiet)return false;try{process.kill(j.pid,0);return true}catch(e){return e.code==='EPERM'}};
  let unfollow=false;   // stopFollowing(): this instance lets go of the job without recording anything (tests stand in for an app that died)
  async function follow(at,ctl={}){const t0=Date.now();for(;;){if(unfollow)throw Object.assign(Error('no longer following the backup'),{abandoned:true});const j=await readJob();
+   if(j&&j.at===at&&!j.done)progress={phase:j.phase,...(j.detail||{}),at:j.beat};
    if(j&&j.at===at&&j.done){await rm(JOB,{force:true}).catch(()=>{});if(j.last)return {last:j.last,note:j.note||j.last.name};throw Object.assign(Error(j.error||'The backup failed.'),j.code?{code:j.code}:{})}
    if(ctl.error)throw Object.assign(Error('The backup could not be started: '+ctl.error),{cutOff:true});
    // no file yet: the job writes it first thing, give it half a minute; then a job that is gone or silent was cut off
@@ -282,20 +359,20 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   const child=spawn(cmd,args,{detached:true,stdio:'ignore',cwd:HOME,env:{...process.env,AQ_BACKUP_JOB:JSON.stringify({DATA,HOME,HERMES_HOME,TMP,LOCALDIR,MIN,tz:tz(),ENV_ACCOUNT,why,at,name})}});
   child.on('error',e=>{ctl.error=e.message});child.unref();return follow(at,ctl)}
  // what the job process runs (backup-job.mjs): the same pack(), its progress and result in the job file, never backups.json
- async function job2({why,at,name}){let phase='packing',end=null;const w=async()=>{const t=JOB+'.'+process.pid+'.tmp';await mkdir(DATA,{recursive:true});await writeFile(t,JSON.stringify({pid:process.pid,at,name,why,phase,beat:Date.now(),...(end||{})}),{mode:0o600});await rename(t,JOB)};
+ async function job2({why,at,name}){let phase='packing',detail=null,end=null;const w=async()=>{const t=JOB+'.'+process.pid+'.tmp';await mkdir(DATA,{recursive:true});await writeFile(t,JSON.stringify({pid:process.pid,at,name,why,phase,detail,beat:Date.now(),...(end||{})}),{mode:0o600});await rename(t,JOB)};
   await w();const hb=setInterval(()=>{if(!end)w().catch(()=>{})},Math.min(30e3,Math.max(50,jobQuiet/6)));
-  try{await load();const r=await pack(why,at,name,p=>{phase=p});end={done:true,last:r.last,note:r.note}}catch(e){end={done:true,error:String(e?.message||e),code:e?.code||''}}
+  try{await load();const r=await pack(why,at,name,(p,d)=>{phase=p;detail=d||null});end={done:true,last:r.last,note:r.note}}catch(e){end={done:true,error:String(e?.message||e),code:e?.code||''}}
   clearInterval(hb);await w();return end}
  const cutOff=async(why,at)=>{const back=await giveBack();state.last={at,ok:false,error:CUT,why,cut:true};await save();console.warn('backup: a backup was cut off'+(back?'; its try is given back':''))};
  async function run(why='scheduled'){if(copying)throw Error('A restore is running. Back up after it finishes.');if(running)return running;running=(async()=>{await load();const at=now(),name=nameOf(at);
   {const day=localParts(at,tz()).day;state.tries=state.tries?.day===day?{...state.tries,n:state.tries.n+1}:{day,n:1};await save()}
-  try{return await good(detach?await viaJob(why,at,name):await pack(why,at,name))}
+  try{return await good(detach?await viaJob(why,at,name):await pack(why,at,name,(p,d)=>{progress={phase:p,...(d||{}),at:Date.now()}}))}
   catch(e){if(e.abandoned)throw e;if(e.cutOff)await cutOff(why,at);else await bad(e,why,at);throw e}
-  finally{running=null}})();return running}
+  finally{running=null;progress=null}})();return running}
  /* When the app starts: a job that is still running (or finished while the app was away) is followed to its end; one that was cut off, or
     an archive an in-app backup left behind, gives its try back. Then what a cut-off backup left in /tmp is removed. */
  async function startUp(){await load();const j=detach?await readJob():null;let cut=false;
-  if(j&&(j.done||jobAlive(j))){running=(async()=>{try{return await good(await follow(j.at))}catch(e){if(e.cutOff)await cutOff(j.why,j.at);else await bad(e,j.why,j.at);throw e}finally{running=null}})();running.catch(()=>{});console.log('backup: following the backup that was already running ('+j.name+')');return {adopted:true}}
+  if(j&&(j.done||jobAlive(j))){running=(async()=>{try{return await good(await follow(j.at))}catch(e){if(e.cutOff)await cutOff(j.why,j.at);else await bad(e,j.why,j.at);throw e}finally{running=null;progress=null}})();running.catch(()=>{});console.log('backup: following the backup that was already running ('+j.name+')');return {adopted:true}}
   if(j){await rm(JOB,{force:true}).catch(()=>{});cut=true}
   const left=await dropLeftovers();if(cut||left.archives){const back=await giveBack();console.log('backup: the last backup was cut off'+(back?'; its try is given back':''));return {cut:true,back}}
   return {}}
@@ -317,15 +394,28 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   const secs=(Date.now()-t0)/1000;if(size>=256e6&&secs>0){state.speed=Math.round(size/secs);await save().catch(()=>{})}}   // the measured speed, for the next estimate
  // enough memory for a big download and unpack, said plainly when not
  async function memOk(){const f=await mem();if(f!=null&&f<MEM_NEED)throw Object.assign(Error('The box is short on memory right now: '+gb(Math.max(0,f))+' free, and this needs about '+gb(MEM_NEED)+'. Try again at night, when the agents are quiet. Nothing was changed.'),{status:409});return f}
+ /* The media packs a night's manifest names, put back under dir: only the files only(rel) picks, so only the packs that hold some are fetched
+    (a pack holds the agents' files or everything else, never both). Each is downloaded when it is needed and removed after it is used. */
+ async function restorePacks({g,manifest,dir,only,ctl={},onProgress}){const mf=await mediaFolder(g),have=await listPacks(g,mf);let prev=null;
+  const need=manifestPacks(manifest).filter(n=>manifest.packs[n].some(e=>only(e[0])));
+  for(const n of need)if(!have[n])throw Error('The media pack '+n+' is not in Google Drive any more, so this backup cannot be restored completely. Nothing on the box was changed.');
+  const totalB=need.reduce((n,x)=>n+have[x].size,0);let doneB=0;
+  try{return await restoreMedia({manifest,dir,key:await key(),only,getPack:async n=>{if(prev)await rm(prev,{force:true});const file=path.join(TMP,n);prev=file;await download(g,have[n].id,file,have[n].size,{...ctl,onPiece:x=>onProgress?.(doneB+x,totalB)});doneB+=have[n].size;return file}})}
+  finally{if(prev)await rm(prev,{force:true})}}
  // a restore test: the newest backup from Drive, decrypted and unpacked into a scratch folder, with the must-have files checked
  async function test(){if(copying||preparing)throw Error('A restore is running. Test after it finishes.');if(testing)return testing;testing=(async()=>{await load();const at=Date.now();const dir=path.join(TMP,'aqeelos-restore-test-'+at),enc=dir+'.enc';
-  try{await memOk();const g=await google(),fid=await folder(g);const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name,size)&pageSize=1');const f=l.files?.[0];if(!f)throw Error('There is no backup in Google Drive yet.');
+  try{await memOk();const g=await google(),fid=await folder(g);const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name,size,appProperties)&pageSize=1');const f=l.files?.[0];if(!f)throw Error('There is no backup in Google Drive yet.');
    await download(g,f.id,enc,Number(f.size)||0);
    await mkdir(dir,{recursive:true});await sh('set -o pipefail; openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AQ_BK -in '+q(enc)+' | tar -xzf - -C '+q(dir),{AQ_BK:await key()});
    const missing=[];for(const m of MUST){const s=await stat(path.join(dir,m)).catch(()=>null);if(!s||!s.size)missing.push(m)}
    let agents=0;try{agents=(await readdir(path.join(dir,'.hermes','profiles'))).length+1}catch{}
    if(missing.length)throw Error('Missing after restore: '+missing.join(', '));
-   state.test={at,ok:true,name:f.name,detail:'Unpacked '+f.name+': settings, people, aqeelOS data and '+agents+' agents are all there.'};await save();return state.test}
+   // a night with media packs: its manifest is there, every pack it names is in Drive, and the smallest pack is taken out and checked file by file
+   let mediaNote='';if(f.appProperties?.media==='1'){const mf=JSON.parse(await readFile(path.join(dir,MANIFEST),'utf8').catch(()=>{throw Error('The backup has no media manifest ('+MANIFEST+').')})),have=await listPacks(g,await mediaFolder(g)),names=manifestPacks(mf),gone=names.filter(n=>!have[n]);
+    if(gone.length)throw Error('Missing from Google Drive: the media pack '+gone[0]+(gone.length>1?' and '+(gone.length-1)+' more':'')+', named by this backup.');
+    if(names.length){const small=names.sort((a,b)=>have[a].size-have[b].size)[0],r=await restorePacks({g,manifest:{...mf,packs:{[small]:mf.packs[small]}},dir,only:()=>true});if(r.missing.length||r.bad.length)throw Error('The media pack '+small+' does not match what the manifest says ('+[...r.missing,...r.bad][0]+').');
+     mediaNote=' '+mf.files.toLocaleString('en')+' big files ('+gb(mf.bytes)+') are in '+names.length+' media pack(s), all in Drive; one was opened and checked.'}}
+   state.test={at,ok:true,name:f.name,detail:'Unpacked '+f.name+': settings, people, aqeelOS data and '+agents+' agents are all there.'+mediaNote};await save();return state.test}
   catch(e){state.test={at,ok:false,error:e.message};await save();if(e.code!=='NOGOOGLE')notify('The backup restore test failed',e.message);throw e}
   finally{await rm(dir,{recursive:true,force:true}).catch(()=>{});await rm(enc,{force:true}).catch(()=>{})}})().finally(()=>{testing=null});return testing}
  // the safety copies on the box (made before each restore), as restore sources too: going back is the same restore
@@ -344,23 +434,26 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
  const scratch=at=>path.join(TMP,'aqeelos-restore-'+at);
  // what Prepare will take, shown before it starts: the download, the time at the last measured speed, space and memory
  async function source(id){id=String(id||'');if(id.startsWith('local:')){const n=id.slice(6);if(!/^aqeelos-before-restore-[\d-]+\.tar\.gz$/.test(n))throw Error('That file is not one of the safety copies.');const s=await stat(path.join(HOME,n)).catch(()=>null);if(!s)throw Error('That safety copy is gone.');return {name:n,size:s.size,local:true}}
-  const g=await google(),fid=await folder(g);const f=await drive(g,'drive/v3/files/'+encodeURIComponent(id)+'?fields=id,name,parents,size');if(!(f.parents||[]).includes(fid))throw Error('That file is not one of the backups.');f.size=Number(f.size)||0;return f}
- async function estimate(id){await load();const f=await source(id),t=await disk(TMP),m=await mem(),speed=state.speed||5e6,need=f.size*(f.local?2.5:3.5)+1e9;
+  const g=await google(),fid=await folder(g);const f=await drive(g,'drive/v3/files/'+encodeURIComponent(id)+'?fields=id,name,parents,size,appProperties');if(!(f.parents||[]).includes(fid))throw Error('That file is not one of the backups.');f.size=Number(f.size)||0;return f}
+ async function estimate(id){await load();const f=await source(id),t=await disk(TMP),m=await mem(),speed=state.speed||5e6,x=f.appProperties?.media==='1'?Number(state.last?.mediaHermes)||0:0,need=f.size*(f.local?2.5:3.5)+1e9+x*1.1+(x?PACK_MAX*1.05:0);   // x: the agents' files that are in media packs (from the last backup)
   const why=t.free<need?'Not enough free space: it needs about '+gb(need)+' in '+TMP+', and there is '+gb(t.free)+'.':m!=null&&m<MEM_NEED?'The box is short on memory right now: '+gb(Math.max(0,m))+' free, and this needs about '+gb(MEM_NEED)+'. Try again at night, when the agents are quiet.':'';
-  return {name:f.name,local:!!f.local,size:f.size,secs:f.local?Math.round(f.size/50e6)+30:Math.round(f.size/speed)+60,speed:f.local?null:speed,measured:!!state.speed,tmpNeed:need,tmpFree:t.free,memFree:m,memNeed:MEM_NEED,ok:!why,why}}
+  return {name:f.name,local:!!f.local,size:f.size,secs:f.local?Math.round(f.size/50e6)+30:Math.round((f.size+x)/speed)+60,media:x,speed:f.local?null:speed,measured:!!state.speed,tmpNeed:need,tmpFree:t.free,memFree:m,memNeed:MEM_NEED,ok:!why,why}}
  async function prepare(id){await load();if(copying||preparing)throw Object.assign(Error('A restore is already running.'),{status:409});if(running)throw Object.assign(Error('A backup is running. Wait for it to finish.'),{status:409});if(testing)throw Object.assign(Error('A restore test is running. Wait for it to finish.'),{status:409});
   if(existsSync(JOURNAL))throw Object.assign(Error('A restore that was cut off is still being rolled back. Try again in a minute.'),{status:409});
   await cancel();id=String(id||'');const at=Date.now(),dir=scratch(at),enc=dir+'.enc';let f;
   let go;preparing=new Promise(r=>go=r);const ctl=prep={stop:false,ac:new AbortController(),child:null};
   try{f=await source(id);await memOk();
-   const t=await disk(TMP);const need=f.size*(f.local?2.5:3.5)+1e9;
+   const t=await disk(TMP),mx=f.appProperties?.media==='1'?Number(state.last?.mediaHermes)||0:0;const need=f.size*(f.local?2.5:3.5)+1e9+mx*1.1+(mx?PACK_MAX*1.05:0);
    if(t.free<need)throw Error('Not enough free space to prepare this backup: it needs about '+gb(need)+' in '+TMP+', and there is '+gb(t.free)+'. Nothing was changed.');
    state.restore={phase:'preparing',at,name:f.name,size:f.size,got:0};await save()}
   catch(e){preparing=null;prep=null;go();throw e}
   job=(async()=>{try{await mkdir(dir,{recursive:true});
     if(f.local)await sh('tar -xzf '+q(path.join(HOME,f.name))+' -C '+q(dir),{},ctl);   // one folder inside: the engine folder, whatever it was called
     else{await download(await google(),f.id,enc,f.size,{...ctl,get stop(){return ctl.stop},onPiece:n=>{if(state.restore?.at===at)state.restore.got=n}});if(ctl.stop)throw Error(STOPPED);state.restore.step='unpacking';
-     await sh('set -o pipefail; openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AQ_BK -in '+q(enc)+' | tar -xzf - -C '+q(dir)+' .hermes',{AQ_BK:await key()},ctl).catch(e=>{if(ctl.stop)throw Error(STOPPED);throw Error(/bad decrypt|digital envelope/i.test(e.message)?'The backup key does not open this backup. Enter the key it was made with under Backup key.':e.message)});await rm(enc,{force:true})}
+     await sh('set -o pipefail; openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:AQ_BK -in '+q(enc)+' | tar -xzf - -C '+q(dir)+' .hermes'+(f.appProperties?.media==='1'?' '+MANIFEST:''),{AQ_BK:await key()},ctl).catch(e=>{if(ctl.stop)throw Error(STOPPED);throw Error(/bad decrypt|digital envelope/i.test(e.message)?'The backup key does not open this backup. Enter the key it was made with under Backup key.':e.message)});await rm(enc,{force:true});
+     // the agents' big files that are in media packs: only the packs that hold some, each downloaded when needed and removed after
+     if(f.appProperties?.media==='1'){state.restore.step='media';await save().catch(()=>{});const r=await restorePacks({g:await google(),manifest:JSON.parse(await readFile(path.join(dir,MANIFEST),'utf8')),dir,only:rel=>rel.startsWith('.hermes/'),ctl:{...ctl,get stop(){return ctl.stop}},onProgress:(got,tot)=>{if(state.restore?.at===at){state.restore.mediaGot=got;state.restore.mediaSize=tot}}});
+      if(ctl.stop)throw Error(STOPPED);if(r.missing.length||r.bad.length)throw Error((r.missing.length+r.bad.length)+' big files of the agents could not be taken from the media packs ('+[...r.missing,...r.bad].slice(0,3).join(', ')+'). Nothing on the box was changed.')}}
     if(ctl.stop)throw Error(STOPPED);await drop([dir]);
     const src=f.local?path.join(dir,(await readdir(dir,{withFileTypes:true})).find(x=>x.isDirectory())?.name||'.hermes'):path.join(dir,'.hermes');
     if(!(await stat(path.join(src,'config.yaml')).catch(()=>null))?.size)throw Error('The backup has no agent settings, so it cannot be restored.');
@@ -426,8 +519,8 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
   setInterval(()=>tick().catch(()=>{}),15*60e3).unref?.()}
  async function status(){await load();const keyError=made()&&!await readKey()?NOKEY:null,s=settings(),acc=await accounts(),pick=acc.find(a=>a.file===tokenFile());
   const r=state.restore||null,p=state.prepared;
-  const loc=await localBackups();
-  return {keyError,hasKey:!!await readKey(),last:state.last||null,local:{dir:LOCALDIR,count:loc.length,bytes:loc.reduce((n,f)=>n+f.size,0),newest:loc[0]?.at||0,keep:LOCAL_KEEP,active:!pick?.renews||!pick?.drive},stale:staleBackup(Math.max(state.lastOkAt||0,state.last?.ok?state.last.at:0),state.since||Date.now()),test:state.test||null,running:Boolean(running),testing:Boolean(testing),preparing:Boolean(preparing),restoring:copying,
+  const loc=await localBackups(),sk=await readStore(path.join(DATA,'backup-skipped.json'),{}).catch(()=>({}));
+  return {progress:running?progress:null,skipped:{...summarizeSkipped(sk),files:Object.entries(sk.files||{}).slice(0,25).map(([p,o])=>({path:p,reason:o.reason,first:o.first}))},keyError,hasKey:!!await readKey(),last:state.last||null,local:{dir:LOCALDIR,count:loc.length,bytes:loc.reduce((n,f)=>n+f.size,0),newest:loc[0]?.at||0,keep:LOCAL_KEEP,active:!pick?.renews||!pick?.drive},stale:staleBackup(Math.max(state.lastOkAt||0,state.last?.ok?state.last.at:0),state.since||Date.now()),test:state.test||null,running:Boolean(running),testing:Boolean(testing),preparing:Boolean(preparing),restoring:copying,
    restore:r,prepared:p?{id:p.id,name:p.name,local:p.local,at:p.at,preview:p.preview}:null,
    settings:s,keep:s.keep,where:'Google Drive › '+s.folder,account:pick?.email||'',google:{connected:!!pick&&pick.renews&&pick.drive,file:tokenFile(),email:pick?.email||'',drive:!!pick?.drive,renews:!!pick?.renews},accounts:acc}}
  // settled(): resolves when the Prepare or Restore running in the background has finished (tests wait on this, not on a timer)
