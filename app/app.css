@@ -1744,7 +1744,7 @@ div.skel:not(.loading)+div.skel:not(.loading){display:none}
 .live-connect{padding:18px;margin:0 0 18px;display:grid;gap:6px;max-width:560px}.live-connect h3{margin:0;font-size:16px}.live-connect .hint{margin:0 0 6px;line-height:1.55}
 .live-side .item{display:flex;align-items:center;gap:10px}
 @media (max-width:760px){.live-wrap{padding:18px 16px 40px}}
-/* one font: Plus Jakarta Sans for everything people read, numbers included; only code blocks, logs and keys stay monospaced */
+/* one font: Plus Jakarta Sans for everything people read; the digits 0-9 come from Google Sans Flex (assets/brand.css); only code blocks, logs and keys stay monospaced */
 .msg.ai .body :not(pre)>code,.step-head .sum code,.lb-steps code{font-family:inherit;font-size:.94em;font-weight:500}
 .oauth-code{font-family:inherit;font-variant-numeric:tabular-nums}
 .code-empty{display:grid;justify-items:center;gap:4px;text-align:center;margin:18px 14px;padding:20px 12px;border:1px dashed var(--border);border-radius:var(--r-md);animation:lbUp var(--t-med) var(--ease) both}

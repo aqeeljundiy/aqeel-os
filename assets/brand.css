@@ -1,5 +1,7 @@
 /* Brand tokens and base elements, shared by the mockup and the backlog board (same values as code by aqeel). */
 @font-face{font-family:'Plus Jakarta Sans';font-style:normal;font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}
+/* numbers: the digits 0-9 are drawn in Google Sans Flex wherever the app font is used (owner, 12 Nov 2026) */
+@font-face{font-family:'Plus Jakarta Sans';font-weight:100 1000;font-display:swap;src:url('/assets/google-sans-flex-digits.woff2') format('woff2');unicode-range:U+30-39}
 :root{--bg:#fff;--surface:#fff;--soft:#edeef2;--soft-2:#f5f6f8;--blue-soft:#e8f0fe;--ink:#0b0c10;--ink-2:#2e3038;--muted:#646875;--border:#e2e3e9;--blue:#0158cb;--blue-2:#2f7bff;--blue-deep:#0a3f8f;--sky-1:#cfe1fb;--sky-2:#eaf2ff;--ok:#1f6b3a;--warn:#a15c00;--bad:#c62f2f;
  --r-sm:8px;--r-md:12px;--r-card:24px;--r-pill:9999px;
  --shadow-card:0 1px 2px rgba(11,12,16,.04),0 12px 40px -24px rgba(11,12,16,.18);--shadow-float:0 30px 80px -30px rgba(11,12,16,.35),0 2px 6px rgba(11,12,16,.08);--shadow-btn:0 1px 2px rgba(0,0,0,.18),inset 0 1px 0 rgba(255,255,255,.25);
