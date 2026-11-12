@@ -129,7 +129,7 @@ export function healthLine(last,{tz='',now=Date.now()}={}){if(!last||!last.at||n
 
 /* ---------- the journal and the pass ---------- */
 const BACKOFF=[60e3,120e3,300e3,600e3];
-export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=true,maxAge=()=>7200e3,tz=()=>'',stagger=4000,sleep=ms=>new Promise(r=>setTimeout(r,ms)),
+export function createResume({DATA,actMs=180e3,now=()=>Date.now(),log=m=>console.log(m),on=true,maxAge=()=>7200e3,tz=()=>'',stagger=4000,sleep=ms=>new Promise(r=>setTimeout(r,ms)),
  // ready(): the app and the engine answer. probe*/act*: see the plans above. Each act answers {ok} | {retry,why} | {fail,why}
  ready=async()=>true,probeChat=async()=>null,sendChat=async()=>({fail:true,why:'not wired'}),probeRun=async()=>null,triggerRun=async()=>({fail:true,why:'not wired'}),
  probeChannel=async()=>null,probeDeleg=async()=>null,probeFixer=async()=>null,kickFixer=async()=>({ok:true}),nameOf=a=>a}={}){
@@ -181,6 +181,9 @@ export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=t
   let note=null;try{note=JSON.parse(readFileSync(NOTE,'utf8'));unlinkSync(NOTE)}catch{}
   const why=note&&at-Number(note.at||0)<30*60e3&&note.why==='update'?'update':plan?plan.why:'restart';
   for(const e of j.entries){if(e.kind==='fixer'&&e.state==='open'){e.state='cut';e.cutAt=when;e.cut0||=when;e.why=why;e.quiet=true}   // its process outlives the app: looked at again, continued only if it is gone
+   // a schedule, background task, channel or fixer entry the last app was continuing when it ended: back to waiting, like a chat (audit M1:
+   // only chats were reset, the others stayed "resuming" for ever and Health kept saying one is still waiting)
+   if(e.kind!=='chat'&&e.state==='resuming'&&e.proc!==PROC)e.state='cut';
    if(e.kind!=='chat'||e.proc===PROC)continue;
    if(e.state==='open'){e.state='cut';e.cutAt=when;e.cut0||=when;e.why=why;n++}
    else if(e.state==='resuming'){e.state='cut';n++}   // the app ended while continuing it: what happened is read from the engine first
@@ -207,7 +210,13 @@ export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=t
    // claimed on disk before anything is sent: a second pass, or the app starting again right now, never sends it twice
    if(e.kind==='deleg')e.text=plan.note;   // what the chat's own journal entry would send again if the reply to the note is cut too
    e.state='resuming';e.n=(e.n||0)+1;e.claimed=now();save();let r;
-   try{r=await (plan.do==='send'?sendChat(e,plan.note,plan):plan.do==='trigger'?triggerRun(e):kickFixer(e))}catch(er){r={retry:true,why:String(er.message||er).slice(0,160)}}
+   // Bounded (audit H10, 12 Nov 2026): an engine that took the message and then stayed silent kept this promise open for ever, and with it
+   // every later pass (run() hands out the pass that is running), so nothing was continued for any agent until the app restarted. After
+   // actMs the entry goes back to waiting (its probe reads the engine first, so it is not sent twice) and the pass goes on with the rest.
+   {const ac=new AbortController();let timer;
+    const limit=new Promise(res=>{timer=setTimeout(()=>{ac.abort();res({retry:true,why:'no answer within '+Math.round(actMs/60e3)+' minutes'})},actMs);timer.unref?.()});
+    try{r=await Promise.race([Promise.resolve().then(()=>plan.do==='send'?sendChat(e,plan.note,plan,ac.signal):plan.do==='trigger'?triggerRun(e,ac.signal):kickFixer(e,ac.signal)),limit])}catch(er){r={retry:true,why:String(er.message||er).slice(0,160)}}
+    finally{clearTimeout(timer)}}
    if(!j.entries.includes(e))continue;
    if(r?.ok){finish(e,'resumed');save()}
    else if(r?.skip){finish(e,'skipped',r.why||'');save()}

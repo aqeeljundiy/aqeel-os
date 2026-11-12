@@ -1874,9 +1874,9 @@ const resumeEng=createResumeEngine({python:enginePython,homeOf:homeOfAggent,agen
  posted:(a,from,to)=>postingLimits.view(a).then(v=>(v.recent||[]).some(e=>e.at>=from&&e.at<=to+60e3))});
 // a provider that is busy, out of room or signed out is tried again later; anything else is said and left
 const PROVIDER_WAIT=/rate.?limit|overload|\b(429|5\d\d)\b|time(d)? ?out|unavailable|quota|credit|capacity|connection|network|temporar|no (available )?(account|credential|provider)|auth|unauthori|api.?key|log.?in|sign.?in|expired/i;
-async function resumeSend(e,note){const key=e.agent+'|'+e.session,cur=LIVE.get(key);if(cur&&!cur.done)return e.kind==='deleg'?{retry:true,why:'a reply is already running there'}:{skip:true,why:'a reply is already running there'};
+async function resumeSend(e,note,plan,signal){const key=e.agent+'|'+e.session,cur=LIVE.get(key);if(cur&&!cur.done)return e.kind==='deleg'?{retry:true,why:'a reply is already running there'}:{skip:true,why:'a reply is already running there'};
  const pre=e.agent==='default'?'':'/p/'+encodeURIComponent(e.agent);
- const up=await fetch(GATE.origin+pre+'/api/sessions/'+encodeURIComponent(e.session)+'/chat/stream',{method:'POST',headers:{authorization:'Bearer '+API_KEY,'content-type':'application/json',accept:'text/event-stream'},body:JSON.stringify({message:note,...(e.opts||{})}),...longFetch()}).catch(er=>({ok:false,status:0,text:async()=>er.message}));
+ const up=await fetch(GATE.origin+pre+'/api/sessions/'+encodeURIComponent(e.session)+'/chat/stream',{method:'POST',headers:{authorization:'Bearer '+API_KEY,'content-type':'application/json',accept:'text/event-stream'},body:JSON.stringify({message:note,...(e.opts||{})}),...longFetch(),...(signal?{signal}:{})}).catch(er=>({ok:false,status:0,text:async()=>er.message}));   // signal: resume.mjs gives up on a stream that stays silent (audit H10)
  if(!up.ok||!up.body){const t=String(await up.text().catch(()=>'')).replace(/\s+/g,' ').slice(0,120);return up.status===404?{fail:true,why:'the chat no longer exists'}:{retry:true,why:'the engine did not take it ('+(up.status||t)+')'}}
  const rec=liveStart(key,e.user);rec.jid=resume.begin({agent:e.agent,session:e.session,user:e.user,userName:e.userName,text:e.text,opts:e.opts,gw:gwPidNow,from:e.id,n:e.n,cut0:e.cut0});
  return new Promise(res=>{let said=false;const say=r=>{if(!said){said=true;res(r)}};
@@ -1915,7 +1915,10 @@ let rtLedger=null,rtGw=0,rtFull=0;
 // background tasks (the engine's ledger in each agent's state.db, which changes all day, so it is read once a minute, when the engine
 // restarted or something waits, and just before aqeelOS itself restarts the engine) instead of every 30 s
 let rtDeleg=0;async function syncDelegs(){const dl=await resumeEng.delegsNow().catch(()=>null);if(dl)resume.sync(dl,'deleg');rtDeleg=Date.now();return !!dl}
-async function resumeTick(){if(!LIVE_APP)return;resume.beat();
+// one tick at a time: a tick waiting on a slow engine no longer has the next ones pile up behind it (audit H10)
+let resumeTicking=false;
+async function resumeTick(){if(!LIVE_APP||resumeTicking)return;resumeTicking=true;try{await resumeTickOnce()}finally{resumeTicking=false}}
+async function resumeTickOnce(){resume.beat();
  const hs=await agentNames().then(l=>l.map(homeOfAg)).catch(()=>[]),led=await ledgerSig(hs).catch(()=>null),gw=await gatewayPid().catch(()=>0);
  const look=led===null||led!==rtLedger||gw!==rtGw||resume.pending()>0||Date.now()-rtFull>=300e3,lookD=look||Date.now()-rtDeleg>=60e3;
  const runs=look?await resumeEng.runsNow().catch(()=>null):null;if(runs)resume.sync(runs,'schedule');
