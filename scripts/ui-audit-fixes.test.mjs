@@ -14,3 +14,7 @@ test('a member\'s Files has no agent picker; Kirimdev says "every 20 seconds" on
 test('Health says "1 thing needs you" with its number',()=>{assert.match(src('health-page.js'),/pl=\(k,one,many\)=>k===1\?'1 '\+one:k\+' '\+many/)});
 test('the corner sizes and heights come to the scale',()=>{const c=src('app.css');
  assert.match(c,/\.sched-folder,\.hv\{border-radius:var\(--r-card\)\}/);assert.match(c,/\.sel-btn\{min-height:40px;padding-block:9px\}/);assert.match(c,/\.app\.screen-open \.k-btn \.k-label/)});
+test('a page this person does not have opens the new-chat page, not an error about a chat called after the page',()=>{
+ assert.match(src('core.js'),/known=SECTIONS\.find\(s=>s\.id===p\[0\]\),sec=known\|\|SECTIONS\[0\];if\(sec\.id==='chat'\)return\{sec,chat:known\?p\[1\]\|\|null:null\}/)});
+test('the Team view log names the agent and writes a date a person reads',()=>{const s=src('install-page.js');
+ assert.match(s,/ident\(e\.agent\)\.name/);assert.doesNotMatch(s,/\+' · '\+e\.agent:''/)});
