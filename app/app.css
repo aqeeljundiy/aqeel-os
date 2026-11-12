@@ -2639,6 +2639,7 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .act-row .ic.ok{background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}
 .act-more{appearance:none;border:0;background:none;font:inherit;font-size:12px;font-weight:600;color:var(--ink-2);display:inline-flex;align-items:center;gap:3px;padding:6px 6px 6px 0;margin:-2px 0 -4px;cursor:pointer;border-radius:6px;transition:color .15s}
 .act-more:hover{color:var(--ink)}.act-more:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.act-ask{color:var(--warn);font-weight:600}
 .act-more svg{transition:transform var(--t-med,.25s) var(--ease,ease)}.act-more[aria-expanded="true"] svg{transform:rotate(90deg)}
 .act-raw{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows var(--t-med,.25s) var(--ease,ease),opacity var(--t-med,.25s) var(--ease,ease)}
 .act-raw.open{grid-template-rows:1fr;opacity:1}

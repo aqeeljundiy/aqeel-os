@@ -357,7 +357,7 @@ const SECTIONS=[
  {id:'system',label:'System',icon:'gauge',key:'7',pages:[
   {id:'usage',label:'Usage',icon:'chart',desc:'Tokens, cache and cost over time.'},
   {id:'health',label:'Health',icon:'activity',desc:'Is everything running, and the AI box itself: resources, updates and maintenance.'},
-  {id:'activity',label:'Activity',icon:'clock',desc:'What happened by itself: runs, fixes, restarts. Nothing here needs you.'},
+  {id:'activity',label:'Activity',icon:'clock',desc:'What happened by itself: runs, fixes, restarts.'},
   {id:'teams',label:'Teams',icon:'user',desc:'Who works with which agents, where alerts for you go, and the fixer that solves problems by itself.'},
   {id:'logs',label:'Logs',icon:'list',desc:'What aqeelOS wrote while working.'},
   {id:'keys',label:'Keys and secrets',icon:'key',desc:'API keys, tokens and passwords, stored on the box and never shown in full.'},
