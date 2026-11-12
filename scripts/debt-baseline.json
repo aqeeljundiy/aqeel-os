@@ -3,11 +3,11 @@
  "counts": {
   "serverBytes": 638490,
   "serverLines": 4085,
-  "modulesSavingJsonWithoutStore": 18,
-  "inlineAgentHomePaths": 92,
+  "modulesSavingJsonWithoutStore": 17,
+  "inlineAgentHomePaths": 91,
   "timersTotal": 74,
   "timersInServer": 48,
-  "exportsNothingImports": 185,
+  "exportsNothingImports": 184,
   "envReadButNotInEnvExample": 97
  }
 }
