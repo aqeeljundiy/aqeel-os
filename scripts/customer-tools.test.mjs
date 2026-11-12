@@ -174,7 +174,7 @@ test('with the line\'s provider set, aqeelOS makes the payment itself with keys 
  const W=await mkdtemp(path.join(tmpdir(),'pp-')),D=path.join(W,'data');await mkdir(path.join(W,'cove-support','.tools'),{recursive:true});await writeFile(path.join(W,'cove-support','.tools','pay'),'x');
  const keys=createAgentKeys({DATA:D,WORK:W,log:()=>{}});await keys.set('cove-support','TRIPAY_API_KEY','tp-key');await keys.set('cove-support','TRIPAY_PRIVATE_KEY','tp-priv');await keys.set('cove-support','XENDIT_SECRET_KEY','xnd-key');
  const calls=[];const fetchFn=async(url,o)=>{const b=JSON.parse(o.body);calls.push([url,o.headers.authorization,b]);
-  if(url.includes('tripay'))return {ok:true,status:200,json:async()=>({success:true,data:{reference:'T31353ABCD'+calls.length,qr_url:'https://tripay.co.id/qr/'+b.merchant_ref,pay_code:'8077700012345678',amount:b.amount}})};
+  if(url.includes('tripay'))return {ok:true,status:200,json:async()=>({success:true,data:{reference:'T90001ABCD'+calls.length,qr_url:'https://tripay.co.id/qr/'+b.merchant_ref,pay_code:'8077700012345678',amount:b.amount}})};
   return {ok:true,status:200,json:async()=>({id:'6aefe9edcc1f71c06def4151',invoice_url:'https://checkout.xendit.co/web/6aefe9edcc1f71c06def4151',expiry_date:'2026-11-13T03:00:00Z'})}};
  const providers=createPaymentProviders({DATA:D,keyOf:keys.get,fetchFn,now:()=>Date.parse('2026-11-12T03:00:00Z'),log:()=>{}});const ran=[];
  const pr={currency:'Rp',min:10000,max:5000000,provider:{tripay:{merchantCode:'T99999',refPrefix:'BM'},xendit:{}}};
@@ -185,7 +185,7 @@ test('with the line\'s provider set, aqeelOS makes the payment itself with keys 
  assert.match(x.text,/^\[FOTO: qris-BM-\d+-\d+\.png\] \| Rp3\.040\.000 \| berlaku sampai 11\.00 WIB/);assert.equal(ran.length,0,'the agent\'s own script is not run');
  assert.equal(calls[0][1],'Bearer tp-key');assert.equal(calls[0][2].amount,3040000);assert.equal(calls[0][2].customer_phone,'081234567890');assert.match(calls[0][2].signature,/^[0-9a-f]{64}$/);
  const file=/\[FOTO: ([^\]]+)\]/.exec(x.text)[1];assert.equal(await providers.mediaLink('cove-support',file),'https://tripay.co.id/qr/'+calls[0][2].merchant_ref);assert.equal(await providers.mediaLink('bay-sales',file),null);
- const log=(await readFile(path.join(D,'payments.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);assert.deepEqual([log[0].by,log[0].refs,log[0].total],['aqeelOS',['T31353ABCD1'],3040000]);assert.ok(await C.qrSince('cove-support','6281234567890',0).then(t=>t[0]===`[FOTO: ${file}]`));
+ const log=(await readFile(path.join(D,'payments.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);assert.deepEqual([log[0].by,log[0].refs,log[0].total],['aqeelOS',['T90001ABCD1'],3040000]);assert.ok(await C.qrSince('cove-support','6281234567890',0).then(t=>t[0]===`[FOTO: ${file}]`));
  const t2=C.begin({agent:'cove-support',line:'140',conversation:'cnv_2',phone:'6281234567891',mode:'live'});
  const va=await C.call('cove-support',t2,'create_payment',{kind:'va',bank:'bca',name:'Budi',items:[{id:'bac-water',qty:1}],order_form:FORM3('Rp300.000').replace('1x Reta 10mg','1x Bacteriostatic Water')});
  assert.match(va.text,/BCA Virtual Account \| nomor VA 8077700012345678 \| Rp300\.000 \| berlaku sampai 11\.00 WIB/);assert.equal(calls[1][2].method,'BCAVA');

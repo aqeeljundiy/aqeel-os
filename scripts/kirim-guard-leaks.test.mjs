@@ -28,7 +28,7 @@ const LEAK={
  L19_empty_promise:'Baik kak, mohon ditunggu sebentar ya 🙏',
  L20_wrong_lang:'Sure! Our starter kit costs IDR 3,040,000 and ships in 2 days.',
  L21_markdown:'**Paket 1**\n| Item | Harga |\n|---|---|\n| Pen | Rp 3.040.000 |',
- L22_telegram_team:'Tim sudah saya kabari di grup Telegram topik Questions, tunggu Amri balas ya',
+ L22_telegram_team:'Tim sudah saya kabari di grup Telegram topik Questions, tunggu Mira balas ya',
  L23_decisions_quote:'Keputusan 9 Nov: nomor tes selalu QRIS Rp10.000 berapa pun totalnya',
  L24_draft_label:'DRAFT #12 (Rory, Budi, +6281234567890)'};
 // what only the turn's own check can see (the customer's language, a reply that only says "wait"): not a property of the text alone
@@ -48,7 +48,7 @@ const PASS=[
  [EN,'Sure, here are the options for you:\n1. Basic kit\n2. Premium pen'],
  [ID,'Okay kak, noted ya 😊 Pesanannya saya catat.'],
  [EN,'First, mix the vial with 2 ml of bacteriostatic water. Then keep it in the fridge.'],
- [ID,'Hasil lab bisa dicek di verify.janoshik.com ya kak, nanti saya kirim file COA.pdf nya'],
+ [ID,'Hasil lab bisa dicek di verify.labtest.example ya kak, nanti saya kirim file COA.pdf nya'],
  [ID,'Untuk the customer service kami buka jam 9-17 ya kak, Senin sampai Sabtu.'],
  [ID,'Protokolnya sudah saya kirim sebagai PDF ya kak (Protokol Cove.pdf)'],
  [EN,'Now available: our bundle with the reusable pen! Would you like the details?'],

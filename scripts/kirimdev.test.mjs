@@ -178,7 +178,7 @@ test('Draft: every customer gets a draft in the Questions topic, nothing is sent
  assert.deepEqual(await t.k.draft('cove-support',2,'send','Jawaban yang diubah tim','Ari',PERSON),{sent:1});assert.equal(t.sent.at(-1).text.body,'Jawaban yang diubah tim');
  await t.post(meta('629999','lagi 2',undefined,'cnv_Z'));await t.settle();assert.deepEqual(await t.k.draft('cove-support',3,'discard','','Ari',PERSON),{dropped:true});assert.equal(t.sent.length,4)});
 test('Draft approval from Telegram: only a message from someone on the approvers list, in the team group, that is exactly an approval (audit H5)',async()=>{
- const t=await make({mode:'draft',agentSays:'Halo kak, ini jawabannya',extra:{approvers:[{who:'Amri',telegramId:'7001'}]}});
+ const t=await make({mode:'draft',agentSays:'Halo kak, ini jawabannya',extra:{approvers:[{who:'Mira',telegramId:'7001'}]}});
  await t.post(meta('629999','halo',undefined,'cnv_Z'));await t.settle();assert.equal(t.sent.length,0);
  const say=(text,o={})=>t.k.teamMessage('cove-support',{chatId:-100,threadId:3,userId:'7001',text,...o});
  // the audit's case: "ok nanti saya cek" is not an approval
@@ -186,11 +186,11 @@ test('Draft approval from Telegram: only a message from someone on the approvers
  // someone who is not on the list, another group, a made-up user id
  assert.equal((await say('ok',{userId:'9999'})).why,'not an approver');assert.equal((await say('ok',{chatId:-555})).why,'not the team group');assert.equal((await say('ok',{userId:''})).why,'not an approver');assert.equal(t.sent.length,0);
  const r=await say('[Replying to your previous message: "✋ DRAFT #1 waits for a person. @team Reply to THIS message"]\n\nOk');assert.equal(r.handled,true);assert.equal(r.sent,1);assert.equal(t.sent.at(-1).text.body,'Halo kak, ini jawabannya');
- assert.match(t.posts.at(-1)[3],/Draft #1 sent to the customer[\s\S]*approved by Amri/);assert.match((await t.k._state()).drafts[1].by,/Amri \(Telegram 7001\)/);
+ assert.match(t.posts.at(-1)[3],/Draft #1 sent to the customer[\s\S]*approved by Mira/);assert.match((await t.k._state()).drafts[1].by,/Mira \(Telegram 7001\)/);
  // the changed text must be marked; two waiting drafts need a number
  await t.post(meta('629999','lagi',undefined,'cnv_Z'));await t.settle();await t.post(meta('628888','halo juga',undefined,'cnv_Y'));await t.settle();
  assert.equal((await say('ok')).why,'which draft');
- const r2=await say('kirim: Jawaban dari Amri ya kak #2');assert.equal(r2.handled,true);assert.equal(t.sent.at(-1).text.body,'Jawaban dari Amri ya kak');
+ const r2=await say('kirim: Jawaban dari Mira ya kak #2');assert.equal(r2.handled,true);assert.equal(t.sent.at(-1).text.body,'Jawaban dari Mira ya kak');
  const r3=await say('no #3');assert.equal(r3.dropped,true);
  // a line with no approvers: Telegram approves nothing, the Channels page still does
  const n=await make({mode:'draft',agentSays:'Halo kak'});await n.post(meta('629999','halo',undefined,'cnv_Z'));await n.settle();

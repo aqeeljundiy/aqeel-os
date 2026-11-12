@@ -1,6 +1,6 @@
 // Payments made by aqeelOS itself (audit 12 Nov 2026, H2 + H3). Until now create_payment ran a script in the agent's folder
 // (.tools/qris, .tools/pay, .tools/card) that read the provider keys there. Two things followed: the keys were in the agent's reach,
-// and Biomarkers' script sent the QR to the customer by itself, past deliver() and the mode rules (31 of 38 replies were then dropped,
+// and one line's script sent the QR to the customer by itself, past deliver() and the mode rules (31 of 38 replies were then dropped,
 // because its echo looked like a team member's reply).
 // Here the app calls the provider with keys only it can read (agent-keys.mjs) and returns what the reply needs; the reply, with the QR
 // as a [FOTO: …] part, leaves through kirimdev.mjs deliver() like every other message, in every mode.
