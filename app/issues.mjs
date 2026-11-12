@@ -527,8 +527,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(sandbox&&git&&kind==='fix'&&!cl){const pl=await sandbox.plan(pol,i).catch(e=>({confine:false,hold:true,why:e.message}));
    if(pl.full)await noteFull(pl.why);else await clearFull();
    if(pl.confine&&pl.canary){const c=await runCanary(pl,pol);if(c.ok)pl.variant=c.variant;else{pl.confine=false;pl.hold=true;pl.why=c.why}}
-   if(pl.hold){i.notBefore=now()+10*60e3;i.updated=now();await save();if(db.heldWhy!==pl.why){db.heldWhy=pl.why;await save();log('issues: '+i.id+' waits: '+pl.why)}return}
-   if(pl.confine)cf=pl}
+   if(pl.hold){i.notBefore=now()+10*60e3;i.updated=now();db.heldSince||=now();await save();if(now()-db.heldSince>30*60e3)await noteFull(pl.why);if(db.heldWhy!==pl.why){db.heldWhy=pl.why;await save();log('issues: '+i.id+' waits: '+pl.why)}return}
+   if(db.heldSince){db.heldSince=0;await save()}if(pl.confine)cf=pl}
   if(git&&kind==='fix'&&!cl){gw=await git.prepare(i.id).catch(e=>({ok:false,why:e.message}));if(!gw.ok){log('issues: '+i.id+' no git work dir ('+gw.why+'); the older patch-file way');gw=null}}
   if(cf&&!gw){i.notBefore=now()+10*60e3;await save();log('issues: '+i.id+' waits: no git work dir for the confined fixer');return}
   if(cf){const pa=await sandbox.prepareDir(gw.dir);if(!pa.ok){i.notBefore=now()+10*60e3;await save();log('issues: '+i.id+' waits: '+pa.why);return}cf={...cf,launch:sandbox.launch({workDir:gw.dir,issue:i.id,run:id,variant:cf.variant})}}
