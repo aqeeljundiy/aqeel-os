@@ -43,7 +43,7 @@ import {holdWrites,withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent
 import {createSchedules} from './schedules.mjs';
 import {createScreens} from './screens.mjs';
 import {createAgentAdspower} from './agent-adspower.mjs';
-import {createUsers,UNSAFE_TOOLSETS} from './users.mjs';import * as proxyAgent from './proxy-agent.mjs';import {createFixerWatch,protectedFiles} from './fixer-watch.mjs';import {ownSettingProblem,ownSettingOk,ownSettingKey,OWN_SETTINGS_HELP} from './agent-settings.mjs';
+import {createUsers,UNSAFE_TOOLSETS} from './users.mjs';import * as proxyAgent from './proxy-agent.mjs';import {createRelayKeys,reissue as reissueSigned,hideSigned} from './relay-keys.mjs';import {createFixerWatch,protectedFiles} from './fixer-watch.mjs';import {ownSettingProblem,ownSettingOk,ownSettingKey,OWN_SETTINGS_HELP} from './agent-settings.mjs';
 import {createStarters} from './starters.mjs';
 import {createMail} from './mail.mjs';
 import {createUsage} from './usage.mjs';
@@ -276,6 +276,8 @@ async function serveFile(res,rel){
    outside the app folder so deploys never touch them. The name is also written to Hermes'
    profile.yaml (display_name) so Hermes' own tools show it too. */
 const DATA=path.resolve(env.UI_DATA_DIR||path.join(root,'..','hermes-ui-data'));initStatus(DATA);
+// the agents' signed tool addresses have a key of their own that can be changed (relay-keys.mjs, scripts/rotate-secrets.mjs; audit H-9)
+const relayKeys=createRelayKeys(DATA,SECRET);
 // who runs this install, on About, Privacy and Terms: DATA/legal.json {"name","org","site"} (this install's own data,
 // never in git; 7 Nov 2026, open source). Without it the pages say "the owner of this install".
 // the same owner, for the desktop app's screens (public, like the About page): null when legal.json has none
@@ -371,7 +373,7 @@ const keysId=createKeysIdentity({DATA,HERMES_HOME,root,listAgents:()=>listAgents
 if(LIVE_APP){setTimeout(()=>keysId.tick().catch(e=>console.warn('key checks',e.message)),120000).unref();setInterval(()=>keysId.tick().catch(()=>{}),10*60000).unref()}
 const schedules=createSchedules({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents(),python:enginePython,root,live:()=>LIVE_APP||process.env.SCHED_DESCRIBE==='1',relays:()=>relay.jobRelays()});
 if(LIVE_APP||process.env.SCHED_DESCRIBE==='1')rec.add('schedule descriptions',{run:()=>schedules.tick(),reads:['jobs'],every:3600e3,why:'was every 10 min'});
-const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split('--')[0]);return !o||o==='owner'},DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a,ownerName:()=>users.people()[0]?.name});
+const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split('--')[0]);return !o||o==='owner'},DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET:relayKeys.cur,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a,ownerName:()=>users.people()[0]?.name});
 const NAMES={};   // agents' display names (refreshed with the agent context), for messages people read
 const agentName=agentNameFrom(NAMES);   // agent-name.mjs: display names everywhere, never a profile id
 // names and notes people give their Google accounts, "<agent>|<account name>" → {label, note}
@@ -856,7 +858,7 @@ const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,lis
 // shared Google logins as short-lived limited keys (google-shares.mjs); the level is the agent's in Connections
 // an agent locked to its own Google files (google-files.mjs) holds no key; aqeelOS calls Google for it, signed per agent
 const gfLevel=async(email,agent)=>{const l=await connAccounts.levelFor?.(email,agent).catch(()=>null);return l||'edit'};
-const googleFiles=createGoogleFiles({HERMES_HOME,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>sign('google-files:'+a).slice(0,32),levelOf:gfLevel,token:(email,level)=>googleShares.keyFor(email,level)});
+const googleFiles=createGoogleFiles({HERMES_HOME,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>relayKeys.sign('google-files:',a),levelOf:gfLevel,token:(email,level)=>googleShares.keyFor(email,level)});
 const googleShares=createGoogleShares({HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),agents:()=>agentNames(),levelOf:gfLevel,held:a=>googleFiles.locked(a)});
 if(LIVE_APP){const t=()=>googleFiles.ensureClients().catch(e=>console.warn('google files',e.message));setTimeout(t,30e3).unref();setInterval(t,5*60e3).unref()}
 if(LIVE_APP){const t=()=>googleShares.renew().then(r=>{if(r.renewed||r.removed)console.log('google shares: renewed',r.renewed,'removed',r.removed)}).catch(e=>console.warn('google shares',e.message));setInterval(t,5*60e3).unref();setTimeout(t,60e3).unref()}
@@ -872,7 +874,7 @@ const code=createCode({DATA,SRC:path.join(homedir(),'apps','aqeel-code'),PUBLIC_
 const teamFolders=createTeamFolders({DATA,names:uid=>{const x=users.byId(uid);return x?.name||x?.username||'Someone'},known:uid=>{const x=users.byId(uid);return !!x&&!x.disabled}});
 const codeAgents=createCodeAgents({HERMES_HOME,DATA,sign,readIds,outboxAccess:(a,d)=>agentDefaults.outboxAccess(a,d)});
 // every aqeelOS model for Code projects on a person's computer: the engine reaches the project through this bridge only
-const codeBridge=createCodeBridge({PORT,DATA,sign,code,mayUse:(uid,a)=>{const w=users.byId(uid);return !!w&&!users.gate(w,'/gapi/api/model/options','GET',new URLSearchParams(),a)},workspaces:a=>path.join(homedir(),'workspaces',a),access:(a,d)=>agentDefaults.outboxAccess(a,d)});
+const codeBridge=createCodeBridge({PORT,DATA,sign:v=>createHmac('sha256',relayKeys.cur).update(v).digest('base64url'),sigOk:(given,a)=>relayKeys.ok(given,'code-bridge:',a),code,mayUse:(uid,a)=>{const w=users.byId(uid);return !!w&&!users.gate(w,'/gapi/api/model/options','GET',new URLSearchParams(),a)},workspaces:a=>path.join(homedir(),'workspaces',a),access:(a,d)=>agentDefaults.outboxAccess(a,d)});
 /* A Code run asks one of its attached agents (aqeelos_ask in Code, code_ask_agent on the engine): one chat turn for
    that agent, as the person who sent the run (their daily limit and the models they may use, as in Chat), with a
    folder of its own to save files in. The answer's text and files come back; where the files go is the caller's. */
@@ -985,6 +987,10 @@ if(LIVE_APP&&existsSync(path.join(homedir(),'services.sh'))){const tick=()=>{try
 // The night's page checks (browser-checks.mjs, 12 Nov 2026): the browser checks that no longer run at every deploy run once a night in the maintenance window, after the update; a failure is one Health item
 const browserChecks=createBrowserChecks({DATA,APP:root,settings:()=>installSettings(),bottlenecks,live:async()=>({box:existsSync(path.join(homedir(),'services.sh')),sha:(await readFile(path.join(root,'.deployed-commit'),'utf8').catch(()=>'')).trim()})});
 if(LIVE_APP)setInterval(()=>browserChecks.tick().catch(e=>console.warn('browser checks',e.message)),5*60e3).unref();
+// after a key rotation (scripts/rotate-secrets.mjs): every old signature in the agents' settings and aqeelOS's scripts becomes the new one, first thing
+if(relayKeys.old&&LIVE_APP)setTimeout(async()=>{try{const names=new Set(['default',...await listAgents().catch(()=>[])]);for(const p of await readdir(path.join(HERMES_HOME,'profiles')).catch(()=>[]))names.add(p);
+  const ch=await reissueSigned({HERMES_HOME,agents:[...names],cur:relayKeys.cur,old:relayKeys.old,log:m=>console.warn(m)});relayKeys.done();console.log('relay keys: re-issued the agents\' signed addresses after a rotation ('+ch.length+' files). Reload the agents once nothing is running.');
+  if(ch.length)restartLater('the agents\' tool addresses were re-issued')}catch(e){console.warn('relay keys: re-issue failed: '+e.message)}},3000);
 if(LIVE_APP)setInterval(async()=>{const f=path.join(DATA,'auto-update.json');let a;try{a=JSON.parse(await readFile(f,'utf8'))}catch{return}const l=a.last;if(!l||!/failed|refused/.test(l.result)||a.told===l.at)return;a.told=l.at;await writeFile(f,JSON.stringify(a,null,1)).catch(()=>{});await bottlenecks.event('update',l.result==='refused'?'An automatic update was skipped':'An automatic update failed',l.why).catch(()=>{})},5*60000).unref();
 // The desktop app for everyone: the public GitHub release (.github/workflows/desktop-app.yml). DESKTOP_RELEASES points elsewhere for a
 // private build; files in DATA/desktop are used when they are newer, or when no release can be reached.
@@ -1651,7 +1657,7 @@ if(LIVE_APP){setTimeout(()=>postingLimits.ensure().catch(e=>console.warn('postin
 let SR_TZ=sysTz();const srTz=()=>readConfig('default').then(c=>{const z=installTz()||c?.timezone;if(z)SR_TZ=z}).catch(()=>{});srTz();setInterval(srTz,600e3).unref();
 const srName=a=>agentName(a);
 const srBox=createSelfRunsBox({HERMES_HOME,DATA,python:enginePython});
-const srSig=a=>sign('self-runs:'+a).slice(0,32),srUrl=a=>`http://127.0.0.1:${PORT}/mcp/self/${a}/${srSig(a)}`;
+const srSig=a=>relayKeys.sign('self-runs:',a),srUrl=a=>`http://127.0.0.1:${PORT}/mcp/self/${a}/${srSig(a)}`;
 const srDur=s=>s==null?'':s<60?s+' s':Math.round(s/60)+' min';
 const SR_SAY={ok:'finished',failed:'failed',timeout:'ran out of time on',stopped:'stopped',interrupted:'lost (aqeelOS restarted during)'};
 const SR_CHAT=new Set(['telegram','whatsapp','slack','discord','signal','matrix','mattermost']);
@@ -2060,7 +2066,7 @@ const SR_STATE={waiting:'Waiting for the lock',running:'Running',ok:'Finished',f
 const srText=r=>'Run '+r.id+': '+(SR_STATE[r.state]||r.state)+(r.secs!=null?' after '+srDur(r.secs):'')+(r.exit!=null&&r.state!=='ok'?' (exit code '+r.exit+')':'')+'.\nReason: '+r.reason+(r.error?'\n'+r.error:'')+(r.answer?'\n\nIts last output:\n'+r.answer:'')+(r.state==='running'||r.state==='waiting'?'\n\nStill going. Do other work, or wait in your terminal (sleep 60), then call run_self_status again.':'');
 async function srMcp(req,res,ms){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
  let msg={};try{msg=JSON.parse(await readBody(req,262144))}catch{return send(res,400,{error:'bad json'})}
- const a=ms[1],x=Buffer.from(String(ms[2])),y=Buffer.from(srSig(a));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad token'});
+ const a=ms[1];if(!relayKeys.ok(ms[2],'self-runs:',a))return send(res,403,{error:'bad token'});
  const rpc=result=>send(res,200,{jsonrpc:'2.0',id:msg.id,result}),reply=(text,isError)=>rpc({content:[{type:'text',text}],...(isError?{isError:true}:{})});
  if(msg.method==='initialize')return rpc({protocolVersion:msg.params?.protocolVersion||'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'aqeelos-self',version:'1.0.0'}});
  if(msg.method==='notifications/initialized'||msg.id==null)return send(res,202,'');
@@ -2352,7 +2358,7 @@ async function hermesCall(req,res,u,url){
   // Add an app: Tebar first (app/tebar-app.mjs), then the engine's own
   :p==='/hapi/mcp/catalog'&&req.method==='GET'?async d=>withTebar(d,await readConfig(agent).catch(()=>null))
   // System › Logs: the agents' tool addresses carry a secret part (/mcp/<kind>/<agent>/<secret>), and keys can turn up in a line: hidden before they reach the page
-  :p==='/hapi/logs'&&req.method==='GET'?d=>Array.isArray(d?.lines)?{...d,lines:d.lines.map(l=>redactText(String(l).replace(/(\/mcp\/[\w-]+\/[\w.-]+\/)[A-Za-z0-9_-]{8,}/g,'$1(hidden)')))}:d
+  :p==='/hapi/logs'&&req.method==='GET'?d=>Array.isArray(d?.lines)?{...d,lines:d.lines.map(l=>redactText(String(l)))}:d
   :p==='/hapi/status'&&req.method==='GET'?d=>Array.isArray(d?.profiles)?{...d,profiles:d.profiles.filter(x=>(x?.name||x)!==HELP_AGENT)}:d
   :/^\/gapi(\/p\/[^/]+)?\/api\/model\/options$/.test(p)&&users.allowedModels(u)?d=>({...d,providers:(d.providers||[]).map(pv=>({...pv,models:(pv.models||[]).filter(m=>users.modelOk(u,pv.slug,m))})).filter(pv=>pv.models.length)})
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}
@@ -2487,20 +2493,20 @@ const server=createServer(async(req,res)=>{
   {const ms=/^\/mcp\/self\/([\w-]+)\/([\w-]+)$/.exec(p);if(ms)return await srMcp(req,res,ms)}
   // an agent's Google files (google-files.mjs): from this box only, signed per agent, only the files listed for it
   {const mf=/^\/google-files\/([\w-]+)\/([\w-]+)$/.exec(p);if(mf){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
-   const x=Buffer.from(String(mf[2])),y=Buffer.from(sign('google-files:'+mf[1]).slice(0,32));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad signature'});
+   if(!relayKeys.ok(mf[2],'google-files:',mf[1]))return send(res,403,{error:'bad signature'});
    let body;try{body=JSON.parse(await readBody(req,4e6))}catch{return send(res,400,{error:'bad json'})}const r=await googleFiles.call(mf[1],body);return send(res,r.status,r.json)}}
   // the run gate every schedule runs first (run-gates.mjs): from this box only, signed per agent; always answers
   {const mr=/^\/run-gate\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mr){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   const x=Buffer.from(String(mr[3])),y=Buffer.from(String(relay.sig(mr[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
+   if(!relayKeys.ok(mr[3],'relay:',mr[1]))return send(res,403,'bad signature');
    const t=await runGates.check(mr[1],mr[2],{nothing:url.searchParams.get('nothing')==='1'}).catch(()=>'aqeelOS run check: clear to run.\n{"wakeAgent": true}');res.writeHead(200,{'content-type':'text/plain; charset=utf-8'});return res.end(t+'\n')}}
   // the slow fallback run of an event hook (event-hooks.mjs, scripts/hooks-wire.mjs): from this box only, signed per agent; 200 when the run went well, else 500 with the error
   {const mh=/^\/event-hook\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mh){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   const x=Buffer.from(String(mh[3])),y=Buffer.from(String(relay.sig(mh[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
+   if(!relayKeys.ok(mh[3],'relay:',mh[1]))return send(res,403,'bad signature');
    const e=await eventHooks.runNow(mh[1],mh[2]).catch(e=>e.message);res.writeHead(e?500:200,{'content-type':'text/plain; charset=utf-8'});return res.end((e||'ok')+'\n')}}
   // for a script that posts without a model (the comment queue, 12 Nov 2026): GET ?json=1&kind=comment on the gate says {allow,n,reason} (it reserves nothing); POST /posting-record does what the record_post tool does.
   // The guard of every script that posts (scripts/posting-guard.py, posting-limits.mjs): POST /posting-check {kind} -> {allow,ticket,reason}, /posting-sending {ticket}, /posting-record {ticket,kind,ref,text}, /posting-cancel {ticket}
   {const mj=/^\/posting-(gate|record|check|sending|cancel)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mj&&(mj[1]!=='gate'||url.searchParams.get('json')==='1')){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   const x=Buffer.from(String(mj[3])),y=Buffer.from(String(relay.sig(mj[2])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
+   if(!relayKeys.ok(mj[3],'relay:',mj[2]))return send(res,403,'bad signature');
    if(mj[1]==='gate')return send(res,200,await postingLimits.allowNow(mj[2].split('--')[0],url.searchParams.get('kind')||'').catch(e=>({allow:false,n:0,reason:'aqeelOS could not check the limits ('+e.message+')'})));
    if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}
    const ag=mj[2].split('--')[0];
@@ -2509,13 +2515,13 @@ const server=createServer(async(req,res)=>{
    const r=await postingLimits.record(ag,b).catch(e=>({isError:true,text:e.message}));return send(res,r.isError?409:200,{ok:!r.isError,text:r.text})}}
   // the posting gate an agent's posting schedule runs first (posting-limits.mjs): from this box only, signed per agent
   {const mg=/^\/posting-gate\/([\w-]+)\/([\w-]+)$/.exec(p);if(mg){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   const x=Buffer.from(String(mg[2])),y=Buffer.from(String(relay.sig(mg[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
+   if(!relayKeys.ok(mg[2],'relay:',mg[1]))return send(res,403,'bad signature');
    const t=await postingLimits.gate(mg[1]).catch(e=>'aqeelOS could not check the limits ('+e.message+'), so no post this run.\n{"wakeAgent": false}');res.writeHead(200,{'content-type':'text/plain; charset=utf-8'});return res.end(t+'\n')}}
   // the "notify me" tool agents call (from this box only; each agent's address is signed)
   const mn=/^\/mcp\/notify\/([\w-]+)\/([\w-]+)$/.exec(p);
   if(mn){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method==='GET')return send(res,405,'POST only');
    let msg={};try{msg=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}// connect_mcp_tool: the right way for an agent to start a sign-in (public return address, never localhost)
-   const signed=(()=>{const a=Buffer.from(String(mn[2])),b=Buffer.from(String(relay.sig(mn[1])));return a.length===b.length&&timingSafeEqual(a,b)})();
+   const signed=relayKeys.ok(mn[2],'relay:',mn[1]);
    // self-repair kit (agent-versions.mjs): own-scope tools for every agent but the main one; a SOUL change by the agent
    // itself starts the "does it still answer" check; my_settings is versioned (undo) before it takes effect
    {const base=mn[1].split('--')[0],nm=msg.params?.name,A=msg.params?.arguments||{};

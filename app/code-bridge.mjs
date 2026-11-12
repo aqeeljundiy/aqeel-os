@@ -28,7 +28,7 @@ const toolOf=n=>{const m=/(?:^|_)(project_(?:read|list|search|write|edit|run))$/
 const fp=a=>{if(!a||typeof a!=='object')return '';return Object.keys(a).sort().map(k=>k+'='+(a[k]!==null&&typeof a[k]==='object'?JSON.stringify(a[k]):String(a[k]))).join('\u0001')};
 const main=a=>String(a?.path??a?.command??a?.pattern??'');
 
-export function createCodeBridge({PORT,DATA,sign,code,mayUse,workspaces,access}){
+export function createCodeBridge({PORT,DATA,sign,sigOk=null,code,mayUse,workspaces,access}){
  const sig=a=>sign('code-bridge:'+a).slice(0,32);
  const url=a=>`http://127.0.0.1:${PORT}/mcp/code/${a}/${sig(a)}`;
  // the agent's engine config gets the bridge once (y: its config.yaml as it is; mcp: the engine's own MCP route)
@@ -69,7 +69,7 @@ export function createCodeBridge({PORT,DATA,sign,code,mayUse,workspaces,access})
  // the MCP server itself (POST /mcp/code/<agent>/<signature>, from this box only)
  async function handle(req,res,{send,readBody}){const mm=/^\/mcp\/code\/([\w-]+)\/([\w-]+)$/.exec(new URL(req.url,'http://x').pathname);if(!mm)return false;
   if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(req.socket.remoteAddress||''))return send(res,403,'local only'),true;if(req.method!=='POST')return send(res,405,'POST only'),true;
-  const a=mm[1],x=Buffer.from(mm[2]),y=Buffer.from(sig(a));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad token'}),true;
+  const a=mm[1],x=Buffer.from(mm[2]),y=Buffer.from(sig(a));if(sigOk?!sigOk(mm[2],a):(x.length!==y.length||!timingSafeEqual(x,y)))return send(res,403,{error:'bad token'}),true;
   let msg={};try{msg=JSON.parse(await readBody(req,8e6))}catch{return send(res,400,{error:'bad json'}),true}
   const reply=result=>send(res,200,{jsonrpc:'2.0',id:msg.id,result}),text=(t,isError)=>reply({content:[{type:'text',text:t}],...(isError?{isError:true}:{})});
   if(msg.method==='initialize')return reply({protocolVersion:msg.params?.protocolVersion||'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'aqeelos-code',version:'1.0.0'}}),true;

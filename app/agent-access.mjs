@@ -17,7 +17,7 @@
 import {readFile,writeFile,mkdir,readdir,rename,stat} from 'node:fs/promises';
 import path from 'node:path';
 import {TOOL_HELP,TOOL_PROPS} from './design-guard.mjs';
-import {rank,base,AGENT} from './sharing.mjs';import {ownSettingProblem,ownSettingKey} from './agent-settings.mjs';
+import {rank,base,AGENT} from './sharing.mjs';import {hideSigned} from './relay-keys.mjs';import {ownSettingProblem,ownSettingKey} from './agent-settings.mjs';
 
 // the least level each part of manage_agent needs on the target agent
 export const AGENT_NEEDS={show:'viewer',logs:'viewer',instructions:'editor',skill:'editor',schedule:'editor',settings:'manager',share:'manager'};
@@ -48,7 +48,7 @@ export function redact(v,k=''){if(v==null)return v;if(SECRETISH.test(k)&&typeof 
  if(typeof v==='string'&&/^https?:\/\//.test(v))return v.replace(/\/\/[^/@]+@/,'//(hidden)@').replace(/([?&][^=]*(key|token|secret|sig)[^=]*=)[^&]+/gi,'$1(hidden)').replace(/\/([A-Za-z0-9_-]{24,})(?=\/|$)/g,'/(hidden)');
  return v}
 // log lines without keys (long tokens, key=value pairs of secret-looking names)
-export const redactText=t=>String(t).replace(/\b(sk|xox[abpr]|ghp|gho|ya29|AIza)[-_A-Za-z0-9.]{8,}/g,'(hidden)').replace(/((?:key|token|secret|password|authorization|bearer)["']?\s*[:=]\s*["']?)[^\s"',]+/gi,'$1(hidden)').replace(/\b[A-Za-z0-9_-]{40,}\b/g,'(hidden)');
+export const redactText=t=>hideSigned(t).replace(/\b(sk|xox[abpr]|ghp|gho|ya29|AIza)[-_A-Za-z0-9.]{8,}/g,'(hidden)').replace(/((?:key|token|secret|password|authorization|bearer)["']?\s*[:=]\s*["']?)[^\s"',]+/gi,'$1(hidden)').replace(/\b[A-Za-z0-9_-]{40,}\b/g,'(hidden)');
 
 export function createAgentAccess({guard=()=>null,sharing,HERMES_HOME,listAgents=async()=>[],MAIN='default',instructions=null,readConfig=async()=>null,setKey=async()=>({ok:false,out:'no settings'}),
  cron=null,versions=null,reload=async()=>{},names=a=>a,

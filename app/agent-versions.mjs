@@ -28,10 +28,10 @@ const run=(c,a,{cwd,timeout=60000,env}={})=>new Promise(res=>execFile(c,a,{cwd,t
 const clip=(s,n)=>{s=String(s??'');return s.length>n?s.slice(0,n)+'…':s};
 const HOUR=3600e3;
 // own settings an agent may change itself (same list as my_settings)
-import {ownSettingProblem,ownSettingKey} from './agent-settings.mjs';   // the exact settings an agent may change, with plain values (audit CR-3)
+import {hideSigned} from './relay-keys.mjs';import {ownSettingProblem,ownSettingKey} from './agent-settings.mjs';   // the exact settings an agent may change, with plain values (audit CR-3)
 export const OWN_SETTING={test:k=>ownSettingKey(k)};
 // redaction for logs an agent reads back: keys, tokens, bearer headers, long opaque strings (phone numbers stay readable: agents need their customers' numbers)
-export function redactLog(t){return String(t)
+export function redactLog(t){return hideSigned(t)
  .replace(/\b(sk|xox[abpr]|ghp|gho|ya29|AIza|rk|pk)[-_A-Za-z0-9.]{8,}/g,'(hidden)')
  .replace(/(Bearer\s+)[A-Za-z0-9._~+\/=-]{8,}/gi,'$1(hidden)')
  .replace(/((?:api[_-]?key|token|secret|password|passwd|authorization|bearer|cookie|signature)["']?\s*[:=]\s*["']?)(?!Bearer\b)[^\s"',;]+/gi,'$1(hidden)')
