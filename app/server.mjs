@@ -23,6 +23,7 @@ import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
 import {createFixerGit} from './fixer-git.mjs';
 import {createFixerSandbox} from './fixer-sandbox.mjs';
+import {peopleOf,approverState,buildApprovers,catalogRows,catalogFromRows,leftOut} from './kirimdev-settings.mjs';
 import {createCloudFixer} from './cloud-fixer.mjs';
 import {createLiveDrift} from './live-drift.mjs';
 import {withTebar} from './tebar-app.mjs';   // Tebar in the catalog: one click sign-in, or a pasted API key (11 Nov 2026)
@@ -3408,13 +3409,21 @@ const server=createServer(async(req,res)=>{
      return send(res,404,{error:'Not here.'})}catch(e){return send(res,400,{error:e.message})}}
    // one-time secret links (admins, System › Keys and secrets): open links (cancel) and what happened, never a value
    // Kirimdev lines (kirimdev.mjs): the API key and its check, each line's status, Test/Draft/Live, the optional webhook
+   // Channels › Kirimdev, per line (kirimdev-settings.mjs): who may approve drafts, the price list; admins only
+   if(/^\/ui\/kirimdev\/(settings|approvers|prices)$/.test(p)){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,262144)||'{}')}catch{}}
+    try{const a=String(b.agent||url.searchParams.get('agent')||''),L=await kirimdev.lines();if(!L[a])return send(res,404,{error:'No Kirimdev line for that agent.'});
+     const people=peopleOf(await teamSettings.policy(),a),cur=L[a].approvers||[];
+     if(req.method==='GET'&&p.endsWith('/settings')){const cat=await priceCatalog.of(a);return send(res,200,{people:people.map(x=>({name:x.name,team:x.team})),approvers:approverState(people,cur),prices:{...catalogRows(cat),leftOut:await leftOut({home:homedir(),agent:a,cat})}})}
+     if(req.method==='PUT'&&p.endsWith('/approvers')){const list=buildApprovers(people,cur,b.people,b.dropOthers);await kirimdev.saveLine(a,{approvers:list});console.log('kirimdev: approvers of',a,'set by',u.id,'('+list.length+')');return send(res,200,{ok:true,approvers:approverState(people,list)})}
+     if(req.method==='PUT'&&p.endsWith('/prices')){const old=await priceCatalog.of(a),c=catalogFromRows(old,b);await priceCatalog.set(a,{...c,source:old?.source||''});console.log('kirimdev: price list of',a,'saved by',u.id);const cat=await priceCatalog.of(a);return send(res,200,{ok:true,prices:{...catalogRows(cat),leftOut:await leftOut({home:homedir(),agent:a,cat})}})}
+     return send(res,405,{error:'Not allowed'})}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/kirimdev'||p==='/ui/kirimdev/setup'||p==='/ui/kirimdev/line'||p==='/ui/kirimdev/disconnect'||p==='/ui/kirimdev/renew'||p==='/ui/kirimdev/test'||p==='/ui/kirimdev/mode'||p==='/ui/kirimdev/release'||p==='/ui/kirimdev/connect'||p==='/ui/kirimdev/pause'||p==='/ui/kirimdev/draft'||p==='/ui/kirimdev/check'||p==='/ui/kirimdev/key'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
     if(req.method==='GET'&&p==='/ui/kirimdev'){const [lines,account,keySaved,numbers]=await Promise.all([kirimdev.status(),kirimdev.account(),readFile(path.join(HERMES_HOME,'secrets','kirimdev.env'),'utf8').then(t=>/^KIRIMDEV_API_KEY=\S/m.test(t),()=>false),kirimdev.numbers({fresh:url.searchParams.get('fresh')==='1'})]);return send(res,200,{lines,account,keySaved,numbers,reach:publicReach(PUBLIC_URL)})}
     if(req.method==='GET'&&p==='/ui/kirimdev/setup')return send(res,200,await kirimdevSetup(String(url.searchParams.get('agent')||'')));
     let b={};try{b=JSON.parse(await readBody(req,4096)||'{}')}catch{}
     try{if(req.method==='POST'&&p==='/ui/kirimdev/mode')return send(res,200,{ok:await kirimdev.setMode(String(b.agent||''),String(b.mode||''),u.name||'an admin')});
      // release a chat held for the team after a handoff: the agent answers there again
-     if(req.method==='POST'&&p==='/ui/kirimdev/release')return send(res,200,{released:await kirimdev.release(String(b.agent||''),String(b.phone||''),u.name||'an admin')});
+     if(req.method==='POST'&&p==='/ui/kirimdev/release')return send(res,200,{released:b.ref?await kirimdev.releaseRef(String(b.agent||''),String(b.ref),u.name||'an admin'):await kirimdev.release(String(b.agent||''),String(b.phone||''),u.name||'an admin')});
      if(req.method==='POST'&&p==='/ui/kirimdev/pause')return send(res,200,{pauseMin:await kirimdev.setPause(String(b.agent||''),b.min)});
      if(req.method==='POST'&&p==='/ui/kirimdev/draft')return send(res,200,await kirimdev.draft(String(b.agent||''),b.id,String(b.action||''),b.text,u.name||'an admin',{human:true,via:'page',user:u.id||''}));
      if(req.method==='POST'&&p==='/ui/kirimdev/connect'){const r=await kirimdev.connectWebhook(String(b.agent||''));kirimdev.check().catch(()=>{});return send(res,200,r)}
