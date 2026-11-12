@@ -214,7 +214,10 @@ test('the sweep: waits for settled instead of a timer, fails a page that never s
  assert.match(sw,/if\(!b\|\|performance\.now\(\)-b<120\)return/,'an entrance Calm ended in its first frame never played');
  for(const l of sw.split('\n'))assert.doesNotMatch(l,/\/\/[^\n]*\bif\(!?\w+\.has\(/,'no rule sits behind a comment on its line');
  assert.match(sw,/document\.querySelector\('\.side'\)&&document\.querySelector\('\.topbar'\)/,'the shell is there before it is watched');
- assert.ok(src('core.js').includes('const Stage={ms:450,max:2200,hard:6000,'))});
+ assert.ok(src('core.js').includes('const Stage={ms:450,max:2200,hard:6000,'));
+ assert.match(sw,/SLOW=6000,/,'every page a person looked at the ring for as long as Stage holds it is named (Stage.hard)');
+ // the palette's fade is judged by time, not by frames: two frames on a busy browser can outlast the whole fade; never judged is said, not passed quietly
+ assert.match(sw,/if\(p&&o>\.9&&el<120\)\{bad\+\+;/);assert.match(sw,/the palette fade was not judged/)});
 
 /* a drawing slower than Stage.max: shown as far as it is once it has stalled, held a little longer while its reads still answer (12 Nov 2026) */
 test('Stage: a page whose reads keep answering is shown whole; one whose reads went silent for 2.2 s is shown as far as it is; none waits past 6 s',async()=>{

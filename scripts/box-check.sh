@@ -65,7 +65,7 @@ echo "· 2/5 fast page switching and flicker (replays, jumps, pictures loading a
 sweep(){ timeout 720 node scripts/shot.mjs /tmp/sweep.png "#/chat" "" "" 1280 900 "$(cat scripts/sweep.js)" 2>&1 | head -1; }
 s=$(sweep); echo "$s" | grep -q '\\"bad\\":0' || { again "fast page switching" "$s"; s=$(sweep); }
 echo "$s" | grep -q '\\"bad\\":0' || { echo "✗ fast page switching found problems (twice):"; echo "$s" | cut -c1-900; exit 1; }
-# slow is not a flicker, but it is said: the pages that took over 10 s to settle
+# slow is not a flicker, but it is said: the pages that took over 6 s to settle (Stage.hard: the longest anyone looks at the ring)
 sp=$(printf '%s' "$s" | grep -o 'slowPages[^]]*' | sed 's/^slowPages[^[]*\[//; s/\\"//g' | cut -c1-400); [ -n "$sp" ] && echo "  · slow to load (named, not failed): $sp"
 fi
 echo "· 3/5 every page keeps its buttons and tabs (owner and team member, All agents and one agent)"
