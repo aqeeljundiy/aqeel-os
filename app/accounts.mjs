@@ -13,6 +13,7 @@ import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
 import {providerUnavailable} from './provider-limits.mjs';
 import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';
+import {accountStates} from './account-state.mjs';
 import {groupEntries,planGroups,normalise,nextPick,moves24,stepAgent,pinState,afterMove,pinFromEvents,upGate,movesToday,singleFlight,DAY_MAX} from './account-pools.mjs';
 
 const HOME=homedir();
@@ -194,7 +195,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  // Google AI plan (Antigravity): the engine reports no limits for it, so they are read from Google with agy's own sign-in (usage-extra.mjs, every 10 min).
  const agy=createAgyQuota({log:m=>console.log(m)});
  async function deadFill(v,profile){const dead=await deadLogins(path.join(profile==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',profile),'auth.json'));
-  for(const p of v)if(dead.has(p.slug)&&!p.windows.length)p.details=[...p.details,'Its sign-in was refused (401), so no limits show. Sign in again.']}
+  for(const p of v)if(dead.has(p.slug)){p.dead=true;if(!p.windows.length)p.details=[...p.details,'Its sign-in was refused (401), so no limits show. Sign in again.']}}
  async function agyFill(v){const p=v.find(x=>/antigravity|^agy/i.test(x.slug));if(!p||p.windows.length)return;const q=await agy.read().catch(()=>null);if(!q)return;
   if(q.signedIn===false){p.details=[...p.details,'Not signed in to Antigravity on this server.'];return}
   p.windows=q.windows;if(q.plan)p.details=[...p.details,'Plan: '+q.plan];
@@ -342,12 +343,15 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
 
  // every AI account aqeelOS knows, for the buttons of a need (need-action.mjs): its key and name, its state while it is
  // signed out or refused, and whether it is in the priority list (then "Take it out of the priority list" is a real choice)
- const known=async()=>{const x=await load(),pr=new Set((x.priority||[]).map(e=>e.key)),m=new Map();
+ // the one verdict per account (account-state.mjs): signed in, refused, at a limit or fine: what every page shows
+ const statesNow=(list,prov,ks,so)=>accountStates({claude:list.map(v=>({key:'claude:'+v.id,v})),prov:(prov||[]).map(p=>({key:'p:'+p.slug,dead:p.dead,windows:p.windows})),keys:ks,gone:Object.keys(so||{}).filter(k=>k.startsWith('p:')&&!(prov||[]).some(p=>'p:'+p.slug===k))});
+ const known=async()=>{const x=await load(),pr=new Set((x.priority||[]).map(e=>e.key)),m=new Map(),ks=accountHooks.keyStatus?.()||{};
+  const st=statesNow(await Promise.all(all(x).map(a=>details(a,false,true))),await providers(false,'default').catch(()=>null),ks,x.signedOut);
   for(const a of all(x))m.set('claude:'+a.id,{key:'claude:'+a.id,name:a.label||a.name||a.id});
   for(const [k,v] of Object.entries(x.seen||{}))m.set(k,{key:k,name:x.labels?.[k]||v?.name||k.slice(2),aka:[v?.name].filter(Boolean)});
   for(const e of x.priority||[])if(!m.has(e.key)&&e.key.startsWith('p:'))m.set(e.key,{key:e.key,name:x.labels?.[e.key]||e.key.slice(2)});
-  for(const s of await signedOut())if(s.key!=='exhausted')m.set(s.key,{...(m.get(s.key)||{}),key:s.key,name:m.get(s.key)?.name||s.name,state:s.state||'signedout'});
-  return [...m.values()].map(a=>({...a,listed:pr.has(a.key)}))};
+  for(const s of await signedOut())if(s.key!=='exhausted')m.set(s.key,{...(m.get(s.key)||{}),key:s.key,name:m.get(s.key)?.name||s.name});
+  return [...m.values()].map(a=>({...a,state:st[a.key]||(x.signedOut?.[a.key]||ks[a.key]?'needs-signin':'connected'),rejected:ks[a.key]?.state==='rejected',listed:pr.has(a.key)}))};
  const unlist=async key=>{let n=0;await update(x=>{const was=x.priority||[];const nz=normalise(was.filter(e=>e.key!==key),x.solo||[]);n=was.length-nz.priority.length;x.priority=nz.priority;x.solo=nz.solo});if(n){autoTick().catch(()=>{});accountHooks.backupSync?.('priority')}return {ok:true,removed:n}};
 
  /* ---------- HTTP ---------- */
@@ -510,7 +514,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const detNow=Object.fromEntries(list.map(v=>[v.id,v])),lim=Number(d.auto?.threshold)||90;
    const groups=groupsOf(d,prov).map(g=>({id:g.id,kind:g.kind,mode:g.mode,canRoom:g.canRoom,pool:g.pool,alone:g.alone,members:g.members,next:g.pool?nextPick(g.members.map(e=>reading(e,detNow,prov,e.model,onIt)),{lim}):null}));
    const moves=moves24((await tailOf(path.join(DATA,'model-moves.jsonl'))).split('\n'),{see});
-   return send(res,200,{accounts:list,providers:prov,groups,solo:d.solo||[],moves24:moves,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:await signedOut(),keys:accountHooks.keyStatus?.()||{},allow:d.allow||[]})}
+   const so=await signedOut();
+   return send(res,200,{accounts:list,providers:prov,groups,solo:d.solo||[],moves24:moves,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:so,keys:accountHooks.keyStatus?.()||{},states:statesNow(list,prov,accountHooks.keyStatus?.()||{},Object.fromEntries(so.map(x=>[x.key,1]))),allow:d.allow||[]})}
   // a Needs-you button (need-action.mjs unlist-account): one account out of the priority list, the rest as it is
   if(p==='/ui/accounts/unlist'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||'');if(!(d.priority||[]).some(e=>e.key===k))return send(res,400,{error:'That account is not in the priority list.'});return send(res,200,await unlist(k))}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
