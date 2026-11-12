@@ -257,12 +257,12 @@ await t('sweep: a planned test item closes at once as a test item; an access iss
 // i7d96eb8c (12 Nov 2026): sorted as "a person must connect Google" although the install has a Google client. The owner sorts it again
 // or closes it from the box (aq-needs.mjs issue <id> resort|close "<reason>").
 await t('resort: a wrongly sorted item loses its sort and its need, takes the owner\'s reason, and is queued again; close ends it',async()=>{
- const S=await setup({sortRun:async()=>'SORT: {"kind":"fixer"}'});const {I}=S;
+ const S=await setup();const {I}=S;
  const r=await I.file({agent:'a1',missing:'Google is not connected',source:'agent'});const id=r.issue.id;
  let db=(await I._db()).items.find(x=>x.id===id);db.state='needs_human';db.sorted='person';db.need='Connect Google';db.tries=2;db.steps=['x'];
  const v=await I.resort(id,'The install has a Google client; the fixer connects it',  'owner (local)');
  db=(await I._db()).items.find(x=>x.id===id);
- assert.equal(db.sorted,undefined);assert.equal(db.need,undefined);assert.equal(db.tries,0);assert.ok(['queued','fixing'].includes(v.state)||db.sorting);
+ assert.equal(db.sorted,undefined);assert.equal(db.need,undefined);assert.equal(db.tries,0);assert.equal(v.state,'queued');
  assert.match(db.evidence,/Note from the owner: The install has a Google client/);assert.match(db.history.at(-1).summary,/Sorted again by owner \(local\): The install has a Google/);
  assert.equal(await I.resort('i00000000','x'),null,'unknown id');
  const c=await I.close(id,'owner (local): wrong person was asked');assert.equal(c.state,'closed');
