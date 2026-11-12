@@ -12,12 +12,13 @@ useDefault = true
 description = "Test fixtures: made-up keys and signing secrets that tests feed to the code, never real"
 condition = "AND"
 paths = [
-  '''^scripts/(agent-versions|agent-access|team-view|agent-graph|microsoft-connect|slack-connect|tebar|proof-events|proof-whatsapp)\.test\.mjs$''',
+  '''^scripts/(agent-versions|agent-access|team-view|agent-graph|microsoft-connect|slack-connect|tebar|proof-events|proof-whatsapp|screen-link)\.test\.mjs$''',
   '''^scripts/kirim-signature\.test\.py$''',
 ]
 regexes = [
   '''^whsec_proof_secret_0001$''',
   '''^whsec_proof_456$''',
+  '''^dGhlIHNhbXBsZSBub25jZQ==$''',
   '''^sk-abc123456789$''',
   '''^sk-abcdefghijklmnop123$''',
   '''^abcd1234efgh$''',
