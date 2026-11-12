@@ -52,7 +52,7 @@ export async function writeFeed({DATA,WORK,agent,dir}){const out=path.join(WORK,
 
 export const fallbackScript=({agent,id,port,sig})=>['#!/bin/bash','# Written by aqeelOS (hooks-wire.mjs): the slow fallback of the event hook "'+id+'". No model: it asks aqeelOS (this box only) for the same run as on a payment.',
  '# aqeelOS refreshes the feed, runs the script as the agent\'s own user and delivers what it printed; this prints nothing unless the run failed.',
- 'r=$(curl -s -m 1200 -X POST -w \'\\n%{http_code}\' \'http://127.0.0.1:'+port+'/event-hook/'+agent+'/'+id+'/'+sig+'\')','code=${r##*$\'\\n\'}; body=${r%$\'\\n\'*}','[ "$code" = 200 ] && exit 0',
+ 'r=$(curl -s -m 1200 -X POST -w \'\\n%{http_code}\' \'http://127.0.0.1:'+port+'/event-hook/'+agent+'/'+id+'/'+sig+'\')','code=${r##*$\'\\n\'}; body=${r%$\'\\n\'*}; body=${body%$\'\\n\'}','[ "$code" = 200 ] && exit 0',   // the answer ends in a line break of its own: without the last cut the reason and "(500)" were two lines (12 Nov 2026, proof-events)
  'echo "aqeelOS event hook '+id+' did not run: ${body:-no answer} ($code)"','exit 1',''].join('\n');
 
 // A hook's keep pattern comes from an agent and runs here, in the app's own process: one that can backtrack without end
