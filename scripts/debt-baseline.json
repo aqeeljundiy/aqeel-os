@@ -3,7 +3,7 @@
  "counts": {
   "serverBytes": 638490,
   "serverLines": 4085,
-  "modulesSavingJsonWithoutStore": 24,
+  "modulesSavingJsonWithoutStore": 18,
   "inlineAgentHomePaths": 92,
   "timersTotal": 74,
   "timersInServer": 48,
