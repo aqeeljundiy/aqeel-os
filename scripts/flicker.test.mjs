@@ -79,12 +79,20 @@ test('the sidebar, topbar, banners, composer bar, Kirimdev, Teams and Connection
  assert.doesNotMatch(src('kirimdev-page.js')+src('teams-page.js'),/classList\.add\('km-fresh'\)/,'no whole-list fade for one changed line')});
 
 test('the topbar draws the bell with its count, so a page switch never blanks or re-pops it',()=>{
- const Inbox={unread:()=>3},icon=()=>'<svg></svg>';const bell=new Function('Inbox','icon',grab('core.js','function bellBtn(')+'\nreturn bellBtn()')(Inbox,icon);
+ const Inbox={shown:()=>3},icon=()=>'<svg></svg>';const bell=new Function('Inbox','icon',grab('core.js','function bellBtn(')+'\nreturn bellBtn()')(Inbox,icon);
  assert.match(bell,/class="ghost icon bell has"/);assert.match(bell,/data-n="3"/);assert.match(bell,/<span class="bell-n">3<\/span>/);
- const none=new Function('Inbox','icon',grab('core.js','function bellBtn(')+'\nreturn bellBtn()')({unread:()=>0},icon);assert.match(none,/class="ghost icon bell"/);
+ const none=new Function('Inbox','icon',grab('core.js','function bellBtn(')+'\nreturn bellBtn()')({shown:()=>0},icon);assert.match(none,/class="ghost icon bell"/);
  assert.equal((src('core.js').match(/\$\{bellBtn\(\)\}/g)||[]).length,2,'full topbar and the side-panel topbar');
  // what paintBell compares against: drawn already, it has nothing to do
- assert.match(src('notices.js'),/if\(b\.dataset\.n===String\(n\)\)return/)});
+ assert.match(src('notices.js'),/if\(b\.dataset\.n===String\(n\)\)return/);
+
+ // OPS-14 (12 Nov 2026): before this page load's first answer the bell shows the count this browser last saw, so a reload or a first page
+ // never draws it at 0 and then pops it in; after the first answer it is the real count (which is saved for the next load)
+ const mem=new Map(),mk=()=>new Function('store',grab('notices.js','const Inbox=').replace('const Inbox=','return '))({get:(k,d)=>mem.has(k)?mem.get(k):d,set:(k,v)=>mem.set(k,v)});
+ const I=mk();mem.set('bellN',4);assert.equal(I.shown(),4,'nothing answered yet: the last known count');
+ I.items=[{read:false}];assert.equal(I.shown(),1,'an item of this tab is counted at once');
+ const J=mk();J.loaded=true;assert.equal(J.shown(),0,'answered: the real count, even when it is 0');
+ mem.set('bellN','x');assert.equal(mk().shown(),0,'a damaged saved count is ignored')});
 
 test('pop-ups play their own entrance (the palette was finished in one frame) and leave from where they are',()=>{
  const core=src('core.js');const layers=core.match(/LAYERS:'([^']+)'/)[1];
@@ -113,10 +121,6 @@ test('late cards open their space and lists change height smoothly',()=>{
  const core=src('core.js');assert.match(core,/watchReveal\(v\);watchLate\(v\);/);assert.match(core,/const Late=\{/);assert.match(core,/function smoothHeight\(box,fn\)/);
  assert.match(src('connections.js'),/smoothHeight\(box,draw\)/)});
 
-test('the sweep never counts a first entrance as a replay: text round a block still fading in is not "shown" yet',()=>{
- const sw=readFileSync(new URL('./sweep.js',import.meta.url),'utf8');
- assert.match(sw,/const snap=\(\)=>\{shown=new Set\(\);const fl=\$\('#view'\)\?\.getAnimations\(\{subtree:true\}\)/);
- assert.match(sw,/if\(fl\.some\(f=>el\.contains\(f\)\)\)continue/)});
 
 /* ---------- 12 Nov 2026: a page is drawn out of sight and shown whole; last-known answers while it is drawn ---------- */
 test('opening a page never blanks the view: render hands the drawing to Stage, which keeps what is on screen until the new page is whole',()=>{
@@ -166,3 +170,120 @@ test('the flicker check fails on a redrawn shell and on a page that moves, and r
  assert.match(bc,/if \[ "\$\{FLICKER_CHECK:-1\}" = 0 \]; then echo "· 2\/5 fast page switching: skipped/);assert.match(bc,/node scripts\/shot\.mjs \/tmp\/sweep\.png "#\/chat" "" "" 1280 900 "\$\(cat scripts\/sweep\.js\)"/);
  assert.doesNotMatch(readFileSync(new URL('../app/browser-checks.mjs',import.meta.url),'utf8'),/FLICKER_CHECK/,'the nightly run never switches the flicker check off');
  const wf=readFileSync(new URL('../.github/workflows/tests.yml',import.meta.url),'utf8');assert.match(wf,/node scripts\/flicker-ci\.mjs/)});
+
+
+/* ---------- OPS-14 (12 Nov 2026): what the sweep found on P&P's test copy ---------- */
+test('a row of tabs is drawn with its tab roles and its chosen tab (not only after placePills has run)',()=>{
+ const esc=x=>String(x),S={tab:{}};const t=new Function('esc','S',grab('core.js','function tabs(key,list,cur)')+'\nreturn tabs')(esc,S);
+ const h=t('health',['Now','History'],'History');
+ assert.match(h,/<div class="tabs" role="tablist" data-tabs="health">/);assert.match(h,/class="on" data-tab="History" role="tab" aria-selected="true" tabindex="0"/);assert.match(h,/data-tab="Now" role="tab" aria-selected="false" tabindex="-1"/)});
+test('a file tile and a file row are not a button inside a button: the open action is a real button, the options button is its sibling',()=>{
+ const f=src('files.js');
+ for(const name of ['const tile=','const row=','const upTile=','const upRow=']){const l=f.split('\n').find(x=>x.includes(name));assert.ok(l,name);assert.doesNotMatch(l,/tabindex="0"/,name+' holds no tab stop of its own');assert.match(l,/ rm[ "]/,name+' is a row-main row');assert.match(l,/<button type="button" class="row-main" data-act="f-(open|cd)"/,name)}
+ assert.match(src('app.css'),/\.ftile\.rm \.fmore\{position:absolute;z-index:1\}/)});
+test('the same page drawn again (Stage.same) shows no entrance again: its animations are finished at the swap; the sweep ignores what still runs out of sight',()=>{
+ const c=src('core.js');assert.ok(c.includes("live.remove();pg.classList.remove('staged');Calm.settle(pg);"));assert.ok(c.includes(' settle(n){for(const a of n.getAnimations'));
+ assert.ok(readFileSync(new URL('./sweep.js',import.meta.url),'utf8').includes("if(t.isConnected&&!t.closest('.staged')&&t.getAnimations()")); assert.ok(readFileSync(new URL('./sweep.js',import.meta.url),'utf8').includes("fetch('/ui/connections?fresh=1'"))});
+/* ---------- 12 Nov 2026: the sweep waits for a page to have settled (real conditions, no timer) and says precisely what a flicker is ---------- */
+test('the sweep: a page has settled only when nothing is being drawn or read, no placeholder shows and no entrance runs',async()=>{
+ const sw=readFileSync(new URL('./sweep.js',import.meta.url),'utf8');
+ const a=sw.indexOf("const LAYER="),b=sw.indexOf("let phase='off'");assert.ok(a>0&&b>a);
+ const mk=new Function('document','Swr','S','Calm',sw.slice(a,b)+'\nreturn busy');
+ const anim=(name,o={})=>({animationName:name,playState:o.state||'running',effect:{getTiming:()=>({iterations:o.forever?Infinity:1}),target:{closest:s=>o.in&&s.includes(o.in)?{}:null}}});
+ const view={_stage:null,staged:null,skels:[],anims:[],querySelector(s){return s==='.staged'?this.staged:null},querySelectorAll(){return this.skels},getAnimations(){return this.anims}};
+ const Swr={flying:0,flyNav:7,wait:0,drawing:0,nav:7},S={_nav:7},Calm={entry:()=>new Set(['viewIn','reveal'])};
+ const busy=mk({querySelector:s=>s==='#view'?view:null},Swr,S,Calm);
+ assert.equal(busy(),'','nothing going on: settled');
+ view._stage={};assert.equal(busy(),'being drawn');view._stage=null;view.staged={};assert.equal(busy(),'being drawn','a drawing still out of sight');view.staged=null;
+ Swr.flying=2;assert.equal(busy(),'reading');Swr.flyNav=6;assert.equal(busy(),'','reads of a page that was left do not count');Swr.flyNav=7;Swr.flying=0;
+ Swr.wait=1;assert.match(busy(),/reading again/,'a last-known answer is being checked: the page may be drawn once more');Swr.wait=0;
+ Swr.drawing=1;assert.match(busy(),/reading again/);Swr.nav=3;assert.equal(busy(),'');Swr.drawing=0;
+ const skel=(shown,desc)=>({offsetParent:shown?{}:null,closest:()=>desc?{}:null});
+ view.skels=[skel(true)];assert.equal(busy(),'a loading placeholder');view.skels=[skel(false),skel(true,true)];assert.equal(busy(),'','a hidden placeholder and a summary still being written do not hold the page');view.skels=[];
+ view.anims=[anim('reveal')];assert.equal(busy(),'its entrance');
+ view.anims=[anim('reveal',{state:'finished'}),anim('spin'),anim('viewIn',{forever:true}),anim('reveal',{in:'.staged'}),anim('viewIn',{in:'.toast'})];assert.equal(busy(),'','finished, endless, out of sight or on a layer: not the page entering');
+ assert.equal(mk({querySelector:()=>null},Swr,S,Calm)(),'no page')});
+test('the sweep: waits for settled instead of a timer, fails a page that never settles, and after settling counts every entrance (again or late)',()=>{
+ const sw=readFileSync(new URL('./sweep.js',import.meta.url),'utf8');
+ assert.doesNotMatch(sw,/await sl\(DWELL\[0\]\)/,'no fixed wait before judging a page');
+ assert.match(sw,/while\(performance\.now\(\)-t0<LOAD_MAX\)\{await sl\(40\);const b=busy\(\)/);assert.match(sw,/else if\(t-q>=QUIET\)\{ok=true;break\}/);
+ assert.match(sw,/never finished loading/);assert.match(sw,/slowPages/,'a slow page is named, not hidden and not called a flicker');
+ // 12 Nov 2026: a comment had swallowed "if(!shown.has(sig(t)))return", so every first entrance after 2.5 s counted as a replay. Which of the two it is is now said
+ assert.match(sw,/again=ph==='watch'\?shown\.has\(x\):t\.id!=='view'&&played\.has\(x\);if\(ph==='load'&&!again\)return;/);
+ assert.match(sw,/\(again\?' again':' late'\)/);assert.match(sw,/a\.id==='late'&&a\.playState==='running'/,'a block opening its space on a settled page is late too');
+ assert.match(sw,/if\(!b\|\|performance\.now\(\)-b<120\)return/,'an entrance Calm ended in its first frame never played');
+ for(const l of sw.split('\n'))assert.doesNotMatch(l,/\/\/[^\n]*\bif\(!?\w+\.has\(/,'no rule sits behind a comment on its line');
+ assert.match(sw,/document\.querySelector\('\.side'\)&&document\.querySelector\('\.topbar'\)/,'the shell is there before it is watched');
+ assert.ok(src('core.js').includes('const Stage={ms:450,max:2200,hard:6000,'));
+ assert.match(sw,/SLOW=6000,/,'every page a person looked at the ring for as long as Stage holds it is named (Stage.hard)');
+ assert.match(sw,/const WATCH=window\.SWEEP_WATCH\|\|7000,/,'a settled page is watched past the 6 s after which a list from a kept copy redraws itself (Cx.follow)');
+ assert.match(src('connections.js'),/this\.repaint\(el\)\}else if\(\+\+n<4\)go\(\);else\{Pages\._cx\.stale=false;this\.stamp\(el\)\}\},6000\)/,'if that wait grows, WATCH grows with it')});
+test('a grouped list (Skills, Plugins) drawn again changes in place and no row rises again',()=>{
+ const g=grab('unified-lists.js','UL.groups=function(');
+ assert.match(g,/if\(first\|\|!box\.firstChild\)box\.innerHTML=html;else\{morph\(box,html\);box\.querySelectorAll\('\.cn-row'\)\.forEach\(x=>x\.style\.animation='none'\)\}/);
+ assert.doesNotMatch(g,/box\.innerHTML=sec\(/,'not every row made anew on a redraw')});
+
+/* a drawing slower than Stage.max: shown as far as it is once it has stalled, held a little longer while its reads still answer (12 Nov 2026) */
+test('Stage: a page whose reads keep answering is shown whole; one whose reads went silent for 2.2 s is shown as far as it is; none waits past 6 s',async()=>{
+ // a clock and timers the test moves; promises get their turn after every timer
+ const mk=()=>{let now=0,id=0;const tm=new Map();const flush=async()=>{for(let i=0;i<8;i++)await Promise.resolve()};
+  const clock={setTimeout:(fn,ms)=>{tm.set(++id,{at:now+(ms||0),fn});return id},clearTimeout:i=>tm.delete(i),performance:{now:()=>now},
+   async adv(ms){const end=now+ms;for(;;){let k=null;for(const [i,t] of tm)if(t.at<=end&&(k===null||t.at<tm.get(k).at))k=i;if(k===null)break;const t=tm.get(k);tm.delete(k);now=Math.max(now,t.at);t.fn();await flush()}now=end}};
+  const S={_nav:1},seen=[];class MO{constructor(cb){seen.push(cb)}observe(){}disconnect(){}}   // stands in for the browser's: draw() below says "something was drawn"
+  const env=new Function('S','performance','setTimeout','clearTimeout','$','MutationObserver',grab('core.js','const Stage={')+'\n'+grab('core.js','const Swr={')+'\nreturn {Stage,Swr}')(S,clock.performance,clock.setTimeout,clock.clearTimeout,()=>null,MO);
+  const shown=[],pg={isConnected:true,firstChild:{}},v={},st={pg,kind:'page',reveal:()=>shown.push(now)};
+  // reads: each answers at its time (ms after opening); the page function itself ends at once
+  // wait: the page function waits for its read that answers at that time (the others it fills without waiting)
+  const open=async(reads,wait)=>{env.Stage.hold(v,st,()=>{let w;for(const ms of reads){const p=env.Swr.fly(new Promise(r=>clock.setTimeout(r,ms)));if(ms===wait)w=p}return w});await flush()};
+  return {clock,open,shown,pg,draw(){pg.firstChild={};seen.at(-1)()}}};
+ // answers every second until 3.4 s (Settings for all agents on a busy box): whole at 3.4 s, not half drawn at 2.2 s
+ let x=mk();await x.open([900,1800,2700,3400]);await x.clock.adv(2300);assert.deepEqual(x.shown,[],'still being answered at 2.2 s: not shown half drawn');await x.clock.adv(1200);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=3400&&x.shown[0]<3500,'shown when whole, at '+x.shown[0]);
+ // one read that does not come (Health's cost of the week took 15 to 29 s): shown 2.2 s after the last other answer, not at 6 s
+ x=mk();await x.open([400,900,25000]);await x.clock.adv(3000);assert.deepEqual(x.shown,[],'2.1 s after the last answer');await x.clock.adv(200);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=3100&&x.shown[0]<3200,'at '+x.shown[0]);
+ // nothing has answered at all (the engine hangs): the ring or the page's own grey placeholders are all there is to show either way, so it stays out of sight, 6 s at most
+ x=mk();await x.open([30000]);await x.clock.adv(5900);assert.deepEqual(x.shown,[]);await x.clock.adv(200);assert.equal(x.shown.length,1);
+ // every read answers late, at once (a busy box): not shown as placeholders at 2.2 s that then fill in view, but whole
+ x=mk();await x.open([2500,2600,2900]);await x.clock.adv(2400);assert.deepEqual(x.shown,[]);await x.clock.adv(600);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=2900&&x.shown[0]<3000,'whole at '+x.shown[0]);
+ // an answer came but nothing is drawn yet: still only the ring to show
+ x=mk();x.pg.firstChild=null;await x.open([300,2900]);await x.clock.adv(2600);assert.deepEqual(x.shown,[],'empty 2.2 s after the answer: not shown as a ring that then fills in view');x.draw();await x.clock.adv(400);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=2900&&x.shown[0]<3000,'whole at '+x.shown[0]);
+ x=mk();x.pg.firstChild=null;await x.open([30000]);await x.clock.adv(5900);assert.deepEqual(x.shown,[]);await x.clock.adv(200);assert.equal(x.shown.length,1,'6 s at most');
+ // answers trickle in for ever: never past 6 s
+ x=mk();await x.open(Array.from({length:12},(_,i)=>(i+1)*1500));await x.clock.adv(5900);assert.deepEqual(x.shown,[]);await x.clock.adv(200);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=6000&&x.shown[0]<6100,'at '+x.shown[0]);
+ // the page function still waits for a read after a quick one (Models: its accounts, 3.1 s): not shown at 2.5 s without what it draws after that read
+ x=mk();await x.open([300,3100],3100);await x.clock.adv(2800);assert.deepEqual(x.shown,[],'the page function has not drawn its last part yet');await x.clock.adv(400);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=3100&&x.shown[0]<3200,'whole at '+x.shown[0]);
+ x=mk();await x.open([300,25000],25000);await x.clock.adv(5900);assert.deepEqual(x.shown,[]);await x.clock.adv(200);assert.equal(x.shown.length,1,'a page function that never ends: 6 s at most');
+ // a quick page is shown the moment it is whole
+ x=mk();await x.open([300]);await x.clock.adv(350);assert.equal(x.shown.length,1)});
+
+test('a part that lands late keeps the space it took last time (Keep): Usage\'s Spending overview no longer drops the page under it',()=>{
+ const mem=new Map(),localStorage={getItem:k=>mem.has(k)?mem.get(k):null,setItem:(k,v)=>mem.set(k,String(v))};let width=1280;
+ const Keep=new Function('localStorage','innerWidth',grab('core.js','const Keep={')+'\nreturn Keep'),K=()=>Keep(localStorage,width);
+ const el=h=>({style:{},isConnected:true,offsetHeight:h});
+ let p=el(0);assert.equal(K().hold('usage.spend',p),0,'never drawn in this browser: nothing held');assert.equal(p.style.minHeight,undefined);
+ p=el(402.4);p.style.minHeight='300px';K().note('usage.spend',p);assert.equal(p.style.minHeight,'','the content is in: the hold is let go');assert.deepEqual(JSON.parse(mem.get('ph-here')),{'usage.spend@32':402});
+ p=el(0);assert.equal(K().hold('usage.spend',p),402);assert.equal(p.style.minHeight,'402px','the next visit: its box is that tall while the placeholder shows');
+ const gone={style:{minHeight:'1px'},isConnected:false,offsetHeight:0};K().note('usage.spend',gone);assert.equal(JSON.parse(mem.get('ph-here'))['usage.spend@32'],402,'a part that left the page records nothing');
+ width=390;p=el(0);assert.equal(K().hold('usage.spend',p),0,'another window width (a phone): its own height, not the desk one');
+ assert.doesNotMatch(grab('core.js','const Keep={'),/\bstore\./,'kept in this browser only: what goes through store follows the person to every device');assert.equal(/^(hui-|draft:|cronSeen:|chAlert:|cronFail:)/.test('ph-here'),false);
+ const s=src('schedules.js');assert.ok(s.includes("const kk='usage.spend:'+(S.viewAll?'all':S.viewAgent||'own');{const h=Keep.hold(kk,panel)"),'per view: all agents is taller than one');assert.ok(s.includes('Keep.note(kk,panel)'));
+ assert.match(s,/<div class="skel" style="height:280px"><\/div>';/,'before it is known: as tall as it usually is where the page is slow, not 120 px')});
+test('Settings and Models: the parts added round the page ask with the page, not one after another once it has drawn',()=>{
+ // 12 Nov 2026 (local sweep, engine answering in 0.2 to 5 s): Settings' wrappers each asked only after the page under them had finished, so their
+ // reads ran in a row, past Stage.hard, and This install, the cloud fixer and the evening summary landed on a page already shown (369 px jump)
+ const before=(f,head,read)=>{const s=grab(f,head),i=s.indexOf(read),j=s.search(/await (settings|base)\(p,el/);assert.ok(i>=0&&j>i,f+': '+read+' starts before the page under it is awaited')};
+ before('install-page.js',"{const settings=PAGES.settings;","Install.load()");
+ before('install-page.js',"{const base=PAGES.models;","Install.load()");
+ before('all-agents-more.js',"{const settings=PAGES.settings;","H(prof('/env',who0))");
+ before('cloud-fixer-page.js',"{const settings=PAGES.settings;","CloudFixer.load()");
+ before('activity-page.js',"{const settings=PAGES.settings;","UI('/ui/notify-settings')");
+ before('boot.js',"{const settings=PAGES.settings;","H('/shared-metrics/consent')");
+ before('people.js',"{const base=PAGES.models;PAGES.models=async(p,el)=>{const gone=pageTok(el),pre","H('/config')");
+ before('access.js',"{const base=PAGES.keys;","Access.load('key')");
+ before('access-ask.js',"for(const id of Object.keys(ASK_KIND)){","UI('/ui/access/others");
+ assert.match(grab('access-ask.js','async function askSection('),/await \(pre\|\|UI\('\/ui\/access\/others/);
+ assert.match(grab('cloud-fixer-page.js','async function cfMount('),/await \(pre\|\|CloudFixer\.load\(\)\)/);
+ assert.match(grab('people.js','async function moaPanel('),/await \(pre\|\|H\('\/config'\)\)/);
+ assert.match(src('boot.js'),/await \(pre\|\|H\('\/shared-metrics\/consent'\)\)/);
+ // Memory for all agents: the memory service is asked with the page, and each agent's two files at once
+ const m=grab('all-agents-more.js',' async memory(p,el){');assert.ok(m.indexOf("prov=Promise.all([H('/memory')")>=0&&m.indexOf("prov=Promise.all([H('/memory')")<m.indexOf('await viewAgents()'));
+ assert.match(m,/const \[m,hub\]=await prov;/);assert.match(m,/await Promise\.all\(\[read\(home\(a\)\+'MEMORY\.md'\),read\(home\(a\)\+'USER\.md'\)\]\)/)});

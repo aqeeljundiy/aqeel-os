@@ -5,7 +5,25 @@
 import {personOf} from './issues.mjs';
 import {isAgent,LIVE_APP,HELP_AGENT} from './agentops.mjs';
 import {issueActs} from './need-action.mjs';
-export function createHealthRoutes({agentGraph,agentMemory,agentName,chatHistory,cloudFixer,codeChanges,effView,escalations,health,issues,listAgents,listAllProfiles,memWatch,needCtx,ownerSend,questions,readBody,relay,resume,send,teamSettings,usage,users}){
+import {swr} from './swr.mjs';
+export function createHealthRoutes({agentGraph,agentMemory,agentName,chatHistory,cloudFixer,codeChanges,effView,escalations,health,issues,listAgents,listAllProfiles,memWatch,needCtx,ownerSend,questions,readBody,relay,resume,send,teamSettings,usage,users,warmMs=8000}){
+ // Cost this week (12 Nov 2026): adding it up reads every agent's chats from the engine, 15 to 29 s on a busy box whenever usage.mjs's own minute had
+ // passed, and System › Health waited for it on every visit. The last answer is given at once and added up again behind it once it is a minute old
+ // (swr.mjs); only the very first ask after a start waits, so it is added up once shortly after the start, before anyone asks.
+ const costView=swr({fresh:60000});
+ const costWeek=async()=>{
+  // whose chat it was: the person who started it in aqeelOS, else a person the team policy knows on that channel (the owner
+  // on Telegram), else what started it: a schedule, a customer on a channel, or background work (the fixer, helpers)
+  const pol=await issues.policy().catch(()=>({})),CH=['telegram','whatsapp','slack','discord','signal'];
+  const who=(id,s)=>{const o=users.sessionOwner(id);if(o)return o;const src=String(s?.source||'');
+   if(s?.user_id&&CH.includes(src)){const x=personOf(pol,src,s.user_id);if(x)return x.owner?'owner':'@'+x.name}
+   return src==='cron'?'_cron':[...CH,'webhook','local','api_server'].includes(src)?'_chan':'_bg'};
+  const AUTO={_cron:'Schedules',_chan:'Customers and channels',_bg:'Background work (fixer, helpers)'};
+  const all=await usage.breakdown([...await listAllProfiles(),HELP_AGENT],7,who);const ppl=Object.fromEntries(users.people().map(x=>[x.id,x.name]));
+  const agentOf=a=>String(a).split('--')[0],ba={};for(const [a,o] of Object.entries(all.byAgent||{})){const k=agentOf(a);ba[k]=(ba[k]||0)+(o.cost||0)}
+  const rows=o=>Object.entries(o).map(([k,c])=>({id:k,cost:Math.round(c*100)/100})).filter(r=>r.cost>0).sort((a,b)=>b.cost-a.cost);
+  return {days:7,byAgent:rows(ba).map(r=>({...r,name:r.id===HELP_AGENT?'Help':agentName(r.id)})),byPerson:rows(Object.fromEntries(Object.entries(all.byPerson||{}).map(([k,o])=>[k,o.cost||0]))).map(r=>({...r,name:AUTO[r.id]||(r.id.startsWith('@')?r.id.slice(1):ppl[r.id]||r.id),auto:!!AUTO[r.id]})),failed:all.failed||null}};
+ setTimeout(()=>costView.get('week',costWeek).catch(()=>{}),warmMs).unref?.();
  return async function handle(req,res,p,url,u){
    // System › Health: each agent fine or with its problems, and its failed messages this week (agent-health.mjs)
    if(p==='/ui/health/issues'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'}),true;const l=await issues.list();const nc=l.items.some(i=>i.state==='needs_human'||i.state==='stuck'&&i.need)?await needCtx().catch(()=>({})):{};const qm=Object.fromEntries((await questions.list().catch(()=>[])).filter(q=>q.state==='open'&&q.issue).map(q=>[q.issue,q]));return send(res,200,{items:l.items.map(i=>({question:qm[i.id]||null,acts:i.state==='needs_human'||i.state==='stuck'&&i.need?issueActs(i,nc):undefined,id:i.id,agent:i.agent,agentName:i.agentName,state:i.state,source:i.source||null,missing:i.missing,proposed_fix:i.proposed_fix,byName:i.byName,decision:i.decision,created:i.created,updated:i.updated,count:i.count,result:i.result||null,tries:i.tries??i.attempts??0,proof:i.proof||null,need:i.need||null,told:i.told||null,patch:i.patch||null,noRetry:!!i.noRetry,closeAfter:!!i.closeAfter,title:i.title||null,group:i.group||null,urgent:!!i.urgent,sorting:!!i.sorting,mergedInto:i.mergedInto||null,dupOf:i.dupOf||null,affects:i.affects||[],reports:(i.reports||[]).map(r=>({agent:r.agent,agentName:agentName(r.agent),at:r.at,id:r.id||null})),history:(i.history||[]).slice(-8).map(h=>({kind:h.kind,at:h.at,status:h.status,summary:h.summary||null,outcome:h.outcome||null}))})),spend:l.spend||null,fixer:l.fixer||null,escalations:await escalations.view().catch(()=>({agents:{}})),agents:(await listAgents().catch(()=>[])).map(a=>({id:a,name:agentName(a)})),sources:await chatHistory.sources().catch(()=>[]),policy:{teams:(l.policy.teams||[]).map(t=>({name:t.name,agents:t.agents,contact:t.contact||(t.members||[])[0]?.name||null,members:(t.members||[]).map(m=>m.name)})),fixer:l.policy.fixer||{}}}),true}
@@ -63,17 +81,7 @@ export function createHealthRoutes({agentGraph,agentMemory,agentName,chatHistory
    catch(e){return send(res,e.status||400,{error:e.message}),true}}
   if(p==='/ui/health/efficiency'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'}),true;return send(res,200,await effView.view({fresh:url.searchParams.get('fresh')==='1'})),true}
   if(p==='/ui/health/cost'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'}),true;
-   // whose chat it was: the person who started it in aqeelOS, else a person the team policy knows on that channel (the owner
-   // on Telegram), else what started it: a schedule, a customer on a channel, or background work (the fixer, helpers)
-   const pol=await issues.policy().catch(()=>({})),CH=['telegram','whatsapp','slack','discord','signal'];
-   const who=(id,s)=>{const o=users.sessionOwner(id);if(o)return o;const src=String(s?.source||'');
-    if(s?.user_id&&CH.includes(src)){const x=personOf(pol,src,s.user_id);if(x)return x.owner?'owner':'@'+x.name}
-    return src==='cron'?'_cron':[...CH,'webhook','local','api_server'].includes(src)?'_chan':'_bg'};
-   const AUTO={_cron:'Schedules',_chan:'Customers and channels',_bg:'Background work (fixer, helpers)'};
-   const all=await usage.breakdown([...await listAllProfiles(),HELP_AGENT],7,who);const ppl=Object.fromEntries(users.people().map(x=>[x.id,x.name]));
-   const agentOf=a=>String(a).split('--')[0],ba={};for(const [a,o] of Object.entries(all.byAgent||{})){const k=agentOf(a);ba[k]=(ba[k]||0)+(o.cost||0)}
-   const rows=o=>Object.entries(o).map(([k,c])=>({id:k,cost:Math.round(c*100)/100})).filter(r=>r.cost>0).sort((a,b)=>b.cost-a.cost);
-   return send(res,200,{days:7,byAgent:rows(ba).map(r=>({...r,name:r.id===HELP_AGENT?'Help':agentName(r.id)})),byPerson:rows(Object.fromEntries(Object.entries(all.byPerson||{}).map(([k,o])=>[k,o.cost||0]))).map(r=>({...r,name:AUTO[r.id]||(r.id.startsWith('@')?r.id.slice(1):ppl[r.id]||r.id),auto:!!AUTO[r.id]})),failed:all.failed||null}),true}
+   return send(res,200,await costView.get('week',costWeek)),true}
   if(p==='/ui/health/issues/retry'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'}),true;let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}const i=await issues.retry(String(b.id||''));if(!i)return send(res,404,{error:'No such issue.'}),true;return send(res,200,{ok:true,state:i.state}),true}
    if(p==='/ui/health/agents'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'}),true;return send(res,200,await health.view()),true}
   return false}}

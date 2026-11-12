@@ -633,6 +633,9 @@ body.dragging .screen-float{transition:none}
 .fmeta{font-size:12px;color:var(--muted);padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fmore{position:absolute;top:14px;right:14px;width:30px;min-height:30px;background:var(--surface);opacity:0;transition:opacity var(--t-fast)}
 .ftile:hover .fmore,.ftile:focus-within .fmore{opacity:1}
+/* the tile's open button is .row-main (stretched over the tile); the options button stays a sibling above it */
+.ftile.rm .fmore{position:absolute;z-index:1}
+.ftile.rm .row-main{display:block;overflow:hidden;text-overflow:ellipsis}
 .fk{display:grid;place-items:center;width:58px;height:58px;border-radius:var(--r-md);color:#fff;background:var(--muted)}
 .fk-sm{display:grid;place-items:center;width:32px;height:32px;border-radius:var(--r-md);color:#fff;background:var(--muted);flex:none}
 .fk-folder{background:linear-gradient(180deg,var(--blue-2),var(--blue))}.fk-image{background:#7c4dff}.fk-video{background:#e5484d}.fk-audio{background:#f76b15}.fk-pdf{background:#c62f2f}.fk-md{background:#2e3038}.fk-code{background:#0b0c10}.fk-archive{background:#8a6d3b}.fk-sheet{background:#1f8a4c}.fk-doc{background:#2f7bff}

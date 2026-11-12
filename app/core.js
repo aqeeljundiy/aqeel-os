@@ -419,19 +419,35 @@ function runPage(P,r,pg){const nav=S._nav;let gone=pageRun(pg);return Promise.re
    then one swap in one frame. A drawing slower than Stage.ms shows the new heading and the loading ring meanwhile, and
    one slower than Stage.max is shown as far as it is. The new drawing sits in the document before the old one, so every
    lookup by id finds the new one; it is laid out (sizes can be measured) but takes no room and shows nothing. */
-const Stage={ms:450,max:2200,
- drop(v){const st=v._stage;if(st){clearTimeout(st.t);clearTimeout(st.t2);v._stage=null;st.fin?.()}for(const x of v.querySelectorAll('.staged'))x.remove()},
+// How long a person looks at the loading ring before they get what there is (12 Nov 2026). max (2.2 s) is the longest silence: a drawing that has
+// had an answer and has not moved on for that long (no read of the visit answered, nothing drawn) has stalled and is shown as far as it is. One that is
+// still coming together is nearly whole and waits on, because a page shown half drawn moves as each late part lands (Settings for all agents on a busy
+// box: its reads took 3.4 s, it was shown at 2.2 s and its list jumped 433 px a moment later); so does one that has had no answer at all yet, since the
+// ring or the page's own grey placeholders are all there is to show either way. None waits past `hard`. max was 6 s flat for a day: Health then sat
+// behind the ring for the full 6 s on every visit because of one read that took 15 to 29 s (its cost of the week, since made fast where it was slow)
+// and still landed late: a longer ring hides a slow read, it does not fix it. Now that page is shown 2.2 s after its last other part.
+// The silence counts only once the page function has ended: while it still waits for a read, what it draws after that read is not on the page at all, and
+// showing the page without it moves everything when it comes (Models at 2.5 s, then its Claude sign-in card and the cloud fixer landed above and inside
+// the tabs 0.6 s later and moved them 264 px: local sweep, 12 Nov 2026). Such a page keeps the ring until it has drawn, 6 s at most; slow pages are named by the sweep.
+const Stage={ms:450,max:2200,hard:6000,
+ drop(v){const st=v._stage;if(st){clearTimeout(st.t);clearTimeout(st.t2);st.mo?.disconnect();v._stage=null;st.fin?.()}for(const x of v.querySelectorAll('.staged'))x.remove()},
  // st: {pg (the content being drawn, out of sight), kind, early (optional: show the heading and the ring), reveal (show pg)}
- hold(v,st,run){const prev=v._stage;v._stage=st;v._run=run;if(prev){clearTimeout(prev.t);clearTimeout(prev.t2);prev.fin?.()}
-  const done=()=>{if(v._stage!==st)return;clearTimeout(st.t);clearTimeout(st.t2);v._stage=null;if(!st.pg.isConnected)return;if(st.early){st.early();st.early=null}st.reveal()};
+ hold(v,st,run){const prev=v._stage;v._stage=st;v._run=run;if(prev){clearTimeout(prev.t);clearTimeout(prev.t2);prev.mo?.disconnect();prev.fin?.()}
+  const done=()=>{if(v._stage!==st)return;clearTimeout(st.t);clearTimeout(st.t2);st.mo?.disconnect();v._stage=null;if(!st.pg.isConnected)return;if(st.early){st.early();st.early=null}st.reveal()};
   if(st.early)st.t=setTimeout(()=>{if(v._stage===st&&st.pg.isConnected&&st.early){st.early();st.early=null;st.rung=true}},this.ms);
   let ended=false;const tok=Swr.begin(),fin=st.fin=()=>{if(ended)return;ended=true;done();Swr.end(tok)};
   // whole: the page function has finished and nothing it began is still being read (parts a page fills without waiting
   // for them: the links under Keys, a list's second half)
   const quiet=()=>{if(ended)return;if(v._stage!==st||S._nav!==tok||!Swr.flying)return fin();Swr.idle=()=>setTimeout(quiet,0)};
   // too slow to wait for: shown as far as it is (a page with nothing drawn yet keeps the ring; the same page drawn again keeps what it shows)
-  st.t2=setTimeout(()=>{if(st.kind==='pg'&&!st.pg.firstChild)return;done()},this.max);   // the drawing goes on in view; fin comes when it ends
-  let p;try{p=run(st.pg)}catch{}Promise.resolve(p).catch(()=>{}).finally(()=>setTimeout(quiet,0))},
+  // (what was drawn last: a part drawn from a last-known answer or a shared read moves the page on without an answer of its own)
+  const t0=performance.now();let drew=t0;const mo=typeof MutationObserver==='undefined'?null:new MutationObserver(()=>{drew=performance.now()});mo?.observe(st.pg,{childList:true,subtree:true});st.mo=mo;
+  const late=()=>{if(st.kind==='pg'&&!st.pg.firstChild)return;if(v._stage!==st)return;const t=performance.now();
+   const some=ran&&Swr.last>t0&&st.pg.firstChild,left=Math.min(some?this.max-(t-Math.max(Swr.last,drew)):150,this.hard-(t-t0));
+   if(left>0&&S._nav===tok&&Swr.flying&&Swr.flyNav===tok){st.t2=setTimeout(late,left+5);return}   // still coming together, or nothing answered yet (only the ring to show)
+   done()};   // the drawing goes on in view; fin comes when it ends
+  st.t2=setTimeout(late,this.max);
+  let p,ran=false;try{p=run(st.pg)}catch{}Promise.resolve(p).catch(()=>{}).finally(()=>{ran=true;setTimeout(quiet,0)})},
  // another page: the whole page (its heading too) is staged; what is on screen (a page, the chat, Help) stays meanwhile
  open(v,headHtml,run,enter){this.drop(v);
   for(const o of v.querySelectorAll('#pg'))o._rt=(o._rt||0)+1;   // drawings still on their way to the old page stop
@@ -448,7 +464,7 @@ const Stage={ms:450,max:2200,
   this.drop(v);const live=$('#pg');if(!live)return;
   live._rt=(live._rt||0)+1;const pg=document.createElement('div');pg.id='pg';pg.className='staged';live.before(pg);
   this.hold(v,{pg,kind:'pg',reveal(){const a=document.activeElement,keep=a&&a.id&&live.contains(a)?a:null;
-   live.remove();pg.classList.remove('staged');
+   live.remove();pg.classList.remove('staged');Calm.settle(pg);   // the same page drawn again is an update in place: its entrances (started while it was out of sight, or inside the opening window) are over, not replayed
    if(keep){const b=pg.querySelector('#'+CSS.escape(keep.id));if(b){b.focus({preventScroll:true});try{b.setSelectionRange(keep.selectionStart,keep.selectionEnd)}catch{}}}}},run)},
  // newer answers came in after a page was drawn from its last-known ones (Swr): draw it once more, unless someone is in
  // the middle of something on it (a pop-up open, typing in a field): then a little later
@@ -464,10 +480,10 @@ const Stage={ms:450,max:2200,
    differ the page is drawn once more (out of sight, swapped whole: Stage.again). Only while a page is being drawn and
    only for the visit that began the drawing: timers and buttons always ask the server. Any change (POST, PUT, DELETE…)
    forgets every answer, so a save never shows old data; answers older than 15 minutes are not used. */
-const Swr={m:new Map(),gen:0,nav:-1,drawing:0,wait:0,changed:false,fresh:8000,old:15*60e3,flying:0,flyNav:-1,idle:null,
+const Swr={m:new Map(),gen:0,nav:-1,drawing:0,wait:0,changed:false,fresh:8000,old:15*60e3,flying:0,flyNav:-1,idle:null,last:0,
  // reads on their way for this visit (Stage waits for them before it shows a page)
  fly(p){const nav=S._nav;if(nav!==this.flyNav){this.flyNav=nav;this.flying=0;this.idle=null}this.flying++;
-  const end=()=>{if(nav!==this.flyNav)return;this.flying=Math.max(0,this.flying-1);if(!this.flying&&this.idle){const f=this.idle;this.idle=null;f()}};p.then(end,end);return p},
+  const end=()=>{if(nav!==this.flyNav)return;this.last=performance.now();this.flying=Math.max(0,this.flying-1);if(!this.flying&&this.idle){const f=this.idle;this.idle=null;f()}};p.then(end,end);return p},
  skip:/\/(logs|stream|events|export|download)\b/,
  begin(){if(this.nav!==S._nav){this.nav=S._nav;this.drawing=0;this.changed=false}this.drawing++;return this.nav},
  end(tok){if(tok!==this.nav)return;this.drawing=Math.max(0,this.drawing-1);this.settle()},
@@ -476,7 +492,7 @@ const Swr={m:new Map(),gen:0,nav:-1,drawing:0,wait:0,changed:false,fresh:8000,ol
   if(age>this.fresh&&!e.p){const g=this.gen,nav=S._nav;this.wait++;
    e.p=Promise.resolve().then(again).then(d=>{if(g!==this.gen)return;const t=JSON.stringify(d);if(t===e.s){e.t=Date.now();return}this.put(key,d,t);if(nav===S._nav)this.changed=true},()=>{})
     .finally(()=>{e.p=null;if(g===this.gen){this.wait=Math.max(0,this.wait-1);this.settle()}})}
-  return JSON.parse(e.s)},
+  this.last=performance.now();return JSON.parse(e.s)},
  put(key,d,t){if(this.skip.test(key))return;t??=JSON.stringify(d);this.m.delete(key);if(t===undefined||t.length>2.5e5)return;this.m.set(key,{t:Date.now(),s:t,p:null});if(this.m.size>160)this.m.delete(this.m.keys().next().value)},
  clear(){this.m.clear();this.gen++;this.wait=0;this.changed=false},
  settle(){if(this.drawing||this.wait||!this.changed||this.nav!==S._nav)return;this.changed=false;Stage.again()}};
@@ -517,8 +533,9 @@ const Calm={until:0,names:null,
  // layers that open on top (palette, scrim, dialogs, pop-ups) always play their own entrance: finishing it made the
  // palette appear in one frame
  LAYERS:'.menu,.toast,dialog,.drawer,.notice,[data-anim],.aq-menu,.palette,.scrim,.plug-dlg,.plug-scrim,.meter-card,.cron-pop,.new-version',
- calm(n){if(performance.now()<this.until||n.closest?.(this.LAYERS))return;
-  for(const a of n.getAnimations?.({subtree:true})||[]){const t=a.effect?.getTiming?.();if(a.animationName&&t&&t.iterations!==Infinity&&this.entry().has(a.animationName))a.finish()}}};
+ calm(n){if(performance.now()<this.until||n.closest?.(this.LAYERS))return;this.settle(n)},
+ // the entrances inside n are over now (whatever the opening window says)
+ settle(n){for(const a of n.getAnimations?.({subtree:true})||[]){const t=a.effect?.getTiming?.();if(a.animationName&&t&&t.iterations!==Infinity&&!a.effect.target?.closest?.(this.LAYERS)&&this.entry().has(a.animationName))a.finish()}}};
 new MutationObserver(list=>{for(const m of list)for(const n of m.addedNodes)if(n.nodeType===1)Calm.calm(n)}).observe(document.documentElement,{childList:true,subtree:true});
 Calm.opening(1500);
 function sidebar(r){
@@ -537,7 +554,7 @@ function sidebar(r){
 }
 // the bell drawn with its count (as Inbox.paintBell leaves it): drawn empty, every topbar redraw (each page switch) hid the
 // count until the next 2-second paint, which then popped it in and rang the bell again
-function bellBtn(){const n=typeof Inbox!=='undefined'?Inbox.unread():0;return `<button class="ghost icon bell${n>0?' has':''}" data-act="inbox" data-n="${n}" title="Notifications" aria-label="${n?n+' notifications':'Notifications'}">${icon('bell',18)}<span class="bell-n">${n?(n>99?'99+':n):''}</span></button>`}
+function bellBtn(){const n=typeof Inbox!=='undefined'?Inbox.shown():0;return `<button class="ghost icon bell${n>0?' has':''}" data-act="inbox" data-n="${n}" title="Notifications" aria-label="${n?n+' notifications':'Notifications'}">${icon('bell',18)}<span class="bell-n">${n?(n>99?'99+':n):''}</span></button>`}
 // "Agents > Agents", "Models > Models and accounts": a page named after its section shows one crumb
 function sameCrumb(sec,page){const a=String(sec||'').trim().toLowerCase(),b=String(page||'').trim().toLowerCase();return !!a&&(a===b||b.startsWith(a+' '))}
 function topbar(r){
@@ -586,7 +603,8 @@ function gwState(s){if(!s)return typeof noAgent==='function'&&noAgent()?{label:'
 /* ---------- page helpers ---------- */
 function head(p,actions=''){return `<div class="page-head"><div><h1>${p.label}</h1><p>${p.desc||''}</p></div><div class="head-actions" style="display:flex;gap:8px;flex-wrap:wrap">${actions}</div></div>`}
 function setActions(html){const a=$('.head-actions');if(!a)return;const vp=a.querySelector('.view-pick');a.innerHTML=html;if(vp)a.prepend(vp);requestAnimationFrame(()=>edgeFade(a))}
-function tabs(key,list,cur){cur=cur||S.tab[key]||list[0];return `<div class="tabs" data-tabs="${key}">${list.map(t=>`<button class="${t===cur?'on':''}" data-tab="${esc(t)}">${esc(t)}</button>`).join('')}<span class="pill"></span></div>`}
+// drawn with its roles (the same ones ariaTabs keeps up to date): a row of tabs first painted without them, and read so by anything that looks before placePills has run (OPS-14, sweep: "Health has tabs without tab roles")
+function tabs(key,list,cur){cur=cur||S.tab[key]||list[0];return `<div class="tabs" role="tablist" data-tabs="${key}">${list.map(t=>`<button class="${t===cur?'on':''}" data-tab="${esc(t)}" role="tab" aria-selected="${t===cur}" tabindex="${t===cur?0:-1}">${esc(t)}</button>`).join('')}<span class="pill"></span></div>`}
 const toggle=(on,label,attrs='')=>`<input type="checkbox" class="switch" ${on?'checked':''} aria-label="${esc(label)}" ${attrs}>`;
 const st=i=>`style="animation-delay:${Math.min(i,10)*30}ms"`;
 const skeleton=()=>`<div class="skel loading" role="status" aria-label="Loading"><span class="ring"></span></div>`;
@@ -854,6 +872,14 @@ const Late={seen:new WeakMap(),ms:260,
   const z={height:'0px',marginTop:'0px',marginBottom:'0px',paddingTop:'0px',paddingBottom:'0px'};
   n.style.overflow='hidden';const a=n.animate([{...z,opacity:0},{...to,opacity:0,offset:.62},{...to,opacity:1}],{duration:this.ms,easing:'cubic-bezier(.2,.7,.2,1)',id:'late'});
   n._late=a;const done=()=>{if(n._late===a){n.style.overflow='';n._late=null}};a.onfinish=done;a.oncancel=done}};
+/* A part that may arrive after its page is shown keeps the space it took last time (12 Nov 2026: Usage's Spending overview stood in a 120 px placeholder,
+   came 161 px taller, and when the engine was slow enough for the page to be shown without it, everything under it dropped by that much). While its
+   placeholder shows, the part's box is as tall as the part was the last time this browser drew it, so nothing below moves when it lands. */
+// Kept in this browser only and per window width (not through `store`: those follow the person to every device, and a height from a phone is wrong on a desk).
+const Keep={key:k=>k+'@'+Math.round(innerWidth/40),all(){try{return JSON.parse(localStorage.getItem('ph-here')||'{}')||{}}catch{return {}}},
+ h(k){const v=this.all()[this.key(k)];return v>0?v:0},
+ hold(k,el){const h=this.h(k);if(h)el.style.minHeight=h+'px';return h},
+ note(k,el){el.style.minHeight='';if(!el.isConnected)return;const h=Math.round(el.offsetHeight);if(!(h>0))return;const m=this.all();if(m[this.key(k)]===h)return;m[this.key(k)]=h;try{localStorage.setItem('ph-here',JSON.stringify(m))}catch{}}};
 // a list that changes length in place (a filter, a search): its box eases to the new height instead of jumping, and
 // what is below it glides along. fn redraws the box's content.
 function smoothHeight(box,fn){if(!box||calm()||!box.isConnected){fn();return}const h0=box.offsetHeight;fn();const h1=box.offsetHeight;if(Math.abs(h1-h0)<4)return;

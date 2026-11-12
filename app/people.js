@@ -625,7 +625,7 @@ const accessChip=(text,tip,kind='')=>`<span class="chip access ${kind}" title="$
  a.hidden=true;document.querySelector('.drawer [data-env="TELEGRAM_BOT_TOKEN"]')?.focus()}}
 
 /* ---------- Models › Mixture of agents: several models advise, one writes the answer ---------- */
-async function moaPanel(el,gone=pageTok(el)){let c;try{c=await H('/config')}catch{return}const moa=c.moa||{};const presets=moa.presets||{};if(!Chat.models)await Chat.loadModels().catch(()=>{});if(gone())return;   // drawn again meanwhile: that drawing adds its own
+async function moaPanel(el,gone=pageTok(el),pre){let c;try{c=await (pre||H('/config'))}catch{return}const moa=c.moa||{};const presets=moa.presets||{};if(!Chat.models)await Chat.loadModels().catch(()=>{});if(gone())return;   // drawn again meanwhile: that drawing adds its own
  // a saved model whose provider is not signed in shows as the same model through a sign-in you do have (moa-map.js);
  // only one with no equivalent says "not signed in", with the sign-in it needs
  const ms=moaModels(),parts=pr=>[...(pr.reference_models||[]),pr.aggregator].filter(s=>s?.model).map(s=>moaEquivalent(s,ms));
@@ -689,7 +689,7 @@ async function moaDrawer(name){const {c,presets}=Pages._moa||{};const moa=c?.moa
  // the default and the active team never point at a team that is gone
  d.querySelector('#moDel')?.addEventListener('click',async()=>{if(!await confirmBox('Delete '+pretty(name)+'?',names.length<2?'It is your last team. Chats using it switch back to a normal model; New team makes another.':'Chats using it switch back to a normal model.','Delete'))return;try{await write(m=>{delete m.presets[name];const first=Object.keys(m.presets)[0]||'';if(m.default_preset===name)m.default_preset=first;if(m.active_preset===name)m.active_preset=first});closeLayers();toast('Team deleted');reload()}catch(e){fail(e)}})}
 ACT['moa-new']=()=>moaDrawer(null);ACT['moa-edit']=a=>moaDrawer(a.dataset.n);
-{const base=PAGES.models;PAGES.models=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false)return;moaPanel(el,gone)}}
+{const base=PAGES.models;PAGES.models=async(p,el)=>{const gone=pageTok(el),pre=S.me?.admin===false?null:H('/config');pre?.catch(()=>{});await base(p,el);if(gone())return;if(S.me?.admin===false)return;moaPanel(el,gone,pre)}}   // asked with the page (install-page.js, 12 Nov 2026)
 
 /* ---------- channel states in plain words, and relinking WhatsApp ---------- */
 const CH_STATE={connected:'Connected',pending_restart:'Restart needed',retrying:'Reconnecting',starting:'Starting',connecting:'Connecting',disabled:'Off',failed:'Not connected',error:'Not connected',stopped:'Off'};

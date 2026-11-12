@@ -77,8 +77,10 @@ ACT['inst-window']=()=>windowDialog();
 /* ---------- System › Settings › This install ---------- */
 // what Automatic updates says: what it does, and how the last one went
 const autoUpdateLine=(a,m)=>{const base=a.on?'New versions and fixes install by themselves in the maintenance window'+(m?', '+m.text:'')+'. Your skills, agents and data are not touched.':'Off: this server stays on its current version.';const l=a.last;if(!l||l.result==='current')return base;const w=ago(Math.round(l.at/1000));return base+' '+(l.result==='updated'?'Last updated '+w+'.':l.result==='refused'?'Last check, '+w+': '+l.why:'Last try, '+w+', failed: '+l.why)};
-{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el);await settings(p,el,r);if(gone()||S.me?.admin===false||el.querySelector('#instBox'))return;
- const d=await Install.load();if(gone()||!d?.live)return;const a=d.address,tz=d.timezone;
+// its read starts with the page, not after the page under it has drawn (12 Nov 2026: Settings' wrappers each asked only once the one below had finished, so on a
+// slow engine their reads ran one after another, past Stage.hard, and their cards landed on a page already shown: the sweep measured a 369 px jump)
+{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el),pre=S.me?.admin===false?null:Install.load();await settings(p,el,r);if(gone()||!pre||el.querySelector('#instBox'))return;
+ const d=await pre;if(gone()||!d?.live)return;const a=d.address,tz=d.timezone;
  const chip=(kind,t)=>`<span class="chip ${kind}">${esc(t)}</span>`;
  const addrState=a.from==='env'?chip('','Set in the environment'):a.from==='default'?chip('warn','Not set yet'):a.checkedAt?chip('ok','Checked'):chip('warn','Not checked');
  const hostLine=hostRows().map(([k,[t]])=>{const v=d.hosts[k];return `${esc(t)}: <b>${esc(v.from==='default'?'not set':v.value)}</b>`}).join(' · ');
@@ -135,8 +137,9 @@ ACT['eng-copy']=a=>copyText(a.dataset.cmd,'Command copied');
 ACT['au-copy']=()=>copyText(Install.d?.agentUsers?.fix||'','Command copied');
 
 /* ---------- Models: install the Claude sign-in ---------- */
-{const base=PAGES.models;PAGES.models=async(p,el,r)=>{const gone=pageTok(el);await base(p,el,r);if(gone()||S.me?.admin===false||el.querySelector('#clBox'))return;
- const d=await Install.load();if(gone()||!d?.claude)return;const c=d.claude;if(c.cli&&c.plugin&&c.on&&c.job?.state!=='running')return;
+// asked with the page too: the Claude sign-in card goes above everything, so landing after the page is shown pushed the whole page down (sweep, 12 Nov 2026)
+{const base=PAGES.models;PAGES.models=async(p,el,r)=>{const gone=pageTok(el),pre=S.me?.admin===false?null:Install.load();await base(p,el,r);if(gone()||!pre||el.querySelector('#clBox'))return;
+ const d=await pre;if(gone()||!d?.claude)return;const c=d.claude;if(c.cli&&c.plugin&&c.on&&c.job?.state!=='running')return;
  const box=document.createElement('div');box.className='panel card inst-note';box.id='clBox';box.style.marginBottom='16px';el.prepend(box);claudeBox(box,c)}}
 function claudeBox(box,c){const j=c.job||{},running=j.state==='running';
  const missing=[!c.cli&&'the Claude app on the server',!c.plugin&&'the engine’s Claude plugin',c.plugin&&!c.on&&'turning the plugin on'].filter(Boolean);

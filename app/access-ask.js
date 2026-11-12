@@ -4,7 +4,8 @@
 // their request_access and offer_access tools.
 const ASK_KIND={mcp:['mcp','google'],plugins:['plugin'],keys:['key']};
 const ASK_ICON={mcp:'plug',google:'mail',plugin:'layers',key:'key'};
-async function askSection(id,el,gone){const ag=viewing();let d;try{d=await UI('/ui/access/others?agent='+encodeURIComponent(ag))}catch{return}if(gone?.())return;
+// pre: the same read, started with the page (install-page.js, 12 Nov 2026)
+async function askSection(id,el,gone,pre){const ag=viewing();let d;try{d=await (pre||UI('/ui/access/others?agent='+encodeURIComponent(ag)))}catch{return}if(gone?.())return;
  const items=(d.items||[]).filter(x=>ASK_KIND[id].includes(x.kind));el.querySelector('.ask-others')?.remove();if(!items.length)return;
  const admin=S.me?.admin!==false,asked=new Set(d.asked||[]),me=ident(ag).name;
  const box=document.createElement('div');box.className='acc-group ask-others';
@@ -15,5 +16,7 @@ async function askSection(id,el,gone){const ag=viewing();let d;try{d=await UI('/
 ACT['ask-give']=async a=>{a.disabled=true;a.innerHTML='<span class="spinner tiny"></span>Giving…';try{await post(UI,'/ui/access',{kind:a.dataset.kind,id:a.dataset.id,agent:viewing(),on:true});toast(ident(viewing()).name+' can use it · ready in about a minute');reload()}catch(e){a.disabled=false;fail(e)}};
 ACT['ask-get']=async a=>{const why=await promptBox('Ask for '+a.dataset.label,'What '+ident(viewing()).name+' needs it for (an admin reads this)','','Ask');if(why==null)return;
  a.disabled=true;a.innerHTML='<span class="spinner tiny"></span>Asking…';try{await post(UI,'/ui/access/ask',{kind:a.dataset.kind,id:a.dataset.id,agent:viewing(),why});a.outerHTML='<span class="chip">Asked · waiting</span>';toast('Asked · an admin decides under Bottlenecks')}catch(e){a.disabled=false;fail(e)}};
-for(const id of Object.keys(ASK_KIND)){const base=PAGES[id];if(!base)continue;PAGES[id]=async(p,el,r)=>{const gone=pageTok(el);await base(p,el,r);if(gone())return;if(showingAll())return;
- if(id==='mcp'&&(S.tab.mcp||'Your servers')!=='Your servers')return;if(id==='plugins'&&(S.tab.plugins||'Installed')!=='Installed')return;await askSection(id,el,gone)}}
+// asked with the page, not once it has drawn (on Keys it came after three other reads in a row: 12 Nov 2026)
+const askHere=id=>!showingAll()&&!(id==='mcp'&&(S.tab.mcp||'Your servers')!=='Your servers')&&!(id==='plugins'&&(S.tab.plugins||'Installed')!=='Installed');
+for(const id of Object.keys(ASK_KIND)){const base=PAGES[id];if(!base)continue;PAGES[id]=async(p,el,r)=>{const gone=pageTok(el),ag0=viewing(),pre=askHere(id)?UI('/ui/access/others?agent='+encodeURIComponent(ag0)):null;pre?.catch(()=>{});await base(p,el,r);if(gone())return;
+ if(!askHere(id))return;await askSection(id,el,gone,viewing()===ag0?pre:null)}}

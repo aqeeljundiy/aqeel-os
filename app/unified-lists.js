@@ -37,7 +37,10 @@ UL.groups=function(el,first){const box=el.querySelector('.ul-groups');if(!box)re
      return `<button type="button" class="ul-cat" data-cat="${esc(k)}" aria-expanded="${open}">${icon('chevR',14)}<b>${esc(catName(c))}</b><small>${rs.length}</small><span class="ul-cat-on">${rs.filter(r=>r.status==='on'||r.status==='connected').length} on</span></button><div class="ul-cat-rows"${open?'':' hidden'}>${rs.map(r=>cxRow(r,0)).join('')}</div>`}).join('');
   return `<section class="ul-sec ul-${id}"><h2 class="ach-cat">${esc(title)} <small class="hint">${list.length}</small></h2><p class="hint sg-hint">${esc(hint)}</p><div class="card list cn-list">${head}${body}</div></section>`};
  const bi=rows.filter(r=>isBuiltin(kind,r.id)),mine=rows.filter(r=>!isBuiltin(kind,r.id));
- box.innerHTML=sec('local','Added on this OS',GROUP_HINT[kind][1],mine,true)+sec('bi','Built in',GROUP_HINT[kind][0],bi,false)+(!rows.length&&q?`<div class="state-box">Nothing matches “${esc(q)}”. <button class="link" data-act="cn-clear">Clear the search</button></div>`:'');
+ const html=sec('local','Added on this OS',GROUP_HINT[kind][1],mine,true)+sec('bi','Built in',GROUP_HINT[kind][0],bi,false)+(!rows.length&&q?`<div class="state-box">Nothing matches “${esc(q)}”. <button class="link" data-act="cn-clear">Clear the search</button></div>`:'');
+ // drawn again (a newer list, a search): changed in place like the plain list (Cx.paintList), and no row rises again (12 Nov 2026: the newer list
+ // Cx.follow brings 6 s after Skills opened redrew every row with innerHTML, and all twelve rose again on the settled page)
+ if(first||!box.firstChild)box.innerHTML=html;else{morph(box,html);box.querySelectorAll('.cn-row').forEach(x=>x.style.animation='none')}
  if(!box.dataset.bound){box.dataset.bound='1';box.addEventListener('click',e=>{const b=e.target.closest('.ul-cat');if(!b)return;const open=b.getAttribute('aria-expanded')!=='true',k=b.dataset.cat;
   b.setAttribute('aria-expanded',String(open));const rs=b.nextElementSibling;if(rs){rs.hidden=!open;if(open)rs.querySelectorAll('.cn-row').forEach((x,i)=>{x.style.animation='';x.style.animationDelay=Math.min(i,8)*25+'ms'})}
   UL.openCats.delete(k);UL.openCats.delete('-'+k);UL.openCats.add(open?k:'-'+k);try{store.set('ul-open-cats',[...UL.openCats].slice(-200))}catch{}})}};

@@ -57,12 +57,16 @@ echo "· 1/5 pages"
 pages(){ BASE=http://127.0.0.1:4402 PWFILE=$D/pw OUT=/tmp/aud-check timeout 400 node scripts/pages-check.mjs 2>&1 | tail -1; }
 r=$(pages); echo "$r" | grep -q '"errors":\[\]' || { again pages "$r"; r=$(pages); }
 echo "$r" | grep -q '"errors":\[\]' || { echo "✗ a page did not load: $r" | cut -c1-600; exit 1; }
-# FLICKER_CHECK=0: skip only this timing check (it fails on a heavily loaded server); every other check still runs
+# FLICKER_CHECK=0 skips only this check; every other check still runs. Not needed any more (12 Nov 2026): the sweep used to judge every page 2.5 s after
+# opening it, so a loaded server failed it at random; it now waits until the page has settled, and a slow page is named (slowPages), not failed.
+# When it fails, a page flickers (it says which, what and when) or never finished loading: fix that, do not skip the check.
 if [ "${FLICKER_CHECK:-1}" = 0 ]; then echo "· 2/5 fast page switching: skipped (FLICKER_CHECK=0)"; else
 echo "· 2/5 fast page switching and flicker (replays, jumps, pictures loading again, the bell, pop-ups, the shell drawn again, pages that move while they load)"
-sweep(){ timeout 420 node scripts/shot.mjs /tmp/sweep.png "#/chat" "" "" 1280 900 "$(cat scripts/sweep.js)" 2>&1 | head -1; }
+sweep(){ timeout 840 node scripts/shot.mjs /tmp/sweep.png "#/chat" "" "" 1280 900 "$(cat scripts/sweep.js)" 2>&1 | head -1; }
 s=$(sweep); echo "$s" | grep -q '\\"bad\\":0' || { again "fast page switching" "$s"; s=$(sweep); }
 echo "$s" | grep -q '\\"bad\\":0' || { echo "✗ fast page switching found problems (twice):"; echo "$s" | cut -c1-900; exit 1; }
+# slow is not a flicker, but it is said: the pages that took over 6 s to settle (Stage.hard: the longest anyone looks at the ring)
+sp=$(printf '%s' "$s" | grep -o 'slowPages[^]]*' | sed 's/^slowPages[^[]*\[//; s/\\"//g' | cut -c1-400); [ -n "$sp" ] && echo "  · slow to load (named, not failed): $sp"
 fi
 echo "· 3/5 every page keeps its buttons and tabs (owner and team member, All agents and one agent)"
 # 52 page views as the owner and a team member: about 7 minutes on a busy P&P (11 Nov 2026), so 10 minutes was too close; a run

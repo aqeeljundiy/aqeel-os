@@ -130,17 +130,18 @@ Object.assign(ALLVIEW,{
   el.innerHTML=`${tabs('skills',['Installed','Tool groups','Find more skills'])}<div class="toolbar"><div class="search${S.skillQ?' has-q':''}">${icon('search',16)}<input id="skQ" placeholder="Search ${all.length} skills on all agents" value="${esc(S.skillQ||'')}"><button class="ghost icon s-clear" data-act="sk-clear" aria-label="Clear search" title="Clear search">${icon('x',14)}</button></div><select id="skCat" style="width:auto" aria-label="Category"><option value="All">All (${all.length})</option>${cats.map(c=>`<option ${c===cat?'selected':''} value="${esc(c)}">${esc(pretty(c))} (${all.filter(s=>catOf(s)===c).length})</option>`).join('')}</select><span class="chip">${plural(per.length-bad.length,'agent')}</span></div>${bad.length?`<p class="err-line" style="margin:0 0 12px">Couldn’t load ${esc(bad.join(', '))}. <button data-act="reload">Try again</button></p>`:''}${forMe}<div class="all-view">${allSection('Skills, and which agents have each on',rows,q||cat!=='All'?'No skill matches.':'No skills yet.')}</div>`;
   $('#skCat').onchange=e=>{S.skillCat=e.target.value;S._skReuse=true;(pageRun(el),PAGES.skills(p,el))};
   let t;$('#skQ').oninput=e=>{e.target.closest('.search')?.classList.toggle('has-q',!!e.target.value);clearTimeout(t);t=setTimeout(()=>{if(!el.isConnected||route().page?.id!=='skills')return;S.skillQ=e.target.value;S._skReuse=true;(pageRun(el),PAGES.skills(p,el)).then(()=>{const i=$('#skQ');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length)}})},200)}},
- async memory(p,el){setActions('');const gone=pageTok(el);const list=(await viewAgents()).filter(a=>S.me?.admin!==false||S.me?.agents?.[a]==='owner');if(gone())return;   // memory is for an agent's owners (users.mjs)
+ async memory(p,el){setActions('');const gone=pageTok(el),prov=Promise.all([H('/memory').catch(()=>null),memHub()]);const list=(await viewAgents()).filter(a=>S.me?.admin!==false||S.me?.agents?.[a]==='owner');if(gone())return;   // memory is for an agent's owners (users.mjs)
   if(!list.length){el.innerHTML=emptyBox('No memory to show','Only an agent’s owners see what it remembers. Pick an agent you own under Showing.');return}
   const home=a=>(S.me?.hermes_home||'~/.hermes')+(a==='default'?'':'/profiles/'+a)+'/memories/';
   const read=memRead;
-  const per=await Promise.all(list.map(async a=>({a,mem:await read(home(a)+'MEMORY.md'),user:await read(home(a)+'USER.md')})));
+  // every read at once, the memory service's too (12 Nov 2026: they ran one after another, so on a slow engine the page was shown before its last part came)
+  const per=await Promise.all(list.map(async a=>{const [mem,user]=await Promise.all([read(home(a)+'MEMORY.md'),read(home(a)+'USER.md')]);return {a,mem,user}}));
   if(gone())return;
   // each card is the agent's own memory, so no "Belongs to" next to its own name
   el.innerHTML=`<div class="all-view">${per.map(({a,mem,user},i)=>`<div class="panel card" ${st(i)}><h2 class="h-row"><span class="aam-h">${Access.av({id:a,name:ident(a).name},24)}${esc(ident(a).name)}</span><span class="aam-hact">${allOpen(a,'Open')}</span></h2><p class="sub">${mem?.err||user?.err?'Couldn’t load some of its notes. <button class="link" data-act="reload">Try again</button>':memCount(mem,'about its work','Nothing learned yet')+' · '+memCount(user,'about you','Nothing about you yet')}</p>
    <details class="aam-more"><summary>What it has learned</summary>${memCards(mem,'Nothing learned yet')}</details><details class="aam-more"><summary>What it knows about you</summary>${memCards(user,'Nothing about you yet')}</details></div>`).join('')}</div>`;
   // the memory service and context engine of the agent you chat with (an owner's setting, so only for them)
-  const me=agentProfile()||'default';const [m,hub]=await Promise.all([H('/memory').catch(()=>null),memHub()]);if(!m||gone())return;   // drawn again meanwhile: that drawing adds its own panelPages._memInfo=m.providers||[];
+  const me=agentProfile()||'default';const [m,hub]=await prov;if(!m||gone())return;   // drawn again meanwhile: that drawing adds its own panelPages._memInfo=m.providers||[];
   const box=document.createElement('div');box.className='aam-mem';box.innerHTML=memProvPanel(m,hub,ident(me).name)+`<p class="hint" style="margin:8px 0 0">For ${esc(ident(me).name)}, the agent you chat with. Pick an agent under Showing for another.</p>`;el.querySelector('.all-view')?.append(box);bindMemProv(box)},
  async files(p,el){setActions(`<button data-act="f-mkdir">${icon('folder',16)}New folder</button><button class="primary" data-act="f-upload">${icon('upload',16)}Upload</button>`);const gone=pageTok(el),list=await viewAgents();if(gone())return;
   // a folder that does not exist yet is "Not made yet"; one that could not be read says so, with Try again
@@ -180,8 +181,8 @@ for(const [id,first,tabsOf,act] of [['mcp','Your servers',['Your servers','Catal
 // every channel). They were groups on Keys, which holds secrets only now (1 Nov 2026). The same rows as Keys (change,
 // show, remove). It sits here, after the All agents view above, so it shows there too: for the agent picked, or else the
 // agent you chat with, and says which.
-{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el);await settings(p,el,r);if(gone()||S.me?.admin===false)return;
- const who=viewing(),env=await H(prof('/env',who)).catch(()=>null);if(gone()||!env||!el.isConnected)return;const q=(S.cfgQ||'').toLowerCase(),all=showingAll();
+{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el),who0=viewing(),pre=S.me?.admin===false?null:H(prof('/env',who0)).catch(()=>null);await settings(p,el,r);if(gone()||S.me?.admin===false)return;   // asked with the page (install-page.js, 12 Nov 2026)
+ const who=viewing(),env=await (who===who0?pre:H(prof('/env',who)).catch(()=>null));if(gone()||!env||!el.isConnected)return;const q=(S.cfgQ||'').toLowerCase(),all=showingAll();
  const rows=Object.entries(env).filter(([k,v])=>(v.category==='setting'&&!/^HERMES_/.test(k)||/^GATEWAY_/.test(k)&&!v.is_password)&&(v.is_set||!v.advanced||/^GATEWAY_/.test(k))&&(all||!q||(k+' '+(v.description||'')).toLowerCase().includes(q))).sort((x,y)=>(y[1].is_set?1:0)-(x[1].is_set?1:0));if(!rows.length)return;
  const set=rows.filter(r=>r[1].is_set),more=rows.filter(r=>!r[1].is_set);
  // who may message every channel is changed in one place, Channels › Who can message: shown here, not edited

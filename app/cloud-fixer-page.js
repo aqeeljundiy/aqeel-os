@@ -10,10 +10,11 @@ const CloudFixer={d:null,open:null,say:{},draft:{},busy:{},
  ghDone(){return store.get('cfGh',{})}};
 const cfWhen=ms=>{const d=new Date(ms),n=new Date(),t=d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});return d.toDateString()===n.toDateString()?t:d.toLocaleDateString([],{day:'numeric',month:'short'})+' '+t};
 const cfState=r=>r.state==='none'?['','Not connected']:r.state==='limit'?['warn','At its limit until '+cfWhen(r.until)]:r.testOk===false?['out','Connected · the last test failed']:['on','Connected · '+(r.testedAt?'tested '+ago(Math.round(r.testedAt/1000)):'not tested yet')];
-async function cfMount(el,gone,where){if(gone()||S.me?.admin===false||el.querySelector('#cfBox'))return;
- try{await CloudFixer.load()}catch{return}
+// pre: the read already started with the page (install-page.js, 12 Nov 2026)
+async function cfMount(el,gone,where,pre){if(gone()||S.me?.admin===false||el.querySelector('#cfBox'))return;
+ try{await (pre||CloudFixer.load())}catch{return}
  if(gone()||el.querySelector('#cfBox'))return;const box=document.createElement('div');box.className='panel card cf-box';box.id='cfBox';where(box);cloudBox(box)}
-{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el);await settings(p,el,r);await cfMount(el,gone,b=>el.prepend(b))}}
+{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el),pre=S.me?.admin===false?null:CloudFixer.load();pre?.catch(()=>{});await settings(p,el,r);await cfMount(el,gone,b=>el.prepend(b),pre)}}
 {const accounts=PAGES.accounts;PAGES.accounts=async(p,el,r)=>{const gone=pageTok(el);await accounts(p,el,r);await cfMount(el,gone,b=>el.append(b))}}
 // Models › AI accounts is put together by models-page.js from the accounts page it captured before this file loaded, so the
 // card is added to that tab here (12 Nov 2026: it never showed on Models)
