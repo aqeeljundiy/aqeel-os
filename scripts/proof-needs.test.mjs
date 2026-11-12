@@ -19,7 +19,10 @@ test.before(async()=>{rig=await startApp({agents:[A],
     {id:'e2',kind:'alerts',text:'Agent A needs a person for a fix',detail:'Problem: the payment link fails\nWhat is needed: Pay the invoice of the payment provider for November.\n\naqeelOS fixes the rest by itself once this is done (issue '+ISSUE+' on System › Health).',created:NOW}]}));
   await writeFile(path.join(data,'issues.json'),JSON.stringify({runs:{},items:[{id:ISSUE,key:A+'|the payment link fails',agent:A,source:'agent',what:'',missing:'The payment link fails',evidence:'',proposed_fix:'',affects:[],needs:[],created:NOW,updated:NOW,count:1,by:{platform:null,uid:null,chat:null,thread:null},byName:null,tries:1,history:[],state:'needs_human',need:'Pay the invoice of the payment provider for November.',decision:'filed by '+A}]}));
   await writeFile(path.join(data,'questions.json'),JSON.stringify({items:[{qid:'q111111111111',kind:'fixer',agent:A,issue:'',question:'Roll the agent back to Monday, or wait for the fix?',allowOther:true,state:'open',created:NOW,updated:NOW,count:1,
-   options:[{key:'a',label:'Wait',effect:'Nothing changes today',recommended:false},{key:'b',label:'Roll back',effect:'The agent is as it was on Monday',recommended:true}]}]}))}})});
+   options:[{key:'a',label:'Wait',effect:'Nothing changes today',recommended:false},{key:'b',label:'Roll back',effect:'The agent is as it was on Monday',recommended:true}]}]}));
+  await writeFile(path.join(data,'conflicts.json'),JSON.stringify({items:[{cid:'c11111111111',source:'agent',agent:A,topic:'Reply hours',title:'Agent a: Reply hours',question:'You told Agent a things that do not fit together. Which one counts?',strictText:'Until you choose, Agent a follows the strictest side.',people:false,state:'open',created:NOW,updated:NOW,count:1,
+   sides:[{key:'a',label:'Answer customers until 21:00',what:'Answer customers until 21:00',text:'Answer customers until 21:00 (the team chat, Monday)'},{key:'b',label:'Answer customers until 17:00',what:'Answer customers until 17:00',text:'Answer customers until 17:00 (its instructions)'}]}]}));
+  await writeFile(path.join(data,'access-requests.json'),JSON.stringify({items:[{rid:'q22222222222',kind:'mcp',id:'notes-app',label:'Notes app',owner:'default',to:A,by:A,dir:'get',why:'to read the weekly plan',person:'',from:null,created:NOW,updated:NOW,count:1}]}))}})});
 test.after(async()=>{await rig?.stop()});
 const needs=async()=>{const r=await rig.http('GET','/ui/bottlenecks',{cookie:rig.owner});assert.equal(r.status,200,r.text);return r.json.items};
 const press=(p,body,method='POST')=>rig.http(method,p,{cookie:rig.owner,body});
@@ -35,8 +38,9 @@ const buttons=x=>ctx.__B.actions(x);   // [[label, handler, primary], …]
 const primary=x=>{const b=buttons(x).filter(a=>a[2]===true);assert.equal(b.length,1,x.kind+': exactly one primary button, got '+JSON.stringify(buttons(x).map(a=>a[0])));return b[0]};
 
 test('the app lists what needs a person, each kind once, each with exactly one primary button',async()=>{const items=await needs();
- assert.deepEqual(items.map(x=>x.kind).sort(),['alerts','github_token','question','report'],JSON.stringify(items.map(x=>[x.kind,x.title])));
- for(const x of items.filter(x=>x.kind!=='question'))primary(x);
+ assert.deepEqual(items.map(x=>x.kind).sort(),['access','alerts','conflict','github_token','question','report'],JSON.stringify(items.map(x=>[x.kind,x.title])));
+ for(const x of items.filter(x=>!['question','conflict'].includes(x.kind)))primary(x);   // a conflict has one button per side and none is the app's pick
+ assert.deepEqual([...buttons(items.find(x=>x.kind==='conflict'))].map(b=>String(b[0])),['A: Answer customers until 21:00','B: Answer customers until 17:00','Something else']);
  const q=items.find(x=>x.kind==='question'),qb=buttons(q);assert.ok(qb.length>=2);assert.equal(qb.filter(b=>b[2]===true).length,1,'the recommended choice is the one primary button')});
 
 test('"Try the fix again" on a fixer message: the issue really goes back to the fixer, and the card leaves',async()=>{
@@ -66,6 +70,14 @@ test('a question: tapping a choice answers it once, the asker gets the answer, a
  const r=await press('/ui/questions/answer',{qid:x.qid,choice:'b'});assert.equal(r.status,200,r.text);assert.equal(r.json.answer,'Roll back');
  const q=(await J('questions.json')).items[0];assert.deepEqual([q.state,q.answered.choice,q.answered.text,q.answered.effect],['answered','b','Roll back','The agent is as it was on Monday']);
  assert.equal((await press('/ui/questions/answer',{qid:x.qid,choice:'a'})).status,409);assert.ok(!(await needs()).some(i=>i.kind==='question'))});
+
+test('a conflict: choosing a side answers it with that side and it leaves',async()=>{
+ const x=(await needs()).find(i=>i.kind==='conflict');calls.length=0;await buttons(x)[1][1]();assert.deepEqual(calls[0],['POST','/ui/conflicts/decide',{cid:x.cid,choice:'b'}]);
+ const c=(await J('conflicts.json')).items[0];assert.deepEqual([c.state,c.answered.choice,c.answered.text],['answered','b','Answer customers until 17:00 (its instructions)']);assert.ok(!(await needs()).some(i=>i.kind==='conflict'))});
+
+test('an access request: Decline closes it as declined and it leaves (Allow is the same route with ok true)',async()=>{
+ const x=(await needs()).find(i=>i.kind==='access');assert.equal(primary(x)[0],'Allow');const decline=buttons(x).find(b=>b[0]==='Decline');calls.length=0;await decline[1]();
+ assert.deepEqual(calls[0],['POST','/ui/access/decide',{rid:x.rid,ok:false}]);const r=(await J('access-requests.json')).items[0];assert.ok(r.done>0);assert.equal(r.ok,false);assert.ok(!(await needs()).some(i=>i.kind==='access'))});
 
 test('"Not now" hides a report for a day (it is not marked fixed); the retry button of a report marks it done',async()=>{
  const x=(await needs()).find(i=>i.kind==='report');assert.match(primary(x)[0],/^Ask .* to retry$/);
