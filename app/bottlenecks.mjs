@@ -23,7 +23,9 @@ export const groupReport=t=>/removed from (the )?(telegram )?group|bot is left|k
 // an Activity item whose text asks the person to act ("resume in aqeelOS", "pick one under Teams"), or that personNeed counts: the Activity
 // page marks it and counts it with Health's Needs you, so its summary line can never say "nothing needs you" above it (UI audit 17)
 const ASKS=/\b(?:resume in|press resume|pick one|pick a\b|choose one|paste a\b|sign in again|log in again|top up|approve or decline|needs? (?:a person|you)|only you can)\b/i;
-export const asksYou=x=>!!(personNeed({kind:'alerts',title:x?.title,text:x?.text})||ASKS.test([x?.title,x?.text].filter(Boolean).join(' ')));
+// the sentence that asks (else what personNeed says), or '' when the item asks nothing
+export const askOf=x=>{const t=[x?.title,x?.text].filter(Boolean).join(' ');return t.split(/(?<=[.!?])\s+/).find(s=>ASKS.test(s))||personNeed({kind:'alerts',title:x?.title,text:x?.text})||''};
+export const asksYou=x=>!!askOf(x);
 export function personNeed(x){const k=x?.kind,t=[x?.title,x?.missing,x?.text].filter(Boolean).join(' ');
  switch(k){
   case 'signin':return 'Sign in. Only you have this login.';

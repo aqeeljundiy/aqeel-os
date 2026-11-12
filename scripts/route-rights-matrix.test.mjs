@@ -121,7 +121,7 @@ const listen=h=>new Promise(r=>{const s=createServer(h);s.listen(0,'127.0.0.1',(
 const seen=[];   // every request any stub received
 const stub=kind=>(req,res)=>{const ch=[];req.on('data',c=>ch.push(c));req.on('end',()=>{const u=new URL(req.url,'http://x');let body=null;try{body=JSON.parse(Buffer.concat(ch).toString('utf8'))}catch{}
  seen.push({kind,method:req.method,path:u.pathname,q:u.searchParams,body,headers:req.headers});res.writeHead(200,{'content-type':'application/json'});
- res.end(JSON.stringify(u.pathname==='/api/profiles'&&req.method==='GET'?{profiles:[{name:'default'},{name:A},{name:B}]}:u.pathname.endsWith('/api/sessions')&&req.method==='POST'?{id:'s-'+randomBytes(4).toString('hex')}:{ok:true,jobs:[],profiles:[],sessions:[]}))})};
+ res.end(JSON.stringify(u.pathname==='/api/status'&&req.method==='GET'?{gateway_running:true,gateway_state:'running',active_agents:1,gateway_pid:4242,hermes_home:'/stub/home',env_path:'/stub/home/.env',gateway_platforms:{whatsapp:{}},gateway_shared_with:['default',A,B],profiles:[{name:'default'},{name:A},{name:B}]}:u.pathname==='/api/profiles'&&req.method==='GET'?{profiles:[{name:'default'},{name:A},{name:B}]}:u.pathname.endsWith('/api/sessions')&&req.method==='POST'?{id:'s-'+randomBytes(4).toString('hex')}:{ok:true,jobs:[],profiles:[],sessions:[]}))})};
 // which agent the engine would act on for a recorded request (the engine's own rule, as in scripts/proxy-agent.test.mjs)
 const engineAgent=r=>{if(r.kind==='gate'){const m=/^\/p\/([^/]+)\//.exec(r.path);return m?decodeURIComponent(m[1]):'default'}
  const m=/^\/api\/profiles\/([^/]+)/.exec(r.path);if(m)return decodeURIComponent(m[1]);return (r.body&&typeof r.body==='object'&&r.body.profile)||r.q.get('profile')||'default'};
@@ -217,6 +217,16 @@ test('the matrix: every route, every kind of person',{timeout:240000},async t=>{
  const secs=((Date.now()-t0)/1000).toFixed(1);
  t.diagnostic(keys.length+' rows x '+ROLES.length+' people = '+keys.length*ROLES.length+' cells in '+secs+' s; routes read: '+counts.exact+' exact, '+counts.prefix+' prefix, '+counts.regex+' regex');
  assert.deepEqual(bad,[],'a member reached an engine agent that is not theirs:\n'+bad.join('\n'));
+
+ // WHAT comes back, not only whether the gate lets it through (UI audit 13 Nov 2026): the engine's status. A member got every agent's name, the install
+ // paths and the process id; now they get whether it runs and their own agent. The stub engine answers a full status (see stub()).
+ {const status=async who=>{const r=await fetch(base+'/hapi/status',{headers:{cookie:cookies[who],'x-hui':'1'}});assert.equal(r.status,200,'status as '+who);return r.json()};
+  const o=await status('owner'),a=await status('admin'),m=await status('member');
+  for(const [who,s] of [['owner',o],['admin',a]]){assert.equal(s.gateway_pid,4242,who+' keeps the full status');assert.ok(s.hermes_home,who+' keeps the install path');assert.deepEqual((s.profiles||[]).map(x=>x.name).sort(),['agent-a','agent-b','default'],who+' sees every agent')}
+  assert.equal(m.gateway_running,true,'a member can see whether the engine runs');
+  assert.deepEqual((m.profiles||[]).map(x=>x.name||x),[A],'a member sees only their own agent');assert.deepEqual(m.gateway_shared_with,[A]);
+  for(const k of ['gateway_pid','hermes_home','env_path','gateway_platforms'])assert.ok(!(k in m),'a member does not get '+k);
+  assert.ok(!JSON.stringify(m).includes(B),'a member never reads another agent\'s name');t.diagnostic('GET /hapi/status: owner and admin full, member cut to running state + own agent')}
 
  // what the preload refused (information: a probe or the app's start that tried to leave this machine was stopped, never sent)
  const blocked=(await readFile(blockLog,'utf8')).split('\n').filter(Boolean);const kinds={};for(const l of blocked){const k=l.split(' ')[0];kinds[k]=(kinds[k]||0)+1}

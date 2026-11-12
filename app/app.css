@@ -3278,3 +3278,5 @@ button.sf-more:focus-visible{outline:2px solid var(--blue-2);outline-offset:0}
 .alert{border-radius:var(--r-md)}
 .sel-btn{min-height:40px;padding-block:9px}
 .tm-add{min-height:32px;padding:0 14px}
+/* Kirimdev: "Details" under the 20-second note reads as something to press */
+.km-why>summary{color:var(--blue);font-weight:600}.km-why>summary:hover{text-decoration:underline}.km-why>summary:focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:4px}

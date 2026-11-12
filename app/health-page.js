@@ -48,7 +48,7 @@ const HealthVerdict={
  draw(box,V){const iss=V.iss,ag=V.ag,mem=V.mem;if(!iss&&!ag)return;
   const f=iss?.fixer||{},need=iss?HealthIssues.needGroups(iss.items||[]):[],line=(f.line||[]).length+(f.now?1:0)+(f.wait?1:0);
   const rows=(ag?.agents||[]).filter(r=>r.agent),bad=rows.filter(r=>!r.ok).length,grow=Object.entries(mem?.agents||{}).filter(([,m])=>m.growing).map(([a])=>mem.names?.[a]||ident(a).name);
-  const n=need.length,pl=(k,one,many)=>k===1?one:k+' '+many;
+  const n=need.length,pl=(k,one,many)=>k===1?'1 '+one:k+' '+many;
   let head,sub=[],tone='ok';
   if(n){tone='need';head=(n===1?'1 thing needs':n+' things need')+' you.'+(line?' The fixer handles the rest.':'');
    sub.push(need.slice(0,2).map(g=>g.title).join('; ')+(n>2?'; and '+(n-2)+' more':'')+'.')}

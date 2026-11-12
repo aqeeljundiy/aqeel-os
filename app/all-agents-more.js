@@ -176,7 +176,7 @@ for(const [id,first,tabsOf,act] of [['mcp','Your servers',['Your servers','Catal
   await base(p,el,r);if(gone())return;setActions(act);if(!el.querySelector('[data-tabs="'+id+'"]')){el.insertAdjacentHTML('afterbegin',tabs(id,tabsOf));placePills?.()}
   if(id==='mcp')el.insertAdjacentHTML('beforeend',`<p class="hint" style="margin:14px 0 0">Add server and Catalog add to ${esc(ident().name)}. Pick an agent under Showing to add to another.</p>`)}}
 
-// Settings › Agent settings: the settings kept in an agent's .env file, and the gateway-wide ones (GATEWAY_*: who may message
+// Settings › Agent settings: the settings kept in an agent's private settings, and the gateway-wide ones (GATEWAY_*: who may message
 // every channel). They were groups on Keys, which holds secrets only now (1 Nov 2026). The same rows as Keys (change,
 // show, remove). It sits here, after the All agents view above, so it shows there too: for the agent picked, or else the
 // agent you chat with, and says which.

@@ -53,7 +53,7 @@ const Kirim={
  // first paint rises in; later paints change only what changed, in place: the whole list used to fade out and back in
  // (km-fresh) when one line's state changed, a flash of every row
  paint(el,d,teams){Kirim.d=d;
-  const parts={acct:Kirim.acct(d),reach:d.reach&&!d.reach.ok?`<div class="km-reach"><p>${icon('clock',15)}New messages are checked every 20 seconds.</p><details class="km-why"><summary>Details</summary><p>${esc(d.reach.why)}</p></details></div>`:'',lines:Kirim.rows(d,teams)};
+  const parts={acct:Kirim.acct(d),reach:d.reach&&!d.reach.ok&&d.keySaved&&(d.lines||[]).length?`<div class="km-reach"><p>${icon('clock',15)}New messages are checked every 20 seconds.</p><details class="km-why"><summary>Details</summary><p>${esc(d.reach.why)}</p></details></div>`:'',lines:Kirim.rows(d,teams)};
   let root=el.querySelector('.km');
   if(!root){el.innerHTML=`<div class="km"><div class="panel card km-p" ${st(0)}><h2>Connection</h2><p class="sub">One key for every Kirimdev line. It is separate from the agents’ own WhatsApp channel on Channels.</p><div data-part="acct"></div></div>
     <div class="panel card km-p" ${st(1)}><h2>Numbers</h2><p class="sub">Every WhatsApp number in your Kirimdev account. Connect one so an agent answers it; it starts in Test, so only its testers get answers. aqeelOS checks the API and each line every 10 minutes and puts a problem on System › Health.</p><div data-part="reach"></div><div data-part="lines"></div></div></div>`;root=el.querySelector('.km')}
