@@ -8,20 +8,22 @@ const provDomain=(slug,name='')=>PROV_DOMAINS[slug]||(/antigravity|gemini|google
 // engine's sign-in), google (Antigravity), key (a provider with an API key, or your own endpoint)
 const acctKind=(key,oauth)=>{const s=key.slice(2);return key.startsWith('claude:')?'claude':/antigravity|^agy/.test(s)?'google':oauth.has(s)?'sub':'key'};
 // one status, said the same way on every card, the priority list, the banner and Bottlenecks (25 Oct)
-const ACCT_WORD={ok:'Connected',out:'Needs sign-in',rejected:'Key rejected',credit:'Out of credit',checking:'Checking…'};
+const ACCT_WORD={ok:'Connected',out:'Needs sign-in',dead:'Sign-in stopped working',limit:'At its limit',rejected:'Key rejected',credit:'Out of credit',checking:'Checking…'};
+// the server decides the state of every account once (app/account-state.mjs, d.states); a key the provider refused or that has no credit keeps its own word
+const acctStatus=(d,key,was)=>{const k=d.keys?.[key]?.state;return k==='rejected'||k==='credit'?k:({connected:'ok',checking:'checking','needs-signin':'out',dead:'dead',limit:'limit'})[d.states?.[key]]||was};
 // windows: {label, used, resets, scope}; scope 'account' counts for switching, 'model' (Opus, Sonnet) and 'image' (Pictures) are shown only
 function acctSources(d,oauth=new Set()){const L=d.labels||{};
  const claudeModels=(Chat.models||[]).filter(m=>m.provider===PLUGIN_ID).map(m=>m.id);
  const claude=d.accounts.map(a=>{const u=a.usage||{};const ws=[['Session (5 h)',u.session,'account'],['This week',u.week,'account'],['This week, Opus',u.opus,'model'],['This week, Sonnet',u.sonnet,'model']].filter(([,w])=>w).map(([label,w,scope])=>({label,used:w.used,resets:w.resets,scope}));
-  return {key:'claude:'+a.id,id:a.id,kind:'claude',usageNote:a.usage?'':(a.usageError||''),name:a.label,sub:accountText({email:a.email})||'Claude',logo:'claude.ai',models:claudeModels,status:a.partial?'checking':a.signedIn?'ok':'out',windows:ws,
+  return {key:'claude:'+a.id,id:a.id,kind:'claude',usageNote:a.usage?'':(a.usageError||''),name:a.label,sub:accountText({email:a.email})||'Claude',logo:'claude.ai',models:claudeModels,status:acctStatus(d,'claude:'+a.id,a.partial?'checking':a.signedIn?'ok':'out'),windows:ws,
    note:a.usage?(a.usageAt&&Date.now()-a.usageAt>10*60e3?'Last checked '+new Date(a.usageAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):a.usageVia?'Read from a short test reply, Anthropic’s usage page is busy.':''):a.usageError||'Its limits show after its first check.'}});
  // a key's last test (every 5 minutes on the server): refused, or no credit left
- const kc=d.keys||{};const prov=(d.providers||[]).map(p=>({key:'p:'+p.slug,kind:acctKind('p:'+p.slug,oauth),name:L['p:'+p.slug]||provLabel(p),sub:p.name,logo:provDomain(p.slug,p.name),models:p.models,status:/^(rejected|credit)$/.test(kc['p:'+p.slug]?.state)?kc['p:'+p.slug].state:'ok',keyNote:kc['p:'+p.slug]?.message||'',
+ const kc=d.keys||{};const prov=(d.providers||[]).map(p=>({key:'p:'+p.slug,kind:acctKind('p:'+p.slug,oauth),name:L['p:'+p.slug]||provLabel(p),sub:p.name,logo:provDomain(p.slug,p.name),models:p.models,status:acctStatus(d,'p:'+p.slug,/^(rejected|credit)$/.test(kc['p:'+p.slug]?.state)?kc['p:'+p.slug].state:'ok'),keyNote:kc['p:'+p.slug]?.message||'',
   windows:p.windows.map(w=>({label:w.scope==='image'?'Pictures (separate from chat)':w.label,used:w.used,resets:w.resets,scope:w.scope||'account'})),details:p.details||[]}));
  // a provider that signed out is gone from the engine's list: its card stays, signed out, with Reconnect
  const gone=(d.signedOut||[]).filter(x=>x.key.startsWith('p:')&&!prov.some(p=>p.key===x.key)).map(x=>({key:x.key,kind:acctKind(x.key,oauth),name:L[x.key]||x.name,sub:x.name,logo:provDomain(x.key.slice(2),x.name),models:[],status:'out',windows:[],gone:true}));
  const out=[...claude,...prov,...gone];
- for(const s of out){const a=s.windows.filter(w=>w.scope==='account');s.used=a.length?Math.max(...a.map(w=>w.used)):null;s.ok=s.status==='ok'||s.status==='checking';
+ for(const s of out){const a=s.windows.filter(w=>w.scope==='account');s.used=a.length?Math.max(...a.map(w=>w.used)):null;s.ok=s.status==='ok'||s.status==='checking'||s.status==='limit';
   // the two windows the priority list shows: the short one (session, 5 h) and the week
   s.sess=a.find(w=>/session|5\s*h|hour/i.test(w.label))||a.find(w=>!/week/i.test(w.label))||null;s.week=a.find(w=>/week/i.test(w.label)&&w!==s.sess)||null}
  return out}
@@ -50,7 +52,7 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
  const modeCtl=(g,name)=>g.alone?'':`<div class="pg-mode"><span class="seg-mini" role="group" aria-label="How ${esc(name)} accounts are picked">${[['room','Most room first'],['order','In my order']].filter(([m])=>m==='order'||g.canRoom).map(([m,l])=>`<button type="button" class="${g.mode===m?'on':''}" aria-pressed="${g.mode===m}" data-act="pool-mode" data-kind="${esc(g.kind)}" data-mode="${m}">${l}</button>`).join('')}</span>${g.canRoom?'':`<small>${byKey[g.members[0].key].kind==='key'?'Usage cannot be read for keys, so they are used in your order.':'Its usage cannot be read right now, so it is used in your order.'}</small>`}</div>`;
  // Active: the entry most agents are on now (a tie goes to the one higher in the list)
  const active=groups.reduce((b,g)=>gUsers(g).length>(b?gUsers(b).length:0)?g:b,null);
- const state=s=>s.status==='checking'?['',ACCT_WORD.checking]:s.status==='ok'?['on',ACCT_WORD.ok]:['out',ACCT_WORD[s.status]];
+ const state=s=>s.status==='checking'?['',ACCT_WORD.checking]:s.status==='ok'?['on',ACCT_WORD.ok]:s.status==='limit'?['warn',ACCT_WORD.limit]:['out',ACCT_WORD[s.status]];
  const activeChip=g=>g===active?'<span class="chip ok pri-active" title="Most agents are on this now">Active</span>':'';
  const inUse=u=>u.length?Access.who({users:u})+`<span>In use by ${plural(u.length,'agent')}</span>`:'<span>No agent on it</span>';
  const bars=s=>s.sess||s.week?miniBar('Session',s.sess)+miniBar('Week',s.week):`<span class="hint">${s.ok?(s.usageNote?'Limits unavailable right now':'No limits reported'):'Reconnect it to use it again'}</span>`;
@@ -79,9 +81,10 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
  const hasPool=groups.some(g=>g.pool),mv=d.moves24;
  // one card for every kind: header, one status, limits (or why there are none) in the same spot, Used by, the same ⋯ menu
  const status=s=>s.isTeam?'':s.status==='checking'?`<span class="chip"><i class="dot"></i>${ACCT_WORD.checking}</span>`:s.status==='ok'?chipState(true,ACCT_WORD.ok)
+  :s.status==='limit'?`<span class="chip warn"><i class="dot"></i>${ACCT_WORD.limit}</span>`
   :`<span class="chip ${s.status==='out'?'warn':'bad'}"><i class="dot"></i>${ACCT_WORD[s.status]}</span>${admin?`<button class="link sign-go" data-act="acct-reconnect" data-key="${esc(s.key)}" data-name="${esc(s.name)}">Reconnect</button>`:''}`;
  // a member can't reconnect: they are told what happens instead (1 Nov 2026)
- const limits=s=>s.status==='out'?acctHint(admin?'Reconnect it to use this account and see its limits again.':'It needs signing in again by an admin. Until then your agents use their next account.'):s.status==='rejected'||s.status==='credit'?acctHint((s.keyNote?s.keyNote+'. ':'')+(admin?'Reconnect it with a new key.':'An admin needs to add a new key. Until then your agents use their next account.')):s.status==='checking'?acctHint('Still checking this account. Refresh in a moment.'):s.windows.length?`<div class="ubars">${s.windows.map(w=>pctBar(w.label,w)).join('')}</div>`
+ const limits=s=>s.status==='out'||s.status==='dead'?acctHint(admin?(s.status==='dead'?'The provider refused this sign-in. Reconnect it to use this account again.':'Reconnect it to use this account and see its limits again.'):'It needs signing in again by an admin. Until then your agents use their next account.'):s.status==='rejected'||s.status==='credit'?acctHint((s.keyNote?s.keyNote+'. ':'')+(admin?'Reconnect it with a new key.':'An admin needs to add a new key. Until then your agents use their next account.')):s.status==='checking'?acctHint('Still checking this account. Refresh in a moment.'):s.windows.length?`<div class="ubars">${s.windows.map(w=>pctBar(w.label,w)).join('')}</div>`
   :acctHint(s.note||'This provider doesn’t report limits.'+(s.kind==='key'?' It is billed per use.':''));
  const card=(s,i)=>{const u=usedBy(s.key);return `<div class="card tile acct" ${st(i)} style="cursor:default"><div class="tile-top">${logoImg(s.logo,s.name[0].toUpperCase())}<div class="acct-id"><h3>${esc(s.name)}</h3><span class="acct-mail">${esc(s.sub)}</span></div>
   ${admin?`<button class="ghost icon acct-more-btn" data-menu="acct" data-key="${esc(s.key)}" aria-label="More for ${esc(s.name)}">${icon('more',18)}</button>`:''}</div>
@@ -91,7 +94,7 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
  // an account can be in the list again with another model (more than one entry per account, 6 Nov 2026)
  const left=src.filter(s=>!(s.isTeam&&!usedBy(s.key).length)&&(!pri.some(e=>e.key===s.key)||(s.models||[]).some(m=>!pri.some(e=>e.key===s.key&&e.model===m))));
  // needs sign-in, key rejected or out of credit: one line each, with the same Reconnect as the card (it goes once it works again)
- const outs=admin?(d.signedOut||[]):[];
+ const outs=admin?[...(d.signedOut||[]),...src.filter(s=>s.status==='dead'&&!(d.signedOut||[]).some(x=>x.key===s.key)).map(s=>({key:s.key,name:s.name,state:'dead'}))]:[];
  const ev=(d.events||[]).map(e=>{const to=byKey[e.to]||byKey['claude:'+e.to];return `<div class="sw-row"><span class="sw-t">${esc(shortWhen(e.t))}</span><span class="sw-who">${agentAvatar(e.profile,22,{title:false})}<b>${esc(ident(e.profile).name)}</b>${icon('chevR',14)}<span>${esc(to?.name||e.to)}</span></span>${e.why?`<span class="chip sw-why">${esc(e.why)}</span>`:''}</div>`});
  el.innerHTML=`${outs.map(x=>alertBox(`<b>${esc(byKey[x.key]?.name||x.name)}</b>: ${esc(ACCT_WORD[x.state]||ACCT_WORD.out)}${x.since?', '+esc(ago(x.since/1000)):''}. Agents that use it can’t answer with it until it is reconnected.`,{act:'acct-reconnect',label:'Reconnect',ic:'plug',cls:'acct-out',attrs:`data-key="${esc(x.key)}" data-name="${esc(byKey[x.key]?.name||x.name)}"`})).join('')}<div class="panel card"><h2>Priority</h2><p class="sub">The order your accounts get used in. ${hasPool?'Each provider is one group. With Most room first, aqeelOS uses the account in it with the most room; with In my order, top to bottom. When a whole entry passes the limit you set, its agents move to the next one with room. Drag to reorder, or drag an account out of its group.':'When an agent\'s account passes the limit you set, it moves to the next one with room. Drag to reorder.'}</p>
   <div class="pri-list">${groups.map((g,i)=>g.multi?poolRow(g,i):priRow(g,i)).join('')||'<p class="hint">Nothing here yet. Add your accounts in the order you want them used.</p>'}</div>

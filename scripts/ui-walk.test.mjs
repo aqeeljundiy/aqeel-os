@@ -103,7 +103,8 @@ test('members are not offered Restart agents or Check for updates in the search 
 
 test('signed out, an invite or sign-in address opened in the same tab is drawn (Go to sign in on an expired invite did nothing)', ()=>{
  assert.ok(src('account-setup.js').includes(String.raw`if(!S.signedIn&&/^#\/?(reset|invite|signin)(\/|$)/.test(location.hash))render()`));
- assert.match(src('people.js'),/href="\/#signin"/,'the link it has to follow');
+ assert.match(src('people.js'),/id="invBack"[^>]*>Go to sign in<\/button>/,'the button it has to press');
+ assert.match(src('people.js'),/\$\('#invBack'\)\?\.addEventListener\('click',\(\)=>\{location\.hash='#signin'\}\)/,'and it goes to the sign-in address');
 });
 
 test('a drawer someone typed in asks before Escape, a click outside, Close or Cancel discards it', ()=>{
@@ -116,10 +117,8 @@ test('a drawer someone typed in asks before Escape, a click outside, Close or Ca
  assert.match(b,/\$\('\.palette,\.drawer,\.menu'\)\)askClose\(\);/);
 });
 
-test('an alert in Activity is not split mid-word between its title and its text', ()=>{
- const s=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8');
- const i=s.indexOf(String.raw` const line=String(text).split('\n')[0];let cut=`);assert.ok(i>0,'the cut rule is in ownerSend');
- const code=s.slice(i,s.indexOf('\n',i));const cutOf=new Function('text',code+';return cut');
+test('an alert in Activity is not split mid-word between its title and its text', async()=>{
+ const {alertTitle}=await import('../app/alert-title.mjs'),cutOf=t=>alertTitle(t).cut;
  const t='Pixel Agent stopped answering after changing itself, so aqeelOS undid 3 changes: 1095 changed software-development/graphify/SKILL.md; 1094 added .bundled_manifest_92lh8fx2.tmp; 1093 changed';
  const c=cutOf(t),title=t.slice(0,c).trim(),rest=t.slice(c).trim();
  assert.ok(title.length<=140&&/:$/.test(title),title);assert.match(rest,/^1095 changed/);

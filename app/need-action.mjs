@@ -74,7 +74,12 @@ const isSheetLink=m=>/^https?:\/\/(docs|sheets|drive|slides|forms)\.google\.com\
 // ---- one step, checked: {acts:[main, alt…]} a real button | {done:'…'} already done | {place:'apps'} only the page is known
 export function resolveStep(s,i,ctx={}){const agent=s.agent||i?.agent||'';const has=a=>!ctx.agents||ctx.agents.some(x=>x.id===a);
  if(s.what==='ai-account'){const a=findAccount(s.id,ctx);if(!a)return {place:'accounts'};
-  const acts=[{do:'signin-account',key:a.key,name:a.name,label:(a.state==='rejected'?'New key for ':'Sign in to ')+short(nick(a.name),22),say:a.state==='rejected'?a.name+': the provider refuses its key. Paste a new one.':a.name+': its sign-in stopped working. Sign in again as this account.'}];
+  // the account's state is the one Models > Accounts shows (account-state.mjs): a report that says its sign-in stopped working is only
+  // a button while the account really needs a person; connected or at a limit it says so, and no sign-in is offered
+  if(a.state==='connected')return {done:a.name+' is connected now, as Models shows.',live:true};
+  if(a.state==='limit')return {done:a.name+' is signed in but at its limit. It works again when the limit resets.',live:true};
+  if(a.state==='checking')return {place:'accounts'};
+  const acts=[{do:'signin-account',key:a.key,name:a.name,label:(a.rejected?'New key for ':'Sign in to ')+short(nick(a.name),22),say:a.rejected?a.name+': the provider refuses its key. Paste a new one.':a.name+': its sign-in stopped working. Sign in again as this account.'}];
   if(a.listed)acts.push({do:'unlist-account',key:a.key,name:a.name,alt:true,label:'Take it out of the priority list',say:'Agents stop trying '+a.name+' until you put it back.'});return {acts}}
  if(s.what==='google'){if(!agent||!has(agent))return {place:'google'};
   const got=(ctx.google||[]).filter(g=>(g.users||[]).some(u=>u.id===agent)).map(g=>g.id);
@@ -105,17 +110,17 @@ export function readSteps(i,ctx={}){const need=String(i?.need||''),t=[need,i?.mi
 
 // ---- the buttons of one need
 export function issueActs(i,ctx={}){const need=String(i?.need||''),text=[need,i?.title,i?.missing].filter(Boolean).join(' ');
- const given=cleanSteps(i?.steps),steps=given.length?given:readSteps(i,ctx),acts=[],places=[];let n=0;
+ const given=cleanSteps(i?.steps),steps=given.length?given:readSteps(i,ctx),acts=[],places=[];let n=0,live=false;
  for(const s of steps){const r=resolveStep(s,i,ctx);
   if(r.acts){if(!s.alt)n++;for(const a of r.acts)acts.push({...a,...(s.alt||a.alt?{alt:true}:{}),step:n||1})}
-  else if(r.done){if(!s.alt){n++;acts.push({do:'done',step:n,say:r.done,label:''})}}
+  else if(r.done){if(r.live)live=true;if(!s.alt){n++;acts.push({do:'done',step:n,say:r.done,label:''})}}
   else if(r.place)places.push(r.place)}
  // nothing that can really start: the exact page, never a guess
- if(!acts.some(a=>a.do!=='done')){const p=places[0]||NAMED.find(([r])=>r.test(text))?.[1]||steps.map(s=>KIND_PLACE[s.what]).find(Boolean);
+ if(!acts.some(a=>a.do!=='done')&&!live){const p=places[0]||NAMED.find(([r])=>r.test(text))?.[1]||steps.map(s=>KIND_PLACE[s.what]).find(Boolean);
   const cmd=/`([^`\n]{6,200})`/.exec(need)?.[1];
   if(p)acts.push(place(p));else if(cmd&&/\s/.test(cmd))acts.push({do:'copy',cmd,label:'Copy the command'});else acts.push(place('health'))}
  // the steps in their order; inside a step the secondary never leads; a tick only where other steps are still open
- const many=new Set(acts.filter(a=>a.step&&!a.alt).map(a=>a.step)).size>1;
+ const many=new Set(acts.filter(a=>a.step&&!a.alt).map(a=>a.step)).size>1||live;
  const out=acts.filter(a=>a.do!=='done'||many).sort((a,b)=>(a.step||9)-(b.step||9)||(a.alt?1:0)-(b.alt?1:0));
  out.push({do:'recheck',label:'Check again'});return out}
 

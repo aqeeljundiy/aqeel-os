@@ -176,7 +176,7 @@ for(const [id,first,tabsOf,act] of [['mcp','Your servers',['Your servers','Catal
   await base(p,el,r);if(gone())return;setActions(act);if(!el.querySelector('[data-tabs="'+id+'"]')){el.insertAdjacentHTML('afterbegin',tabs(id,tabsOf));placePills?.()}
   if(id==='mcp')el.insertAdjacentHTML('beforeend',`<p class="hint" style="margin:14px 0 0">Add server and Catalog add to ${esc(ident().name)}. Pick an agent under Showing to add to another.</p>`)}}
 
-// Settings › Agent settings: the settings kept in an agent's .env file, and the gateway-wide ones (GATEWAY_*: who may message
+// Settings › Agent settings: the settings kept in an agent's private settings, and the gateway-wide ones (GATEWAY_*: who may message
 // every channel). They were groups on Keys, which holds secrets only now (1 Nov 2026). The same rows as Keys (change,
 // show, remove). It sits here, after the All agents view above, so it shows there too: for the agent picked, or else the
 // agent you chat with, and says which.
@@ -187,5 +187,5 @@ for(const [id,first,tabsOf,act] of [['mcp','Your servers',['Your servers','Catal
  // who may message every channel is changed in one place, Channels › Who can message: shown here, not edited
  const ROW=([k,v])=>k!=='GATEWAY_ALLOWED_USERS'?KROW([k,v]):fieldRow(esc(v.description||'People who may message every channel'),`<span style="font-size:11.5px">${esc(k)}</span>`,`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${v.is_set?`<span class="chip ok" style="font-family:var(--mono)">${esc(v.redacted_value||'set')}</span>`:'<span class="chip">Nobody</span>'}<a href="#/channels/channels" data-act="ch-who">Change on Who can message</a></div>`);
  const box=document.createElement('div');box.className='panel card cfg-env';box.style.marginTop='16px';
- box.innerHTML=`<h2>Agent settings</h2><p class="sub">${all?'For '+esc(ident(who).name)+(who===(S.profile||'default')?', the agent you chat with':'')+'. Pick an agent under Showing for another’s. ':''}Kept in its .env file on the AI box, next to its keys. Each change saves at once; channels pick it up after Restart agents.</p>${(q&&!all?rows:set).map(ROW).join('')}${(!q||all)&&more.length?`<details class="kf-more"><summary>${set.length?'Show '+more.length+' more you can set':'Show the '+more.length+' settings you can set'}</summary>${more.map(ROW).join('')}</details>`:''}`;
+ box.innerHTML=`<h2>Agent settings</h2><p class="sub">${all?'For '+esc(ident(who).name)+(who===(S.profile||'default')?', the agent you chat with':'')+'. Pick an agent under Showing for another’s. ':''}Kept privately on the AI box, next to its keys. Each change saves at once; channels pick it up after Restart agents.</p>${(q&&!all?rows:set).map(ROW).join('')}${(!q||all)&&more.length?`<details class="kf-more"><summary>${set.length?'Show '+more.length+' more you can set':'Show the '+more.length+' settings you can set'}</summary>${more.map(ROW).join('')}</details>`:''}`;
  el.append(box);if(S.cfgAgentEnv){S.cfgAgentEnv=false;box.scrollIntoView({behavior:'smooth',block:'start'})}}}

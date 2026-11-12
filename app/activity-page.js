@@ -21,11 +21,15 @@ const Activity={
   return 'Hit an error'},
  row(x,i){const times=(x.count||1)>1?'since '+Activity.when(x.since||x.t)+', '+x.count+' times':Activity.when(x.t),tn=Activity.tone(x),raw=x.text&&Activity.RAW.test(x.text);
   const text=!x.text?'':raw?`<span>${esc(Activity.plain(x))}</span><button type="button" class="act-more" aria-expanded="false">Details${icon('chevR',12)}</button><div class="act-raw"><div><div>${esc(x.text)}</div></div></div>`:`<span>${esc(x.text)}</span>`;
-  return `<div class="row act-row" ${st(Math.min(i,12))}${x.go?` data-go="${esc(x.go)}" tabindex="0"`:''}><div class="main-c"><span class="ic ${esc(tn.kind)}">${icon(tn.icon,15)}</span><div class="txt"><b>${esc(agentText(x.title))}</b>${text}<small>${esc(times)}${x.resolved?' · over':''}</small></div></div></div>`}};
+  return `<div class="row act-row${x.go?' rm':''}" ${st(Math.min(i,12))}><div class="main-c"><span class="ic ${esc(tn.kind)}">${icon(tn.icon,15)}</span><div class="txt"><b>${x.go?`<button type="button" class="row-main" data-go="${esc(x.go)}">${esc(agentText(x.title))}</button>`:esc(agentText(x.title))}</b>${text}<small>${esc(times)}${x.resolved?' · over':''}${x.ask?' · <span class="act-ask">asks you to act</span>':''}</small></div></div></div>`}};
 PAGES.activity=async(p,el)=>{const gone=pageTok(el);setActions('');
  el.innerHTML='<div id="actList"><div class="skel" style="height:160px;border-radius:18px"></div></div>';
- let d;try{d=await UI('/ui/activity')}catch(e){if(!gone())el.querySelector('#actList').innerHTML=alertBox(esc(e.message));return}if(gone())return;
+ let d,iss=null;try{[d,iss]=await Promise.all([UI('/ui/activity'),S.me?.admin===false?null:UI('/ui/health/issues').catch(()=>null)])}catch(e){if(!gone())el.querySelector('#actList').innerHTML=alertBox(esc(e.message));return}if(gone())return;
  const l=d.items||[],box=el.querySelector('#actList');
+ // the summary line counts what Health's Needs you counts (the same needGroups) plus the rows here that ask you to act, so it matches the list
+ {const h=iss?HealthIssues.needGroups(iss.items||[]).length:0,m=l.filter(x=>x.ask).length,n=h+m,sub=document.querySelector('.page-head p');
+  const where=m&&h?'the ones marked below, and '+h+' on System › Health':m?'marked below':'on System › Health';
+  if(sub)sub.textContent='What happened by itself: runs, fixes, restarts. '+(n?(n===1?'1 thing asks you to act, ':n+' things ask you to act: ')+where+'.':'Nothing here needs you right now.')}
  if(!l.length){box.innerHTML='<div class="empty">'+icon('check',22)+'<b>Nothing yet</b><span>Runs, fixes and restarts that need nobody show up here.</span></div>';return}
  let last='',h='',k=0;for(const x of l){const g=Activity.day(x.t);if(g!==last){if(h)h+='</div>';h+='<div class="group-label">'+esc(g)+'</div><div class="card list">';last=g}h+=Activity.row(x,k++)}
  box.innerHTML=h+'</div>';

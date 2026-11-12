@@ -30,8 +30,8 @@ const N8N={d:null,dr:null,at:null,changed:false,
  space(id){return this.d?.spaces.find(s=>s.agent===id)},
  users:x=>[{id:x.agent,name:x.name},...x.shared.map(a=>({id:a,name:ident(a).name}))],
  row(x,i){const u=N8N.users(x),wf=x.workflows==null?'':plural(x.workflows,'workflow');
-  return `<div class="row clickable cn-row" data-act="n8n-panel" data-space="${esc(x.agent)}" tabindex="0" role="button" aria-label="${esc(x.name)}’s n8n: belongs to ${esc(x.name)}${wf?', '+esc(wf):''}" ${st(i)}>
-  <div class="main-c">${logoImg('n8n.io','n')}<div class="txt"><b>${esc(x.name)}’s n8n</b><span>${esc(wf||'Workflows not counted yet')}</span></div></div>
+  return `<div class="row clickable cn-row rm" ${st(i)}>
+  <div class="main-c">${logoImg('n8n.io','n')}<div class="txt"><b><button type="button" class="row-main" data-act="n8n-panel" data-space="${esc(x.agent)}" aria-label="${esc(x.name)}’s n8n: belongs to ${esc(x.name)}${wf?', '+esc(wf):''}">${esc(x.name)}’s n8n</button></b><span>${esc(wf||'Workflows not counted yet')}</span></div></div>
   <div class="cn-own"><small class="cn-lbl">Belongs to</small>${cxOwner({owner:x.agent,ownerName:x.name})}</div>
   <div class="cn-who"><small class="cn-lbl">Who can use</small><span class="acc-who" aria-label="Used by ${esc(u.map(y=>y.name).join(', '))}">${u.slice(0,3).map(y=>Access.av(y)).join('')}${u.length>3?`<span class="acc-more">+${u.length-3}</span>`:''}</span></div>
   <div class="cn-st"><span class="cn-o" aria-label="${esc(wf)}">${x.workflows==null?'–':x.workflows}</span></div>

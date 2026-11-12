@@ -220,7 +220,8 @@ function md(src){
 /* ---------- agent identity (name, title, picture per profile) ---------- */
 // an agent's name as people read it (7 Nov 2026, owner: "use the formal names not this"): its display name, never its
 // profile id; "default" is the main agent, never "aqeelOS"; an extra number says which one ("Dora AI · WhatsApp 2")
-const prettyId=p=>String(p||'').split(/[-_]+/).filter(Boolean).map((w,i)=>i?w:w[0].toUpperCase()+w.slice(1)).join(' ');
+// an id has lost its apostrophe ("firdha-s-assistant" was "Firdha's assistant"): a lone s after a word is its possessive
+const prettyId=p=>String(p||'').split(/[-_]+/).filter(Boolean).map((w,i)=>i?w:w[0].toUpperCase()+w.slice(1)).join(' ').replace(/(\S) s(?= |$)/g,'$1’s');
 function agentLabel(p){p=String(p||'');if(!p)return '';if(p==='aqeelOS')p='default';const [b,x]=p.split('--');const n=ident(b).name;if(!x)return n;const m=/^([a-z]+)-(\d+)$/i.exec(x);return n+' · '+(m?({whatsapp:'WhatsApp',telegram:'Telegram',slack:'Slack'}[m[1].toLowerCase()]||prettyId(m[1]))+' '+m[2]:prettyId(x))}
 // a line saved with an agent's folder name in front ("Pixel agent: the tool server…", written before its name was known)
 // reads with the name the owner set ("Pixel Agent: …"); only the leading name is touched, the stored text stays as it is
@@ -357,7 +358,7 @@ const SECTIONS=[
  {id:'system',label:'System',icon:'gauge',key:'7',pages:[
   {id:'usage',label:'Usage',icon:'chart',desc:'Tokens, cache and cost over time.'},
   {id:'health',label:'Health',icon:'activity',desc:'Is everything running, and the AI box itself: resources, updates and maintenance.'},
-  {id:'activity',label:'Activity',icon:'clock',desc:'What happened by itself: runs, fixes, restarts. Nothing here needs you.'},
+  {id:'activity',label:'Activity',icon:'clock',desc:'What happened by itself: runs, fixes, restarts.'},
   {id:'teams',label:'Teams',icon:'user',desc:'Who works with which agents, where alerts for you go, and the fixer that solves problems by itself.'},
   {id:'logs',label:'Logs',icon:'list',desc:'What aqeelOS wrote while working.'},
   {id:'keys',label:'Keys and secrets',icon:'key',desc:'API keys, tokens and passwords, stored on the box and never shown in full.'},
@@ -371,7 +372,8 @@ const S={identities:{},collapsed:store.get('collapsed',false),tab:{},status:null
 // pages that moved keep their old addresses: [new section, page, tab]
 const ROUTE_MOVED={'automations/channels':['channels','channels','Connections'],'automations/pairing':['channels','channels','Who can message'],'system/status':['system','health'],'system/host':['system','health'],'abilities/memory':['agents','memory'],'abilities/files':['agents','files'],'models/keys':['system','keys'],'system/guide':['help',''],'abilities/accounts':['abilities','logins']};
 // an old address that is a page of its own in this person's menu stays put (members' Files sits under Abilities)
-function route(){let p=location.hash.replace(/^#\/?/,'').split('/').map(decodeURIComponent);{const mv=ROUTE_MOVED[p[0]+'/'+p[1]];if(mv&&!SECTIONS.find(s=>s.id===p[0])?.pages?.some(x=>x.id===p[1]&&!x.hidden)){if(mv[2])S.tab[mv[1]]=mv[2];p=[mv[0],mv[1],...p.slice(2)];history.replaceState(null,'','#/'+p.map(encodeURIComponent).join('/'))}}if(p[0]==='signin')return{signin:true};if(p[0]==='invite')return{invite:p[1]||''};const sec=SECTIONS.find(s=>s.id===p[0])||SECTIONS[0];if(sec.id==='chat')return{sec,chat:p[1]||null};if(sec.id==='help')return{sec,help:true,page:{id:'help',label:'Help'},arg:p.slice(1)};const page=sec.pages.find(x=>x.id===p[1])||sec.pages[0];return{sec,page,arg:p.slice(2)}}
+function route(){let p=location.hash.replace(/^#\/?/,'').split('/').map(decodeURIComponent);{const mv=ROUTE_MOVED[p[0]+'/'+p[1]];if(mv&&!SECTIONS.find(s=>s.id===p[0])?.pages?.some(x=>x.id===p[1]&&!x.hidden)){if(mv[2])S.tab[mv[1]]=mv[2];p=[mv[0],mv[1],...p.slice(2)];history.replaceState(null,'','#/'+p.map(encodeURIComponent).join('/'))}}if(p[0]==='signin')return{signin:true};if(p[0]==='invite')return{invite:p[1]||''};const known=SECTIONS.find(s=>s.id===p[0]),sec=known||SECTIONS[0];if(sec.id==='chat')return{sec,chat:known?p[1]||null:null};   // a page this person does not have is the new-chat page, not a chat called "kirimdev" that is "not yours"
+if(sec.id==='help')return{sec,help:true,page:{id:'help',label:'Help'},arg:p.slice(1)};const page=sec.pages.find(x=>x.id===p[1])||sec.pages[0];return{sec,page,arg:p.slice(2)}}
 // aqeelOS inside the browser extension's side panel: a compact chat, with the full app one click away
 const PANEL=new URLSearchParams(location.search).has('panel');if(PANEL){document.documentElement.classList.add('in-panel');if(!location.hash.startsWith('#/chat'))history.replaceState(null,'','#/chat')}
 function go(h){if(location.hash==='#'+h)render();else location.hash=h}
@@ -682,7 +684,7 @@ function menu(anchor,items,opt={}){$$('.menu').forEach(e=>e.remove());const m=do
 /* ---------- brand dropdowns: every <select> becomes a brand menu button ---------- */
 function enhanceSelect(sel){if(sel.dataset.enhanced||sel.multiple)return;sel.dataset.enhanced='1';
  const btn=document.createElement('button');btn.type='button';btn.className='sel-btn'+(sel.style.width==='auto'?' inline':'');btn.setAttribute('aria-haspopup','listbox');if(sel.id)btn.dataset.for=sel.id;if(sel.getAttribute('aria-label'))btn.setAttribute('aria-label',sel.getAttribute('aria-label'));
- const sync=()=>{const o=sel.options[sel.selectedIndex];btn.innerHTML=`<span class="sv">${esc(o?o.textContent:'Choose…')}</span>${icon('chevD',15)}`;btn.disabled=sel.disabled};sync();
+ const sync=()=>{const o=sel.options[sel.selectedIndex];btn.innerHTML=`<span class="sv">${esc(o?o.textContent:'Choose…')}</span>${icon('chevD',15)}`;btn.title=o?.title||'';btn.disabled=sel.disabled};sync();
  sel.classList.add('sel-native');sel.tabIndex=-1;sel.setAttribute('aria-hidden','true');sel.after(btn);
  sel.addEventListener('change',sync);sel._sync=sync;
  // set from code (a cancelled or failed change put back, a picker held while saving): the button follows at once

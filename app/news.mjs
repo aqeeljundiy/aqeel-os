@@ -11,6 +11,7 @@
 // ("since 14:02, 3 times") instead of adding one; resolve(group) closes it. Bell items expire after 7 days and acting
 // on one clears it. Items from before this (no cls) are Activity, and repeats of one problem fold into one row at load.
 import {readStore,writeStore} from './store.mjs';
+import {askOf} from './bottlenecks.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
@@ -64,7 +65,10 @@ export function createNews({DATA}){const sent=new Map();   // aud -> times of re
  // the bell: what this person started that finished, last 7 days, not cleared
  async function list(u,admin){await load();const now=Date.now();return db.items.filter(x=>x.cls==='started'&&sees(x,u,admin)&&!x.gone.includes(u.id)&&now-x.t<BELL_DAYS*864e5).slice(0,60).map(({aud,read,gone,...x})=>({...x,read:read.includes(u.id)}))}
  // Activity: everything else, newest first, one row per problem
- async function activity(u,admin,{limit=200}={}){await load();return db.items.filter(x=>x.cls!=='started'&&sees(x,u,admin)).slice(0,limit).map(({aud,read,gone,...x})=>x)}
+ // an item that asks the person to act is marked (ask: the sentence that asks), the newest item for each distinct ask only: the Activity page
+ // counts these with Health's Needs you, so one alert channel that is not set up is one thing, not one per alert that mentions it
+async function activity(u,admin,{limit=200}={}){await load();const seen=new Set();
+ return db.items.filter(x=>x.cls!=='started'&&sees(x,u,admin)).slice(0,limit).map(({aud,read,gone,...x})=>{const q=x.resolved?'':askOf(x);if(!q||seen.has(q))return x;seen.add(q);return {...x,ask:q}})}
  // the evening line: how many things happened by themselves since a time (Activity rows, counting repeats)
  async function countSince(t,admin=true){await load();return db.items.filter(x=>x.cls!=='started'&&x.t>=t&&(admin?x.aud==='admins':true)).reduce((n,x)=>n+1,0)}
  // ids: those; all: everything this person sees

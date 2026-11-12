@@ -151,7 +151,7 @@
   "POST /hapi/skills": { "cells": "DAADDDD", "src": "proxy list" },
   "PUT /hapi/skills/content": { "cells": "DAADDDD", "src": "proxy list" },
   "PUT /hapi/skills/toggle": { "cells": "DAADDDD", "src": "proxy list" },
-  "GET /hapi/status": { "cells": "DAAAADD", "src": "proxy list" },
+  "GET /hapi/status": { "cells": "DAAAADD", "note": "REVIEW: allowed for a member, but the answer is cut by users.filter to running state + their own agents (scripts/users.test.mjs and a content check in scripts/route-rights-matrix.test.mjs); admins keep the full view.", "src": "proxy list" },
   "GET /hapi/tools/toolsets": { "cells": "DAADDDD", "src": "proxy list" },
   "PUT /hapi/tools/toolsets/web": { "cells": "DAADDDD", "src": "proxy list" },
   "GET /hapi/webhooks": { "cells": "DAADDDD", "src": "proxy list" },

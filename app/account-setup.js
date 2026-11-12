@@ -51,7 +51,7 @@ const Acct={
 
  /* /#reset/<token>: the link from the email */
  async reset(root,tok){root.innerHTML='<div class="signin"></div>';let info=null;try{const r=await fetch('/auth/reset?t='+encodeURIComponent(tok));if(r.ok)info=await r.json()}catch{}
-  if(!info)return Acct.card(`<div class="card">${Acct.head()}<h1>This link doesn't work</h1><p>It has expired or was already used. Ask for a new one from the sign-in page.</p><p class="ac-links"><button type="button" class="link" data-ac="forgot">Send a new link</button><button type="button" class="link" data-ac="back">Go to sign in</button></p></div>`,Acct.links);
+  if(!info)return Acct.card(`<div class="card">${Acct.head()}<h1>This link doesn't work</h1><p>It has expired or was already used. Ask for a new one from the sign-in page.</p><div class="ac-btns"><button type="button" class="primary" data-ac="back">Go to sign in</button><button type="button" class="ghost" data-ac="forgot">Send a new link</button></div></div>`,Acct.links);
   Acct.card(`<form class="card" id="acReset">${Acct.head()}<h1>Pick a new password</h1><p>For ${esc(info.name)}${info.username?' (@'+esc(info.username)+')':''}. Every other device signed in as you is signed out.</p>
    ${Acct.pw('acNP','New password')}<p class="err" role="alert"></p><button class="primary" type="submit">Save and sign in</button></form>`,f=>{
    Acct.eyes(f);f.querySelector('#acNP').focus();Acct.form(f,async()=>{await Acct.call('/auth/reset',{t:tok,password:f.querySelector('#acNP').value});Acct.signedIn()})})},
