@@ -17,12 +17,12 @@ test('people to pick from: the owner, the team that covers the agent, then the r
  assert.deepEqual(peopleOf(POL,'x').map(x=>x.name),['Abel','Bo','ari'],'the agent\'s own team first');assert.deepEqual(peopleOf({},'a'),[])});
 
 test('approvers: picked people store all their ids; approvers nobody matches are kept unless dropped; unknown names are refused',()=>{
- const people=peopleOf(POL,'cove-support'),cur=[{who:'Old Contractor',telegramId:'1000000001'}];
+ const people=peopleOf(POL,'cove-support'),cur=[{who:'Old Contractor',telegramId:'1000000009'}];
  const list=buildApprovers(people,cur,['Ari']);
- assert.deepEqual(list,[{who:'Ari',telegramId:'1000000002'},{who:'Ari',telegramId:'1000000003'},{who:'Old Contractor',telegramId:'1000000001'}]);
- const st=approverState(people,list);assert.deepEqual(st.picked,['Ari']);assert.deepEqual(st.others,[{who:'Old Contractor',telegramId:'1000000001'}]);
- assert.deepEqual(buildApprovers(people,list,['Ari'],['1000000001']).map(x=>x.telegramId),['1000000002','1000000003'],'dropped');
- assert.deepEqual(buildApprovers(people,list,[]),[{who:'Old Contractor',telegramId:'1000000001'}],'nobody picked keeps the unknown one');
+ assert.deepEqual(list,[{who:'Ari',telegramId:'1000000002'},{who:'Ari',telegramId:'1000000003'},{who:'Old Contractor',telegramId:'1000000009'}]);
+ const st=approverState(people,list);assert.deepEqual(st.picked,['Ari']);assert.deepEqual(st.others,[{who:'Old Contractor',telegramId:'1000000009'}]);
+ assert.deepEqual(buildApprovers(people,list,['Ari'],['1000000009']).map(x=>x.telegramId),['1000000002','1000000003'],'dropped');
+ assert.deepEqual(buildApprovers(people,list,[]),[{who:'Old Contractor',telegramId:'1000000009'}],'nobody picked keeps the unknown one');
  assert.throws(()=>buildApprovers(people,[],['Mallory']),/not on a team with a Telegram id/);
  // every stored id passes the check kirimdev.cleanLine makes (4 to 15 digits)
  for(const a of list)assert.match(a.telegramId,/^\d{4,15}$/);
