@@ -176,7 +176,7 @@ body{overflow:hidden}
 .switch:checked{background:linear-gradient(180deg,var(--blue-2),var(--blue))}
 .switch:checked::after{transform:translateX(18px)}
 .switch:focus{box-shadow:none}
-.dark .switch{background:#3a4250}
+.dark .switch{background:#3a4250}.dark .switch:checked{background:linear-gradient(180deg,var(--blue-2),var(--blue))}   /* on is blue in dark too (UI walk 12 Nov 2026: every switch looked off) */
 .chart{display:flex;align-items:flex-end;gap:6px;height:180px;padding:10px 4px 0}
 .chart .b{flex:1;display:flex;flex-direction:column-reverse;gap:2px;height:100%;justify-content:flex-start;position:relative}
 .chart .b i{display:block;border-radius:4px;transform-origin:bottom;animation:grow .5s var(--ease) both}
@@ -524,6 +524,7 @@ body.dragging .screen-float{transition:none}
  .screen-pane{position:fixed;inset:0;z-index:44}
  .screen-pane .resizer,.side-rz{display:none}
  .screen-head .chip,.screen-head button span{display:none}
+ .screen-head [data-act=scr-control] span,.screen-head [data-act=lb-focus] span{display:inline}   /* the hint below says "Press Take over": the button keeps its name */
  .screen-float{left:12px!important;right:12px;width:auto!important;top:auto!important;bottom:12px}
  .screen-float .corner{display:none}
 }
@@ -1298,6 +1299,23 @@ body:has(.drawer.pop) .scrim{backdrop-filter:blur(5px);background:rgba(11,12,16,
 .agent-card:not(.locked):active{transform:translateY(0) scale(.995)}
 .agent-go{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--blue-deep);opacity:.75;transition:opacity .2s,gap .2s}
 .agent-card:hover .agent-go{opacity:1;gap:8px}.dark .agent-go{color:var(--blue-2)}
+/* audit 12 Nov 2026: Skip to content, the first Tab on every page; out of sight until focused */
+.skip-link{position:fixed;left:12px;top:12px;z-index:1000;min-height:40px;padding:0 16px;border-radius:var(--r-pill);background:var(--surface);color:var(--ink);box-shadow:var(--shadow-float);transform:translateY(-200%);opacity:0;transition:transform var(--t-fast) var(--ease),opacity var(--t-fast) var(--ease)}
+.skip-link:focus-visible{transform:none;opacity:1}
+#view:focus{outline:none}
+/* a control that only shows on hover shows when the keyboard reaches it, and a hidden one takes no Tab */
+.item .more:focus-visible{opacity:1}
+.toolbar .search:not(.has-q) .s-clear{visibility:hidden;transition:opacity var(--t-fast) var(--ease),transform var(--t-fast) var(--ease),visibility 0s linear var(--t-fast)}
+/* the card's Chat button looks as the text link it was */
+button.agent-go{background:none;border:0;box-shadow:none;padding:0;min-height:0;height:auto;border-radius:var(--r-sm);font:inherit;font-size:13px;font-weight:600;color:var(--blue-deep)}
+.dark button.agent-go{color:var(--blue-2)}
+button.agent-go:hover{background:none;transform:none}
+.agent-card:has(.agent-go:focus-visible){border-color:var(--blue-2)}
+/* on a touch screen a text link gets a finger-sized hit area without moving anything (audit 12 Nov 2026: Show all, Check now, Show key were 16 to 20 px tall) */
+@media (pointer:coarse){.link-btn,.hf-link,.hc-all,.cn-checked .link,.ach-what>summary,button.agent-go{padding-block:10px;margin-block:-10px}}
+/* number fields look like every other field: no browser spinner arrows (Models, Teams and Settings had them) */
+input[type=number]{appearance:textfield;-moz-appearance:textfield}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .agent-gear svg{transition:transform .5s var(--ease)}.agent-gear:hover svg{transform:rotate(60deg)}
 
 .kind-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;margin-right:4px;vertical-align:1px;background:var(--soft);color:var(--ink-2)}
@@ -2901,7 +2919,8 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
  .page-head .head-actions{flex-wrap:nowrap!important;overflow-x:auto;scrollbar-width:none;max-width:100%;padding:4px 2px 10px;margin:-4px -2px -10px;scroll-padding-inline:2px}
  .page-head .head-actions::-webkit-scrollbar{display:none}
  .page-head .head-actions>*{flex:none}
- .page-head .head-actions>.primary{order:-1}
+ .page-head .head-actions{align-items:center}   /* Usage: Showing stretched to an 88 px oval next to its two-line neighbour (audit 12 Nov 2026) */
+ .page-head .head-actions>.primary{order:-1;box-shadow:var(--shadow-btn)}   /* its glow was cut square by the row that scrolls (audit 12 Nov 2026) */
  .page-head .head-actions>.view-pick{order:-2}
  .ktool-r{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:2px 0 6px}
  .ktool-r::-webkit-scrollbar{display:none}
@@ -2964,7 +2983,7 @@ button.bad:hover{background:color-mix(in srgb,var(--bad) 8%,transparent);border-
  .ag-list .ag-meta{display:flex;grid-area:e;padding-left:52px}
  .ag-list .ag-meta>span+span::before{content:"·";margin:0 7px}
  .ag-list .ag-own,.ag-list .ag-st{font-size:12.5px;color:var(--muted)}.ag-list .ag-st.on{color:var(--ok)}.ag-list .ag-ol{display:inline}
- .ag-list .agent-foot>.agent-go{display:none}   /* the row itself opens the chat */
+ .ag-list .agent-foot>.agent-go{position:absolute;width:1px;height:1px;min-height:0;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}   /* the row itself opens the chat */
 }
 @container page (max-width:520px){.ag-bar .search{flex:1 1 0;min-width:0}}
 /* People: the email on its own line, then role and last seen (no dot left hanging at a line end); one action per card */

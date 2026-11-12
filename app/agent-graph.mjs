@@ -96,6 +96,8 @@ const posix=p=>p.split(path.sep).join('/');
 
 export function createAgentGraph({HERMES_HOME,DATA,home0=homedir(),readConfig,setKey,pick,agents=async()=>[],skip=async()=>false,busy=async()=>false,paused=()=>false,writeSoul=null,
  run=null,relay=null,now=()=>Date.now(),log=m=>console.log(m),env=process.env,nice=process.platform==='linux',budget=SIZE_BUDGET,limits=LIMITS,busyPoll=BUSY_POLL_MS}){
+ // skip may answer at once or later (a test copy gave a plain false, and Health's agent maps failed with a 500)
+ const skipOk=a=>Promise.resolve().then(()=>skip(a)).catch(()=>false);
  const PY=path.join(home0,'workspaces','.aqeelos-python'),bin=path.join(PY,'bin','graphify'),py=path.join(PY,'bin','python');
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const wsOf=a=>path.join(home0,'workspaces',a);
@@ -209,7 +211,7 @@ export function createAgentGraph({HERMES_HOME,DATA,home0=homedir(),readConfig,se
  // one pass: the agent longest without a look, if its time has come; an agent with nothing new costs one folder scan
  async function tick(){if(running||paused()||await off())return null;running=true;
   try{await load();if(!await toolReady())return null;
-   const names=[];for(const a of await agents().catch(()=>[]))if(!await skip(a).catch(()=>false)&&await has(homeOf(a))&&await isOn(a))names.push(a);
+   const names=[];for(const a of await agents().catch(()=>[]))if(!await skipOk(a)&&await has(homeOf(a))&&await isOn(a))names.push(a);
    const due=names.filter(a=>{const s=st.agents[a]||{};return !s.lastTry||now()-s.lastTry>=GAP_MS*Math.min(4,2**(s.fails||0))||s.state==='building'&&now()-s.lastTry>=PASS_MS}).sort((x,y)=>(st.agents[x]?.lastTry||0)-(st.agents[y]?.lastTry||0));
    const changed=[];let looked=0;
    for(const a of due){if(looked++>=4)break;const r=await refresh(a);if(r.ok){if(r.tool)changed.push(a);break}if(r.error||r.skipped==='busy'||r.skipped==='quota')break}
@@ -250,7 +252,7 @@ export function createAgentGraph({HERMES_HOME,DATA,home0=homedir(),readConfig,se
 
  // Health: per agent, the size sent every time, the map, and any proposal waiting
  async function view(){await load();const out={};
-  for(const a of await agents().catch(()=>[])){if(await skip(a).catch(()=>false)||!await has(homeOf(a)))continue;
+  for(const a of await agents().catch(()=>[])){if(await skipOk(a)||!await has(homeOf(a)))continue;
    const s=st.agents[a]||{},p=await proposal(a),z=await size(a);
    out[a]={size:z,map:{state:s.state||'waiting',nodes:s.nodes??null,files:s.files||null,lastOk:s.lastOk||null,waiting:s.waiting||0,error:s.error||null,notice:s.notice||null,model:s.model??null,on:await isOn(a),skippedSecret:s.skippedSecret||0},
     proposal:p&&!p.dismissed&&!p.accepted?{saves:p.saves,sections:p.sections.map(x=>({id:x.id,title:x.title,bytes:x.bytes,reason:x.reason}))}:null}}

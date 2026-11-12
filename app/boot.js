@@ -49,7 +49,7 @@ document.addEventListener('click',e=>{
   case 'banner':{BannerOff.add(a.dataset.key);const b=a.closest('.banner');if(b)leave(b,200);setTimeout(()=>{const s=$('#bannerSlot');if(s){s._h=null;paintBanner()}},220);break}
   case 'banner-mux':go('/system/health');setTimeout(()=>ACT['gw-migrate']?.(),400);break;
   case 'new':Chat.newChat();break;
-  case 'close':closeLayers();break;
+  case 'close':askClose();break;
   case 'reload':reload();break;
   case 'step':a.closest('.step').classList.toggle('open');break;
   case 'think':{const b=a.nextElementSibling;b.hidden=!b.hidden;a.setAttribute('aria-expanded',String(!b.hidden));const t=Chat.live[Chat.id]?.turns[+a.dataset.i];if(t)t.thinkOpen=!b.hidden;break}
@@ -78,7 +78,12 @@ document.addEventListener('click',e=>{
  }
 });
 document.addEventListener('input',e=>{if(e.target.id==='chatSearch'){S.search=e.target.value;const pos=e.target.selectionStart;paintSide();placePills();const i=$('#chatSearch');i.focus();i.setSelectionRange(pos,pos)}});
+// a tab that redraws its page (Models, Usage, Skills…) gets the focus back once the new page is in, so the arrows go on working
+function keepTabFocus(n){const k=n.closest('[data-tabs]')?.dataset.tabs,t=n.dataset.tab;if(!k||!t)return;let i=0;const f=()=>{if(n.isConnected){if(++i<30)setTimeout(f,100);return}const a=document.activeElement;if(a&&a!==document.body&&a.isConnected)return;const x=[...document.querySelectorAll('.tabs[data-tabs]')].find(b=>b.dataset.tabs===k)?.querySelector('[data-tab]');const y=x&&[...x.parentElement.children].find(b=>b.dataset?.tab===t);if(y){y.focus({preventScroll:true});return}if(++i<30)setTimeout(f,100)};setTimeout(f,100)}
 document.addEventListener('keydown',e=>{
+ // tabs: left/right (Home/End) move to the next tab and choose it, as on every desktop tab bar
+ if(e.target.matches?.('.tabs>[role=tab]')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){const bs=[...e.target.parentElement.children].filter(b=>b.matches('[role=tab]:not(:disabled)'));const i=bs.indexOf(e.target);
+  const n=bs[e.key==='Home'?0:e.key==='End'?bs.length-1:(i+(e.key==='ArrowRight'?1:-1)+bs.length)%bs.length];if(n){e.preventDefault();n.focus();n.click();keepTabFocus(n)}return}
  if(e.target.closest?.('[data-menu]')&&(e.key==='Enter'||e.key===' ')){e.preventDefault();openMenu(e.target.closest('[data-menu]'));return}
  const mod=isMac?e.metaKey:e.ctrlKey;if(!S.signedIn)return;
  if(mod&&e.key.toLowerCase()==='k'){e.preventDefault();palette()}
@@ -87,7 +92,7 @@ document.addEventListener('keydown',e=>{
  if(mod&&e.key==='/'){e.preventDefault();shortcuts()}
  // an open menu (a picker inside a drawer) closes alone; the drawer under it stays
  if(e.key==='Escape'&&$('.menu:not(.closing)')){leave($('.menu:not(.closing)'),150);return}
- if(e.key==='Escape'&&$('.palette,.drawer,.menu'))closeLayers();
+ if(e.key==='Escape'&&$('.palette,.drawer,.menu'))askClose();
  else if(e.key==='Escape')$('.app')?.classList.remove('nav-open');
 });
 addEventListener('hashchange',()=>{if(S.signedIn)render()});
@@ -154,4 +159,6 @@ boot();
 
 // F26 rows you can reach with Tab (schedules, inbox items, file tiles, agent cards) open with Enter or Space too
 document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches?.('[tabindex="0"]:is([data-act],[data-inbox])')&&!e.target.matches('input,textarea,select,button')){e.preventDefault();e.target.click()}});
+// Skip to content (audit of 12 Nov 2026: a keyboard took some 25 Tabs through the menu and the top bar to reach a page)
+ACT.skip=()=>{const v=$('#view');if(!v)return;const m=v.querySelector('#msg');if(m&&m.offsetParent){m.focus();return}v.setAttribute('tabindex','-1');v.focus({preventScroll:true})};
 ACT['panel-full']=()=>window.open(location.origin+'/'+location.hash,'_blank');

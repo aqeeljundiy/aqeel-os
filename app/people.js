@@ -190,11 +190,11 @@ function agItem(x,o,i){const id=ident(x.name),locked=o.access===null&&o.private,
   :x.description?`<p class="ag-desc">${esc(x.description)}</p>`
   :mayEdit(x.name)?`<p class="ag-desc hint"><a href="#" data-act="agent-describe" data-name="${esc(x.name)}">Add a description</a></p>`:'<p class="ag-desc hint">No description yet.</p>';
  const shared=(o.shared||[]).length,q=[id.name,x.name,x.description||'',owner,o.owner?.name||'',x.is_default?'main agent':''].join(' ').toLowerCase();
- return `<div class="card tile agent-card ag-item ${locked?'locked':''}" ${st(Math.min(i,12))} ${locked?`data-act="agent-locked" data-owner="${esc(o.owner?.name||'')}"`:`data-act="agent-card" tabindex="0" role="button" aria-label="Chat with ${esc(id.name)}"`} data-name="${esc(x.name)}" data-q="${esc(q)}">
+ return `<div class="card tile agent-card ag-item ${locked?'locked':''}" ${st(Math.min(i,12))} ${locked?`data-act="agent-locked" data-owner="${esc(o.owner?.name||'')}"`:`data-act="agent-card"`} data-name="${esc(x.name)}" data-q="${esc(q)}">
   <div class="ag-main">${agentAvatar(x.name,40,{plain:locked,title:false})}<div class="ag-txt"><h3><span class="ag-n">${esc(id.name)}</span>${x.is_default?'<span class="ag-badge">Main agent</span>':''}</h3>${desc}</div></div>
   <div class="ag-meta"><span class="ag-st${locked?'':x.gateway_running?' on':' off'}">${locked?icon('lock',12):'<i class="dot"></i>'}${locked?'Private':x.gateway_running?'Online':'Offline'}</span><span class="ag-own"${shared?` title="Shared with ${shared===1?'1 person':shared+' people'}"`:''}>${owner?'<span class="ag-ol">Owner: </span>'+esc(owner):'No owner'}</span></div>
   <div class="agent-tags">${!locked&&x.description_auto&&x.description?'<span class="chip" title="aqeelOS wrote this description. Read it and change it if it is off; editing it removes this note.">Written for you · check it</span>':''}</div>
-  <div class="tile-foot agent-foot">${locked?`<span class="ag-locked">${icon('lock',14)}Private</span>`:`<span class="agent-go">${icon('chat',14)}Chat</span><button class="ghost icon agent-gear" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="Settings for ${esc(id.name)}" title="Settings">${icon('settings',18)}</button>`}</div></div>`}
+  <div class="tile-foot agent-foot">${locked?`<span class="ag-locked">${icon('lock',14)}Private</span>`:`<button type="button" class="agent-go" data-act="agent-card-go" aria-label="Chat with ${esc(id.name)}">${icon('chat',14)}Chat</button><button class="ghost icon agent-gear" data-menu="profilecard" data-name="${esc(x.name)}" aria-label="Settings for ${esc(id.name)}" title="Settings">${icon('settings',18)}</button>`}</div></div>`}
 // search: hide what doesn't match (cards keep whatever was added to them after drawing, like Finish setup)
 function agFilter(el){const q=(S.agQ||'').trim().toLowerCase(),items=[...el.querySelectorAll('.ag-item')];let n=0;
  for(const c of items){const ok=!q||c.dataset.q.includes(q);c.hidden=!ok;if(ok)n++}
@@ -385,6 +385,9 @@ ACT['mem-edit']=async a=>{const f=a.dataset.f,path=memHome()+'/memories/'+f;let 
    await H('/files/upload-stream',{method:'POST',body:fd});closeLayers();toast(f+' saved');reload()}catch(e){fail(e);btn.disabled=false}}};
 
 // the whole card opens a chat with that agent; the gear holds its settings
+// the card's Chat is a real button (audit of 12 Nov 2026: the whole card was a button with the settings button inside it,
+// which a screen reader cannot use); a click anywhere else on the card still opens the chat
+ACT['agent-card-go']=b=>{const card=b.closest('.agent-card');if(card)ACT['agent-card'](card,{target:card})};
 ACT['agent-card']=(a,e)=>{if(e.target.closest('[data-menu],button,a,select,input'))return;if((S.profile||'default')!==a.dataset.name)switchAgent(a.dataset.name);go('/chat')};
 
 /* ---------- plain names and "what it does" (written once by Haiku, see explain.mjs) ---------- */

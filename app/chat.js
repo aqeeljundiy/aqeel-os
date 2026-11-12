@@ -343,13 +343,17 @@ const Chat={
  userHtml(text,t={}){const m=this.TOOL_RE.exec(text||'');let body=m?text.slice(m[0].length):text||'';const paths=[];body=body.replace(this.ATT_RE,(x,p)=>{paths.push(p.trim());return ''}).trim();
   return (m?`<span class="tchips">${m[1].split(', ').map(x=>`<span class="tchip">${icon(/\(MCP\)$/.test(x)?'plug':'zap',12)}${esc(x.replace(/ \(MCP\)$/,''))}</span>`).join('')}</span>`:'')+this.attHtml(paths,t.imgs,t.local)+(body?`<div class="u-text">${esc(body).replace(/\n/g,'<br>')}</div>`:'')},
  async toolsMenu(el){const k=S.profile||'default';const c=this._toolCache?.[k];let d=c&&Date.now()-c.t<60000?c.d:null;
-  if(!d){try{const [m,t]=await Promise.all([H('/mcp/servers').catch(()=>({servers:[]})),H('/tools/toolsets').catch(()=>[])]);d={mcp:(m.servers||m||[]).filter(s=>s.enabled!==false),built:(Array.isArray(t)?t:t.toolsets||[]).filter(x=>x.enabled)};(this._toolCache||={})[k]={t:Date.now(),d}}catch(e){return fail(e)}}
+  // a person who may only chat with this agent cannot read its tools (403): the menu says so instead of "No MCP tools yet"
+  // with links to a page they do not have (audit of 12 Nov 2026)
+  if(!d){try{let no=0;const deny=e=>{if(e?.status===403)no++};const [m,t]=await Promise.all([H('/mcp/servers').catch(e=>{deny(e);return {servers:[]}}),H('/tools/toolsets').catch(e=>{deny(e);return []})]);d={mcp:(m.servers||m||[]).filter(s=>s.enabled!==false),built:(Array.isArray(t)?t:t.toolsets||[]).filter(x=>x.enabled),denied:no===2};(this._toolCache||={})[k]={t:Date.now(),d}}catch(e){return fail(e)}}
+  const canManage=SECTIONS.some(s=>s.id==='abilities'&&s.pages?.some(p=>p.id==='connections'));
+  if(d.denied)return menu(el,[{header:'Tools'},{label:'Its tools are chosen by whoever manages it',sub:'It still uses them on its own when a task needs one.',icon:'lock',disabled:true}]);
   explainFor('mcp',d.mcp.map(s=>({id:s.name,name:s.name,desc:s.url||s.command||''})));explainFor('tool',d.built.map(t=>({id:t.name,name:t.label||t.name,desc:t.description||''})));
   const has=(kind,name)=>this.tools.some(t=>t.kind===kind&&t.name===name);
   const flip=(kind,name,label)=>{const i=this.tools.findIndex(t=>t.kind===kind&&t.name===name);if(i>=0)this.tools.splice(i,1);else this.tools.push({kind,name,label});this.paintTools();$('#msg')?.focus()};
-  menu(el,[{header:'MCP tools'},...(d.mcp.length?d.mcp.map(s=>({label:ex('mcp',s.name)?.title||pretty(s.name),sub:ex('mcp',s.name)?.summary,icon:'plug',on:has('mcp',s.name),run:()=>flip('mcp',s.name,pretty(s.name))})):[{label:'No MCP tools yet',icon:'plug',run:()=>go('/abilities/connections')}]),
+  menu(el,[{header:'MCP tools'},...(d.mcp.length?d.mcp.map(s=>({label:ex('mcp',s.name)?.title||pretty(s.name),sub:ex('mcp',s.name)?.summary,icon:'plug',on:has('mcp',s.name),run:()=>flip('mcp',s.name,pretty(s.name))})):[{label:'No MCP tools yet',icon:'plug',run:()=>canManage&&go('/abilities/connections')}]),
    '-',{header:'Built-in tools'},...d.built.map(t=>({label:t.label||pretty(t.name),sub:ex('tool',t.name)?.summary||String(t.description||'').slice(0,90),icon:'zap',on:has('tool',t.name),run:()=>flip('tool',t.name,t.label||pretty(t.name))})),
-   '-',{label:'Manage tools…',icon:'sliders',run:()=>go('/abilities/connections')}])},
+   ...(canManage?['-',{label:'Manage tools…',icon:'sliders',run:()=>go('/abilities/connections')}]:[])])},
  async send(text,images=[],target){
   if(this.tools.length&&!target){text='[Use these tools for this: '+this.tools.map(t=>t.label+(t.kind==='mcp'?' (MCP)':'')+' = '+t.name).join(', ').replace(/ = [^,]+/g,'')+']\n\n'+text;this.tools=[];this.paintTools()}
   let id=target||this.id;const prof=S.profile||'default';

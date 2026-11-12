@@ -66,7 +66,9 @@ const Acct={
  fetch('/auth/setup',{cache:'no-store'}).then(r=>r.json()).then(d=>{if(d.needed&&$('#signin'))Acct.setup()}).catch(()=>{})}}
 {const base=render;render=function(){const m=/^#\/?reset\/([\w-]+)/.exec(location.hash);if(m){closeLayers();return Acct.reset($('#root'),m[1])}return base()}}
 // a reset link opened while this tab shows the sign-in page (the app's own hash handler only runs when signed in)
-addEventListener('hashchange',()=>{if(!S.signedIn&&/^#\/?reset\//.test(location.hash))render()});
+// signed out, the pages of their own follow the address too: an invite link pasted into the sign-in tab opened nothing, and
+// "Go to sign in" on an expired invite left the person on that page (audit of 12 Nov 2026)
+addEventListener('hashchange',()=>{if(!S.signedIn&&/^#\/?(reset|invite|signin)(\/|$)/.test(location.hash))render()});
 
 /* Sign-in is by email (7 Nov 2026). Right after signing in: a quiet note when they used the old username, and the
    "Add your email" step when their account has none yet (it comes back at each sign-in until they add one). */
