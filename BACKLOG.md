@@ -14,6 +14,14 @@ _Last updated: 12 Nov 2026_
 
 ## Now
 
+### Evening of 12 Nov (live on both servers in 45620a6)
+- [x] **FONT-1** Numbers are drawn in Google Sans Flex (owner, 12 Nov): a digits-only file under the same family name, so text stays Plus Jakarta Sans. Main app and the sign-in and message pages; the Code app and the extension are not changed. Checked on the live sign-in page.
+- [x] **FIXCOST-1** Fixer spending: $3 per issue and $10 a day, 30 turns a run, the strong model only after cheap tries that got somewhere, finished fixes no longer rolled back before the commit, no run on an issue that is stuck or came back within 72 h unless its evidence changed. Watch: cost per issue on Health once the fixer has run.
+- [~] **AUD-12b** Elkiya backup: run by hand against the real data it completes (28.6 GB, 32 min, decrypts, 262,657 entries); a backup that fills the disk now stops and says why. Not yet seen: a scheduled night run with the upload. The archive tripled since 9 Nov (reels and videos); about 100 files are skipped each run (deleted agents, pepclub-social).
+- [x] **AUTH-9** Failed sign-ins are limited per account as well as per address; a browser that already holds the account's session is never blocked. Tried on P&P with a made-up account. Not tried: the per-account wait from several addresses.
+- [x] **TEST-FLAKE** Two timing-dependent tests fixed (delivery check reading a half-written result; efficiency view waiting a fixed 20 ms).
+- [x] **CORNERS-1** Inner tiles nest inside their cards again after the move to radius tokens.
+
 ### Afternoon of 12 Nov (live on both servers in 64b78d5)
 - [x] **KEY-1** A key rotation left Continue Threads’ posting guard with an old signature: every comment and DM was refused for about three hours (12 Nov, 11:45–15:00 WIB). The app now re-issues every signed file itself at start and every 10 minutes (`app/relay-heal.mjs`); the guard reports a stale key once instead of every run.
 - [x] **SHEETS-1** `google_sheets`: formulas, clearing, formatting, tabs, and a `batch_update` pass-through. Still needs the Sheets API enabled in P&P’s Google Cloud project (owner).
