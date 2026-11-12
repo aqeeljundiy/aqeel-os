@@ -157,7 +157,7 @@ import {createCatalog} from './price-catalog.mjs';import {createPaymentProviders
 import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
-import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';   // the routes that used to sit in this file (one module each)
+import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';import {createSchedulesRoutes} from './schedules-routes.mjs';   // the routes that used to sit in this file (one module each)
 
 delete Object.prototype.__proto__;   // a key named __proto__ from a request is an ordinary key: no lookup reaches Object.prototype (security audit, 12 Nov 2026)
 const here=path.dirname(fileURLToPath(import.meta.url));
@@ -2514,6 +2514,7 @@ const abilitiesRoutes=createAbilitiesRoutes({agentDefaults,channelIdentity,code,
 const instructionsRoutes=createInstructionsRoutes({accountsApi,backupModels,bottlenecks,cfgLimit,channelAttention,code,DATA,DESKTOP_RELEASES,displayName,help,instructions,listAgents,localAppVersions,n8n,NAMES,needsFor,newerApp,readBody,releaseAppVersions,security,send,signinsDue,teamFolders,users,versions});
 const accessRoutes=createAccessRoutes({access,accessAsk,agentAccess,bottlenecks,conflicts,connAccounts,connections,DATA,keysId,labels,listAgents,NAMES,questions,readBody,send,shareLevels,users});
 const mcpSecretsRoutes=createMcpSecretsRoutes({access,browserAsks,channelList,displayName,freshSignins,HERMES_HOME,listAgents,localBrowser,MCP_OAUTH_BASE,memberSecretName,NAMES,optins,ownsAgent,readBody,saveSecret,secretAsks,secretDir,secretHow,security,send,sharing,signinsAt:()=>signinsAt,signinsDue,slackClientFor,startSignin,users,useSecret,whyOf});
+const schedulesRoutes=createSchedulesRoutes({designGuard,postingLimits,readBody,relay,schedules,send,users});
 const server=createServer(async(req,res)=>{
  enterRequest(req);const url=new URL(req.url,'http://x');const p=url.pathname;   // the request is what the per-account sign-in limit reads the address and session cookie from
  try{
@@ -2757,27 +2758,7 @@ const server=createServer(async(req,res)=>{
    if(await accessRoutes(req,res,p,url,u))return;
    if(await mcpSecretsRoutes(req,res,p,url,u))return;
    if(await channelsRoutes(req,res,p,url,u))return;
-   // Schedules: folders, plain descriptions, recipients by name and what each run cost
-   // only the schedules this person may see in the list (the same rule as the cron list: users.schedOk), admins included
-   if(p==='/ui/schedules/info'&&req.method==='GET'){try{const d0=await schedules.info();const d={...d0,meta:{...d0.meta},runs:{...d0.runs},names:{...d0.names}};const ok=a=>users.schedOk(u,a);
-    // how each schedule starts and why (design-guard.mjs): an event, a script with no AI, a check first, or the AI on a timer
-    d.triggers=await schedules.jobs().then(l=>designGuard.triggers(l.filter(j=>ok(j.profile||'default')))).catch(()=>({}));
-    for(const k of Object.keys(d.meta))if(!ok(k.split('|')[0]))delete d.meta[k];for(const k of Object.keys(d.runs))if(!ok(k.split('|')[0]))delete d.runs[k];
-    // a member sees only the folders their schedules are in, and keeps their own open and shut folders (in the browser)
-    if(!users.isAdmin(u)){d.names={};const f=new Set(Object.values(d.meta).map(m=>m.folder).filter(Boolean));d.folders=d.folders.filter(x=>f.has(x));d.order=d.order.filter(x=>f.has(x));d.colors=Object.fromEntries(Object.entries(d.colors).filter(([x])=>f.has(x)));d.folds={}}
-    return send(res,200,d)}catch(e){return send(res,500,{error:e.message})}}
-   if(p==='/ui/schedules/detail'&&req.method==='GET'){const a=url.searchParams.get('profile')||'default';if(!users.schedOk(u,a))return send(res,403,{error:'Not your agent'});
-    try{return send(res,200,await schedules.detail(a,url.searchParams.get('id')||''))}catch(e){return send(res,404,{error:e.message})}}
-   if(p==='/ui/schedules/meta'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const a=String(b.profile||'default');if(!users.isAdmin(u)&&users.gate(u,'/hapi/cron/jobs','POST',new URLSearchParams('profile='+a),a))return send(res,403,{error:'Not your agent'});
-    return send(res,200,await schedules.setMeta(a,String(b.id||''),b))}
-   // Run rules (posting-limits.mjs): one run at a time and posting limits per agent; admins change them, anyone who sees its schedules may look
-   if(p==='/ui/run-rules'&&req.method==='GET'){const a=url.searchParams.get('agent')||'default';if(!users.schedOk(u,a))return send(res,403,{error:'Not your agent'});
-    try{return send(res,200,await postingLimits.view(a))}catch(e){return send(res,500,{error:e.message})}}
-   if(p==='/ui/run-rules'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change run rules.'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}const a=String(b.agent||'');
-    if(!await isAgent(a))return send(res,404,{error:'No such agent'});try{const v=await postingLimits.set(a,{serial:b.serial,rules:b.rules});console.log('run rules: '+a+(b.serial!==undefined?' one at a time '+(b.serial?'on':'off'):'')+(b.rules?' limits '+(v.rules.on?'on':'off'):''));return send(res,200,v)}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/schedules/folder'&&req.method==='POST'&&!users.isAdmin(u))return send(res,403,{error:'Only admins can rename folders.'});
-   if(p==='/ui/schedules/folder'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,65536))}catch{}try{return send(res,200,await schedules.folderOp(b))}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/channels/job-relays'&&req.method==='GET'){const all=await relay.jobRelays();if(users.isAdmin(u))return send(res,200,all);const out={};for(const [k,v] of Object.entries(all||{})){const a=k.split('|')[0];if(!users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))out[k]=v}return send(res,200,out)}
+   if(await schedulesRoutes(req,res,p,url,u))return;
    // reconnect ONE channel: a second agent's channel is switched off and on by itself (no engine restart);
    // the main agent's channels live in the engine itself, so for those the proper restart is the only way
    // a short note on a channel (what it is for), shown on its row
