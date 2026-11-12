@@ -13,6 +13,10 @@ const writeFile=async(p,d,o)=>{const t=p+'.aq-'+process.pid+'-'+Math.random().to
  const free=()=>{try{rmSync(L,{recursive:true,force:true})}catch{}};process.on('exit',free);for(const sig of ['SIGTERM','SIGINT','SIGHUP'])process.on(sig,()=>{free();process.exit(1)})}
 const homes=[HOME];for(const d of await readdir(path.join(HOME,'profiles'),{withFileTypes:true}).catch(()=>[]))if(d.isDirectory()&&!d.name.startsWith('.'))homes.push(path.join(HOME,'profiles',d.name));
 const exists=p=>access(p).then(()=>true,()=>false);
+// M18 (audit of 12 Nov 2026): a change that no longer fits the engine used to be a warning nobody read, or nothing at all,
+// and the run still ended 0. Each is now also printed as "MISFIT <what>" and the run ends with exit code 3, so a deploy's
+// log and whoever started this can tell an engine that is not fully patched from one that is.
+const misfits=[];const misfit=w=>{misfits.push(w);console.warn('MISFIT '+w)};
 let changed=0;
 // a tool server's list of tools can be one event over the HTTP client's 1 MB limit (Higgsfield, 9 Nov 2026): 16 MB in every engine environment
 {const envs=[path.join(HOME,'hermes-agent','venv')];for(const i of await readdir(path.join(HOME,'installs')).catch(()=>[]))for(const v of await readdir(path.join(HOME,'installs',i,'environments')).catch(()=>[]))envs.push(path.join(HOME,'installs',i,'environments',v,'venv'));
@@ -108,7 +112,7 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
             _aq = {k: v for k, v in _aq.items() if k in ("access_token", "expires_in", "scope", "refresh_token")}
             _aq["token_type"] = "Bearer"
             token_response = _AqToken.model_validate(_aq)`;
- if(!s.includes('aqeelos:token-type')&&s.includes(from)){await writeFile(pf,s.replace(from,to));changed++;console.log('patched',pf)}}}
+ if(!s.includes('aqeelos:token-type')&&s.includes(from)){await writeFile(pf,s.replace(from,to));changed++;console.log('patched',pf)}else if(!s.includes('aqeelos:token-type'))misfit('token-type '+pf)}}
 // 5) Engine: a WhatsApp bridge port that was just closed (TIME_WAIT, ~60 s after a restart) was treated as "bound by
 //    another process", a permanent error with no retry, so a second agent's WhatsApp stayed down after every restart.
 //    SO_REUSEADDR ignores just-closed connections; a port really in use still fails the bind.
@@ -120,7 +124,7 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
         try:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # aqeelos:port-reuse (TIME_WAIT is not "in use")
             sock.bind(("127.0.0.1", port))`;
- if(!s.includes('aqeelos:port-reuse')&&s.includes(from)){await writeFile(pf,s.replace(from,to));changed++;console.log('patched',pf)}}}
+ if(!s.includes('aqeelos:port-reuse')&&s.includes(from)){await writeFile(pf,s.replace(from,to));changed++;console.log('patched',pf)}else if(!s.includes('aqeelos:port-reuse'))misfit('port-reuse '+pf)}}
 // 7) The engine's own messages (to WhatsApp, Telegram, the chat: "Hermes is shutting down", "Hermes is back"…)
 //    say aqeelOS. Only the words people read change; commands such as `hermes gateway restart` stay as they are.
 {const dir=path.join(HOME,'hermes-agent','locales');
@@ -261,7 +265,7 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
  const D=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','patches');const pf=path.join(D,'2026-11-06-tonight.patch');
  if(await exists(path.join(E,'.git'))&&await exists(pf)){const g=a=>execFileSync('git',['-C',E,...a],{stdio:'pipe'});
   let inPlace=false;try{g(['apply','--reverse','--check',pf]);inPlace=true}catch{}
-  if(!inPlace){try{g(['apply','--check',pf]);g(['apply',pf]);changed++;console.log('engine: 6 Nov patch in place')}catch{console.warn('! engine: 6 Nov patch does not fit this engine version; see engine/patches/README.md')}}
+  if(!inPlace){try{g(['apply','--check',pf]);g(['apply',pf]);changed++;console.log('engine: 6 Nov patch in place')}catch{console.warn('! engine: 6 Nov patch does not fit this engine version; see engine/patches/README.md');misfit('2026-11-06-tonight.patch')}}
   const b=path.join(E,'hermes_cli','branding.py');if(!await exists(b)){await writeFile(b,await readFile(path.join(D,'branding.py')));changed++;console.log('engine: branding.py in place')}}}
 // 17) Shared skills (engine/patches/2026-11-06-shared-skills.patch): every agent reads the main profile's skills,
 //     installed once; <HERMES_HOME>/skills-scope.json limits private ones to listed agents; editing a shared skill
@@ -270,7 +274,7 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
  const pf=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','patches','2026-11-06-shared-skills.patch');
  if(await exists(path.join(E,'.git'))&&await exists(pf)){const g=a=>execFileSync('git',['-C',E,...a],{stdio:'pipe'});
   let inPlace=false;try{g(['apply','--reverse','--check',pf]);inPlace=true}catch{}
-  if(!inPlace){try{g(['apply','--check',pf]);g(['apply',pf]);changed++;console.log('engine: shared skills in place')}catch{console.warn('! engine: shared skills patch does not fit this engine version; see engine/patches/README.md')}}}}
+  if(!inPlace){try{g(['apply','--check',pf]);g(['apply',pf]);changed++;console.log('engine: shared skills in place')}catch{console.warn('! engine: shared skills patch does not fit this engine version; see engine/patches/README.md');misfit('2026-11-06-shared-skills.patch')}}}}
 // 17b) Every later engine fix in engine/patches (named <date>-<what>.patch; 11 Nov 2026: fixes the fixer had made only
 //     on a live engine, which the next engine update would have dropped). Same all-or-nothing git apply per patch, but
 //     "already in" is decided for the whole ordered list (engine-patch-layers.mjs): a later patch on the same lines as an
@@ -282,7 +286,7 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
  if(list.length&&await exists(path.join(E,'.git'))){
   let r=null;try{r=applyLayers(E,list.map(f=>path.join(D,f)))}catch(e){console.warn('! engine: could not tell which patches are in ('+String(e.message||e).split('\n')[0]+')')}
   if(r){for(const f of r.applied){changed++;console.log('engine: '+f+' in place')}
-   for(const f of r.misfit)console.warn('! engine: '+f+' does not fit this engine version; see engine/patches/README.md')}}}
+   for(const f of r.misfit){console.warn('! engine: '+f+' does not fit this engine version; see engine/patches/README.md');misfit(f)}}}}
 // 18) Kirimdev is not WhatsApp (the owner, 7 Nov 2026: "Kirimdev is WhatsApp CRM. Kirimdev we only use API key"). The
 //     support agents' skill called Kirimdev lines "WhatsApp" and sent people to Channels > Connections for them; the
 //     agents' own WhatsApp channel (the engine's WhatsApp platform) is something else. Every copy gets a short note on
@@ -303,3 +307,4 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
   if(!t.includes('aqeelos:kirimdev-not-whatsapp')){const m=/^# .*\n/m.exec(t);t=m?t.slice(0,m.index+m[0].length)+'\n'+NOTE+t.slice(m.index+m[0].length):NOTE+'\n'+t}
   if(t!==s){await writeFile(f,t);changed++;console.log('kirimdev skill note: '+path.relative(HOME,f))}}}
 console.log(changed?changed+' change(s)':'skill patches already in place');
+if(misfits.length){console.warn('! '+misfits.length+' change(s) do not fit this engine version (MISFIT lines above): the engine runs without them');process.exitCode=3}
