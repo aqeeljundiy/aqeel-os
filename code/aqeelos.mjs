@@ -5,6 +5,7 @@
 import {readFile,writeFile,mkdir,access,unlink} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
+import {verifyUpdate,repoOk,repoIn} from './update-verify.mjs';   // an update is unpacked only when it is what GitHub's main holds (audit H-7)
 
 // fetch's built-in client cuts a response body that is silent for 5 minutes (a run waiting on an approval, a long
 // command): engine streams use a copy of it without that limit (Node's bundled undici, reached through the dispatcher
@@ -99,7 +100,12 @@ export function createAqeelos({root}){
   if(!v.version||v.version===install.version)return {state:'current',version:install.version};if(busy())return {state:'waiting',version:v.version};
   updating=true;try{const r=await fetch(link.base+'/ui/code/update',{headers:h,signal:AbortSignal.timeout(300000)});if(!r.ok)throw Error('aqeelOS answered '+r.status);const buf=Buffer.from(await r.arrayBuffer());
    const before=await readFile(path.join(root,'package.json'),'utf8').catch(()=>'');let n=0;
-   for(const [name,data] of unzip(buf)){if(/^(data|node_modules|projects|outputs)\//.test(name)||name.includes('..'))continue;const to=path.join(root,name);await mkdir(path.dirname(to),{recursive:true});await writeFile(to,data);n++}
+   const files=unzip(buf).filter(([name])=>!/^(data|node_modules|projects|outputs)\//.test(name));
+   // nothing is written until every file is confirmed against GitHub (update-verify.mjs); a failed check leaves the app as it is
+   // where updates come from is named once (the install's own aqeelos.json, else the first update) and kept in data/, which no update writes
+   const PIN=path.join(root,'data','update-source');let repo=(await readFile(PIN,'utf8').catch(()=>'')).trim();if(!repoOk(repo))repo=repoOk(install.repo)?install.repo:repoIn(files);
+   await verifyUpdate(files,v.version,link.base,{repo});await mkdir(path.dirname(PIN),{recursive:true});await writeFile(PIN,repo+'\n');
+   for(const [name,data] of files){const to=path.join(root,name);await mkdir(path.dirname(to),{recursive:true});await writeFile(to,data);n++}
    const after=await readFile(path.join(root,'package.json'),'utf8').catch(()=>'');const deps=s=>{try{const j=JSON.parse(s);return JSON.stringify([j.dependencies,j.optionalDependencies])}catch{return ''}};
    if(deps(before)!==deps(after)||await has(PENDING)){await mkdir(path.dirname(PENDING),{recursive:true});await writeFile(PENDING,v.version);const code=await npmInstall();if(code!==0)throw Error('installing what the update needs failed (npm exit '+code+'); it is tried again on the next check');await unlink(PENDING).catch(()=>{})}
    // work started during the download is not cut off: the restart waits until nothing is running

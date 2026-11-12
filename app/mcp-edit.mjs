@@ -29,18 +29,25 @@ const envKeys=text=>String(text||'').split('\n').map(l=>/^([A-Z0-9_]+)=(.*)$/.ex
 export function createMcpEdit({readConfig,setKey,readEnv,editEnv,restart=()=>{},log=()=>{}}){
  const servers=async a=>(await readConfig(a).catch(()=>null))?.mcp_servers||{};
  // the server as the dialog shows it: never a key's value, only whether one is saved
- async function get(agent,name){const s=(await servers(agent))[name];if(!s)throw Object.assign(Error('That app is not on this agent any more. Reload the page.'),{status:404});
+ // aqeelOS's own tools (aqeelos-*) carry the agent's signature in their address: shown and changed by admins only
+ const OWN=/^aqeelos-/;
+ async function get(agent,name,{own=true}={}){const s0=(await servers(agent))[name];if(!s0)throw Object.assign(Error('That app is not on this agent any more. Reload the page.'),{status:404});const s=OWN.test(name)&&!own?{...s0,url:s0.url?'(aqeelOS\'s own tool)':s0.url,headers:undefined}:s0;
   const have=envKeys(await readEnv(agent));const k=keyFor(name);
   return {name,kind:s.url?'url':'command',url:s.url||'',auth:authOf(s),command:s.command||'',args:s.args||[],env:Object.fromEntries(Object.entries(s.env||{}).map(([x,v])=>[x,/^\$\{/.test(String(v))?String(v):''])),envSet:Object.keys(s.env||{}),
    key:k,hasKey:have.includes(k),reads:reads(s)}}
- async function save(agent,b){const name=String(b.name||'');const s=(await servers(agent))[name];if(!s)throw Object.assign(Error('That app is not on this agent any more. Reload the page.'),{status:404});
+ async function save(agent,b,{mayRunCode=true,own=true,privateAddress=null,runsCodeMsg='Apps started by a command run code on the server: only for people allowed the terminal, file and code tools.'}={}){const name=String(b.name||'');const s=(await servers(agent))[name];if(!s)throw Object.assign(Error('That app is not on this agent any more. Reload the page.'),{status:404});
+  const no=m=>Object.assign(Error(m),{status:403});
+  if(OWN.test(name)&&!own)throw no('That is aqeelOS\'s own tool: only an admin changes it.');
+  // an app started by a command runs as the server's own user: its command, arguments and settings are code
+  if(!mayRunCode&&(!s.url||b.command!=null||b.args!=null||b.env!=null))throw no(runsCodeMsg);
+  if(b.url!=null){if(/\$\{/.test(String(b.url)))throw Object.assign(Error('An address cannot contain ${...}.'),{status:400});if(privateAddress&&await privateAddress(String(b.url).trim()))throw no('Tools must use a public web address.')}
   const k=keyFor(name),hasKey=envKeys(await readEnv(agent)).includes(k);
   // settings left blank keep their saved value (the dialog never shows them)
   if(b.env&&s.env)for(const [x,v] of Object.entries(b.env))if(v===''&&x in s.env)b.env[x]=s.env[x];
   const e=edited(s,{...b,name},{hasKey});const tok=stripBearer(b.token);
   if(tok&&authOf(e)==='header'){if(/\s/.test(tok))throw Object.assign(Error('A key has no spaces. Paste only the key.'),{status:400});await editEnv(agent,cur=>[...cur.split('\n').filter(l=>!l.startsWith(k+'=')&&l!==''),k+'='+tok,''].join('\n'))}
   if(JSON.stringify(e)!==JSON.stringify(s)){const r=await setKey(agent,'mcp_servers.'+name,e);if(!r.ok)throw Error(r.err||'Could not save it.')}
-  log('mcp: '+name+' changed on '+agent+(tok?' (new key)':''));restart('app '+name+' changed');return get(agent,name)}
+  log('mcp: '+name+' changed on '+agent+(tok?' (new key)':''));restart('app '+name+' changed');return get(agent,name,{own})}
  // every MCP key of an agent, with whether something reads it and, if not, why
  async function keys(agent){const sv=await servers(agent),have=envKeys(await readEnv(agent));const used=new Set(Object.values(sv).flatMap(reads));
   return have.map(k=>{if(used.has(k))return {key:k,used:true,server:Object.keys(sv).find(n=>reads(sv[n]).includes(k))};

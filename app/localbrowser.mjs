@@ -48,7 +48,7 @@ export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR,NAMES={},PUBLIC_UR
   return new Promise(ok=>{const t=setTimeout(()=>{asks.delete(id);ok({timeout:true})},ms);asks.set(id,r=>{clearTimeout(t);ok(r)});w.send(JSON.stringify({type,id,...extra}))})}
 
  async function pair(user){await load();const token=randomBytes(24).toString('base64url');db.tokens[token]={user,created:Date.now()};await save();return token}
- async function upgrade(req,sock,head){const t=new URL(req.url,'http://x').searchParams.get('t')||'';await load();const rec=db.tokens[t];
+ async function upgrade(req,sock,head){const t=new URL(req.url,'http://x').searchParams.get('t')||'';await load();const rec=/^[A-Za-z0-9_-]{20,64}$/.test(t)&&Object.hasOwn(db.tokens,t)?db.tokens[t]:null;   // only a token this install handed out (never a name every object has)
   if(!rec){const w=acceptWs(req,sock,head);w?.send('{"type":"unpaired"}');w?.close();return}
   const w=acceptWs(req,sock,head);if(!w)return;
   // One browser per person. The newest one that says hello wins, and the one it replaces is told so (it then

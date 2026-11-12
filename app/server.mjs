@@ -45,7 +45,7 @@ import {holdWrites,withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent
 import {createSchedules} from './schedules.mjs';
 import {createScreens} from './screens.mjs';
 import {createAgentAdspower} from './agent-adspower.mjs';
-import {createUsers,UNSAFE_TOOLSETS} from './users.mjs';
+import {createUsers,UNSAFE_TOOLSETS} from './users.mjs';import * as proxyAgent from './proxy-agent.mjs';import {createRelayKeys,reissue as reissueSigned,hideSigned} from './relay-keys.mjs';import {createFixerWatch,protectedFiles} from './fixer-watch.mjs';import {ownSettingProblem,ownSettingOk,ownSettingKey,OWN_SETTINGS_HELP} from './agent-settings.mjs';
 import {createStarters} from './starters.mjs';
 import {createMail} from './mail.mjs';
 import {createUsage} from './usage.mjs';
@@ -110,7 +110,7 @@ import {createQuestions} from './questions.mjs';
 import {issueActs,itemActs} from './need-action.mjs';
 import {createBrowserChecks} from './browser-checks.mjs';
 import {createConnections} from './connections.mjs';
-import {createSecretLinks,createLimiter} from './secret-links.mjs';
+import {createSecretLinks,createLimiter,SECRETISH,RISKY} from './secret-links.mjs';
 import {createGoogleShares} from './google-shares.mjs';
 import {createGoogleFiles} from './google-files.mjs';
 import {createGoogleTools,GOOGLE_TOOLS,GOOGLE_TOOL_NAMES} from './google-tools.mjs';   // Google with no terminal (11 Nov 2026)
@@ -155,6 +155,7 @@ import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // 
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
 
+delete Object.prototype.__proto__;   // a key named __proto__ from a request is an ordinary key: no lookup reaches Object.prototype (security audit, 12 Nov 2026)
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'..');
 const env=process.env;
@@ -234,12 +235,19 @@ const codeProvName=p=>{const s=String(p?.slug||''),n=String(p?.name||s);if(s==='
 function liveStart(key,user){const rec={user,chunks:[],size:0,subs:new Set(),done:false,t:Date.now(),last:Date.now(),gw:gwPidNow};LIVE.set(key,rec);return rec}
 setInterval(()=>{for(const [k,r] of LIVE)if(!r.done&&!r.asking&&Date.now()-r.last>20*60e3){console.warn('live stream idle for 20 min, ending it:',k);liveEnd(k,r)}},60000).unref();
 function liveEnd(key,rec){if(rec.done)return;rec.done=true;resumeLiveEnd(rec);saveThinking(key,rec);for(const r of rec.subs)r.end();rec.subs.clear();setTimeout(()=>{if(LIVE.get(key)===rec)LIVE.delete(key)},120000)}
+// A file from the engine's file routes (an agent may have written it) is shown inline only when it is a picture, sound, video or
+// PDF; everything else (html, svg, js, xml...) is a download of plain bytes, sandboxed (audit B-M3, 12 Nov 2026).
+function safeFileHeaders(out){const ct=String(out['content-type']||'').split(';')[0].trim().toLowerCase();
+ const inline=/^(image\/(png|jpeg|gif|webp|avif|bmp|x-icon)|audio\/[\w.+-]+|video\/[\w.+-]+|application\/pdf|application\/json)$/.test(ct);
+ if(!inline){if(!/^text\/plain$/.test(ct))out['content-type']='application/octet-stream';const cd=String(out['content-disposition']||'');out['content-disposition']=/^attachment/i.test(cd)?cd:'attachment'+(/filename/i.test(cd)?';'+cd.split(';').slice(1).join(';'):'')}
+ if(!inline)out['content-security-policy']="sandbox; default-src 'none'";out['x-content-type-options']='nosniff';return out}
 function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
  const url=new URL(req.url,'http://x');
  // /hapi/status → dashboard /api/status · /gapi/api/sessions → gateway /api/sessions
  const upstreamPath=(prefix==='/hapi'?'/api':'')+url.pathname.slice(prefix.length)+url.search;
  const headers={...req.headers};
  for(const h of ['cookie','host','authorization','x-hermes-session-token','origin','referer','x-forwarded-for','x-forwarded-proto','x-forwarded-host','x-hui'])delete headers[h];
+ for(const h of Object.keys(headers))if(/^x-hermes-/i.test(h))delete headers[h];   // nothing the browser sends may pass for the engine's own headers
  Object.assign(headers,authHeaders,{host:target.host});
  if(body!==undefined){delete headers['transfer-encoding'];headers['content-length']=String(body.length)}
  if(transform)delete headers['accept-encoding'];
@@ -257,7 +265,8 @@ function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
   // a file uploaded through the engine (chat attachments, /hapi/files): readable by the agents once it is written (OPS-18; the engine's own
   // writer has the same fix, this covers an engine without it)
   if(prefix==='/hapi'&&req.method==='POST'&&url.pathname==='/hapi/files'&&(r.statusCode||500)<300)res.on('finish',()=>boxOps.uploadsReadable().catch(()=>{}));
-  res.writeHead(r.statusCode||502,{...out,...security});r.pipe(res);
+  if(prefix==='/hapi'&&/^\/hapi\/files\/(download|stream|read)$/.test(url.pathname))safeFileHeaders(out);
+  res.writeHead(r.statusCode||502,{...out,...security,...(out['content-security-policy']?{'content-security-policy':out['content-security-policy']}:{})});r.pipe(res);
  });
  up.on('error',e=>{if(live?.jid&&!live.started)resume.end(live.jid);if(!res.headersSent)send(res,502,{error:'The aqeelOS engine is not reachable',detail:e.code||e.message});else res.end()});
  req.on('aborted',()=>{if(!live?.started)up.destroy()});res.on('close',()=>{if(!res.writableEnded&&!live?.started)up.destroy()});
@@ -266,7 +275,7 @@ function proxy(req,res,target,prefix,authHeaders,{transform,body,live}={}){
 
 async function serveFile(res,rel){
  const file=path.resolve(root,rel);
- if(!file.startsWith(root+path.sep)||/\.(mjs|env|md)$|[\\/]\./i.test(rel))return send(res,404,'Not found');
+ if(!file.startsWith(root+path.sep)||/\.(mjs|env|md)$|[\\/]\./i.test(rel)||/\.(mjs|env|md)$|[\\/]\./i.test(path.relative(root,file))||!Object.hasOwn(types,path.extname(file).toLowerCase()))return send(res,404,'Not found');
  try{const st=await stat(file);if(!st.isFile())throw 0;let body=await readFile(file);const ext=path.extname(file);if(ext==='.html'&&rel.startsWith('assets/'))body=Buffer.from(legalFill(body.toString('utf8').replaceAll('{{OWNER_CONTACT}}',(globalThis.AQ_CONTACT||OWNER_CONTACT).replace(/[<>&"]/g,c=>'&#'+c.charCodeAt(0)+';'))));
   const etag=ext==='.html'?'"h'+Date.now().toString(36)+'"':'"'+st.size.toString(36)+'-'+Math.round(st.mtimeMs).toString(36)+'"';if(ext!=='.html'&&res.req?.headers?.['if-none-match']===etag){res.writeHead(304,{etag,'cache-control':'no-cache'});return res.end()}
   res.writeHead(200,{'content-type':types[ext]||'application/octet-stream','cache-control':ext==='.png'&&rel.startsWith('assets/emoji/')?'public, max-age=604800':ext==='.woff2'||ext==='.svg'||ext==='.png'?'public, max-age=86400':'no-cache',etag,...security});res.end(body)}
@@ -278,6 +287,8 @@ async function serveFile(res,rel){
    outside the app folder so deploys never touch them. The name is also written to Hermes'
    profile.yaml (display_name) so Hermes' own tools show it too. */
 const DATA=path.resolve(env.UI_DATA_DIR||path.join(root,'..','hermes-ui-data'));initStatus(DATA);
+// the agents' signed tool addresses have a key of their own that can be changed (relay-keys.mjs, scripts/rotate-secrets.mjs; audit H-9)
+const relayKeys=createRelayKeys(DATA,SECRET);
 // who runs this install, on About, Privacy and Terms: DATA/legal.json {"name","org","site"} (this install's own data,
 // never in git; 7 Nov 2026, open source). Without it the pages say "the owner of this install".
 // the same owner, for the desktop app's screens (public, like the About page): null when legal.json has none
@@ -344,7 +355,8 @@ const loops=rec.loops;
 const defGate=createAgentGate({homeOf:homeOfAg,reads:['cfg','top'],extra:()=>statSig([path.join(DATA,'install.json'),path.join(DATA,'users.json'),path.join(DATA,'skills-policy.json')])});
 // every agent's defaults from aqeelOS itself (tools, screen and browser, skills, its own Linux user): at start and for new agents
 // the settings an agent may change for itself (my_settings): only everyday ones, never what it can reach
-const OWN_SETTINGS=/^(stt|tts)\.[a-z0-9_.]+$|^timezone$|^display\.[a-z0-9_.]+$/;
+// the settings an agent may change on itself: an exact list with plain values (agent-settings.mjs; audit CR-3)
+const OWN_SETTINGS={test:k=>ownSettingKey(k)};
 const whyOf=createWhy({DATA,HERMES_HOME,python:enginePython});
 // locked agents (owner without "unsafe", or the admin's safe lock) keep terminal, files and code off through the defaults too
 // F: only agents of admins may run as the box's main user; the lead of an admin does (aqeelOS itself is theirs), and goes
@@ -372,7 +384,7 @@ const keysId=createKeysIdentity({DATA,HERMES_HOME,root,listAgents:()=>listAgents
 if(LIVE_APP){setTimeout(()=>keysId.tick().catch(e=>console.warn('key checks',e.message)),120000).unref();setInterval(()=>keysId.tick().catch(()=>{}),10*60000).unref()}
 const schedules=createSchedules({DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,listAgents:()=>listAgents(),python:enginePython,root,live:()=>LIVE_APP||process.env.SCHED_DESCRIBE==='1',relays:()=>relay.jobRelays()});
 if(LIVE_APP||process.env.SCHED_DESCRIBE==='1')rec.add('schedule descriptions',{run:()=>schedules.tick(),reads:['jobs'],every:3600e3,why:'was every 10 min'});
-const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split('--')[0]);return !o||o==='owner'},DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a,ownerName:()=>users.people()[0]?.name});
+const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split('--')[0]);return !o||o==='owner'},DATA,DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,SECRET:relayKeys.cur,listAgents:()=>listAgents(),links:{list:a=>links.list(a)},platformsOf:a=>platformsCached(a),nameOf:a=>NAMES[a]||a,ownerName:()=>users.people()[0]?.name});
 const NAMES={};   // agents' display names (refreshed with the agent context), for messages people read
 const agentName=agentNameFrom(NAMES);   // agent-name.mjs: display names everywhere, never a profile id
 // names and notes people give their Google accounts, "<agent>|<account name>" → {label, note}
@@ -857,7 +869,7 @@ const channels=createChannels({DASH:DASH.origin,TOKEN:DASH_TOKEN,HERMES_HOME,lis
 // shared Google logins as short-lived limited keys (google-shares.mjs); the level is the agent's in Connections
 // an agent locked to its own Google files (google-files.mjs) holds no key; aqeelOS calls Google for it, signed per agent
 const gfLevel=async(email,agent)=>{const l=await connAccounts.levelFor?.(email,agent).catch(()=>null);return l||'edit'};
-const googleFiles=createGoogleFiles({HERMES_HOME,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>sign('google-files:'+a).slice(0,32),levelOf:gfLevel,token:(email,level)=>googleShares.keyFor(email,level)});
+const googleFiles=createGoogleFiles({HERMES_HOME,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>relayKeys.sign('google-files:',a),levelOf:gfLevel,token:(email,level)=>googleShares.keyFor(email,level)});
 const googleShares=createGoogleShares({HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),agents:()=>agentNames(),levelOf:gfLevel,held:a=>googleFiles.locked(a)});
 if(LIVE_APP){const t=()=>googleFiles.ensureClients().catch(e=>console.warn('google files',e.message));setTimeout(t,30e3).unref();setInterval(t,5*60e3).unref()}
 if(LIVE_APP){const t=()=>googleShares.renew().then(r=>{if(r.renewed||r.removed)console.log('google shares: renewed',r.renewed,'removed',r.removed)}).catch(e=>console.warn('google shares',e.message));setInterval(t,5*60e3).unref();setTimeout(t,60e3).unref()}
@@ -873,7 +885,7 @@ const code=createCode({DATA,SRC:path.join(homedir(),'apps','aqeel-code'),PUBLIC_
 const teamFolders=createTeamFolders({DATA,names:uid=>{const x=users.byId(uid);return x?.name||x?.username||'Someone'},known:uid=>{const x=users.byId(uid);return !!x&&!x.disabled}});
 const codeAgents=createCodeAgents({HERMES_HOME,DATA,sign,readIds,outboxAccess:(a,d)=>agentDefaults.outboxAccess(a,d)});
 // every aqeelOS model for Code projects on a person's computer: the engine reaches the project through this bridge only
-const codeBridge=createCodeBridge({PORT,DATA,sign,code,mayUse:(uid,a)=>{const w=users.byId(uid);return !!w&&!users.gate(w,'/gapi/api/model/options','GET',new URLSearchParams(),a)},workspaces:a=>path.join(homedir(),'workspaces',a),access:(a,d)=>agentDefaults.outboxAccess(a,d)});
+const codeBridge=createCodeBridge({PORT,DATA,sign:v=>createHmac('sha256',relayKeys.cur).update(v).digest('base64url'),sigOk:(given,a)=>relayKeys.ok(given,'code-bridge:',a),code,mayUse:(uid,a)=>{const w=users.byId(uid);return !!w&&!users.gate(w,'/gapi/api/model/options','GET',new URLSearchParams(),a)},workspaces:a=>path.join(homedir(),'workspaces',a),access:(a,d)=>agentDefaults.outboxAccess(a,d)});
 /* A Code run asks one of its attached agents (aqeelos_ask in Code, code_ask_agent on the engine): one chat turn for
    that agent, as the person who sent the run (their daily limit and the models they may use, as in Chat), with a
    folder of its own to save files in. The answer's text and files come back; where the files go is the caller's. */
@@ -990,6 +1002,10 @@ if(LIVE_APP&&existsSync(path.join(homedir(),'services.sh'))){const tick=()=>{try
 // The night's page checks (browser-checks.mjs, 12 Nov 2026): the browser checks that no longer run at every deploy run once a night in the maintenance window, after the update; a failure is one Health item
 const browserChecks=createBrowserChecks({DATA,APP:root,settings:()=>installSettings(),bottlenecks,live:async()=>({box:existsSync(path.join(homedir(),'services.sh')),sha:(await readFile(path.join(root,'.deployed-commit'),'utf8').catch(()=>'')).trim()})});
 if(LIVE_APP)setInterval(()=>browserChecks.tick().catch(e=>console.warn('browser checks',e.message)),5*60e3).unref();
+// after a key rotation (scripts/rotate-secrets.mjs): every old signature in the agents' settings and aqeelOS's scripts becomes the new one, first thing
+if(relayKeys.old&&LIVE_APP)setTimeout(async()=>{try{const names=new Set(['default',...await listAgents().catch(()=>[])]);for(const p of await readdir(path.join(HERMES_HOME,'profiles')).catch(()=>[]))names.add(p);
+  const ch=await reissueSigned({HERMES_HOME,agents:[...names],cur:relayKeys.cur,old:relayKeys.old,log:m=>console.warn(m)});relayKeys.done();console.log('relay keys: re-issued the agents\' signed addresses after a rotation ('+ch.length+' files). Reload the agents once nothing is running.');
+  if(ch.length)restartLater('tool addresses of the agents were re-issued')}catch(e){console.warn('relay keys: re-issue failed: '+e.message)}},3000);
 if(LIVE_APP)setInterval(async()=>{const f=path.join(DATA,'auto-update.json');let a;try{a=JSON.parse(await readFile(f,'utf8'))}catch{return}const l=a.last;if(!l||!/failed|refused/.test(l.result)||a.told===l.at)return;a.told=l.at;await writeFile(f,JSON.stringify(a,null,1)).catch(()=>{});await bottlenecks.event('update',l.result==='refused'?'An automatic update was skipped':'An automatic update failed',l.why).catch(()=>{})},5*60000).unref();
 // The desktop app for everyone: the public GitHub release (.github/workflows/desktop-app.yml). DESKTOP_RELEASES points elsewhere for a
 // private build; files in DATA/desktop are used when they are newer, or when no release can be reached.
@@ -1151,7 +1167,8 @@ const help=createHelp({DATA,root,DASH:DASH.origin,DASH_TOKEN,GATE:GATE.origin,AP
 const starters=createStarters(DATA,{python:enginePython,root});
 const me=async req=>{const id=cookieId(req);return id?await users.user(id):null};
 // The agent a call is for: /gapi/p/<agent>/… or ?profile=<agent> (none = the main agent).
-const agentOf=(p,q)=>{const m=/^\/gapi\/p\/([^/]+)/.exec(p);return m?decodeURIComponent(m[1]):q.get('profile')||q.get('agent')||'default'};
+// for the app's own /ui routes only (screens): the engine proxy decides its agent in proxy-agent.mjs
+const agentOf=(p,q)=>q.get('profile')||q.get('agent')||'default';
 
 /* ---------- a person's call to Hermes: allowed? which chats come back? ---------- */
 // An agent a member just created: they own it, it can chat (plugin, model, gateway key), and unless they
@@ -1525,7 +1542,13 @@ function askSecret(agent,a){return new Promise(resolve=>{const id=randomBytes(9)
 const secretDir=base=>path.join(homedir(),'workspaces',base,'.secrets');
 const secretAccess=createSecretAccess({sharing:shareLevels,secretDir,exists:async f=>!!await stat(f).catch(()=>null)});
 const RESERVED_KEY=/^(API_SERVER_|HERMES_|TELEGRAM_|WHATSAPP_|SLACK_|DISCORD_|SIGNAL_|MATRIX_|EMAIL_|SMS_|TWILIO_|GATEWAY_|DASHBOARD_|UI_)|_BASE_URL$|^(PATH|HOME|NODE_OPTIONS|PYTHONPATH|LD_PRELOAD)$/;
-async function saveSecret(base,name,value,{admin=false}={}){if(!admin&&RESERVED_KEY.test(name))throw new Error(name+' is part of how aqeelOS itself is wired; pick another name for this secret.');const home=base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base);
+// A secret's name is a line in the agent's .env, which the engine (and for the main agent the app itself) loads into its process.
+// So what anyone but an admin saves is held to an allow rule, not a block list (audit H-2, 12 Nov 2026): SECRET_<NAME>, or a name that
+// is plainly a credential and that no program reads to decide how it runs (secret-links.mjs nameProblem, the same rule as its links).
+const memberSecretName=n=>{n=String(n||'').toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,60);return /^SECRET_[A-Z0-9_]{1,54}$/.test(n)?n:('SECRET_'+n).slice(0,60)};
+const plainSecretName=n=>/^SECRET_[A-Z0-9_]{1,54}$/.test(n)||SECRETISH.test(n)&&!RISKY.test(n)&&!RESERVED_KEY.test(n)&&/^[A-Z][A-Z0-9_]{2,59}$/.test(n);
+async function saveSecret(base,name,value,{admin=false}={}){if(!admin&&RESERVED_KEY.test(name))throw new Error(name+' is part of how aqeelOS itself is wired; pick another name for this secret.');
+ if(!admin&&!plainSecretName(name))throw new Error(name+' is not a name for a secret. Use a name that ends in _KEY, _TOKEN, _SECRET or _PASSWORD, or starts with SECRET_.');const home=base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base);
  await editEnv(path.join(home,'.env'),cur=>{const lines=cur.split('\n').filter(l=>!l.startsWith(name+'='));while(lines.length&&lines[lines.length-1]==='')lines.pop();return [...lines,name+'='+value.replace(/[\r\n]/g,''),''].join('\n')});
  const dir=secretDir(base);await mkdir(dir,{recursive:true,mode:0o770});await writeFile(path.join(dir,name),value,{mode:0o660});await secretAccess.saved(base,name)?.catch(()=>{})}   // group-shared: an agent with its own user reads its own lock box; still closed to other agents
 const secretHow=(base,name)=>'To enter it on your screen, click the field and call type_secret with name '+name+'. In a command use "$(cat ~/workspaces/'+base+'/.secrets/'+name+')". Never print, echo or show the value.';
@@ -1660,7 +1683,7 @@ if(LIVE_APP){setTimeout(()=>postingLimits.ensure().catch(e=>console.warn('postin
 let SR_TZ=sysTz();const srTz=()=>readConfig('default').then(c=>{const z=installTz()||c?.timezone;if(z)SR_TZ=z}).catch(()=>{});srTz();setInterval(srTz,600e3).unref();
 const srName=a=>agentName(a);
 const srBox=createSelfRunsBox({HERMES_HOME,DATA,python:enginePython});
-const srSig=a=>sign('self-runs:'+a).slice(0,32),srUrl=a=>`http://127.0.0.1:${PORT}/mcp/self/${a}/${srSig(a)}`;
+const srSig=a=>relayKeys.sign('self-runs:',a),srUrl=a=>`http://127.0.0.1:${PORT}/mcp/self/${a}/${srSig(a)}`;
 const srDur=s=>s==null?'':s<60?s+' s':Math.round(s/60)+' min';
 const SR_SAY={ok:'finished',failed:'failed',timeout:'ran out of time on',stopped:'stopped',interrupted:'lost (aqeelOS restarted during)'};
 const SR_CHAT=new Set(['telegram','whatsapp','slack','discord','signal','matrix','mattermost']);
@@ -1804,7 +1827,7 @@ accountHooks.exhausted=until=>{if(until)providerLimits.set(until,'every AI accou
 const questions=createQuestions({DATA,names:a=>agentName(a),onAnswer:async q=>{if(q.kind==='fixer'&&q.issue)await issues.answered(q.issue,q);if(q.kind==='app'&&q.issue==='brand-logo'&&q.answered?.choice==='b'){await brand.setMono(true);await pwa.current()}if(q.kind==='app'&&String(q.issue).startsWith('live-logo-')&&q.answered?.choice==='b')await live.useLetter(String(q.issue).slice(10))}});
 // the cloud fixer (cloud-fixer.mjs, 12 Nov 2026): code fixes are written by a Claude Code routine in Anthropic's cloud; the account with the most room is used
 const cloudFixer=createCloudFixer({DATA,accounts:async()=>{const b=accountsApi.backup,d=await b.load();return Promise.all(b.all(d).map(a=>b.details(a)))},github:id=>fixerGit.mergedPr(id)});
-const issues=createIssues({DATA,onOver:n=>n?bottlenecks.event('issues',n+' open issues: more than the list is meant to hold','None is dropped. Close or decline the ones that no longer matter under System › Health, so new ones stay easy to find.',{topic:'issues-over'}):bottlenecks.resolve('issues-over'),ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
+const issues=createIssues({DATA,watch:createFixerWatch({list:()=>protectedFiles({HOME:homedir(),HERMES_HOME,DATA}),log:m=>console.warn(m)}),onOver:n=>n?bottlenecks.event('issues',n+' open issues: more than the list is meant to hold','None is dropped. Close or decline the ones that no longer matter under System › Health, so new ones stay easy to find.',{topic:'issues-over'}):bottlenecks.resolve('issues-over'),ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
  needCloud:()=>bottlenecks.event('cloud_fixer','Set up the cloud fixer','A bug in aqeelOS\'s own code is fixed in the cloud. Add a routine on System › Settings › Cloud fixer; until then the older way runs.',{topic:'cloud_fixer'}),cloudOk:()=>bottlenecks.resolve('cloud_fixer'),needToken:()=>bottlenecks.event('github_token','The fixer needs a GitHub token','Fixes wait for review as branches on the box. Add the token and their pull requests open by themselves.',{topic:'github_token'}),tokenOk:()=>bottlenecks.resolve('github_token'),usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
  tz:()=>installTz()||process.env.TZ||'',sortRun:engineSortRun({bin:path.join(homedir(),'.local','bin','aqeelos'),home:homedir(),dir:path.join(DATA,'issues','sort')}),
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,engineOk:()=>inQuiet(new Date(),installTz()||process.env.TZ||''),envFiles:issueEnvFiles,
@@ -2074,7 +2097,7 @@ const SR_STATE={waiting:'Waiting for the lock',running:'Running',ok:'Finished',f
 const srText=r=>'Run '+r.id+': '+(SR_STATE[r.state]||r.state)+(r.secs!=null?' after '+srDur(r.secs):'')+(r.exit!=null&&r.state!=='ok'?' (exit code '+r.exit+')':'')+'.\nReason: '+r.reason+(r.error?'\n'+r.error:'')+(r.answer?'\n\nIts last output:\n'+r.answer:'')+(r.state==='running'||r.state==='waiting'?'\n\nStill going. Do other work, or wait in your terminal (sleep 60), then call run_self_status again.':'');
 async function srMcp(req,res,ms){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
  let msg={};try{msg=JSON.parse(await readBody(req,262144))}catch{return send(res,400,{error:'bad json'})}
- const a=ms[1],x=Buffer.from(String(ms[2])),y=Buffer.from(srSig(a));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad token'});
+ const a=ms[1];if(!relayKeys.ok(ms[2],'self-runs:',a))return send(res,403,{error:'bad token'});
  const rpc=result=>send(res,200,{jsonrpc:'2.0',id:msg.id,result}),reply=(text,isError)=>rpc({content:[{type:'text',text}],...(isError?{isError:true}:{})});
  if(msg.method==='initialize')return rpc({protocolVersion:msg.params?.protocolVersion||'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'aqeelos-self',version:'1.0.0'}});
  if(msg.method==='notifications/initialized'||msg.id==null)return send(res,202,'');
@@ -2164,14 +2187,34 @@ async function privateAddress(u){let url;try{url=new URL(String(u))}catch{return
   if(/^\d+\.\d+\.\d+\.\d+$/.test(a)){const [x,y]=a.split('.').map(Number);return x===0||x===10||x===127||(x===169&&y===254)||(x===172&&y>=16&&y<=31)||(x===192&&y===168)||(x===100&&y>=64&&y<=127)||x>=224}
   return a==='::'||a==='::1'||/^f[cd]/.test(a)||/^fe[89ab]/.test(a)};
  return !addrs.length||addrs.some(x=>bad(x.address))}
+// aqeelOS's own tools (aqeelos-*) in an app list: their address ends in the agent's signature, so it is not sent to a browser
+function hideOwnTools(d){const fix=s=>s&&typeof s==='object'&&/^aqeelos-/.test(String(s.name||''))&&s.url?{...s,url:hideSigned(String(s.url))}:s;
+ if(Array.isArray(d))return d.map(fix);if(d&&typeof d==='object'){const o={...d};for(const k of ['servers','mcp_servers','items'])if(Array.isArray(o[k]))o[k]=o[k].map(fix);else if(o[k]&&typeof o[k]==='object')o[k]=Object.fromEntries(Object.entries(o[k]).map(([n,s])=>[n,/^aqeelos-/.test(n)&&s?.url?{...s,url:hideSigned(String(s.url))}:s]));return o}return d}
 async function hermesCall(req,res,u,url){
- const p=url.pathname,q=url.searchParams,agent=agentOf(p,q);
+ const p=url.pathname,q=url.searchParams;
  if(['profile','path','name','agent'].some(k=>q.getAll(k).length>1))return send(res,400,{error:'Each setting may appear only once.'});
+ // Which agent this call acts on is decided once, from what the engine itself reads (proxy-agent.mjs; audit CR-1/H-1,
+ // 12 Nov 2026): the path, else a JSON body's "profile", else ?profile=. So a dashboard change's body is read up front,
+ // whatever content type it claims; uploads and file calls carry no agent and are left as they are.
+ let body,jb;const ctype=String(req.headers['content-type']||'');
+ if(p.startsWith('/hapi/')&&!['GET','HEAD'].includes(req.method)&&!p.startsWith('/hapi/files')&&!/^multipart\//i.test(ctype)){
+  try{body=await readRaw(req,30e6)}catch{return send(res,413,{error:'That is too large to send.'})}
+  const raw=body.toString('utf8');if(raw.trim()){try{jb=JSON.parse(raw)}catch{if(/json/.test(ctype))return send(res,400,{error:'The request body is not valid JSON.'})}}else if(/json/.test(ctype))jb={}}
+ const dec=proxyAgent.decide(p,q,jb);if(dec.error||dec.agent==='all'&&!(req.method==='GET'&&p==='/hapi/cron/jobs'))return send(res,400,{error:dec.error||'Name one agent.'});
+ const agent=dec.agent;
  // Help's profile only through /ui/help (help.mjs): nobody, admins included, opens its chats or settings here. Its usage
  // totals are the one exception, for admins on System › Usage (numbers per day and model, never what was said; 1 Nov 2026)
  const helpTotals=agent===HELP_AGENT&&users.isAdmin(u)&&req.method==='GET'&&/^\/hapi\/analytics\/(usage|models)$/.test(p);
  if(!helpTotals&&(agent===HELP_AGENT||decodeURIComponent((/^\/hapi\/profiles\/([^/?]+)/.exec(p)||[])[1]||'')===HELP_AGENT))return send(res,403,{error:'Help chats are private to each person.'});
  const no=users.gate(u,p,req.method,q,agent);if(no)return send(res,no.status,{error:no.error});
+ // an admin's call always names its agent to the gate (a body's "profile" too), so one private to its owner stays closed
+ if(users.isAdmin(u)&&u.role!=='owner'&&agent!=='all'&&dec.via!=='none'&&!users.level(u,agent))return send(res,403,{error:'This agent is private to its owner. Ask them to share it.'});
+ // the forwarded request names that one agent and nothing else: every other selector is overwritten or dropped
+ {const rw=proxyAgent.rewrite(p,q,jb,agent);if(rw.changed){jb=rw.body;body=Buffer.from(JSON.stringify(jb))}const qs=q.toString();req.url=p+(qs?'?'+qs:'')}
+ if(jb&&typeof jb==='object'&&!Array.isArray(jb)&&p==='/hapi/profiles'&&jb.name===HELP_AGENT)return send(res,403,{error:'That name is taken by Help.'});
+ if(jb&&typeof jb==='object'&&!Array.isArray(jb)&&p==='/hapi/profiles'&&req.method==='POST'&&String(jb.name??'').includes('--'))return send(res,400,{error:'An agent name cannot contain "--".'});
+ // A10: a member's new chat gets the id the engine gives it, never one the request names (an existing chat would become theirs)
+ if(!users.isAdmin(u)&&req.method==='POST'&&/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)){let b={};try{b=JSON.parse((await readRaw(req,65536)).toString('utf8')||'{}')}catch{}if(b&&typeof b==='object'&&!Array.isArray(b)){delete b.id;delete b.session_id;delete b.sessionId}else b={};body=Buffer.from(JSON.stringify(b))}
  if(u.role==='owner'&&agent&&users.lockedByOwner(agent)){const o=users.byId(users.agentOwner(String(agent).split('--')[0]));if(o&&o.id!=='owner')teamView.lookedAgent(u.name||'Owner',o.name,agent).catch(()=>{})}
  {const rm=/\/v1\/runs\/([^/]+)/.exec(p);if(rm&&!users.isAdmin(u)){const own=runOwner.get(decodeURIComponent(rm[1]));if(!own||own.user!==u.id)return send(res,403,{error:'That reply is not yours.'})}}
  if(p.startsWith('/gapi/p/')&&agent&&agent!=='default'&&!keyOk.has(agent)){const envF=path.join(HERMES_HOME,'profiles',agent,'.env');const e=await readFile(envF,'utf8').catch(()=>null);
@@ -2191,20 +2234,11 @@ async function hermesCall(req,res,u,url){
    try{return send(res,200,await finishWhatsAppLink(ag,decodeURIComponent(am[1]),b))}catch(e){return send(res,e.status||400,{error:e.message})}}}
  // channel set-up (WhatsApp QR, Telegram bot…) reads the agent from the request BODY, not the address; without it
  // the engine pairs the main agent instead (Husband Mode's WhatsApp "never paired"). Always pass it along.
- let body,addonNote=null;   // addonNote: an app, skill or plugin being added, recorded once the engine says it is done
- // Same for every change the engine scopes by body (pairing approvals, chat import/update…): if the address names the
- // agent and the JSON body doesn't, the body gets it too. Uploads and non-JSON bodies are left alone.
+ let addonNote=null;   // addonNote: an app, skill or plugin being added, recorded once the engine says it is done
  // An engine update starts from the engine's own files: aqeelOS's renames (aqeelOS instead of Hermes in what people
  // read) are put back to the original first, so the update never clashes with them; they are applied again after it.
  // What was true before is kept first, so the same check as a night update runs after it (engine-updates.mjs).
  if(p==='/hapi/hermes/update'&&req.method==='POST'&&users.isAdmin(u)){if(backups.busy())return send(res,409,{error:'A restore is running. Update after it finishes.'});if(await engineUpd.beforeManual().catch(e=>{console.warn('engine update: before',e.message);return true})===false)return send(res,409,{error:'An engine update is already running.'});await engineReset();setTimeout(()=>engineWatch().catch(()=>{}),120000)}
- if(p.startsWith('/hapi/')&&req.method!=='GET'&&q.get('profile')&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){let b=null,raw;
-  // the body is read up front, so a bad one is answered here (passing it on would forward a body that is already gone)
-  try{raw=(await readRaw(req,30e6)).toString('utf8')}catch{return send(res,413,{error:'That is too large to send.'})}try{b=raw?JSON.parse(raw):{}}catch{return send(res,400,{error:'The request body is not valid JSON.'})}
-  if(b&&typeof b==='object'&&!Array.isArray(b)&&(!b.profile||!users.isAdmin(u)))b.profile=q.get('profile');if(b!==null)body=Buffer.from(JSON.stringify(b))}
- // a member's JSON body without ?profile= may not name another agent either
- // and nobody's may name Help's profile (or make an agent with its name)
- if(!q.get('profile')&&p.startsWith('/hapi/')&&req.method!=='GET'&&body===undefined&&/json/.test(String(req.headers['content-type']||''))&&!p.startsWith('/hapi/files')){const raw=await readRaw(req,30e6);body=raw;try{const b=JSON.parse(raw.toString('utf8')||'null');if(b&&typeof b==='object'&&!Array.isArray(b)){if(b.profile===HELP_AGENT||p==='/hapi/profiles'&&b.name===HELP_AGENT)return send(res,403,{error:'That name is taken by Help.'});if(!users.isAdmin(u)&&b.profile&&b.profile!==(agent||'default'))return send(res,403,{error:'That agent is not shared with you.'})}}catch{}}
  // a member's file calls must stay in their own folder
  if(!users.isAdmin(u)&&p.startsWith('/hapi/files')){
   // no path would list the engine's own default folder: a member's goes to their home instead
@@ -2361,7 +2395,8 @@ async function hermesCall(req,res,u,url){
   // Add an app: Tebar first (app/tebar-app.mjs), then the engine's own
   :p==='/hapi/mcp/catalog'&&req.method==='GET'?async d=>withTebar(d,await readConfig(agent).catch(()=>null))
   // System › Logs: the agents' tool addresses carry a secret part (/mcp/<kind>/<agent>/<secret>), and keys can turn up in a line: hidden before they reach the page
-  :p==='/hapi/logs'&&req.method==='GET'?d=>Array.isArray(d?.lines)?{...d,lines:d.lines.map(l=>redactText(String(l).replace(/(\/mcp\/[\w-]+\/[\w.-]+\/)[A-Za-z0-9_-]{8,}/g,'$1(hidden)')))}:d
+  :p==='/hapi/logs'&&req.method==='GET'?d=>Array.isArray(d?.lines)?{...d,lines:d.lines.map(l=>redactText(String(l)))}:d
+  :/^\/hapi\/mcp\/servers$/.test(p)&&req.method==='GET'?d=>hideOwnTools(d)
   :p==='/hapi/status'&&req.method==='GET'?d=>Array.isArray(d?.profiles)?{...d,profiles:d.profiles.filter(x=>(x?.name||x)!==HELP_AGENT)}:d
   :/^\/gapi(\/p\/[^/]+)?\/api\/model\/options$/.test(p)&&users.allowedModels(u)?d=>({...d,providers:(d.providers||[]).map(pv=>({...pv,models:(pv.models||[]).filter(m=>users.modelOk(u,pv.slug,m))})).filter(pv=>pv.models.length)})
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}
@@ -2509,20 +2544,20 @@ const server=createServer(async(req,res)=>{
    const r=await kirimdev.teamMessage(mt[1].split('--')[0],{chatId:body.chatId,threadId:body.threadId,userId:body.userId,text:String(body.text||'')}).catch(e=>({handled:false,why:e.message}));return send(res,200,{handled:!!r.handled})}}
   // an agent's Google files (google-files.mjs): from this box only, signed per agent, only the files listed for it
   {const mf=/^\/google-files\/([\w-]+)\/([\w-]+)$/.exec(p);if(mf){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
-   const x=Buffer.from(String(mf[2])),y=Buffer.from(sign('google-files:'+mf[1]).slice(0,32));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad signature'});
+   if(!relayKeys.ok(mf[2],'google-files:',mf[1]))return send(res,403,{error:'bad signature'});
    let body;try{body=JSON.parse(await readBody(req,4e6))}catch{return send(res,400,{error:'bad json'})}const r=await googleFiles.call(mf[1],body);return send(res,r.status,r.json)}}
   // the run gate every schedule runs first (run-gates.mjs): from this box only, signed per agent; always answers
   {const mr=/^\/run-gate\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mr){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   const x=Buffer.from(String(mr[3])),y=Buffer.from(String(relay.sig(mr[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
+   if(!relayKeys.ok(mr[3],'relay:',mr[1]))return send(res,403,'bad signature');
    const t=await runGates.check(mr[1],mr[2],{nothing:url.searchParams.get('nothing')==='1'}).catch(()=>'aqeelOS run check: clear to run.\n{"wakeAgent": true}');res.writeHead(200,{'content-type':'text/plain; charset=utf-8'});return res.end(t+'\n')}}
   // the slow fallback run of an event hook (event-hooks.mjs, scripts/hooks-wire.mjs): from this box only, signed per agent; 200 when the run went well, else 500 with the error
   {const mh=/^\/event-hook\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mh){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   const x=Buffer.from(String(mh[3])),y=Buffer.from(String(relay.sig(mh[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
+   if(!relayKeys.ok(mh[3],'relay:',mh[1]))return send(res,403,'bad signature');
    const e=await eventHooks.runNow(mh[1],mh[2]).catch(e=>e.message);res.writeHead(e?500:200,{'content-type':'text/plain; charset=utf-8'});return res.end((e||'ok')+'\n')}}
   // for a script that posts without a model (the comment queue, 12 Nov 2026): GET ?json=1&kind=comment on the gate says {allow,n,reason} (it reserves nothing); POST /posting-record does what the record_post tool does.
   // The guard of every script that posts (scripts/posting-guard.py, posting-limits.mjs): POST /posting-check {kind} -> {allow,ticket,reason}, /posting-sending {ticket}, /posting-record {ticket,kind,ref,text}, /posting-cancel {ticket}
   {const mj=/^\/posting-(gate|record|check|sending|cancel)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mj&&(mj[1]!=='gate'||url.searchParams.get('json')==='1')){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   const x=Buffer.from(String(mj[3])),y=Buffer.from(String(relay.sig(mj[2])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
+   if(!relayKeys.ok(mj[3],'relay:',mj[2]))return send(res,403,'bad signature');
    if(mj[1]==='gate')return send(res,200,await postingLimits.allowNow(mj[2].split('--')[0],url.searchParams.get('kind')||'').catch(e=>({allow:false,n:0,reason:'aqeelOS could not check the limits ('+e.message+')'})));
    if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}
    const ag=mj[2].split('--')[0];
@@ -2531,23 +2566,23 @@ const server=createServer(async(req,res)=>{
    const r=await postingLimits.record(ag,b).catch(e=>({isError:true,text:e.message}));return send(res,r.isError?409:200,{ok:!r.isError,text:r.text})}}
   // the posting gate an agent's posting schedule runs first (posting-limits.mjs): from this box only, signed per agent
   {const mg=/^\/posting-gate\/([\w-]+)\/([\w-]+)$/.exec(p);if(mg){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   const x=Buffer.from(String(mg[2])),y=Buffer.from(String(relay.sig(mg[1])));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,'bad signature');
+   if(!relayKeys.ok(mg[2],'relay:',mg[1]))return send(res,403,'bad signature');
    const t=await postingLimits.gate(mg[1]).catch(e=>'aqeelOS could not check the limits ('+e.message+'), so no post this run.\n{"wakeAgent": false}');res.writeHead(200,{'content-type':'text/plain; charset=utf-8'});return res.end(t+'\n')}}
   // the "notify me" tool agents call (from this box only; each agent's address is signed)
   const mn=/^\/mcp\/notify\/([\w-]+)\/([\w-]+)$/.exec(p);
   if(mn){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method==='GET')return send(res,405,'POST only');
    let msg={};try{msg=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}// connect_mcp_tool: the right way for an agent to start a sign-in (public return address, never localhost)
-   const signed=(()=>{const a=Buffer.from(String(mn[2])),b=Buffer.from(String(relay.sig(mn[1])));return a.length===b.length&&timingSafeEqual(a,b)})();
+   const signed=relayKeys.ok(mn[2],'relay:',mn[1]);
    // self-repair kit (agent-versions.mjs): own-scope tools for every agent but the main one; a SOUL change by the agent
    // itself starts the "does it still answer" check; my_settings is versioned (undo) before it takes effect
    {const base=mn[1].split('--')[0],nm=msg.params?.name,A=msg.params?.arguments||{};
     if(signed&&base!=='default'&&msg.method==='tools/call'&&nm==='change_instructions')versions.arm(base).catch(()=>{});
-    if(signed&&base!=='default'&&msg.method==='tools/call'&&nm==='my_settings'&&A.value!==undefined&&OWN_SETTINGS.test(String(A.key||'').trim())){const r=await versions.mySetting(base,String(A.key).trim(),A.value,{by:NAMES[base]||base,why:A.why});
+    if(signed&&base!=='default'&&msg.method==='tools/call'&&nm==='my_settings'&&A.value!==undefined&&ownSettingOk(String(A.key||'').trim(),A.value)){const r=await versions.mySetting(base,String(A.key).trim(),A.value,{by:NAMES[base]||base,why:A.why});
      if(!r.isError){console.log('own settings: '+base+' set '+A.key+' (versioned)');restartLater(base+' changed its own '+A.key);versions.arm(base).catch(()=>{})}
      return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.isError?r.text:r.text+' It takes effect from your next message (aqeelOS reloads the agents once no reply is running).'}],...(r.isError?{isError:true}:{})}})}
     if(signed&&msg.method==='tools/call'&&VERSION_TOOLS.some(x=>x.name===nm)){const who=NAMES[base]||base;let r;   // the main agent too (7 Nov 2026): every agent can see and fix its own problems
      try{if(nm==='my_changes'){const c=await versions.changes(base,{limit:A.limit||30});r={text:(c.items.length?c.items.map(x=>'- '+x.id+' '+x.kind+(x.state==='undone'?' [undone]':'')+': '+x.what+(x.why?' — '+x.why:'')+' · '+x.by+' · '+new Date(x.at).toISOString().slice(0,16)).join('\n'):'No changes yet.')+(c.watch?'\n\naqeelOS is checking that you still answer after your latest change.':'')}}
-      else if(nm==='undo_my_change'){const x=await versions.undo(base,String(A.id||''),{by:who});r={text:'Undone: '+(x.what||('instructions back to version '+x.v))+'. That is a version too.'};versions.arm(base).catch(()=>{})}
+      else if(nm==='undo_my_change'){const x=await versions.undo(base,String(A.id||''),{by:who,agent:true});r={text:'Undone: '+(x.what||('instructions back to version '+x.v))+'. That is a version too.'};versions.arm(base).catch(()=>{})}
       else if(nm==='my_logs')r=await versions.myLogs(base,A);
       else if(nm==='my_runs')r=await versions.myRuns(base,A);
       else if(nm==='my_health')r=await versions.myHealth(base);
@@ -2700,8 +2735,9 @@ const server=createServer(async(req,res)=>{
     catch(er){return reply('Could not turn it off: '+er.message,true)}}
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='my_settings'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{},key=String(a.key||'').trim();
     const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
-    if(!OWN_SETTINGS.test(key))return reply('Only these can be changed this way: stt.* (voice notes, e.g. stt.language: "" = detect each time, "id", "en"), tts.* (your voice), timezone and display.*. Anything else goes through report_bottleneck.',true);
+    if(!OWN_SETTINGS.test(key))return reply('Only these can be changed this way: '+OWN_SETTINGS_HELP,true);
     if(a.value===undefined){const c=await readConfig(base).catch(()=>null);return reply(key+' = '+JSON.stringify(pick(c,key)??null))}
+    {const no=ownSettingProblem(key,a.value);if(no)return reply(key+': '+no,true)}
     const r=await setKey(base,key,a.value===null?'':a.value).catch(e=>({ok:false,out:e.message}));if(!r.ok)return reply('Could not change it: '+String(r.out||'').trim().slice(-300),true);
     console.log('own settings: '+base+' set '+key);restartLater(base+' changed its own '+key);
     return reply('Saved '+key+' = '+JSON.stringify(a.value)+'. It takes effect from your next message (aqeelOS reloads the agents once no reply is running).')}
@@ -2796,6 +2832,7 @@ const server=createServer(async(req,res)=>{
    if(req.method!=='POST')return send(res,405,'POST only');let msg={};try{msg=JSON.parse(await readBody(req,262144))}catch{return send(res,400,{error:'bad json'})}
    {const w=msg.method==='tools/call'&&smokeWatch.get(String(msg.params?.arguments?.run||''));if(w)w.push({name:String(msg.params?.name||''),path:String(msg.params?.arguments?.path||'')})}
    const r=await customerTools.mcp(cm[1],String(req.headers['x-aqeelos-run']||''),msg);return r.status===202?send(res,202,''):send(res,r.status,r.body)}}
+  if(p.startsWith('/agent-live/')&&!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(req.socket.remoteAddress||''))return send(res,403,{error:'local only'});
   if(p==='/agent-live/team-view'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});if(String(b.agent||'')!==agentAccess.MAIN)return send(res,403,{error:'Only the main agent has this.'});
    try{return send(res,200,await teamView.call({session:String(b.session||'').slice(0,120)},b.args&&typeof b.args==='object'?b.args:{}))}catch(e){return send(res,200,{error:e.message})}}
@@ -3018,7 +3055,7 @@ const server=createServer(async(req,res)=>{
    const no=users.gate(u,p,req.method,url.searchParams,sm?decodeURIComponent(sm[1]):agentOf(p,url.searchParams));if(no)return send(res,no.status,{error:no.error});
    if(/\/type$/.test(p)&&url.searchParams.get('screen')==='ads'&&!users.isAdmin(u))return send(res,403,{error:'Only admins can type into the shared screen.'});
    if(/^\/ui\/screens\/[^/]+\/adspower(\/(start|stop))?$/.test(p))return agentAds.handle(req,res,p,send,{admin:users.isAdmin(u)});
-   return p==='/ui/screen/browser'?openBrowser(res,url.searchParams.get('agent')):screens.handle(req,res,p,send)}
+   return p==='/ui/screen/browser'?openBrowser(res,sm?decodeURIComponent(sm[1]):agentOf(p,url.searchParams)):screens.handle(req,res,p,send)}
   if(p==='/ui/adspower'){const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'});return agentAds.handle(req,res,p,send,{admin:users.isAdmin(u)})}
   if(p.startsWith('/auth/')&&await accountAuth(req,res,p,url))return;
   if(p==='/auth/login'&&req.method==='POST'){
@@ -3464,8 +3501,9 @@ const server=createServer(async(req,res)=>{
    if(p==='/ui/mcp/server'||p==='/ui/mcp/keys'){let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'Bad request'})}}
     const ag=String(b.agent||url.searchParams.get('agent')||'default'),ok=x=>send(res,200,x),bad=e=>send(res,e.status||400,{error:e.message});if(!(await agentNames()).includes(ag))return send(res,400,{error:'Unknown agent'});
     if(!ownsAgent(u,ag)||url.searchParams.get('all')==='1'&&!users.isAdmin(u))return send(res,403,{error:'Only an admin or this agent’s owner changes its apps and keys.'});
-    if(p==='/ui/mcp/server'&&req.method==='GET')return mcpEdit.get(ag,String(url.searchParams.get('name')||'')).then(ok,bad);
-    if(p==='/ui/mcp/server'&&req.method==='PUT')return mcpEdit.save(ag,b).then(ok,bad);
+    if(p==='/ui/mcp/server'&&req.method==='GET')return mcpEdit.get(ag,String(url.searchParams.get('name')||''),{own:users.isAdmin(u)}).then(ok,bad);
+    // the same rules as adding an app (/hapi/mcp/servers): a command needs the "unsafe" permission, an address must be public (audit H-3)
+    if(p==='/ui/mcp/server'&&req.method==='PUT')return mcpEdit.save(ag,b,{mayRunCode:users.isAdmin(u)||users.can(u,'unsafe'),own:users.isAdmin(u),privateAddress:users.isAdmin(u)?null:privateAddress,runsCodeMsg:RUNS_CODE_MSG}).then(ok,bad);
     if(p==='/ui/mcp/keys'&&req.method==='GET'){if(url.searchParams.get('all')==='1'){const out=[];for(const a of await agentNames())for(const k of await mcpEdit.keys(a).catch(()=>[]))out.push({...k,agent:a,agentName:NAMES[a]||a});return ok({keys:out})}return mcpEdit.keys(ag).then(k=>ok({keys:k}),bad)}
     if(p==='/ui/mcp/keys'&&req.method==='DELETE')return mcpEdit.removeKey(ag,String(b.key||'')).then(ok,bad);
     return send(res,405,{error:'Not allowed'})}
@@ -3488,7 +3526,7 @@ const server=createServer(async(req,res)=>{
   // Report an issue, Stop retrying and Close (System › Health): a person files one for the fixer, or ends one
   if(/^\/ui\/health\/issues\/(report|close|stop)$/.test(p)&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
    try{if(p.endsWith('/report')){const a=String(b.agent||'');if(!(await listAgents()).includes(a))return send(res,400,{error:'Pick the agent it is about.'});
-     const r=await issues.file({agent:a,missing:String(b.missing||''),evidence:String(b.evidence||''),source:'person',origin:{who:u.name||'an admin'}});return send(res,200,{ok:true,id:r.issue.id,state:r.issue.state,again:!!r.again})}
+     const r=await issues.file({agent:a,missing:String(b.missing||''),evidence:String(b.evidence||''),source:'person',typed:true,origin:{who:u.name||'an admin'}});return send(res,200,{ok:true,id:r.issue.id,state:r.issue.state,again:!!r.again})}
     const i=await issues[p.endsWith('/close')?'close':'stop'](String(b.id||''),u.name||'an admin');if(!i)return send(res,404,{error:'No such issue.'});return send(res,200,{ok:true,state:i.state,after:!!i.noRetry})}catch(e){return send(res,400,{error:e.message})}}
   // System › Teams (team-settings.mjs): teams and members, the fixer, where alerts go, Pause alerts, test agents
   if(/^\/ui\/(teams|alerts)(\/|$)/.test(p)){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,131072))}catch{}}
@@ -3695,7 +3733,9 @@ const server=createServer(async(req,res)=>{
     // everyone sees the agents they may use (admins: every agent); only admins change who uses what, and see keys
     if(req.method==='GET'){const kind=String(url.searchParams.get('kind')||'');if(!KINDS.includes(kind))return send(res,400,{error:'Unknown kind'});
      if(users.isAdmin(u))return send(res,200,{...await access.list(kind),canEdit:true});if(kind==='key')return send(res,403,{error:'Only admins can see keys.'});
-     return send(res,200,{...await access.list(kind,new Set((await listAgents()).filter(a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a)))),canEdit:false})}
+     {const l=await access.list(kind,new Set((await listAgents()).filter(a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a))));
+      const host=d=>{try{return new URL(String(d)).host}catch{return String(d||'').split(/\s+/)[0].split('/').pop().slice(0,40)}};
+      return send(res,200,{...l,items:(l.items||[]).filter(x=>!/^aqeelos-/.test(String(x.id))).map(x=>kind==='mcp'?{...x,detail:host(x.detail)}:x),canEdit:false})}}
     if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change who uses a connection.'});
     if(req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const kind=String(b.kind||''),id=String(b.id||''),agent=String(b.agent||'');
      if(!KINDS.includes(kind)||!id||!(await listAgents()).includes(agent))return send(res,400,{error:'Bad request'});
@@ -3743,7 +3783,8 @@ const server=createServer(async(req,res)=>{
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+base,'GET',new URLSearchParams(),base))return send(res,403,{error:'Not your agent.'});
     const label=String(b.label||'').trim().slice(0,140),value=String(b.value||'');if(!label)return send(res,400,{error:'Say what it is, so the agent knows when to use it.'});if(!value||value.length>8000)return send(res,400,{error:'Type or paste the value.'});
     let name=String(b.name||'').trim().toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);if(!/^[A-Z]/.test(name))name='SECRET_'+name;if(name.length<3)name='SECRET_'+Date.now().toString(36).toUpperCase();
-    if(RESERVED_KEY.test(name)&&!users.isAdmin(u))name='SECRET_'+name;
+    // anyone but an admin writes SECRET_<NAME> only: never a name the engine, a shell or the app reads (BASH_ENV, HTTPS_PROXY, PUBLIC_URL...)
+    if(!users.isAdmin(u))name=memberSecretName(name);
     // a member who may only chat cannot replace a key that already exists and was not given as a secret
     if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+base+'/soul','PUT',new URLSearchParams(),base)){const envT=await readFile(path.join(base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base),'.env'),'utf8').catch(()=>'');if(new RegExp('^'+name+'=','m').test(envT)&&!await stat(path.join(secretDir(base),name)).catch(()=>null))name='SECRET_'+name}
     try{await saveSecret(base,name,value,{admin:users.isAdmin(u)})}catch(e){return send(res,400,{error:e.message})}console.log('secret saved for',base,'('+name+')');

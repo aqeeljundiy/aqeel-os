@@ -1,0 +1,8 @@
+{
+ "owner": "aqeeljundiy",
+ "fixerBranches": ["claude/", "fix/"],
+ "reviewAllUntil": "2026-12-13",
+ "maxLines": 400,
+ "maxFiles": 15,
+ "allow": ["app/**", "scripts/*.test.mjs", "engine/patches/**"]
+}

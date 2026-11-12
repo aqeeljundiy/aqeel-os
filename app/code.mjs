@@ -5,6 +5,7 @@
 // (~/apps/aqeel-code, filled from this repo's code/ folder by scripts/deploy.sh), with this install's address inside, plus a small installer for Windows and for Mac.
 import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,readdir,stat,rename} from 'node:fs/promises';
+import {repoSlug,DEFAULT_REPO} from './fixer-git.mjs';
 import {randomBytes,createHash} from 'node:crypto';
 import path from 'node:path';
 
@@ -21,6 +22,8 @@ const SKIP=/^(\.git|node_modules|data|outputs|projects|\.claude|launcher|.*\.exe
 async function walk(dir,base=''){const out=[];for(const f of await readdir(dir).catch(()=>[])){if(SKIP.test(f))continue;const p=path.join(dir,f),rel=base?base+'/'+f:f;const s=await stat(p).catch(()=>null);if(!s)continue;
  if(s.isDirectory())out.push(...await walk(p,rel));else if(s.size<5e6)out.push([rel,await readFile(p)])}return out}
 
+// the GitHub repository an installed Code app checks its updates against (code/update-verify.mjs): this install's source
+const UPDATE_REPO=repoSlug(process.env.AQ_REPO||DEFAULT_REPO);
 export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  const FILE=path.join(DATA,'code-devices.json');let db=null;
  const load=async()=>{if(db)return db;db=await readStore(FILE);db.devices||={};return db};
@@ -60,10 +63,10 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  const version=async()=>{const v=(await readFile(path.join(SRC,'VERSION'),'utf8').catch(()=>'')).trim();if(v)return v.slice(0,12);try{const head=(await readFile(path.join(SRC,'.git','HEAD'),'utf8')).trim();if(!head.startsWith('ref:'))return head.slice(0,12);const ref=head.slice(4).trim();
    const sha=await readFile(path.join(SRC,'.git',ref),'utf8').catch(async()=>((await readFile(path.join(SRC,'.git','packed-refs'),'utf8')).split('\n').find(l=>l.endsWith(' '+ref))||'').split(' ')[0]);return String(sha).trim().slice(0,12)||'0'}catch{return '0'}};
  // what an installed app fetches to update itself: the source, and this install's address and version
- async function update(){const v=await version();const files=await walk(SRC);files.push(['aqeelos.json',Buffer.from(JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:v}},null,1))]);return {version:v,zip:zip(files.map(f=>[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}}
+ async function update(){const v=await version();const files=await walk(SRC);files.push(['aqeelos.json',Buffer.from(JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:v,...(UPDATE_REPO?{repo:UPDATE_REPO}:{})}},null,1))]);return {version:v,zip:zip(files.map(f=>[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}}
  // the download for one kind of computer
  async function download(os){const files=(await walk(SRC)).map(([n,b])=>['aqeelOS Code/'+n,b]);
-  const cfg=JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:await version(),brand:globalThis.AQ_BRAND||'aqeelOS'}},null,1);files.push(['aqeelOS Code/aqeelos.json',Buffer.from(cfg)]);
+  const cfg=JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:await version(),brand:globalThis.AQ_BRAND||'aqeelOS',...(UPDATE_REPO?{repo:UPDATE_REPO}:{})}},null,1);files.push(['aqeelOS Code/aqeelos.json',Buffer.from(cfg)]);
   const tpl=f=>readFile(path.join(ROOT,'code-installer',f));
   if(os==='windows'){files.push(['aqeelOS Code/Install aqeelOS Code.cmd',await tpl('install.cmd')],['aqeelOS Code/install.ps1',await tpl('install.ps1')],['aqeelOS Code/uninstall.ps1',await tpl('uninstall.ps1')])}
   else files.push(['aqeelOS Code/Install aqeelOS Code.command',await tpl('install.command'),true],['aqeelOS Code/Uninstall aqeelOS Code.command',await tpl('uninstall.command'),true]);
@@ -79,9 +82,9 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
   const result=new Promise(res=>{j.resolve=res;setTimeout(()=>{if(jobs.has(j.id)){jobs.delete(j.id);res({state:'failed',text:'The computer did not answer in time.'})}},ms)});jobs.set(j.id,j);if(e.wake)e.wake(j.job);else e.queue.push(j.job);return result}
  // every Code run, reported by the app after it finishes: who started it, for which agent, in which project, and its tokens
  const RUNS=path.join(DATA,'code-runs.jsonl');
- async function addRun(dev,r){const line={time:Date.now(),user:dev.user,device:dev.name,agent:String(r.agent||''),project:String(r.projectName||r.projectId||'').slice(0,80),provider:String(r.provider||''),model:String(r.model||''),input:Math.max(0,+r.input||0),output:Math.max(0,+r.output||0),cache:Math.max(0,+r.cachedInput||0),state:String(r.state||'')};
+ async function addRun(dev,r){const line={time:Date.now(),user:dev.user,device:dev.name,agent:/^[a-z0-9][a-z0-9_-]{0,63}(--[a-z0-9_-]{1,64})?$/.test(String(r.agent||''))?String(r.agent):'',project:String(r.projectName||r.projectId||'').slice(0,80),provider:String(r.provider||'').slice(0,80),model:String(r.model||'').slice(0,120),input:Math.max(0,+r.input||0),output:Math.max(0,+r.output||0),cache:Math.max(0,+r.cachedInput||0),state:String(r.state||'').slice(0,40)};
   await mkdir(DATA,{recursive:true});await writeFile(RUNS,JSON.stringify(line)+'\n',{flag:'a'});await addUsage(dev.user,line.input+line.output)}
- async function runs(days,uid){const since=Date.now()-days*86400e3;const out={byPerson:{},byAgent:{},byProject:{}};let text='';try{text=await readFile(RUNS,'utf8')}catch{}
+ async function runs(days,uid){const since=Date.now()-days*86400e3;const out={byPerson:Object.create(null),byAgent:Object.create(null),byProject:Object.create(null)};let text='';   // keys come from what a computer reportedtry{text=await readFile(RUNS,'utf8')}catch{}
   for(const l of text.split('\n')){if(!l)continue;let r;try{r=JSON.parse(l)}catch{continue}if(r.time<since||(uid&&r.user!==uid))continue;
    for(const [m,k] of [['byPerson',r.user],['byAgent',r.agent||'(no agent)'],['byProject',r.project||'(unnamed)']]){const o=out[m][k]??={runs:0,input:0,output:0,cache:0};o.runs++;o.input+=r.input;o.output+=r.output;o.cache+=r.cache}}return out}
  // what a computer's Code has connected (GitHub accounts, tool servers), shown under Connected apps › Code

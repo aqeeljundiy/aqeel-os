@@ -17,7 +17,7 @@
 import {readFile,writeFile,mkdir,readdir,rename,stat} from 'node:fs/promises';
 import path from 'node:path';
 import {TOOL_HELP,TOOL_PROPS} from './design-guard.mjs';
-import {rank,base,AGENT} from './sharing.mjs';
+import {rank,base,AGENT} from './sharing.mjs';import {hideSigned} from './relay-keys.mjs';import {ownSettingProblem,ownSettingKey} from './agent-settings.mjs';
 
 // the least level each part of manage_agent needs on the target agent
 export const AGENT_NEEDS={show:'viewer',logs:'viewer',instructions:'editor',skill:'editor',schedule:'editor',settings:'manager',share:'manager'};
@@ -48,7 +48,7 @@ export function redact(v,k=''){if(v==null)return v;if(SECRETISH.test(k)&&typeof 
  if(typeof v==='string'&&/^https?:\/\//.test(v))return v.replace(/\/\/[^/@]+@/,'//(hidden)@').replace(/([?&][^=]*(key|token|secret|sig)[^=]*=)[^&]+/gi,'$1(hidden)').replace(/\/([A-Za-z0-9_-]{24,})(?=\/|$)/g,'/(hidden)');
  return v}
 // log lines without keys (long tokens, key=value pairs of secret-looking names)
-export const redactText=t=>String(t).replace(/\b(sk|xox[abpr]|ghp|gho|ya29|AIza)[-_A-Za-z0-9.]{8,}/g,'(hidden)').replace(/((?:key|token|secret|password|authorization|bearer)["']?\s*[:=]\s*["']?)[^\s"',]+/gi,'$1(hidden)').replace(/\b[A-Za-z0-9_-]{40,}\b/g,'(hidden)');
+export const redactText=t=>hideSigned(t).replace(/\b(sk|xox[abpr]|ghp|gho|ya29|AIza)[-_A-Za-z0-9.]{8,}/g,'(hidden)').replace(/((?:key|token|secret|password|authorization|bearer)["']?\s*[:=]\s*["']?)[^\s"',]+/gi,'$1(hidden)').replace(/\b[A-Za-z0-9_-]{40,}\b/g,'(hidden)');
 
 export function createAgentAccess({guard=()=>null,sharing,HERMES_HOME,listAgents=async()=>[],MAIN='default',instructions=null,readConfig=async()=>null,setKey=async()=>({ok:false,out:'no settings'}),
  cron=null,versions=null,reload=async()=>{},names=a=>a,
@@ -118,8 +118,11 @@ export function createAgentAccess({guard=()=>null,sharing,HERMES_HOME,listAgents
    if(part==='skill')return say(await skill(t,args,by));
    if(part==='schedule')return say(await schedule(t,args,by));
    if(part==='settings'){const key=String(args.key||'').trim();if(!/^[a-z0-9_.-]{1,120}$/i.test(key))return {isError:true,text:'Give the setting key, like timezone or platform_toolsets.telegram.'};
+    // Only the main agent (the box's own user already) reads or writes any setting. Every other agent, on itself as on an agent it
+    // manages, is held to the exact list of plain settings in agent-settings.mjs: the engine runs commands found in its settings
+    // (apps, voice providers, hooks) as the box's user (audit CR-2, 12 Nov 2026).
+    if(!isMain(me)){const why=args.value===undefined?(ownSettingKey(key)?null:'Not one of the settings an agent reads this way.'):ownSettingProblem(key,args.value);if(why)return {isError:true,text:key+': '+why+(MAIN_ONLY_SETTING.test(key)?' It is about keys, permissions or aqeelOS itself: only the main agent changes that.':'')}}
     if(args.value===undefined){const cfg=await readConfig(t);const v=key.split('.').reduce((x,y)=>x&&typeof x==='object'?x[y]:undefined,cfg);return {text:key+' = '+JSON.stringify(redact(v,key.split('.').pop())??null)}}
-    if(other&&!isMain(me)&&MAIN_ONLY_SETTING.test(key))return {isError:true,text:key+' is about keys, permissions or aqeelOS itself: only the main agent changes that.'};
     const before=(await readConfig(t))||{};const r=await setKey(t,key,args.value===null?'':args.value).catch(e=>({ok:false,out:e.message}));if(!r.ok)return {isError:true,text:'Could not change it: '+String(r.out||'').trim().slice(-300)};
     await record({agent:t,kind:'settings',id:key,by,before:key.split('.').reduce((x,y)=>x&&typeof x==='object'?x[y]:undefined,before)??null,after:args.value,why:args.why});await reload(names(me)+' changed '+key+' of '+names(t)).catch(()=>{});
     return {text:'Saved '+key+' on '+names(t)+'. It takes effect once aqeelOS reloads the agents (no reply running).'}}
