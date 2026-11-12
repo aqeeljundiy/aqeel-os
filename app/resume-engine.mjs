@@ -50,8 +50,11 @@ for a in sys.argv[1:]:
     except Exception: pass
     try:
         c=sqlite3.connect('file:'+db+'?mode=ro',uri=True,timeout=5)
-        for i,job,at in c.execute("select id,job_id,claimed_at from executions where status in ('claimed','running')"):
-            out.append({'kind':'schedule','agent':name,'exec':i,'job':job,'name':names.get(job) or job,'since':at})
+        for i,job,at,pid in c.execute("select id,job_id,claimed_at,pid from executions where status in ('claimed','running')"):
+            try: os.kill(int(pid),0);live=True
+            except ProcessLookupError: live=False
+            except Exception: live=True
+            out.append({'kind':'schedule','agent':name,'exec':i,'job':job,'name':names.get(job) or job,'since':at,'ownerLive':live})
     except Exception: print('null'); sys.exit()
 print(json.dumps(out))`;
 
@@ -71,6 +74,7 @@ r=c.execute("select status,pid,claimed_at,error"+(",delivery_outcome" if 'delive
 if r:
     o['missing']=False;o['status']=r[0];o['error']=r[3] or '';o['delivered']=str(r[4] or '').lower() in ('delivered','sent','ok','success')
     try: os.kill(int(r[1]),0);o['ownerLive']=True
+    except PermissionError: o['ownerLive']=True
     except Exception: o['ownerLive']=False
     o['newer']=bool(c.execute("select 1 from executions where job_id=? and claimed_at>? limit 1",(job,r[2])).fetchone())
 print(json.dumps(o))`;

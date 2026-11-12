@@ -212,7 +212,9 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
  // each isolated agent (terminal over SSH as its own ag-* user) re-grants aqeelOS read access to the files it owns
  async function grantRead(){const prof=path.join(HOME,'.hermes','profiles');for(const a of await readdir(prof).catch(()=>[])){
   const y=await readFile(path.join(prof,a,'config.yaml'),'utf8').catch(()=>'');const u=/\n\s*ssh_user:\s*['"]?(ag-[\w-]+)/.exec(y)?.[1],k=/\n\s*ssh_key:\s*['"]?([^'"\n]+)/.exec(y)?.[1]?.trim(),ws=path.join(HOME,'workspaces',a);
-  if(!u||!k||!await stat(ws).catch(()=>null))continue;
+  // only an agent whose terminal really is on its user: a trusted agent keeps its old ssh_* lines after it goes back to the main user (12 Nov 2026: "ag-<agent> refuses the ssh grant" every night), and a user the root script has not made (or took back) cannot be reached
+  if(!u||!k||!/\n\s*backend:\s*['"]?ssh\b/.test(y)||!await stat(ws).catch(()=>null))continue;
+  if(!(await readFile(path.join(HOME,'.aqeelos-agent-users.done'),'utf8').catch(()=>'')).split('\n').includes(u))continue;
   await sh('ssh -i '+q(k)+' -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=15 '+q(u+'@127.0.0.1')+' '+q('find '+q(ws)+' -user '+u+' \\( -type d -o -type f \\) -print0 2>/dev/null | xargs -0 -r setfacl -m u:claude:rwX,m::rwX 2>/dev/null; true')).catch(e=>console.warn('backup: read access for',a,e.message))}}
  /* One backup from start to end: pack, encrypt, upload (or keep on the box), prune. Returns {last, note}: what backups.json's "last" becomes
     and the log line; throws with the reason. It writes nothing to backups.json, so it runs the same in the app and in the detached job. */

@@ -229,7 +229,7 @@ const Chat={
   const keep=$$('.step.open',th).map(x=>x.dataset.k);
   // an opened chat shows its history at once (no rise-in for old messages); new turns still animate
   const opening=this._opening===this.id;if(opening){this._opening=null;s._seen={n:1e9,k:new Set()}}   // what is there when a chat opens is history: shown at once
-  const parts=[s.more?`<div class="hist-more"><button class="ghost" data-act="hist-more">${icon('chevU',15)}Show earlier messages</button></div>`:'',...s.turns.map((t,i)=>this.turnHtml(t,i,s)),s.interrupted&&!s.running?this.resumeLine(s.interrupted,true):''];
+  const parts=[s.more?`<div class="hist-more"><button class="ghost" data-act="hist-more">${icon('chevU',15)}Show earlier messages</button></div>`:'',...s.turns.map((t,i)=>this.turnHtml(t,i,s)),s.interrupted&&!s.running?this.resumeLine(s.interrupted,true):'',s.gaveUp&&!s.running?this.gaveUpLine(s.gaveUp):''];
   // only the messages that changed are redrawn; earlier ones (and their videos and pictures) stay as they are
   const frag=list=>{const f=document.createDocumentFragment(),n=[];for(const h of list){const x=document.createElement('template');x.innerHTML=h;n.push(x.content.childNodes.length);f.append(x.content)}return {f,n}};
   const old=th._parts;let j=0;if(old&&th.childNodes.length===th._cnt.reduce((a,b)=>a+b,0)&&old.length<=parts.length){while(j<old.length&&old[j]===parts[j])j++}else{j=-1}
@@ -258,6 +258,7 @@ const Chat={
  // chat shows it as one small line, not as something the person wrote
  RESUME_RE:/^\[System note from aqeelOS: you were interrupted by (an update|a restart) at [^\]]*\]\s*/,
  resumeLine(why,going){return `<div class="resume-line${going?' going':''}">${going?'<span class="spinner"></span>':icon('refresh',13)}Interrupted by ${why==='update'||why==='an update'?'an update':'a restart'}, ${going?'continuing…':'continued by itself'}</div>`},
+ gaveUpLine(why){return `<div class="resume-line gave-up">${icon('refresh',13)}Interrupted by a restart, and not continued: ${esc(why)}. Press Retry to go on.</div>`},
  turnHtml(t,i,s){
   if(t.role==='user'){const rm=this.RESUME_RE.exec(t.text||'');if(rm){const rest=t.text.slice(rm[0].length).trim(),going=s.running&&i>=s.turns.length-2;
    return this.resumeLine(rm[1],going)+(rest?`<div class="msg user">${this.userHtml(rest,t)}</div>`:'')}}
@@ -363,7 +364,7 @@ const Chat={
    if((S.profile||'default')!==prof)return toast('You switched agents before the chat started, so the message was not sent','err');
    S.sessions.unshift({id,title:'',preview:text.replace(this.TOOL_RE,'').slice(0,80),source:'api_server',last_active:Date.now()/1000,is_active:true});this.id=id;history.replaceState(null,'','#/chat/'+id);this.live[id]={turns:[],running:false};if($('#scroll'))$('#scroll').innerHTML='<div class="thread" id="thread"></div>'}
   const s=this.live[id]||(this.live[id]={turns:[],running:false});
-  s.turns.push({role:'user',text,images:images.length||0,imgs:images.map(f=>f.url),local:this.takeSent()});const ai={role:'ai',steps:[],text:'',think:''};s.turns.push(ai);s.ai=ai;s.runTurns=[ai];
+  s.gaveUp=null;s.turns.push({role:'user',text,images:images.length||0,imgs:images.map(f=>f.url),local:this.takeSent()});const ai={role:'ai',steps:[],text:'',think:''};s.turns.push(ai);s.ai=ai;s.runTurns=[ai];
   s.running=true;s.started=Date.now();s.lastAct=Date.now();RunStatus.askNotify();if(this.id===id){this.paint();this.paintComposerBar()}paintSide();
   const m=this.cur();const body={message:images.length?[{type:'text',text},...images.map(f=>({type:'image_url',image_url:{url:f.url}}))]:text};
   // always the model shown in the chat bar, with its own account: left out, the engine reuses the chat's last model
@@ -395,7 +396,7 @@ const Chat={
   const ctl=new AbortController();   // switching agents stops reading it (the reply goes on on the box)
   try{const r=await fetch('/ui/live?agent='+encodeURIComponent(S.profile||'default')+'&session='+encodeURIComponent(id),{headers:{'x-hui':'1'},credentials:'same-origin',signal:ctl.signal});
    if(r.status!==200||!r.body)return;const ai={role:'ai',steps:[],text:'',think:''};let shown=false;
-   const was=await this.peek(id).catch(()=>null);this.undrop(s);s.interrupted=null;s.ai=ai;s.runTurns=[ai];s.running=true;s.started=was?.since||Date.now();s.lastAct=Date.now();s.conn='live';s.abort=ctl;
+   const was=await this.peek(id).catch(()=>null);this.undrop(s);s.interrupted=s.gaveUp=null;s.ai=ai;s.runTurns=[ai];s.running=true;s.started=was?.since||Date.now();s.lastAct=Date.now();s.conn='live';s.abort=ctl;
    const show=um=>{if(shown)return;shown=true;const txt=typeof um==='string'?um:Array.isArray(um)?um.filter(x=>x.type==='text').map(x=>x.text).join(' '):'';
     const last=s.turns[s.turns.length-1];if(txt&&!(last?.role==='user'&&last.text===txt))s.turns.push({role:'user',text:txt});s.turns.push(ai);if(this.id===id){this.paint();this.paintComposerBar()}paintSide()};
    await this.readStream(r,ev=>{if(!shown)show(ev.type==='run.started'?ev.user_message?.content:'');this.onEvent(id,ev)});
@@ -410,6 +411,8 @@ const Chat={
   try{const j=await this.peek(id);this._lvFail=0;if(this.id!==id)return;if(j.live)this.follow(id);
    // a restart interrupted this chat's reply: say so, and wait; aqeelOS continues it and the reply is followed like any other
    else if(j.interrupted){if(s.interrupted!==j.interrupted){s.interrupted=j.interrupted;s.conn=null;this.paint();this.paintComposerBar()}}
+   // it was given up on (three cuts in a row, a chat older than the limit...): said once, under the chat, with the Retry the chat always had
+   else if(j.gaveUp){if(s.gaveUp!==j.gaveUp){s.gaveUp=j.gaveUp;s.interrupted=null;s.conn=null;this.loadHistory(id)}}
    else if(s.interrupted){s.interrupted=null;s.conn=null;this.loadHistory(id)}   // it was finished or left alone meanwhile: show how it ended
    else if(s.turns[s.turns.length-1]?.dropped){s.conn=null;this.loadHistory(id)}}
   catch{this._lvFail=(this._lvFail||0)+1;this._lvSkip=Math.min(2**this._lvFail,20);if(s.conn==='reconnecting'&&this._lvFail>=4&&this.id===id){s.conn='lost';this.paint();this.paintComposerBar()}}},3000)},
