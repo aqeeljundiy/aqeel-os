@@ -44,3 +44,9 @@ description = "The Chrome extension's PUBLIC key (manifest key): public by natur
 condition = "AND"
 paths = ['''^extension/manifest\.json$''']
 regexes = ['''^MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA[A-Za-z0-9+/=]+$''']
+
+[[allowlists]]
+description = "Made-up run key in the exit guard leak table (kirim-guard-leaks.test.mjs): the guard must recognise a key-shaped string"
+condition = "AND"
+paths = ['''^scripts/kirim-guard-leaks\.test\.mjs$''']
+regexes = ['''^Zk3J[A-Za-z0-9_-]+$''']
