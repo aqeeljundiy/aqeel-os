@@ -191,3 +191,24 @@ test('OPS-16: leftover browser helpers are stopped only when detached, over 2 h 
  const r=sh(`harness_orphans '22 4400 9602' < '${d}/h.txt'`,d);
  assert.deepEqual(r.out.split('\n'),['201','205','206'],r.err);
  assert.equal(sh(`harness_orphans '' < /dev/null`,d).out,'')});
+
+test('the fixer\'s own user (CR-7): asked with "on", its firewall allows one connection (the app) and refuses the rest',()=>{
+ const d=tmp();
+ assert.equal(sh('fixer_wanted; echo $?',d).out,'1','nothing asked yet');
+ writeFileSync(d+'/.aqeelos-agent-users.reset','');writeFileSync(d+'/.aqeelos-fixer-user','off\n');assert.equal(sh('fixer_wanted; echo $?',d).out,'1');
+ writeFileSync(d+'/.aqeelos-fixer-user','on\n');assert.equal(sh('fixer_wanted; echo $?',d).out,'0');
+ // a stand-in iptables that records what it is told; -C (is the rule there?) says no, so every rule is added
+ const log=d+'/ipt.log';
+ const out=sh(`id(){ return 0; }; iptables(){ echo "$*" >> '${log}'; case "$1" in -C) return 1;; *) return 0;; esac; }; fixer_fw; echo rc=$?`,d);
+ assert.match(out.out,/rc=0/,out.err);
+ const calls=readFileSync(log,'utf8');
+ assert.match(calls,/-A AQ-FIXER -o lo -p tcp --dport 4400 -j RETURN/);assert.match(calls,/-A AQ-FIXER -j REJECT/);
+ assert.match(calls,/-I OUTPUT 1 -m owner --uid-owner aq-fixer -j AQ-FIXER/);
+ assert.ok(calls.indexOf('-A AQ-FIXER -o lo')<calls.indexOf('-A AQ-FIXER -j REJECT'),'the allowed connection comes before the refusal');
+ // no iptables: not applied, one issue filed for the person
+ const r=sh(`id(){ return 0; }; command(){ [ "$1" = -v ] && [ "$2" = iptables ] && return 1; builtin command "$@"; }; fixer_fw; echo rc=$?`,d);
+ assert.match(r.out,/rc=1/);assert.match(readFileSync(d+'/.aqeelos-agent-issues.jsonl','utf8'),/fixer-firewall/)});
+
+test('the fixer\'s user is listed to pass through the owner\'s home only when asked for',()=>{
+ const src=readFileSync(SCRIPT,'utf8');
+ assert.match(src,/Match User ag-\*,aq-fixer/);assert.match(src,/AllowUsers claude ag-\* aq-fixer/);assert.match(src,/fixer_wanted; then uid=/)});
