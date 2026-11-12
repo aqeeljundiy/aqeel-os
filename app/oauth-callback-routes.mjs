@@ -5,10 +5,16 @@
 // and /ui/, and it answers true when it handled the request. Same checks in the same order. The MCP return used to come a few routes later,
 // after the Code app's key routes (/ui/code/*), the brand's GET routes and /aqeelos-login: none of those takes a /mcp-oauth/ path, so which
 // runs first changes nothing.
-import {LIVE_APP} from './agentops.mjs';
+import {readFile,readdir,readlink} from 'node:fs/promises';
 import path from 'node:path';
-import {readdir,readFile} from 'node:fs/promises';
-export function createOAuthCallbackRoutes({DASH,DASH_TOKEN,deliverToGateway,esc,gconnect,googleConnected,HERMES_HOME,listAllProfiles,msconnect,NAMES,PUBLIC_URL,security,sharing,signinFlows,writeAgentContext}){
+import {LIVE_APP} from './agentops.mjs';
+export function createOAuthCallbackRoutes({DASH,DASH_TOKEN,esc,gconnect,googleConnected,HERMES_HOME,listAllProfiles,msconnect,NAMES,PUBLIC_URL,security,sharing,signinFlows,writeAgentContext}){
+/* A sign-in started inside the chat engine (its own connector) waits on a private local listener; the public return
+   page reaches it by trying the gateway's local listening ports (the listener checks the one-time state itself). */
+async function deliverToGateway(search){try{const pid=JSON.parse(await readFile(path.join(HERMES_HOME,'gateway.pid'),'utf8')).pid;
+  const inodes=new Set();for(const fd of await readdir('/proc/'+pid+'/fd').catch(()=>[])){const l=await readlink('/proc/'+pid+'/fd/'+fd).catch(()=>'');const m=/^socket:\[(\d+)\]$/.exec(l);if(m)inodes.add(m[1])}
+  const ports=[];for(const line of (await readFile('/proc/net/tcp','utf8')).split('\n').slice(1)){const c=line.trim().split(/\s+/);if(c[3]==='0A'&&c[1]?.startsWith('0100007F:')&&inodes.has(c[9])){const port=parseInt(c[1].split(':')[1],16);if(![8642,8644,9119].includes(port))ports.push(port)}}
+  for(const port of ports){const r=await fetch('http://127.0.0.1:'+port+'/callback'+search,{signal:AbortSignal.timeout(4000)}).catch(()=>null);if(r&&r.ok){console.log('sign-in delivered to the chat engine on',port);return true}}}catch(e){console.warn('deliverToGateway',e.message)}return false}
  return async function handle(req,res,p,url){
   // MCP sign-in (OAuth) returns here from Slack, Notion…; the engine checks the one-time state. No sign-in needed.
   // Google sign-ins (Google Workspace skill with a Web-application client) return here, and aqeelOS finishes them:

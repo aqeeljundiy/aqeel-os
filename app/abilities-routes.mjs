@@ -6,13 +6,18 @@
 // server.mjs calls this where the block was (the person `u` is already signed in and the x-hui header already checked) and it answers true
 // when it handled the request.
 import {readConfig,pick,setKey,isAgent,setStatus,getStatus} from './agentops.mjs';
+import {UNSAFE_TOOLSETS} from './users.mjs';
 import {rules as skillRules} from './skills-policy.mjs';
 import {accountHooks} from './accounts.mjs';
 import {onlineCodeOn,ONLINE_CODE_MSG} from './install-routes.mjs';
 import path from 'node:path';
 import {homedir} from 'node:os';
 import {readdir,stat} from 'node:fs/promises';
-export function createAbilitiesRoutes({agentDefaults,channelIdentity,code,codeAgents,codeBridge,codeOnline,displayName,envOf,isTestAgent,listAgents,listAllProfiles,live,lockedAgent,lockTools,MCP_OAUTH_BASE,n8n,NAMES,readBody,restartGateway,send,sharing,slackClientChannels,slackQuiet,unlockTools,users}){
+export function createAbilitiesRoutes({agentDefaults,channelIdentity,code,codeAgents,codeBridge,codeOnline,displayName,envOf,isTestAgent,listAgents,listAllProfiles,live,lockedAgent,lockTools,MCP_OAUTH_BASE,n8n,NAMES,readBody,restartGateway,send,sharing,slackClientChannels,slackQuiet,users}){
+// the other way (Unlock): terminal, files, code and computer use back on for this agent, where its owner may have them
+async function unlockTools(a){const c=await readConfig(a);if(!c)throw new Error('the settings could not be read');
+ const cur=pick(c,'agent.disabled_toolsets')||[];const list=Array.isArray(cur)?cur.map(String):String(cur).split(',').map(x=>x.trim()).filter(Boolean);
+ if(!UNSAFE_TOOLSETS.some(t=>list.includes(t)))return false;const r=await setKey(a,'agent.disabled_toolsets',list.filter(t=>!UNSAFE_TOOLSETS.includes(t)));if(!r.ok)throw new Error(r.err);return true}
  return async function handle(req,res,p,url,u){
    if(p==='/ui/agent-approvals'){const ag=req.method==='GET'?(url.searchParams.get('agent')||'default'):null;let b={};if(req.method==='PUT'){try{b=JSON.parse(await readBody(req,2048))}catch{}}
     const a=ag||String(b.agent||'default');if(!(await listAllProfiles()).includes(a))return send(res,400,{error:'Unknown agent'}),true;

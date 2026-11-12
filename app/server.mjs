@@ -604,10 +604,6 @@ function leadScope(me,t,part){me=String(me).split('--')[0];t=String(t).split('--
  if(part==='share')return 'Changing sharing levels is for admins. Your person can share their agents in aqeelOS (Edit agent › Sharing).';return null}
 // may this agent touch aqeelOS itself (its code, the web app, deploys, other people's agents, keys, permissions)? admins' agents only
 const adminTier=a=>users.tierOf(String(a).split('--')[0])==='admin';
-// the other way (Unlock): terminal, files, code and computer use back on for this agent, where its owner may have them
-async function unlockTools(a){const c=await readConfig(a);if(!c)throw new Error('the settings could not be read');
- const cur=pick(c,'agent.disabled_toolsets')||[];const list=Array.isArray(cur)?cur.map(String):String(cur).split(',').map(x=>x.trim()).filter(Boolean);
- if(!UNSAFE_TOOLSETS.some(t=>list.includes(t)))return false;const r=await setKey(a,'agent.disabled_toolsets',list.filter(t=>!UNSAFE_TOOLSETS.includes(t)));if(!r.ok)throw new Error(r.err);return true}
 const lockedAgent=(a,st)=>{if(st[a]?.safe)return true;const ow=users.agentOwner(a);if(!ow||ow==='owner')return false;const u=users.byId(ow);return !!u&&!users.can(u,'unsafe')};
 /* Loop guard. Two agents on WhatsApp that may answer each other reply back and forth until WhatsApp logs both out
    (it happened once). So an extra agent never answers another agent's own WhatsApp number: such a number is taken
@@ -825,8 +821,6 @@ async function appsOff(only){for(const a of await agentNames({copies:true})){if(
 async function closeSolvedSignins(){const l=(await issues.list().catch(()=>({items:[]}))).items||[];
  const stillOn=async(a,w)=>{const c=await readConfig(a).catch(()=>null)||{};for(const n of appNames(c))if((w==='*'||n.toLowerCase().includes(w))&&await optins.appOn(a,n))return true;return false};
  for(const id of await solvedIssues(l,stillOn)){await issues.close(id,'aqeelOS: the app is switched off for this agent, so no sign-in is needed').catch(()=>{});console.log('abilities: closed solved sign-in issue',id)}}
-// the sign-in apps an agent can switch: its own, and every one in the catalog (one per address) it could get
-async function knownApps(a){const own=appNames(await readConfig(a).catch(()=>null)||{});let cat=[];try{cat=(await connectors.plan()).catalog.map(x=>x.name)}catch{}return [...new Set([...own,...cat])].sort()}
 const connectors=createConnectors({listAgents:()=>listAgents(),readConfig,setKey,allow:async(a,e,n)=>await optins.appOn(a,n),redirect:n=>MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(n),
  hasEnv:async(a,v)=>new RegExp('^'+v.replace(/[^\w]/g,'')+'=.+','m').test(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env'),'utf8').catch(()=>'')),
  noteApp:(a,n,r)=>whyOf.noteApp(a,n,r),origin:(a,n,u)=>whyOf.app(a,n,u),eligible:async(a,c)=>!await isTestAgent(a)&&!!c?.mcp_servers?.['aqeelos-notify'],log:(...x)=>console.log(...x)});
@@ -1193,12 +1187,6 @@ const appSettings=(tool,url)=>{const k=Object.keys(APP_SETTINGS).find(k=>tool.to
 const FLOWS_FILE=path.join(DATA,'signin-flows.json');let signinFlows=new Map();
 readFile(FLOWS_FILE,'utf8').then(t=>{signinFlows=new Map(Object.entries(JSON.parse(t)))}).catch(()=>{});
 const saveFlows=()=>writeFile(FLOWS_FILE,JSON.stringify(Object.fromEntries(signinFlows))).catch(()=>{});
-/* A sign-in started inside the chat engine (its own connector) waits on a private local listener; the public return
-   page reaches it by trying the gateway's local listening ports (the listener checks the one-time state itself). */
-async function deliverToGateway(search){try{const pid=JSON.parse(await readFile(path.join(HERMES_HOME,'gateway.pid'),'utf8')).pid;
-  const inodes=new Set();for(const fd of await readdir('/proc/'+pid+'/fd').catch(()=>[])){const l=await readlink('/proc/'+pid+'/fd/'+fd).catch(()=>'');const m=/^socket:\[(\d+)\]$/.exec(l);if(m)inodes.add(m[1])}
-  const ports=[];for(const line of (await readFile('/proc/net/tcp','utf8')).split('\n').slice(1)){const c=line.trim().split(/\s+/);if(c[3]==='0A'&&c[1]?.startsWith('0100007F:')&&inodes.has(c[9])){const port=parseInt(c[1].split(':')[1],16);if(![8642,8644,9119].includes(port))ports.push(port)}}
-  for(const port of ports){const r=await fetch('http://127.0.0.1:'+port+'/callback'+search,{signal:AbortSignal.timeout(4000)}).catch(()=>null);if(r&&r.ok){console.log('sign-in delivered to the chat engine on',port);return true}}}catch(e){console.warn('deliverToGateway',e.message)}return false}
 const linkSeen=new Map();   // flow|link → when that link was first handed out
 /* connect_mcp_tool with a url (11 Nov 2026): an agent adds an MCP address the person gave it to itself, with no terminal.
    The same checks as Connections › Add › An app by its address (mcpAddProblem, the admins' block list, a public address,
@@ -1534,10 +1522,6 @@ async function saveSecret(base,name,value,{admin=false}={}){if(!admin&&RESERVED_
  await editEnv(path.join(home,'.env'),cur=>{const lines=cur.split('\n').filter(l=>!l.startsWith(name+'='));while(lines.length&&lines[lines.length-1]==='')lines.pop();return [...lines,name+'='+value.replace(/[\r\n]/g,''),''].join('\n')});
  const dir=secretDir(base);await mkdir(dir,{recursive:true,mode:0o770});await writeFile(path.join(dir,name),value,{mode:0o660});await secretAccess.saved(base,name)?.catch(()=>{})}   // group-shared: an agent with its own user reads its own lock box; still closed to other agents
 const secretHow=(base,name)=>'To enter it on your screen, click the field and call type_secret with name '+name+'. In a command use "$(cat ~/workspaces/'+base+'/.secrets/'+name+')". Never print, echo or show the value.';
-async function useSecret(rec,value,{admin=false}={}){
- if(rec.mode==='type'){await screens.typeInto(rec.base,value,{enter:rec.enter,secret:true});return 'Typed it into the focused field on your screen'+(rec.enter?' and pressed Enter':'')+'. You never saw the value; take a screenshot to check the result.'}
- await saveSecret(rec.base,rec.name,value,{admin});
- return 'Saved as '+rec.name+' in your settings (the engine and its tools read it from there). '+secretHow(rec.base,rec.name)}
 /* One-time secret links (secret-links.mjs, 4 Nov 2026): request_secret_link gives the agent a link to send on Telegram or
    WhatsApp; the person opens it on their phone, outside aqeelOS, and the value is saved like ask_secret's "save" (never as
    an admin, so the keys that wire aqeelOS stay out of reach). The page (/secret) is public: the token after # is the credential. */
@@ -2414,15 +2398,15 @@ const codeDeviceRoutes=createCodeDeviceRoutes({API_KEY,GATE,NAMES,accountsApi,ag
 const channelsRoutes=createChannelsRoutes({ADDED_FILE,DASH,DASH_TOKEN,HERMES_HOME,NAMES,PERSON_HELP,approvePerson,attention:{get t(){return attention.t},set t(v){attention.t=v}},channelAttention,checkChannel,editAdded,envQueue,links,listAllProfiles,pairingDir,pausedLoad,pausedSave,personId,platCache,platformsCached,readBody,relay,restartGateway,samePerson,send,stopBridges,syncNotifyTool,users,waLinking,waMapping,waPrepOff});
 const healthRoutes=createHealthRoutes({agentGraph,agentMemory,agentName,chatHistory,cloudFixer,codeChanges,effView,escalations,health,issues,listAgents,listAllProfiles,memWatch,needCtx,ownerSend,questions,readBody,relay,resume,send,teamSettings,usage,users});
 const connectedRoutes=createConnectedRoutes({DASH,DASH_TOKEN,HERMES_HOME,NAMES,PUBLIC_URL,backupModels,backups,engineUpd,gconnect,googleConnected,guard,kirimdev,kirimdevChanged,kirimdevSetup,listAgents,localAppVersions,mcpEdit,msconnect,newerApp,ownsAgent,priceCatalog,privateAddress,readBody,releaseAppVersions,secretLinks,selfRuns,send,slackc,srEligible,syncNotifyTool,teamGroups,teamSettings,tebar,users,whyOf,writeAgentContext});
-const systemRoutes=createSystemRoutes({accountsApi,addonBy,addons,agentAds,agentHealth,antigravity,appsOff,boxOps,brand,closeSolvedSignins,connectors,cookieAttrs,DATA,env,googleLabels,HERMES_HOME,knownApps,links,listAllProfiles,makeCookie,makeLead,memNow,NAMES,optins,ownsAgent,platCache,PUBLIC_URL,pwa,readBody,readRaw,restartGateway,revokeSessions,security,send,SESSION_DAYS,setChannelOn,setGlabels:v=>{GLABELS=v},SSH_HOST,SSH_PORT,syncNotifyTool,sysEvents:()=>sysEvents,users,writeAgentContext,writeJsonAtomic});
-const abilitiesRoutes=createAbilitiesRoutes({agentDefaults,channelIdentity,code,codeAgents,codeBridge,codeOnline,displayName,envOf,isTestAgent,listAgents,listAllProfiles,live,lockedAgent,lockTools,MCP_OAUTH_BASE,n8n,NAMES,readBody,restartGateway,send,sharing,slackClientChannels,slackQuiet,unlockTools,users});
+const systemRoutes=createSystemRoutes({accountsApi,addonBy,addons,agentAds,agentHealth,antigravity,appsOff,boxOps,brand,closeSolvedSignins,connectors,cookieAttrs,DATA,env,googleLabels,HERMES_HOME,links,listAllProfiles,makeCookie,makeLead,memNow,NAMES,optins,ownsAgent,platCache,PUBLIC_URL,pwa,readBody,readRaw,restartGateway,revokeSessions,security,send,SESSION_DAYS,setChannelOn,setGlabels:v=>{GLABELS=v},SSH_HOST,SSH_PORT,syncNotifyTool,sysEvents:()=>sysEvents,users,writeAgentContext,writeJsonAtomic});
+const abilitiesRoutes=createAbilitiesRoutes({agentDefaults,channelIdentity,code,codeAgents,codeBridge,codeOnline,displayName,envOf,isTestAgent,listAgents,listAllProfiles,live,lockedAgent,lockTools,MCP_OAUTH_BASE,n8n,NAMES,readBody,restartGateway,send,sharing,slackClientChannels,slackQuiet,users});
 const instructionsRoutes=createInstructionsRoutes({accountsApi,backupModels,bottlenecks,cfgLimit,channelAttention,code,DATA,DESKTOP_RELEASES,displayName,help,instructions,listAgents,localAppVersions,n8n,NAMES,needsFor,newerApp,readBody,releaseAppVersions,security,send,signinsDue,teamFolders,users,versions});
 const accessRoutes=createAccessRoutes({access,accessAsk,agentAccess,bottlenecks,conflicts,connAccounts,connections,DATA,keysId,labels,listAgents,NAMES,questions,readBody,send,shareLevels,users});
-const mcpSecretsRoutes=createMcpSecretsRoutes({access,browserAsks,channelList,displayName,freshSignins,HERMES_HOME,listAgents,localBrowser,MCP_OAUTH_BASE,memberSecretName,NAMES,optins,ownsAgent,readBody,saveSecret,secretAsks,secretDir,secretHow,security,send,sharing,signinsAt:()=>signinsAt,signinsDue,slackClientFor,startSignin,users,useSecret,whyOf});
+const mcpSecretsRoutes=createMcpSecretsRoutes({access,browserAsks,channelList,displayName,freshSignins,HERMES_HOME,listAgents,localBrowser,MCP_OAUTH_BASE,memberSecretName,NAMES,optins,ownsAgent,readBody,saveSecret,screens,secretAsks,secretDir,secretHow,security,send,sharing,signinsAt:()=>signinsAt,signinsDue,slackClientFor,startSignin,users,whyOf});
 const schedulesRoutes=createSchedulesRoutes({designGuard,postingLimits,readBody,relay,schedules,send,users});
 const identitiesRoutes=createIdentitiesRoutes({accountsApi,billion,builtins,channels,connect,DASH,DASH_TOKEN,DATA,designGuard,displayName,explain,graphify,HERMES_HOME,keysId,labels,listAgents,listAllProfiles,NAMES,okProfile,ownsAgent,pausedLoad,platCache,readBody,readIds,reconnectOne,restartGateway,runGates,security,send,setChannelOn,setDisplayName,starters,usage,users,waitingNow,withIds,writeIds});
 const hooksRoutes=createHooksRoutes({agentAccess,agentLive,customerTools:()=>customerTools,designGuard,HOOKS,issues,kirimdev,paymentCallbacks,pressKey,proxy,readBody,readRaw,send,smokeWatch,teamView,tebar,versions,WA_CLOUD});
-const oauthCallbackRoutes=createOAuthCallbackRoutes({DASH,DASH_TOKEN,deliverToGateway,esc,gconnect,googleConnected,HERMES_HOME,listAllProfiles,msconnect,NAMES,PUBLIC_URL,security,sharing,signinFlows:()=>signinFlows,writeAgentContext});
+const oauthCallbackRoutes=createOAuthCallbackRoutes({DASH,DASH_TOKEN,esc,gconnect,googleConnected,HERMES_HOME,listAllProfiles,msconnect,NAMES,PUBLIC_URL,security,sharing,signinFlows:()=>signinFlows,writeAgentContext});
 const boxRoutes=createBoxRoutes({agentOps,codeBridge,eventHooks,fixerSandbox,googleFiles,kirimdev,postingLimits,readBody,relayKeys,runGates,selfRuns,send,sign,srBox,srDur,srEligible,users});
 const server=createServer(async(req,res)=>{
  enterRequest(req);const url=new URL(req.url,'http://x');const p=url.pathname;   // the request is what the per-account sign-in limit reads the address and session cookie from

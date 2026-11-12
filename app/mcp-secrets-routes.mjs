@@ -7,7 +7,11 @@
 import path from 'node:path';
 import {readConfig,pick,setKey} from './agentops.mjs';
 import {readdir,mkdir,copyFile,readFile,stat} from 'node:fs/promises';
-export function createMcpSecretsRoutes({access,browserAsks,channelList,displayName,freshSignins,HERMES_HOME,listAgents,localBrowser,MCP_OAUTH_BASE,memberSecretName,NAMES,optins,ownsAgent,readBody,saveSecret,secretAsks,secretDir,secretHow,security,send,sharing,signinsAt,signinsDue,slackClientFor,startSignin,users,useSecret,whyOf}){
+export function createMcpSecretsRoutes({access,browserAsks,channelList,displayName,freshSignins,HERMES_HOME,listAgents,localBrowser,MCP_OAUTH_BASE,memberSecretName,NAMES,optins,ownsAgent,readBody,saveSecret,screens,secretAsks,secretDir,secretHow,security,send,sharing,signinsAt,signinsDue,slackClientFor,startSignin,users,whyOf}){
+async function useSecret(rec,value,{admin=false}={}){
+ if(rec.mode==='type'){await screens.typeInto(rec.base,value,{enter:rec.enter,secret:true});return 'Typed it into the focused field on your screen'+(rec.enter?' and pressed Enter':'')+'. You never saw the value; take a screenshot to check the result.'}
+ await saveSecret(rec.base,rec.name,value,{admin});
+ return 'Saved as '+rec.name+' in your settings (the engine and its tools read it from there). '+secretHow(rec.base,rec.name)}
  return async function handle(req,res,p,url,u){
    if(p==='/ui/mcp/signins'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{items:[]}),true;await freshSignins();
     // for each, the other agents that are signed in to the same app (their sign-in can be used instead)

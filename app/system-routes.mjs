@@ -5,15 +5,18 @@
 // /ui/channels/wa-cloud, /ui/ssh-keys, /ui/memory, /ui/system-events). They used to sit in server.mjs inside the signed-in /ui/ gate. Same checks
 // in the same order; server.mjs calls this where the block was (the person `u` is already signed in and the x-hui header already checked) and it
 // answers true when it handled the request.
+import {appNames} from './agent-optins.mjs';
+import {readConfig,isAgent,hermes as hcmd,LIVE_APP,editEnv} from './agentops.mjs';
 import {readFile,realpath,readdir,stat,unlink,mkdir,rename,writeFile} from 'node:fs/promises';
 import path from 'node:path';
-import {isAgent,hermes as hcmd,LIVE_APP,editEnv} from './agentops.mjs';
 import {homedir,userInfo} from 'node:os';
 import {boxMemory} from './boxmem.mjs';
 import {randomBytes} from 'node:crypto';
-export function createSystemRoutes({accountsApi,addonBy,addons,agentAds,agentHealth,antigravity,appsOff,boxOps,brand,closeSolvedSignins,connectors,cookieAttrs,DATA,env,googleLabels,HERMES_HOME,knownApps,links,listAllProfiles,makeCookie,makeLead,memNow,NAMES,optins,ownsAgent,platCache,PUBLIC_URL,pwa,readBody,readRaw,restartGateway,revokeSessions,security,send,SESSION_DAYS,setChannelOn,setGlabels,SSH_HOST,SSH_PORT,syncNotifyTool,sysEvents,users,writeAgentContext,writeJsonAtomic}){
+export function createSystemRoutes({accountsApi,addonBy,addons,agentAds,agentHealth,antigravity,appsOff,boxOps,brand,closeSolvedSignins,connectors,cookieAttrs,DATA,env,googleLabels,HERMES_HOME,links,listAllProfiles,makeCookie,makeLead,memNow,NAMES,optins,ownsAgent,platCache,PUBLIC_URL,pwa,readBody,readRaw,restartGateway,revokeSessions,security,send,SESSION_DAYS,setChannelOn,setGlabels,SSH_HOST,SSH_PORT,syncNotifyTool,sysEvents,users,writeAgentContext,writeJsonAtomic}){
 let sshLock=Promise.resolve();   // authorized_keys changes, one at a time
 const FX={rates:{IDR:16500},at:0,day:''};   // dollar → every currency, refreshed by /ui/fx (7 Nov 2026: not only rupiah)
+// the sign-in apps an agent can switch: its own, and every one in the catalog (one per address) it could get
+async function knownApps(a){const own=appNames(await readConfig(a).catch(()=>null)||{});let cat=[];try{cat=(await connectors.plan()).catalog.map(x=>x.name)}catch{}return [...new Set([...own,...cat])].sort()}
  return async function handle(req,res,p,url,u){
    // the real-life test after each deploy (scripts/live-test.mjs) and any automatic undo (box-live.sh), for System › Health
    if(p==='/ui/live-test'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'}),true;try{return send(res,200,JSON.parse(await readFile(path.join(DATA,'live-test.json'),'utf8'))),true}catch{return send(res,200,{runs:[]}),true}}
