@@ -222,17 +222,23 @@ test('Stage: a page whose reads keep answering is shown whole; one whose reads w
  const mk=()=>{let now=0,id=0;const tm=new Map();const flush=async()=>{for(let i=0;i<8;i++)await Promise.resolve()};
   const clock={setTimeout:(fn,ms)=>{tm.set(++id,{at:now+(ms||0),fn});return id},clearTimeout:i=>tm.delete(i),performance:{now:()=>now},
    async adv(ms){const end=now+ms;for(;;){let k=null;for(const [i,t] of tm)if(t.at<=end&&(k===null||t.at<tm.get(k).at))k=i;if(k===null)break;const t=tm.get(k);tm.delete(k);now=Math.max(now,t.at);t.fn();await flush()}now=end}};
-  const S={_nav:1};const env=new Function('S','performance','setTimeout','clearTimeout','$',grab('core.js','const Stage={')+'\n'+grab('core.js','const Swr={')+'\nreturn {Stage,Swr}')(S,clock.performance,clock.setTimeout,clock.clearTimeout,()=>null);
+  const S={_nav:1},seen=[];class MO{constructor(cb){seen.push(cb)}observe(){}disconnect(){}}   // stands in for the browser's: draw() below says "something was drawn"
+  const env=new Function('S','performance','setTimeout','clearTimeout','$','MutationObserver',grab('core.js','const Stage={')+'\n'+grab('core.js','const Swr={')+'\nreturn {Stage,Swr}')(S,clock.performance,clock.setTimeout,clock.clearTimeout,()=>null,MO);
   const shown=[],pg={isConnected:true,firstChild:{}},v={},st={pg,kind:'page',reveal:()=>shown.push(now)};
   // reads: each answers at its time (ms after opening); the page function itself ends at once
   const open=async reads=>{env.Stage.hold(v,st,()=>{for(const ms of reads)env.Swr.fly(new Promise(r=>clock.setTimeout(r,ms)))});await flush()};
-  return {clock,open,shown}};
+  return {clock,open,shown,pg,draw(){pg.firstChild={};seen.at(-1)()}}};
  // answers every second until 3.4 s (Settings for all agents on a busy box): whole at 3.4 s, not half drawn at 2.2 s
  let x=mk();await x.open([900,1800,2700,3400]);await x.clock.adv(2300);assert.deepEqual(x.shown,[],'still being answered at 2.2 s: not shown half drawn');await x.clock.adv(1200);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=3400&&x.shown[0]<3500,'shown when whole, at '+x.shown[0]);
  // one read that does not come (Health's cost of the week took 15 to 29 s): shown 2.2 s after the last other answer, not at 6 s
  x=mk();await x.open([400,900,25000]);await x.clock.adv(3000);assert.deepEqual(x.shown,[],'2.1 s after the last answer');await x.clock.adv(200);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=3100&&x.shown[0]<3200,'at '+x.shown[0]);
- // nothing answers at all (the engine hangs): as before, 2.2 s
- x=mk();await x.open([30000]);await x.clock.adv(2150);assert.deepEqual(x.shown,[]);await x.clock.adv(100);assert.equal(x.shown.length,1);
+ // nothing has answered at all (the engine hangs): the ring or the page's own grey placeholders are all there is to show either way, so it stays out of sight, 6 s at most
+ x=mk();await x.open([30000]);await x.clock.adv(5900);assert.deepEqual(x.shown,[]);await x.clock.adv(200);assert.equal(x.shown.length,1);
+ // every read answers late, at once (a busy box): not shown as placeholders at 2.2 s that then fill in view, but whole
+ x=mk();await x.open([2500,2600,2900]);await x.clock.adv(2400);assert.deepEqual(x.shown,[]);await x.clock.adv(600);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=2900&&x.shown[0]<3000,'whole at '+x.shown[0]);
+ // an answer came but nothing is drawn yet: still only the ring to show
+ x=mk();x.pg.firstChild=null;await x.open([300,2900]);await x.clock.adv(2600);assert.deepEqual(x.shown,[],'empty 2.2 s after the answer: not shown as a ring that then fills in view');x.draw();await x.clock.adv(400);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=2900&&x.shown[0]<3000,'whole at '+x.shown[0]);
+ x=mk();x.pg.firstChild=null;await x.open([30000]);await x.clock.adv(5900);assert.deepEqual(x.shown,[]);await x.clock.adv(200);assert.equal(x.shown.length,1,'6 s at most');
  // answers trickle in for ever: never past 6 s
  x=mk();await x.open(Array.from({length:12},(_,i)=>(i+1)*1500));await x.clock.adv(5900);assert.deepEqual(x.shown,[]);await x.clock.adv(200);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=6000&&x.shown[0]<6100,'at '+x.shown[0]);
  // a quick page is shown the moment it is whole

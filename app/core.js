@@ -419,26 +419,29 @@ function runPage(P,r,pg){const nav=S._nav;let gone=pageRun(pg);return Promise.re
    then one swap in one frame. A drawing slower than Stage.ms shows the new heading and the loading ring meanwhile, and
    one slower than Stage.max is shown as far as it is. The new drawing sits in the document before the old one, so every
    lookup by id finds the new one; it is laid out (sizes can be measured) but takes no room and shows nothing. */
-// How long a person looks at the loading ring before they get what there is (12 Nov 2026). max (2.2 s) is the longest silence: a drawing none of whose
-// reads has answered for that long (since it was opened, or since the last answer) has stalled and is shown as far as it is. One that is still being
-// answered is nearly whole and waits on, because a page shown half drawn moves as each late part lands (Settings for all agents on a busy box: its reads
-// took 3.4 s, it was shown at 2.2 s and its list jumped 433 px a second later); none waits past `hard`. max was 6 s flat for a day: Health then sat behind
-// the ring for the full 6 s on every visit because of one read that took 15 to 29 s (its cost of the week, since made fast where it was slow) and still
-// landed late: a longer ring hides a slow read, it does not fix it. Now that page is shown 2.2 s after its last other answer.
+// How long a person looks at the loading ring before they get what there is (12 Nov 2026). max (2.2 s) is the longest silence: a drawing that has
+// had an answer and has not moved on for that long (no read of the visit answered, nothing drawn) has stalled and is shown as far as it is. One that is
+// still coming together is nearly whole and waits on, because a page shown half drawn moves as each late part lands (Settings for all agents on a busy
+// box: its reads took 3.4 s, it was shown at 2.2 s and its list jumped 433 px a moment later); so does one that has had no answer at all yet, since the
+// ring or the page's own grey placeholders are all there is to show either way. None waits past `hard`. max was 6 s flat for a day: Health then sat
+// behind the ring for the full 6 s on every visit because of one read that took 15 to 29 s (its cost of the week, since made fast where it was slow)
+// and still landed late: a longer ring hides a slow read, it does not fix it. Now that page is shown 2.2 s after its last other part.
 const Stage={ms:450,max:2200,hard:6000,
- drop(v){const st=v._stage;if(st){clearTimeout(st.t);clearTimeout(st.t2);v._stage=null;st.fin?.()}for(const x of v.querySelectorAll('.staged'))x.remove()},
+ drop(v){const st=v._stage;if(st){clearTimeout(st.t);clearTimeout(st.t2);st.mo?.disconnect();v._stage=null;st.fin?.()}for(const x of v.querySelectorAll('.staged'))x.remove()},
  // st: {pg (the content being drawn, out of sight), kind, early (optional: show the heading and the ring), reveal (show pg)}
- hold(v,st,run){const prev=v._stage;v._stage=st;v._run=run;if(prev){clearTimeout(prev.t);clearTimeout(prev.t2);prev.fin?.()}
-  const done=()=>{if(v._stage!==st)return;clearTimeout(st.t);clearTimeout(st.t2);v._stage=null;if(!st.pg.isConnected)return;if(st.early){st.early();st.early=null}st.reveal()};
+ hold(v,st,run){const prev=v._stage;v._stage=st;v._run=run;if(prev){clearTimeout(prev.t);clearTimeout(prev.t2);prev.mo?.disconnect();prev.fin?.()}
+  const done=()=>{if(v._stage!==st)return;clearTimeout(st.t);clearTimeout(st.t2);st.mo?.disconnect();v._stage=null;if(!st.pg.isConnected)return;if(st.early){st.early();st.early=null}st.reveal()};
   if(st.early)st.t=setTimeout(()=>{if(v._stage===st&&st.pg.isConnected&&st.early){st.early();st.early=null;st.rung=true}},this.ms);
   let ended=false;const tok=Swr.begin(),fin=st.fin=()=>{if(ended)return;ended=true;done();Swr.end(tok)};
   // whole: the page function has finished and nothing it began is still being read (parts a page fills without waiting
   // for them: the links under Keys, a list's second half)
   const quiet=()=>{if(ended)return;if(v._stage!==st||S._nav!==tok||!Swr.flying)return fin();Swr.idle=()=>setTimeout(quiet,0)};
   // too slow to wait for: shown as far as it is (a page with nothing drawn yet keeps the ring; the same page drawn again keeps what it shows)
-  const t0=performance.now(),late=()=>{if(st.kind==='pg'&&!st.pg.firstChild)return;if(v._stage!==st)return;const t=performance.now();
-   const silent=t-Math.max(t0,Swr.last),left=Math.min(this.max-silent,this.hard-(t-t0));
-   if(left>0&&S._nav===tok&&Swr.flying&&Swr.flyNav===tok){st.t2=setTimeout(late,left+5);return}   // still being answered: nearly whole
+  // (what was drawn last: a part drawn from a last-known answer or a shared read moves the page on without an answer of its own)
+  const t0=performance.now();let drew=t0;const mo=typeof MutationObserver==='undefined'?null:new MutationObserver(()=>{drew=performance.now()});mo?.observe(st.pg,{childList:true,subtree:true});st.mo=mo;
+  const late=()=>{if(st.kind==='pg'&&!st.pg.firstChild)return;if(v._stage!==st)return;const t=performance.now();
+   const some=Swr.last>t0&&st.pg.firstChild,left=Math.min(some?this.max-(t-Math.max(Swr.last,drew)):150,this.hard-(t-t0));
+   if(left>0&&S._nav===tok&&Swr.flying&&Swr.flyNav===tok){st.t2=setTimeout(late,left+5);return}   // still coming together, or nothing answered yet (only the ring to show)
    done()};   // the drawing goes on in view; fin comes when it ends
   st.t2=setTimeout(late,this.max);
   let p;try{p=run(st.pg)}catch{}Promise.resolve(p).catch(()=>{}).finally(()=>setTimeout(quiet,0))},
@@ -486,7 +489,7 @@ const Swr={m:new Map(),gen:0,nav:-1,drawing:0,wait:0,changed:false,fresh:8000,ol
   if(age>this.fresh&&!e.p){const g=this.gen,nav=S._nav;this.wait++;
    e.p=Promise.resolve().then(again).then(d=>{if(g!==this.gen)return;const t=JSON.stringify(d);if(t===e.s){e.t=Date.now();return}this.put(key,d,t);if(nav===S._nav)this.changed=true},()=>{})
     .finally(()=>{e.p=null;if(g===this.gen){this.wait=Math.max(0,this.wait-1);this.settle()}})}
-  return JSON.parse(e.s)},
+  this.last=performance.now();return JSON.parse(e.s)},
  put(key,d,t){if(this.skip.test(key))return;t??=JSON.stringify(d);this.m.delete(key);if(t===undefined||t.length>2.5e5)return;this.m.set(key,{t:Date.now(),s:t,p:null});if(this.m.size>160)this.m.delete(this.m.keys().next().value)},
  clear(){this.m.clear();this.gen++;this.wait=0;this.changed=false},
  settle(){if(this.drawing||this.wait||!this.changed||this.nav!==S._nav)return;this.changed=false;Stage.again()}};
