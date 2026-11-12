@@ -43,7 +43,7 @@ import {holdWrites,withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent
 import {createSchedules} from './schedules.mjs';
 import {createScreens} from './screens.mjs';
 import {createAgentAdspower} from './agent-adspower.mjs';
-import {createUsers,UNSAFE_TOOLSETS} from './users.mjs';import * as proxyAgent from './proxy-agent.mjs';import {ownSettingProblem,ownSettingOk,ownSettingKey,OWN_SETTINGS_HELP} from './agent-settings.mjs';
+import {createUsers,UNSAFE_TOOLSETS} from './users.mjs';import * as proxyAgent from './proxy-agent.mjs';import {createFixerWatch,protectedFiles} from './fixer-watch.mjs';import {ownSettingProblem,ownSettingOk,ownSettingKey,OWN_SETTINGS_HELP} from './agent-settings.mjs';
 import {createStarters} from './starters.mjs';
 import {createMail} from './mail.mjs';
 import {createUsage} from './usage.mjs';
@@ -1787,7 +1787,7 @@ accountHooks.exhausted=until=>{if(until)providerLimits.set(until,'every AI accou
 const questions=createQuestions({DATA,names:a=>agentName(a),onAnswer:async q=>{if(q.kind==='fixer'&&q.issue)await issues.answered(q.issue,q);if(q.kind==='app'&&q.issue==='brand-logo'&&q.answered?.choice==='b'){await brand.setMono(true);await pwa.current()}if(q.kind==='app'&&String(q.issue).startsWith('live-logo-')&&q.answered?.choice==='b')await live.useLetter(String(q.issue).slice(10))}});
 // the cloud fixer (cloud-fixer.mjs, 12 Nov 2026): code fixes are written by a Claude Code routine in Anthropic's cloud; the account with the most room is used
 const cloudFixer=createCloudFixer({DATA,accounts:async()=>{const b=accountsApi.backup,d=await b.load();return Promise.all(b.all(d).map(a=>b.details(a)))},github:id=>fixerGit.mergedPr(id)});
-const issues=createIssues({DATA,ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
+const issues=createIssues({DATA,watch:createFixerWatch({list:()=>protectedFiles({HOME:homedir(),HERMES_HOME,DATA}),log:m=>console.warn(m)}),ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
  needCloud:()=>bottlenecks.event('cloud_fixer','Set up the cloud fixer','A bug in aqeelOS\'s own code is fixed in the cloud. Add a routine on System › Settings › Cloud fixer; until then the older way runs.',{topic:'cloud_fixer'}),cloudOk:()=>bottlenecks.resolve('cloud_fixer'),needToken:()=>bottlenecks.event('github_token','The fixer needs a GitHub token','Fixes wait for review as branches on the box. Add the token and their pull requests open by themselves.',{topic:'github_token'}),tokenOk:()=>bottlenecks.resolve('github_token'),usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
  tz:()=>installTz()||process.env.TZ||'',sortRun:engineSortRun({bin:path.join(homedir(),'.local','bin','aqeelos'),home:homedir(),dir:path.join(DATA,'issues','sort')}),
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,engineOk:()=>inQuiet(new Date(),installTz()||process.env.TZ||''),envFiles:issueEnvFiles,
@@ -3457,7 +3457,7 @@ const server=createServer(async(req,res)=>{
   // Report an issue, Stop retrying and Close (System › Health): a person files one for the fixer, or ends one
   if(/^\/ui\/health\/issues\/(report|close|stop)$/.test(p)&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
    try{if(p.endsWith('/report')){const a=String(b.agent||'');if(!(await listAgents()).includes(a))return send(res,400,{error:'Pick the agent it is about.'});
-     const r=await issues.file({agent:a,missing:String(b.missing||''),evidence:String(b.evidence||''),source:'person',origin:{who:u.name||'an admin'}});return send(res,200,{ok:true,id:r.issue.id,state:r.issue.state,again:!!r.again})}
+     const r=await issues.file({agent:a,missing:String(b.missing||''),evidence:String(b.evidence||''),source:'person',typed:true,origin:{who:u.name||'an admin'}});return send(res,200,{ok:true,id:r.issue.id,state:r.issue.state,again:!!r.again})}
     const i=await issues[p.endsWith('/close')?'close':'stop'](String(b.id||''),u.name||'an admin');if(!i)return send(res,404,{error:'No such issue.'});return send(res,200,{ok:true,state:i.state,after:!!i.noRetry})}catch(e){return send(res,400,{error:e.message})}}
   // System › Teams (team-settings.mjs): teams and members, the fixer, where alerts go, Pause alerts, test agents
   if(/^\/ui\/(teams|alerts)(\/|$)/.test(p)){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,131072))}catch{}}

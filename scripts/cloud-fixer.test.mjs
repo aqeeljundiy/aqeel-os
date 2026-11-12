@@ -53,7 +53,7 @@ const ISSUE={id:'i0123abcd',agent:'shop',title:'Checkout crashes',missing:'app/o
 test('fire: posts to the best routine with the right headers and returns the session',async()=>{const S=await make();
  const r=await S.cf.fire(ISSUE);assert.equal(r.ok,true);assert.equal(r.account,'main');assert.match(r.url,/session_trig_AAAAAAAA/);
  const c=S.F.calls[0];assert.equal(c.url,API+'trig_AAAAAAAA/fire');assert.equal(c.headers.Authorization,'Bearer '+TOK1);assert.equal(c.headers['anthropic-version'],'2026-10-21');
- assert.match(c.body.text,/^aqeelOS issue i0123abcd/);assert.match(c.body.text,/Files suspected: app\/orders\.mjs/);assert.ok(c.body.text.length<65536)});
+ assert.match(c.body.text,/^aqeelOS issue i0123abcd/);assert.match(c.body.text,/Files suspected[^:]*: app\/orders\.mjs/);assert.ok(c.body.text.length<65536)});
 
 test('429 on the best account: the next account is tried once; both fail: it waits, and the cooled routine is skipped',async()=>{
  let S=await make({trig_AAAAAAAA:{status:429}});let r=await S.cf.fire(ISSUE);assert.equal(r.ok,true);assert.equal(r.account,'two');assert.equal(S.F.calls.length,2);
