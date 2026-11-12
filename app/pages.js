@@ -350,7 +350,7 @@ function chCheck(key,val,v){const t=String(val||'').trim();if(!t)return null;
  if(key==='TELEGRAM_BOT_TOKEN'&&!/^\d+:[A-Za-z0-9_-]{30,}$/.test(t))return 'Paste the whole token from @BotFather (like 123456789:ABC…).';
  if(key==='TELEGRAM_ALLOWED_USERS'){const b=chSplit(t).find(x=>!/^\d+$/.test(x));if(b)return b+' is not a Telegram user ID. Those are numbers only.'}
  const pre={SLACK_BOT_TOKEN:'xoxb-',SLACK_APP_TOKEN:'xapp-'}[key];if(pre&&!t.startsWith(pre))return (v?.prompt||key)+' starts with '+pre;
- if(key==='SLACK_ALLOWED_USERS'){const b=chSplit(t).find(x=>x!=='*'&&!/^[UW][A-Z0-9]{2,}$/.test(x));if(b)return b+' does not look like a Slack member ID. They look like U01ABC2DEF3.'}
+ if(key==='SLACK_ALLOWED_USERS'){const b=chSplit(t).find(x=>x!=='*'&&!/^[UW][A-Z0-9]{2,}$/.test(x));if(b)return b+' does not look like a Slack member ID. They look like U0000000001.'}
  return null}
 // what Save sends: filled fields, changed allowlists (an emptied one is cleared), and the first problem found
 function chCollect(d,vars){const env={},clear=[];let bad=null;

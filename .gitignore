@@ -23,3 +23,29 @@ CODE-PLAN.md
 data/reference-install.md
 skills/**/references/local.md
 data/private-words.json
+
+# install-specific notes, prompts and check scripts never go to git (12 Nov 2026, secrets audit): they live in the install's own data folder,
+# <data>/notes/ and <data>/box-checks/. See CONTRIBUTING.md. A stray one is refused by scripts/repo-privacy.test.mjs too.
+docs/installs/
+docs/**/prompts/
+*.local.md
+scripts/box-checks/
+UsersKomputer*
+# keys, credentials, databases and archives
+data/
+!data/.gitkeep
+*.enc
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*client_secret*.json
+*service-account*.json
+.secrets/
+*.sqlite
+*.sqlite3
+*.db
+*.tar.gz
+*.zip

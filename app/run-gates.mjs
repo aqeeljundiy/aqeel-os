@@ -15,6 +15,10 @@
 //     agent's own user) and skips when its last line is {"anythingToDo": false}. Nobody has written one yet: no check
 //     is invented here, because none can be grounded in data aqeelOS can see (the DM and reply lists live in the
 //     agent's own browser). A check that fails or says nothing never stops a run.
+//  b2) every schedule that posts, whatever it is called (12 Nov 2026, audit H1): the gate used to look at the posting limits only for a schedule whose
+//     script was the posting gate, so three of Continue Threads' four posting schedules ran unlimited. Now the kinds a schedule posts (comment, dm,
+//     thread, reply: jobKinds() in posting-limits.mjs, from its name or the owner's list) are asked: it starts while ANY of its kinds has room, and the
+//     answer it hands the agent lists each kind's numbers. The scripts that post enforce the same limits one action at a time (posting-guard.py).
 // A schedule that already has a script of its own (the posting gate) keeps it: our script runs first and then runs
 // that one, so its output reaches the AI as before. Schedules whose script is the whole job (no_agent) and Python
 // scripts (which need the job's own interpreter) are left alone. If aqeelOS does not answer, the run goes ahead.
@@ -41,7 +45,7 @@
 import {readFile,writeFile,mkdir,rename,stat,readdir,copyFile,chmod,open} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {decide as postDecide,clean as postClean} from './posting-limits.mjs';
+import {decide as postDecide,clean as postClean,ruleFor,entriesOf,hasSubjects,jobKinds,jobDecision,KIND_NAME,defaultKind} from './posting-limits.mjs';
 import {cadenceMin} from './rule-conflicts.mjs';
 
 export const GATE_PREFIX='aqeelos-gate-',CHECK_PREFIX='aqeelos-check-',POSTING_GATE='aqeelos-posting-gate.sh';
@@ -121,7 +125,7 @@ export function savedStarts(gates,now=Date.now()){const h=Math.floor(now/HOUR),o
   if(b){const i=k.indexOf('/');out.jobs.push({agent:k.slice(0,i),job:k.slice(i+1),name:v.name||'',h24:a,d7:b})}out.h24+=a;out.d7+=b}
  out.jobs.sort((x,y)=>y.d7-x.d7);return out}
 
-export function gateBody({port,agent,jobId,sig,original}){const U='http://127.0.0.1:'+port+'/run-gate/'+agent+'/'+jobId+'/'+sig;
+export function gateBody({port,agent,jobId,sig,original,posting=false}){const U='http://127.0.0.1:'+port+'/run-gate/'+agent+'/'+jobId+'/'+sig;
  return ['#!/bin/bash',
   '# Written by aqeelOS (run gates). Asks aqeelOS whether this run can do anything; if not, the AI does not start',
   '# and costs nothing. If aqeelOS does not answer, the run goes ahead.',
@@ -142,10 +146,10 @@ export function gateBody({port,agent,jobId,sig,original}){const U='http://127.0.
   '  cpass=$(printf \'%s\\n\' "$cout" | awk \'NF\' | sed \'$d\' | head -c 20000)',
   'fi',
   'if [ -n "$cpass" ]; then printf "What the check of this schedule printed just now (it has run; do not run it again):\\n%s\\n" "$cpass"; fi',
-  ...(original?['exec bash "$D/'+original+'"']
+  ...(original&&!posting?['exec bash "$D/'+original+'"']
    :['[ -n "$out" ] || out=$(printf \'aqeelOS run check: clear to run.\\n{"wakeAgent": true}\')','printf \'%s\\n\' "$out"']),''].join('\n')}
 
-export function createRunGates({strict=async()=>({}),HERMES_HOME,DATA,WORK,PORT,sig,live=true,lock=async(f,fn)=>fn(),skipAgent=async()=>false,names=a=>a,rule:ruleFn=()=>true,runCheck=RUN_CHECK,now=()=>Date.now(),log=m=>console.log(m),dayOf=t=>new Date(t).toISOString().slice(0,10).replace(/-/g,'')}){
+export function createRunGates({limitsText=null,strict=async()=>({}),HERMES_HOME,DATA,WORK,PORT,sig,live=true,lock=async(f,fn)=>fn(),skipAgent=async()=>false,names=a=>a,rule:ruleFn=()=>true,runCheck=RUN_CHECK,now=()=>Date.now(),log=m=>console.log(m),dayOf=t=>new Date(t).toISOString().slice(0,10).replace(/-/g,'')}){
  const FILE=path.join(DATA,'run-gates.json'),OFF=path.join(HERMES_HOME,'.aqeelos-run-gates-off');
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  let db=null;
@@ -186,27 +190,43 @@ export function createRunGates({strict=async()=>({}),HERMES_HOME,DATA,WORK,PORT,
   const skip=async(why,text)=>{row.by[why]=(row.by[why]||0)+1;row.skips++;row.lastSkipAt=t;row.lastSkipWhy=why;row.lastSkipText=text;
    if(why==='cadence'){const h=Math.floor(t/HOUR),b=row.hours||={};b[h]=(b[h]||0)+1;for(const k of Object.keys(b))if(h-k>KEEP_HOURS)delete b[k]}await save().catch(()=>{});
    return text+'\n{"wakeAgent": false}'};
-  try{
+  let limits='';try{
    if(nothing)return await skip('nothing','aqeelOS run check: this schedule\'s own check found nothing to do, so no run started.');
    const hold=job?backoffUntil({job,logText:await tail(path.join(home(a),'logs','agent.log')),now:t}):null;
    if(hold){const mins=Math.max(1,Math.ceil((hold.t-t)/60e3));
     return await skip('backoff','aqeelOS run check: no run started, '+hold.src+'. It is over in about '+mins+' min; the schedule tries again at its next time.')}
    const orig=job?await originalOf(a,job.script):'';
    const rules=db.rules[key(a,jobId)]||{};
-   if(rules.posting===true||orig===POSTING_GATE){const pd=await postingDecision(a,t);
-    if(pd&&!pd.allow)return await skip('limits','aqeelOS run check: no run started, the posting limits do not allow a post now. '+pd.reason)}
+   const pk=await postKinds(a,job,orig,rules);
+   if(pk){const pd=await postingDecision(a,t,pk);
+    if(pd&&!pd.allow)return await skip('limits','aqeelOS run check: no run started, the posting limits do not allow a post now. '+pd.reason);
+    if(pd&&limitsText)limits=await limitsText(a,pk).catch(()=>'')}
    // the 30-minute rule: no check of its own and no event rule, so at most one start per 30 minutes
    const asked=takeManual(a,jobId),cad=asked?null:await unchecked(a,job);
    if(cad!=null&&row.lastRunAt&&t-row.lastRunAt<SLOT_MS)return await skip('cadence','aqeelOS run check: no run started. This schedule starts every '+cad+' min and has no check that says whether there is anything to do, so it starts at most once every '+MIN_CADENCE+' minutes ('+Math.round((t-row.lastRunAt)/60e3)+' min since the last start).')
   }catch(e){log('run gate '+a+'/'+jobId+': '+e.message)}
   row.runs++;row.lastRunAt=t;await save().catch(()=>{});
-  return 'aqeelOS run check: clear to run.\n{"wakeAgent": true}'}
+  return (limits?limits.replace(/\n?\{"wakeAgent": (?:true|false)\}\s*$/,'')+'\n':'aqeelOS run check: clear to run.\n')+'{"wakeAgent": true}'}
 
- async function postingDecision(a,t){let d;try{d=JSON.parse(await readFile(path.join(DATA,'posting-limits.json'),'utf8'))}catch{return null}
+ // the kinds a schedule posts: [] = the agent's one rule (a schedule marked as posting, or run through the posting gate), null = it does not post.
+ // Names are only read for an agent whose limits are set per kind; with the one old rule only a marked schedule is limited, as before.
+ async function postKinds(a,job,orig,rules){let raw=null;try{raw=JSON.parse(await readFile(path.join(DATA,'posting-limits.json'),'utf8'))?.agents?.[a]}catch{}
+  if(raw?.on&&job){let r;try{r=postClean(raw)}catch{r=null}if(r&&(hasSubjects(r)||(r.jobs||{})[job.id])){const ks=jobKinds(job,r);if(ks.length)return ks}}
+  return rules.posting===true||orig===POSTING_GATE?[]:null}
+ // does the posting gate of this schedule (the generic one of the whole agent) give way to the answer of the run gate, which names the kinds it posts
+ async function postsKinds(a,j){let raw=null;try{raw=JSON.parse(await readFile(path.join(DATA,'posting-limits.json'),'utf8'))?.agents?.[a]}catch{}
+  if(!raw?.on||!limitsText)return false;let r;try{r=postClean(raw)}catch{return false}return (hasSubjects(r)||!!(r.jobs||{})[j.id])&&jobKinds(j,r).length>0}
+ async function postingDecision(a,t,kinds=[]){let d;try{d=JSON.parse(await readFile(path.join(DATA,'posting-limits.json'),'utf8'))}catch{return null}
   const raw=d?.agents?.[a];if(!raw?.on)return null;const r=postClean(raw);
   // a conflict nobody answered yet (rule-conflicts.mjs): the strictest side counts, never more than any side allows
-  const st=await strict(a).catch(()=>({}));if(st.gapMin!=null)r.gapMin=Math.max(r.gapMin,st.gapMin);for(const k of ['perDay','perHour'])if(st[k]!=null)r[k]=Math.min(r[k],st[k]);let entries=[];try{entries=JSON.parse(await readFile(path.join(DATA,'posting-log',a+'.json'),'utf8'))}catch{}
-  const stopped=!!(r.stopFile&&WORK&&await stat(path.join(WORK,a,r.stopFile)).then(()=>true,()=>false));return postDecide(r,entries,{now:t,stopped})}
+  const st=await strict(a).catch(()=>({}));let entries=[];try{entries=JSON.parse(await readFile(path.join(DATA,'posting-log',a+'.json'),'utf8'))}catch{}
+  const ks=kinds.length?kinds:hasSubjects(r)?Object.keys(r.subjects):[defaultKind(r)],list=[];
+  for(const kind of ks){const rk=ruleFor(r,kind);
+   if(!rk){list.push({kind,d:{allow:false,n:0,reason:'there is no Run rule for '+(KIND_NAME[kind]||kind)+'.'}});continue}
+   if(kind==='comment'||!hasSubjects(r)){if(st.gapMin!=null)rk.gapMin=Math.max(rk.gapMin,st.gapMin);for(const k of ['perDay','perHour'])if(st[k]!=null)rk[k]=Math.min(rk[k],st[k])}
+   const stopped=!!(rk.stopFile&&WORK&&await stat(path.join(WORK,a,rk.stopFile)).then(()=>true,()=>false));
+   list.push({kind,d:postDecide(rk,entriesOf(r,entries,kind),{now:t,stopped})})}
+  const j=jobDecision(list);return list.length===1?{...list[0].d}:{allow:j.allow,reason:j.reason}}
 
  // gate script for one job, written only when its text changed
  async function writeScript(a,id,body){const f=path.join(home(a),'scripts',GATE_PREFIX+id+'.sh');await mkdir(path.dirname(f),{recursive:true});
@@ -246,7 +266,7 @@ export function createRunGates({strict=async()=>({}),HERMES_HOME,DATA,WORK,PORT,
       if(cur&&!cur.startsWith(GATE_PREFIX)&&!SKIP_EXT.test(cur)){row.unchained=cur;continue}   // a Python script keeps its own interpreter: left alone
       const original=cur.startsWith(GATE_PREFIX)?await originalOf(a,cur):cur;
       if(!live)continue;
-      const body=gateBody({port:PORT,agent:a,jobId:j.id,sig:sig(a),original});
+      const body=gateBody({port:PORT,agent:a,jobId:j.id,sig:sig(a),original,posting:original===POSTING_GATE&&await postsKinds(a,j)});
       if(await writeScript(a,j.id,body))did=true;
       if(j.script!==GATE_PREFIX+j.id+'.sh'){j.script=GATE_PREFIX+j.id+'.sh';did=true}
       if(row.original!==(original||null)){row.original=original||null;dirty=true}}

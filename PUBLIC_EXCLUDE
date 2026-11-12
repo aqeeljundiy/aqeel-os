@@ -10,3 +10,8 @@ skills/**/references/local.md
 pending/
 AUDIT-PLAN.md
 CODE-PLAN.md
+# Install-specific notes, agent prompts and check scripts (12 Nov 2026): kept in the install's own data folder (<data>/notes/, <data>/box-checks/), never here.
+docs/installs/
+docs/**/prompts/
+*.local.md
+scripts/box-checks/

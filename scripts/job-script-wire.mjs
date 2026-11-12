@@ -7,7 +7,7 @@
 // The schedule as it was (no_agent, script, deliver, schedule, prompt) is written to DATA/job-wired/<agent>-<job>.json first; --undo puts it back
 // (the new script file is left in place). The delivery target of a script-only schedule is its "deliver": the script's output goes there, nothing
 // printed = nothing sent.
-// Usage: node scripts/job-script-wire.mjs --agent default --job c0a6ba56f9c3 --script wakeup-nudge.py --from scripts/box-checks/wakeup-nudge.py
+// Usage: node scripts/job-script-wire.mjs --agent default --job c0a6ba56f9c3 --script wakeup-nudge.py --from scripts/check-templates/wakeup-nudge.py   (a generic template; an install's own scripts and settings live in <data>/box-checks/, never in git)
 //          [--deliver whatsapp:<id>] [--expr "0,2,4,6,8 4 * * *"] [--data DIR] [--home DIR] [--apply | --undo]
 // Engine: HERMES_DASH (default http://127.0.0.1:9119) and HERMES_DASHBOARD_SESSION_TOKEN (node --env-file=$HOME/.hermes/.env ...), as aqeelOS uses.
 import {readFile,writeFile,mkdir,rename,chmod,copyFile} from 'node:fs/promises';

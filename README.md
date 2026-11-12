@@ -52,6 +52,9 @@ Only the live copy runs the background jobs that change agents (Help, backups, h
 ## Tests
 `node --test scripts/*.test.mjs` (unit tests, no network). End-to-end checks such as `scripts/e2e-check.mjs` need a running install.
 
+### Before you push: the pre-push hook
+Once per clone: `git config core.hooksPath scripts/hooks`. The hook (`scripts/hooks/pre-push`) runs the privacy test (`scripts/repo-privacy.test.mjs`: no real phone numbers, chat ids, addresses, e-mails, sheet ids or keys in any tracked file) and, when [gitleaks](https://github.com/gitleaks/gitleaks) is installed, scans the commits being pushed. CI runs the same checks (`.github/workflows/tests.yml`, settings in `.gitleaks.toml`) and fails on a new finding. Install-specific notes belong in the install's data folder, never in the repo: see `CONTRIBUTING.md`.
+
 ## Kirimdev delivery semantics
 - Customer turns resume an isolated, durable engine session keyed by agent, phone line, conversation and reset epoch. Pending inbound remains stored until the turn completes; interruption before completion can replay the turn after restart.
 - This is **not exactly-once delivery**: if Kirimdev accepts a send and the process stops before pending inbound is cleared and saved, restart can generate/send another reply. Multi-part replies can also replay already accepted parts. The automatic reply path does not persist an outbound per-part acceptance ledger or use stable send idempotency keys.
@@ -59,7 +62,7 @@ Only the live copy runs the background jobs that change agents (Help, backups, h
 - A provider message ID is evidence of acceptance, not final delivery. Inbound event deduplication and durable engine context do not remove the acceptance/commit crash window.
 
 ## Not in this repository
-Owner-private files are listed in `PUBLIC_EXCLUDE` and `.gitignore` (product notes, the development board, mockups, private skills, backups). Never commit an `.env` file; secrets belong in the env file or the engine's secret store.
+Install-specific notes, agent prompts, check scripts and anything with real names, numbers or addresses stay in the install's data folder (`CONTRIBUTING.md`). Owner-private files are listed in `PUBLIC_EXCLUDE` and `.gitignore` (product notes, the development board, mockups, private skills, backups). Never commit an `.env` file; secrets belong in the env file or the engine's secret store.
 
 ## License
 MIT, see `LICENSE`.
@@ -89,6 +92,9 @@ aqeelOS also installs [graphify](https://github.com/Graphify-Labs/graphify) by G
 
 ### Live screen
 The box runs a virtual display (`:99`, Xvfb + fluxbox), shared with x11vnc and streamed by noVNC on 127.0.0.1:6080. The app proxies it at `/screen/` behind the login (WebSocket only from this site). Hermes runs its browser headed (`browser.headed: true`) on that display. If the screen is blank, `~/services.sh` on the server restarts anything missing.
+
+### Behind a proxy
+The sign-in limit counts wrong passwords per address. Forwarding headers (`cf-connecting-ip`, `x-forwarded-for`) are believed only when the connection comes from a trusted proxy: `TRUSTED_PROXIES` (addresses or CIDR ranges, default loopback `127.0.0.1,::1`, because the reverse proxy or tunnel runs on the same host). A proxy that reaches the app from a private network (a Docker network) must be listed, for example `TRUSTED_PROXIES=127.0.0.1,::1,10.0.1.0/24`; the app says so in its log when it sees one that is not. Keep the app's port closed to the internet so only the proxy can reach it. Code: `app/client-ip.mjs`.
 
 ### Network lock
 The container starts with firewall rules that refuse new connections from the container to private networks (other containers on the host), and to the server's own IP. It needs `cap_add: NET_ADMIN` in the compose file; the agent itself runs as `claude` without root and can't change them.

@@ -108,7 +108,7 @@ export function overview(agents,items,drops,nameOf=a=>a){const rows=agents.map(a
  for(const x of items){if(['invite','ticket','access'].includes(x.kind))continue;const base=x.agent?String(x.agent).split('--')[0]:null;(base&&idx.get(base)||(base?null:sys))?.problems.push(x)}
  for(const r of rows)r.ok=!r.problems.length;const list=[...rows.filter(r=>!r.ok),...rows.filter(r=>r.ok)];if(sys.problems.length)list.unshift({...sys,ok:false});return list}
 
-export function createAgentHealth({DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner=null,link,quiet=()=>null,fixFirst=null,fileIssue=null,healthGone=null,customerTools=null,kirimdevAgents=async()=>[],memInfo=readMem,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
+export function createAgentHealth({postingLine=async()=>null,DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner=null,link,quiet=()=>null,fixFirst=null,fileIssue=null,healthGone=null,customerTools=null,kirimdevAgents=async()=>[],memInfo=readMem,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
  const FILE=path.join(DATA,'agent-health.json');let st=null;
  const load=async()=>{if(!st){try{st=JSON.parse(await readFile(FILE,'utf8'))}catch{st={}}st.told||={};st.seen||={};st.groups||={}}return st};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(st,null,1));await rename(FILE+'.tmp',FILE)};
@@ -210,7 +210,9 @@ print(json.dumps(out))`;
   if(healthGone)await healthGone([...curKeys]).catch(e=>console.warn('health: closing gone issues',e.message));
   if(fixed.length)console.log('health: went away:',fixed.map(f=>f.key).join(', '));
   await save();return toFile.length})().finally(()=>{running=null});return running}
- async function view(){const agents=(await listAgents()).filter(a=>!a.includes('--'));return {agents:overview(agents,await items(),await drops(),nameOf),at:Date.now()}}
+ // one line per agent that posts in public: today's numbers per kind against its limits, and the actions no record came for (posting-limits.mjs line())
+ async function view(){const agents=(await listAgents()).filter(a=>!a.includes('--'));const rows=overview(agents,await items(),await drops(),nameOf);
+  await Promise.all(rows.filter(r=>r.agent).map(async r=>{const l=await postingLine(r.agent).catch(()=>null);if(l)r.posting=l}));return {agents:rows,at:Date.now()}}
  return {problem,ok,tick,view,drops}}
 // ---- live checks in plain code, no model calls (7 Nov 2026, owner: "save tokens"). Each failure is a Health problem,
 // so it goes up the ladder like any other (the agent, then the fixer on the main agent's engine, then a person).

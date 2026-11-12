@@ -39,9 +39,9 @@ test('missing fields and other projects',()=>{
 
 test('the install\'s home page, authorised domain and address problems',()=>{
  assert.deepEqual(siteFor(R),{home:'https://ai.example.com',domain:'example.com',issue:'',local:false});
- assert.equal(siteFor('https://ai.pixelandprofits.com/google-oauth/callback').domain,'pixelandprofits.com');
+ assert.equal(siteFor('https://ai.example.org/google-oauth/callback').domain,'example.org');
  assert.equal(siteFor('https://os.toko.co.id/x').domain,'toko.co.id');assert.equal(siteFor('https://a.b.example.co.uk/').domain,'example.co.uk');
- assert.match(siteFor('http://ai.example.com/x').issue,/https/);assert.match(siteFor('https://178.212.35.85/x').issue,/bare IP/);
+ assert.match(siteFor('http://ai.example.com/x').issue,/https/);assert.match(siteFor('https://203.0.113.7/x').issue,/bare IP/);
  const l=siteFor('http://localhost:4400/google-oauth/callback');assert.equal(l.issue,'');assert.equal(l.local,true);assert.equal(l.domain,'');
  assert.match(siteFor('').issue,/no web address/)});
 

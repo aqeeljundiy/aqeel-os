@@ -3,6 +3,7 @@
 // to another agent (no new sign-in), taking it away removes it there. The owner itself can't be taken away:
 // move ownership first. Changes to apps, plugins and keys apply when the agents restart (once nobody is mid-reply).
 import {readFile,writeFile,readdir,stat,mkdir,copyFile,unlink,cp} from 'node:fs/promises';
+import {mcpCanSignIn} from './need-action.mjs';   // one test for "a sign-in page can start" (12 Nov 2026)
 import {createHash} from 'node:crypto';
 import {constants as fsc} from 'node:fs';
 import path from 'node:path';
@@ -40,7 +41,7 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
  async function holdings(a){const out={mcp:{},google:{},plugin:{},key:{}};const c=await readConfig(a).catch(()=>null)||{};
   for(const [n,v] of Object.entries(c.mcp_servers||{})){if(n==='aqeelos-notify'||!v||typeof v!=='object')continue;
    const tok=await readJson(path.join(home(a),'mcp-tokens',n+'.json'));const oauth=v.auth==='oauth';
-   out.mcp[n]={label:n,detail:v.url||v.command||'',oauth,signed:!oauth||!!tok,fp:tok?h8(tok.refresh_token||tok.access_token||''):'',off:v.enabled===false}}
+   out.mcp[n]={label:n,detail:v.url||v.command||'',oauth,signin:mcpCanSignIn(v),signed:!oauth||!!tok,fp:tok?h8(tok.refresh_token||tok.access_token||''):'',off:v.enabled===false}}
   for(const f of await readdir(home(a)).catch(()=>[])){const m=/^google_token(?:_([\w.-]+))?\.json$/.exec(f);if(!m)continue;const j=await readJson(path.join(home(a),f));if(!j)continue;
    if(!j.account)j.account=await emailOf(path.join(home(a),f),j);if(!j.account)continue;
    out.google[j.account]={label:j.account,detail:'Gmail, Drive, Sheets, Docs, Calendar',file:f,signed:!!j.refresh_token,fp:h8(j.account)}}
@@ -60,7 +61,7 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
    // same name on two agents but a different address or sign-in: say so rather than pass them off as one
    const mixed=kind==='mcp'&&!o&&users.some(a=>per[a][id].detail!==x.detail||(per[a][id].fp&&x.fp&&per[a][id].fp!==x.fp));
    items.push({kind,id,label:x.label,detail:x.detail,mixed,bot:!!x.bot,owner,ownerName:o?o.owner:names(owner),own:!!o,ownNote:o?.note||'',oauth:!!x.oauth,off:!!x.off,   // off: switched off on the owner (the row says so)
-    users:users.filter(seen).map(a=>({id:a,name:names(a),signed:per[a][id].signed,off:!!per[a][id].off})),ownerSigned:per[owner][id].signed})}
+    users:users.filter(seen).map(a=>({id:a,name:names(a),signed:per[a][id].signed,signin:!!per[a][id].signin,off:!!per[a][id].off})),ownerSigned:per[owner][id].signed})}
   return {agents:agents.filter(seen).map(a=>({id:a,name:names(a)})),items:items.sort((p,q)=>p.label.localeCompare(q.label))}}
 
  async function find(kind,id){const l=await list(kind);const it=l.items.find(x=>x.id===id);if(!it)throw new Error('That connection is gone. Reload the page.');return it}
