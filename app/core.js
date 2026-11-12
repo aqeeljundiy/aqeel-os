@@ -220,7 +220,8 @@ function md(src){
 /* ---------- agent identity (name, title, picture per profile) ---------- */
 // an agent's name as people read it (7 Nov 2026, owner: "use the formal names not this"): its display name, never its
 // profile id; "default" is the main agent, never "aqeelOS"; an extra number says which one ("Dora AI · WhatsApp 2")
-const prettyId=p=>String(p||'').split(/[-_]+/).filter(Boolean).map((w,i)=>i?w:w[0].toUpperCase()+w.slice(1)).join(' ');
+// an id has lost its apostrophe ("firdha-s-assistant" was "Firdha's assistant"): a lone s after a word is its possessive
+const prettyId=p=>String(p||'').split(/[-_]+/).filter(Boolean).map((w,i)=>i?w:w[0].toUpperCase()+w.slice(1)).join(' ').replace(/(\S) s(?= |$)/g,'$1’s');
 function agentLabel(p){p=String(p||'');if(!p)return '';if(p==='aqeelOS')p='default';const [b,x]=p.split('--');const n=ident(b).name;if(!x)return n;const m=/^([a-z]+)-(\d+)$/i.exec(x);return n+' · '+(m?({whatsapp:'WhatsApp',telegram:'Telegram',slack:'Slack'}[m[1].toLowerCase()]||prettyId(m[1]))+' '+m[2]:prettyId(x))}
 // a line saved with an agent's folder name in front ("Pixel agent: the tool server…", written before its name was known)
 // reads with the name the owner set ("Pixel Agent: …"); only the leading name is touched, the stored text stays as it is
@@ -682,7 +683,7 @@ function menu(anchor,items,opt={}){$$('.menu').forEach(e=>e.remove());const m=do
 /* ---------- brand dropdowns: every <select> becomes a brand menu button ---------- */
 function enhanceSelect(sel){if(sel.dataset.enhanced||sel.multiple)return;sel.dataset.enhanced='1';
  const btn=document.createElement('button');btn.type='button';btn.className='sel-btn'+(sel.style.width==='auto'?' inline':'');btn.setAttribute('aria-haspopup','listbox');if(sel.id)btn.dataset.for=sel.id;if(sel.getAttribute('aria-label'))btn.setAttribute('aria-label',sel.getAttribute('aria-label'));
- const sync=()=>{const o=sel.options[sel.selectedIndex];btn.innerHTML=`<span class="sv">${esc(o?o.textContent:'Choose…')}</span>${icon('chevD',15)}`;btn.disabled=sel.disabled};sync();
+ const sync=()=>{const o=sel.options[sel.selectedIndex];btn.innerHTML=`<span class="sv">${esc(o?o.textContent:'Choose…')}</span>${icon('chevD',15)}`;btn.title=o?.title||'';btn.disabled=sel.disabled};sync();
  sel.classList.add('sel-native');sel.tabIndex=-1;sel.setAttribute('aria-hidden','true');sel.after(btn);
  sel.addEventListener('change',sync);sel._sync=sync;
  // set from code (a cancelled or failed change put back, a picker held while saving): the button follows at once

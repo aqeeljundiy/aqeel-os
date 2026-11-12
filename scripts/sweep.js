@@ -71,7 +71,11 @@ for(let i=0;i<pages.length;i++){const p=pages[i];
  const txt=(()=>{const v=document.querySelector('#view');if(!v)return '';const c=v.cloneNode(true);c.querySelectorAll('.log,pre,code,#logBox').forEach(e=>e.remove());return c.textContent||''})();const nul=/\bnull\b|\bundefined\b|NaN|\[object Object\]/.test(txt);
  if(!window.SWEEP_LOOSE&&(err.length||nul)){bad++;out.push('✗ '+p+' '+(err.join(' / ')||'shows null/undefined text'))}
  // 12 Nov 2026 (UI walk): a row of tabs says it is one to screen readers and the keyboard (core.js ariaTabs)
- {const t=[...document.querySelectorAll('#view .tabs')].filter(x=>x.offsetParent&&(x.getAttribute('role')!=='tablist'||!x.querySelector('[role=tab][aria-selected=true]')));if(t.length){bad++;out.push('✗ '+p+' has tabs without tab roles or a chosen tab ('+t.map(x=>x.dataset.tabs||'?').join(', ')+')')}}}
+ {const t=[...document.querySelectorAll('#view .tabs')].filter(x=>x.offsetParent&&(x.getAttribute('role')!=='tablist'||!x.querySelector('[role=tab][aria-selected=true]')));if(t.length){bad++;out.push('✗ '+p+' has tabs without tab roles or a chosen tab ('+t.map(x=>x.dataset.tabs||'?').join(', ')+')')}}
+ // 13 Nov 2026 (UI audit 12): no button, link or role=button inside another one, and no row you can Tab to that holds buttons (the row's own action is a real button beside them)
+ {const I='a[href],button,input:not([type=hidden]),select,textarea,[role=button],[role=link],[role=tab],[role=switch],[role=checkbox]',O=['button','a[href]','[role=button]','[role=link]','[role=tab]','[role=checkbox]','[role=switch]','[tabindex="0"]:not(input):not(textarea):not(select)'].map(x=>'#view '+x).join(',');
+  const n=[...document.querySelectorAll(O)].filter(e=>e.offsetParent&&[...e.querySelectorAll(I)].some(x=>x.offsetParent&&x!==e&&!x.closest('.drawer')));
+  if(n.length){bad++;out.push('✗ '+p+' has a button or a row holding another button ('+[...new Set(n.map(e=>e.tagName.toLowerCase()+'.'+String(e.className).split(' ')[0]))].slice(0,4).join(', ')+')')}}}
 clearInterval(scanT);shellOn=false;
 if(shell.length){bad++;out.push('✗ the sidebar or topbar was drawn again while pages changed ('+shell.length+' elements): '+[...new Set(shell)].slice(0,5).join(', '))}
 if(jumps.length){bad++;out.push('✗ content jumps instead of gliding: '+[...new Set(jumps)].slice(0,4).join(', '))}

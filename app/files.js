@@ -113,7 +113,8 @@ async function preview(i){const files=(Pages._items||[]).filter(x=>!x.is_directo
 }
 // the "Showing" agent picker (Files loads after the other pages got theirs, so it is added here); render starts the
 // drawing (runPage), a search or sort here starts its own (pageRun before calling)
-{const base=PAGES.files;PAGES.files=async(p,el)=>{const stale=pageTok(el);viewPick(await viewAgents());if(!stale())return base(p,el)}}
+{const base=PAGES.files;PAGES.files=async(p,el)=>{const stale=pageTok(el);if(S.me?.admin!==false)viewPick(await viewAgents());   // a member's Files is their own folder: no agent to pick
+ if(!stale())return base(p,el)}}
 
 // redraw only the quick places once we know which exist
 function paintPlaces(){const box=$('.fplaces');if(!box||!S._placesOk)return;for(const b of box.querySelectorAll('[data-path]'))b.hidden=!S._placesOk.has(b.dataset.path)}

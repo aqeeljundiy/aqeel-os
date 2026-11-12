@@ -66,3 +66,4 @@
 .pwa-from{font-size:13px;color:var(--ink-2);margin:12px 0 0;line-height:1.5}.pwa-warn{background:var(--soft-2);border:1px solid var(--border);border-radius:14px;padding:14px 16px;font-size:13.5px;margin:6px 0 4px}
 .pwa-dot{width:36px;height:36px;border-radius:12px;border:1px solid var(--border);flex:none;transition:background var(--t-med) var(--ease)}.pwa-sw{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.pwa-s{width:28px;height:28px;border-radius:10px;border:1px solid var(--border);padding:0;cursor:pointer;transition:transform var(--t-fast) var(--ease)}.pwa-s:hover{transform:scale(1.12)}.pwa-how{margin-top:16px}
 @media (prefers-reduced-motion:reduce){.pwa-prev figure{animation:none}}
+.signin .ac-btns{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 0}.signin .ac-btns button{flex:1 1 160px}

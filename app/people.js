@@ -825,10 +825,10 @@ ACT['ch-extra-remove']=async a=>{if(!await confirmBox('Remove '+a.dataset.title+
  // "Add another" on every app this agent already uses
  el.querySelectorAll('.grid-cards .card[data-id]').forEach(c=>{const pl=(Pages.platforms||[]).find(x=>x.id===c.dataset.id);if(!pl?.configured||['api_server','webhook'].includes(pl.id))return;
   c.querySelector('h3')?.insertAdjacentHTML('afterend','<span class="tile-id" title="Agents use the name '+esc(pl.id)+' to pick this channel">'+esc(accountText(pl.account,{id:pl.id}))+'</span>'+(pl.identity_error?'<span class="tile-id ch-pending">'+esc(pl.identity_error)+'</span>':''));
-  if(pl.id==='whatsapp'&&pl.needs_link){c.querySelector('.tile-foot')?.insertAdjacentHTML('beforeend',`<span class="add-another" role="button" tabindex="0" data-act="wa-link" data-agent="${esc(agentProfile()||'default')}">${icon('refresh',14)}Link again</span>`);return}
+  if(pl.id==='whatsapp'&&pl.needs_link){c.querySelector('.tile-foot')?.insertAdjacentHTML('beforeend',`<button type="button" class="add-another" data-act="wa-link" data-agent="${esc(agentProfile()||'default')}">${icon('refresh',14)}Link again</button>`);return}
   // WhatsApp Business setup can't use an extra account yet, so it gets no Add another
   if(pl.state!=='connected'||pl.id==='whatsapp_cloud')return;
-  c.querySelector('.tile-foot')?.insertAdjacentHTML('beforeend',`<span class="add-another" role="button" tabindex="0" data-act="ch-extra-add" data-id="${esc(pl.id)}" title="Connect another ${esc(appName(pl.id))} account to this agent">${icon('plus',14)}Add another</span>`)});
+  c.querySelector('.tile-foot')?.insertAdjacentHTML('beforeend',`<button type="button" class="add-another" data-act="ch-extra-add" data-id="${esc(pl.id)}" title="Connect another ${esc(appName(pl.id))} account to this agent">${icon('plus',14)}Add another</button>`)});
  const [{links=[]},{channels=[]}]=await Promise.all([pL,pC]);if(gone()||!links.length)return;
  const st_=n=>channels.find(c=>c.agent===n);
  const panel=document.createElement('div');panel.className='panel card';panel.style.marginBottom='16px';
@@ -947,8 +947,8 @@ Poll.add(()=>ChannelAlert.check(),10*60e3,6000);
  grid.querySelectorAll('.card[data-id]').forEach(c=>{const pl=(Pages.platforms||[]).find(x=>x.id===c.dataset.id);if(!pl)return;
   c.querySelectorAll('h3 .access,.tile-id').forEach(x=>x.remove());const foot=c.querySelector('.tile-foot');if(!foot)return;
   const built=['api_server','webhook'].includes(pl.id),has=pl.configured||pl.account;const ok=pl.state==='connected';
-  const lbl=built?'<span class="cat-note">Built in · every agent</span>':has&&ok?pl.id==='whatsapp_cloud'?'':`<span class="add-another" role="button" tabindex="0" data-act="${pl.id==='whatsapp'?'wa-add':'ch-extra-add'}" data-id="${esc(pl.id)}">${icon('plus',14)}Add another</span>`:
-   pl.id==='whatsapp'?(pl.paused?'<span class="cat-note">Paused</span>':has&&!pl.needs_link?'<span class="cat-note">Reconnecting</span>':`<span class="add-another" role="button" tabindex="0" data-act="wa-link" data-agent="${esc(ag)}">${icon('plus',14)}${has?'Link again':'Set up'}</span>`):`<span class="add-another" role="button" tabindex="0" data-act="ch-open" data-id="${esc(pl.id)}">${icon('plus',14)}${has?'Fix':'Set up'}</span>`;
+  const lbl=built?'<span class="cat-note">Built in · every agent</span>':has&&ok?pl.id==='whatsapp_cloud'?'':`<button type="button" class="add-another" data-act="${pl.id==='whatsapp'?'wa-add':'ch-extra-add'}" data-id="${esc(pl.id)}">${icon('plus',14)}Add another</button>`:
+   pl.id==='whatsapp'?(pl.paused?'<span class="cat-note">Paused</span>':has&&!pl.needs_link?'<span class="cat-note">Reconnecting</span>':`<button type="button" class="add-another" data-act="wa-link" data-agent="${esc(ag)}">${icon('plus',14)}${has?'Link again':'Set up'}</button>`):`<button type="button" class="add-another" data-act="ch-open" data-id="${esc(pl.id)}">${icon('plus',14)}${has?'Fix':'Set up'}</button>`;
   foot.innerHTML=lbl+'<span style="color:var(--muted)">'+icon('chevR',16)+'</span>'})}}
 ACT['wa-add']=a=>ACT['ch-extra-add']({dataset:{id:'whatsapp'}});
 

@@ -21,7 +21,7 @@ const Activity={
   return 'Hit an error'},
  row(x,i){const times=(x.count||1)>1?'since '+Activity.when(x.since||x.t)+', '+x.count+' times':Activity.when(x.t),tn=Activity.tone(x),raw=x.text&&Activity.RAW.test(x.text);
   const text=!x.text?'':raw?`<span>${esc(Activity.plain(x))}</span><button type="button" class="act-more" aria-expanded="false">Details${icon('chevR',12)}</button><div class="act-raw"><div><div>${esc(x.text)}</div></div></div>`:`<span>${esc(x.text)}</span>`;
-  return `<div class="row act-row" ${st(Math.min(i,12))}${x.go?` data-go="${esc(x.go)}" tabindex="0"`:''}><div class="main-c"><span class="ic ${esc(tn.kind)}">${icon(tn.icon,15)}</span><div class="txt"><b>${esc(agentText(x.title))}</b>${text}<small>${esc(times)}${x.resolved?' · over':''}${x.ask?' · <span class="act-ask">asks you to act</span>':''}</small></div></div></div>`}};
+  return `<div class="row act-row${x.go?' rm':''}" ${st(Math.min(i,12))}><div class="main-c"><span class="ic ${esc(tn.kind)}">${icon(tn.icon,15)}</span><div class="txt"><b>${x.go?`<button type="button" class="row-main" data-go="${esc(x.go)}">${esc(agentText(x.title))}</button>`:esc(agentText(x.title))}</b>${text}<small>${esc(times)}${x.resolved?' · over':''}${x.ask?' · <span class="act-ask">asks you to act</span>':''}</small></div></div></div>`}};
 PAGES.activity=async(p,el)=>{const gone=pageTok(el);setActions('');
  el.innerHTML='<div id="actList"><div class="skel" style="height:160px;border-radius:18px"></div></div>';
  let d,iss=null;try{[d,iss]=await Promise.all([UI('/ui/activity'),S.me?.admin===false?null:UI('/ui/health/issues').catch(()=>null)])}catch(e){if(!gone())el.querySelector('#actList').innerHTML=alertBox(esc(e.message));return}if(gone())return;

@@ -3237,3 +3237,44 @@ label.cf-gh{display:flex;align-items:flex-start;gap:12px;margin:0;padding:8px 0;
 .kms-person:focus-visible{outline:2px solid var(--accent,var(--ink-2));outline-offset:2px}
 @media (max-width:760px){.kms-line .km-id{flex-basis:100%}.kms-r{flex-wrap:wrap}.kms-r .kms-in.w{flex-basis:100%}}
 @media (prefers-reduced-motion:reduce){.kms-r,.kms-person,.kms-box{transition:none}.kms-r.kms-new{animation:none}}
+/* UI audit 12 (13 Nov 2026): a clickable row never holds a button inside a button. The row is plain; its main action is a real button
+   (.row-main) stretched over the whole row, and the row's other buttons are its siblings, above the stretch. No change to how a row
+   looks, only a focus ring on the whole row. */
+.rm{position:relative}
+button.row-main,button.row-main:hover,button.row-main:active:not(:disabled){all:unset;box-sizing:border-box;cursor:pointer;font:inherit;color:inherit;text-align:left}
+button.row-main::after{content:"";position:absolute;inset:0;border-radius:inherit}
+button.row-main:focus-visible::after{outline:2px solid var(--blue-2);outline-offset:-2px}
+.rm .act,.rm a,.rm .switch,.rm button:not(.row-main),.rm [data-menu]{position:relative;z-index:1}
+/* a folder bar in Schedules: the folder button and its options button side by side */
+.sf-bar{position:relative}
+.sf-bar:has(.sf-more) .sf-head{padding-right:54px}
+button.sf-more,button.sf-more:hover,button.sf-more:active:not(:disabled){all:unset;box-sizing:border-box;position:absolute;right:12px;top:50%;margin:-15px 0 0;width:30px;height:30px;display:grid;place-items:center;border-radius:8px;cursor:pointer;color:var(--ink);opacity:0;transition:opacity .2s,background .2s}
+.sf-bar:hover .sf-more,.sf-bar:focus-within .sf-more,button.sf-more:focus-visible{opacity:1}
+button.sf-more:hover{background:var(--soft-2)}
+button.sf-more:focus-visible{outline:2px solid var(--blue-2);outline-offset:0}
+@media (hover:none){button.sf-more{opacity:1}}
+/* a chat in the sidebar list: the chat button and its More button side by side */
+.item-row{position:relative}
+.item-row>.item{padding-right:40px}
+.item-row>.more{all:unset;box-sizing:border-box;position:absolute;right:8px;top:50%;margin-top:-13px;width:26px;height:26px;display:grid;place-items:center;border-radius:8px;cursor:pointer;color:var(--muted);line-height:0;opacity:0}
+.item-row:hover>.more,.item-row:has(.item.on)>.more,.item-row>.more:focus-visible{opacity:1}
+.item-row>.more:hover{background:var(--surface)}
+.item-row>.more:focus-visible{outline:2px solid var(--blue-2);outline-offset:0}
+.item-row>.more svg{display:block}
+.ib-item .ib-x{z-index:1}
+/* "Add another" / "Link again" / "Set up" on a channel tile: a real button beside the tile's own button */
+.tile-foot button.add-another,.tile-foot button.add-another:hover,.tile-foot button.add-another:active:not(:disabled){all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:4px;margin-left:auto;margin-right:8px;padding:4px 10px;border-radius:var(--r-pill);font-size:12.5px;font-weight:600;color:var(--blue);background:var(--blue-soft);cursor:pointer;position:relative;z-index:1;transition:background var(--t-f,.15s)}
+.tile-foot button.add-another:hover{background:rgba(1,88,203,.14)}
+.tile-foot button.add-another:focus-visible{outline:2px solid var(--blue-2);outline-offset:2px}
+/* Schedules on a phone: the search takes its own line, so the sort picker keeps its whole label ("Your order", not "Your or...") */
+@media (max-width:560px){.sched-bar .search{flex:1 1 100%}.sched-bar .sel-btn.inline{flex:1 1 auto;min-width:0}}
+/* the screen docked beside the page leaves the top bar little room: the search is its icon, so the chat's title keeps its name ("N..." before) */
+.app.screen-open .k-btn .k-label,.app.screen-open .k-btn kbd{display:none}.app.screen-open .k-btn{padding:0 10px}
+/* UI audit 30 and 31 (13 Nov 2026): the corner sizes and button heights one page disagreed with the rest on come to the app's scale
+   (--r-sm 8, --r-md 12, --r-card 24; buttons 40, small 32, fields 40). No page is redrawn. */
+.cf-item,.cf-row.pri-row,.pri-row,.auto-ctl,.code-lock-ic,.role-card,.hn-ic,.bn-ic,.logo.img{border-radius:var(--r-md)}
+.ah-p .bn-ic{border-radius:var(--r-sm)}
+.sched-folder,.hv{border-radius:var(--r-card)}
+.alert{border-radius:var(--r-md)}
+.sel-btn{min-height:40px;padding-block:9px}
+.tm-add{min-height:32px;padding:0 14px}
