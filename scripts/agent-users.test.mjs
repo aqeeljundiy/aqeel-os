@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {mkdtempSync,readFileSync,existsSync,mkdirSync,writeFileSync,utimesSync} from 'node:fs';
+import {mkdtempSync,readFileSync,existsSync,mkdirSync,writeFileSync,utimesSync,readdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -256,9 +256,10 @@ test('the engine screen\'s browser profile becomes the own user\'s .browser once
  assert.equal(readFileSync(ws+'/.browser.before-own-user/Default/Cookies','utf8'),'stale');
  assert.equal(readFileSync(ws+'/.screen/browser-profile/Default/Cookies','utf8'),'new-logins');
  assert.equal(existsSync(ws+'/.browser/SingletonLock'),false);assert.equal(existsSync(ws+'/.browser/.aq-adopted'),true);
- // run again (the next pass of the watcher): nothing is copied over what the agent did since
- writeFileSync(ws+'/.browser/Default/Cookies','newer');sh('adopt_profile a1 ag-a1',d);
+ // tried again after an undone move: our earlier copy is replaced by the engine screen's newer sign-ins, the original stays
+ writeFileSync(ws+'/.screen/browser-profile/Default/Cookies','newer');sh('adopt_profile a1 ag-a1',d);
  assert.equal(readFileSync(ws+'/.browser/Default/Cookies','utf8'),'newer');
+ assert.equal(readFileSync(ws+'/.browser.before-own-user/Default/Cookies','utf8'),'stale');
  // no sign-ins in the engine screen (a new agent): .browser is left alone
  const e=tmp();mkdirSync(e+'/workspaces/b/.browser',{recursive:true});writeFileSync(e+'/workspaces/b/.browser/keep','1');
  sh('adopt_profile b ag-b',e);assert.equal(readFileSync(e+'/workspaces/b/.browser/keep','utf8'),'1');assert.equal(existsSync(e+'/workspaces/b/.browser.before-own-user'),false)});
@@ -336,3 +337,27 @@ test('the app\'s nightly backup only asks an agent whose terminal is on its user
  const src=readFileSync(path.join(path.dirname(SCRIPT),'..','app','backup.mjs'),'utf8');
  const i=src.indexOf('async function grantRead');const body=src.slice(i,src.indexOf('One backup from start to end',i));
  assert.match(body,/backend:\\s\*\['"\]\?ssh/);assert.match(body,/\.aqeelos-agent-users\.done/)});
+
+// 12 Nov 2026: the first real move was undone because the check ran "chrome --dump-dom", which this Chrome never ends
+// (background services keep it alive), so it hit its time limit on a busy box. The check now waits for DevToolsActivePort.
+test('the Chrome check passes for a Chrome that stays running and writes its debugging port, and fails for one that never does',()=>{
+ const d=tmp(),ws=d+'/workspaces/a1';mkdirSync(ws,{recursive:true});
+ const fake=(name,body)=>{const p=d+'/'+name;writeFileSync(p,'#!/bin/sh\n'+body+'\n',{mode:0o755});return p};
+ // stays alive like the real one (never exits on its own), writes the port file into its --user-data-dir
+ const alive=fake('alive','for a; do case "$a" in --user-data-dir=*) dir=$(echo "$a" | cut -d= -f2);; esac; done; echo 4242 > "$dir/DevToolsActivePort"; sleep 30');
+ const dead=fake('dead','exit 1');
+ const AS='as_user(){ local u=$1; shift; if [ "$1" = id ]; then echo "$u"; else "$@"; fi; }; ';
+ const t=Date.now();
+ const ok=sh(AS+'CHROME='+alive+'; AQ_NOSSH=1; handover_check a1 ag-a1; echo rc=$?',d);
+ assert.match(ok.out,/rc=0/,ok.out+ok.err);assert.ok(Date.now()-t<15000,'it must not wait for the Chrome to end');
+ const bad=sh(AS+'CHROME='+dead+'; AQ_NOSSH=1; handover_check a1 ag-a1; echo rc=$?',d);
+ assert.match(bad.out,/Chrome does not start as ag-a1/);assert.match(bad.out,/rc=1/);
+ // no check folder is left behind
+ assert.deepEqual(readdirSync(ws).filter(x=>x.startsWith('.aq-chk')),[])});
+
+test('a reset clears the "move failed" note and tries the move again at once',()=>{
+ const d=tmp();mkdirSync(d+'/hand',{recursive:true});writeFileSync(d+'/hand/a1.failed','');writeFileSync(d+'/.aqeelos-agent-users.reset','a1\n');
+ const r=sh('HAND='+"'"+d+"/hand'"+'; once(){ echo ONCE; }; ag_rm(){ :; }; take_resets',d);
+ assert.match(r.out,/ONCE/);assert.equal(existsSync(d+'/hand/a1.failed'),false);
+ // nothing failed: no extra pass
+ writeFileSync(d+'/.aqeelos-agent-users.reset','a2\n');assert.equal(sh('HAND='+"'"+d+"/hand'"+'; once(){ echo ONCE; }; ag_rm(){ :; }; take_resets',d).out.includes('ONCE'),false)});
