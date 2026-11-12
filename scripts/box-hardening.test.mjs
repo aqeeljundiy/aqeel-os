@@ -82,7 +82,7 @@ test('CR-6: on the box\'s own addresses only root and the box user may connect t
  const n=readFileSync(b.H+'/calls','utf8');b.run('local_fw; local_fw');assert.equal(readFileSync(b.H+'/calls','utf8'),n);
  // a rule someone removed is put back on the next look
  writeFileSync(b.H+'/rules.iptables',rules.filter(x=>!x.startsWith('OUTPUT')).join('\n')+'\n');b.run('local_fw');assert.match(readFileSync(b.H+'/rules.iptables','utf8'),/^OUTPUT -o lo -p tcp -j AQ-LOCAL$/m);
- const src=readFileSync(AU,'utf8');assert.match(src,/\{ janitor; sleep_idle; setup_wake; local_fw; \}/,'looked at again every minute');assert.match(src,/x11_dir\n  local_fw\n/,'and applied at start')});
+ const src=readFileSync(AU,'utf8');assert.match(src,/\{ janitor; sleep_idle; setup_wake; local_fw; fixer_step; \}/,'looked at again every minute');assert.match(src,/x11_dir\n  local_fw\n/,'and applied at start')});
 
 test('CR-6: a box where the rules cannot be set says so in its log and files one Health item, once',()=>{
  const b=fwBox({broken:true});const r=b.run('local_fw; echo "rc=$?"; local_fw >/dev/null; local_fw >/dev/null');
