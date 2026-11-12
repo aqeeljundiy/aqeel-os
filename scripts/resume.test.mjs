@@ -11,7 +11,8 @@ const dir=()=>mkdtempSync(path.join(tmpdir(),'aq-resume-'));
 const T0=Date.parse('2026-11-11T17:10:00Z');   // 00:10 in Jakarta
 // one "app": a clock it shares with the test, and a record of what it sent
 function app(DATA,clock,over={}){const sent=[],triggered=[],kicked=[];
- const r=createResume({DATA,now:()=>clock.t,log:()=>{},tz:()=>'Asia/Jakarta',stagger:0,sleep:async()=>{},
+ const r=createResume({DATA,actMs:1500,now:()=>clock.t,log:()=>{},tz:()=>'Asia/Jakarta',stagger:0,sleep:async()=>{},   // actMs: a test that leaves a reply unanswered (the app "dies") ends soon after
+ 
   probeChat:async()=>({stored:true,tools:[],lastAt:clock.t-10*60e3}),sendChat:async(e,note)=>{sent.push({id:e.id,session:e.session,note});return {ok:true}},
   probeRun:async()=>({status:'unknown',error:'owner process gone',ownerLive:false,newer:false,enabled:true,jobKnown:true}),triggerRun:async e=>{triggered.push(e.job);return {ok:true}},
   probeFixer:async()=>({done:false,alive:false}),kickFixer:async e=>{kicked.push(e.run);return {ok:true}},...over});

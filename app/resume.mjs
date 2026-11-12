@@ -214,7 +214,7 @@ export function createResume({DATA,actMs=180e3,now=()=>Date.now(),log=m=>console
    // every later pass (run() hands out the pass that is running), so nothing was continued for any agent until the app restarted. After
    // actMs the entry goes back to waiting (its probe reads the engine first, so it is not sent twice) and the pass goes on with the rest.
    {const ac=new AbortController();let timer;
-    const limit=new Promise(res=>{timer=setTimeout(()=>{ac.abort();res({retry:true,why:'no answer within '+Math.round(actMs/60e3)+' minutes'})},actMs);timer.unref?.()});
+    const limit=new Promise(res=>{timer=setTimeout(()=>{ac.abort();res({retry:true,why:'no answer within '+Math.round(actMs/60e3)+' minutes'})},actMs)});
     try{r=await Promise.race([Promise.resolve().then(()=>plan.do==='send'?sendChat(e,plan.note,plan,ac.signal):plan.do==='trigger'?triggerRun(e,ac.signal):kickFixer(e,ac.signal)),limit])}catch(er){r={retry:true,why:String(er.message||er).slice(0,160)}}
     finally{clearTimeout(timer)}}
    if(!j.entries.includes(e))continue;
