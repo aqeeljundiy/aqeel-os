@@ -5,7 +5,8 @@
 //     look, 45 s to see whether the engine is still working, a 60 s backoff). The test uses the same clock (fake-engine.mjs vnow()).
 //  2. only this machine can be reached: a connection to any other host is refused.
 //  3. every child process is refused (exit 127), except: node itself; the "engine's Python" (see 4); and the fixer's launch, which is
-//     recorded in E2E_LOG and replaced by a harmless process, so a fixer run is never really started.
+//     recorded in E2E_LOG and replaced by a harmless process, so a fixer run is never really started; and the access list for the fixer's own
+//     user (setfacl), recorded and answered done.
 //  4. the engine's Python is emulated in JavaScript: the app reads the engine's records (an agent's state.db and cron/executions.db) by
 //     starting the engine's own Python with a small script. Here the same questions are answered from JSON files that the fake engine
 //     writes under the same names (state.db, cron/executions.db). The questions are the ones in app/resume-engine.mjs, ported line by line.
@@ -71,12 +72,15 @@ const NODE=process.execPath,DEAD=['-e','process.exit(127)'];
 const split=a=>{let cb;if(typeof a.at(-1)==='function')cb=a.pop();let opts;if(a.length&&a.at(-1)&&typeof a.at(-1)==='object'&&!Array.isArray(a.at(-1)))opts=a.pop();return {args:Array.isArray(a[0])?a[0]:[],opts:{...(opts||{}),shell:false},cb}};
 const oSpawn=cp.spawn,oSpawnSync=cp.spawnSync,oExecFile=cp.execFile,oExecFileSync=cp.execFileSync;
 cp.spawn=function(f,...a){if(f===NODE)return oSpawn.call(this,f,...a);const {args,opts}=split(a);
- if(args.includes('aqeelos-fixer')||args.includes('aqeelos-sort')){const which=args.includes('aqeelos-fixer')?'fixer':'sort',p=oSpawn.call(this,NODE,['-e','setTimeout(()=>{},3e5)'],{detached:true,stdio:'ignore'});log({k:'launch',which,agent:args[4],dir:args[5],pid:p.pid});return p}
+ if(args.includes('aqeelos-fixer')||args.includes('aqeelos-sort')){const which=args.includes('aqeelos-fixer')?'fixer':'sort',p=oSpawn.call(this,NODE,['-e','setTimeout(()=>{},3e5)'],{detached:true,stdio:'ignore'});log({k:'launch',which,agent:args[4],dir:args[5],pid:p.pid,confined:opts.env?.TERMINAL_SSH_USER||null});return p}
  log({k:'refused',call:'spawn',f:String(f)});return oSpawn.call(this,NODE,DEAD,opts)};
 cp.spawnSync=function(f,...a){if(f===NODE)return oSpawnSync.call(this,f,...a);log({k:'refused',call:'spawnSync',f:String(f)});return oSpawnSync.call(this,NODE,DEAD,split(a).opts)};
 cp.execFile=function(f,...a){if(f===NODE)return oExecFile.call(this,f,...a);const {args,opts,cb}=split(a);
  if(f===FAKE_PY){const r=emulate(args);if(r&&r.__fail){log({k:'python-unknown',code:String(args[1]).slice(0,60)});process.nextTick(()=>cb&&cb(Object.assign(new Error('not emulated'),{code:1}),'',''));return {pid:0,kill(){},on(){}}}
   process.nextTick(()=>cb&&cb(null,typeof r==='string'?r:JSON.stringify(r),''));return {pid:0,kill(){},on(){}}}
+ // the access list that gives the fixer's own user (aq-fixer) its work folder (fixer-sandbox.mjs prepareDir): recorded and answered done, as on a box
+ // with the user; the folder is in the throwaway home. Everything else that would run as aq-fixer (ssh) stays refused.
+ if(f==='setfacl'){log({k:'acl',args});process.nextTick(()=>cb&&cb(null,'',''));return {pid:0,kill(){},on(){}}}
  log({k:'refused',call:'execFile',f:String(f)});return oExecFile.call(this,NODE,DEAD,opts,cb)};
 cp.execFileSync=function(f,...a){if(f===NODE)return oExecFileSync.call(this,f,...a);log({k:'refused',call:'execFileSync',f:String(f)});return oExecFileSync.call(this,NODE,DEAD,split(a).opts)};
 cp.exec=function(c,...a){log({k:'refused',call:'exec',f:String(c).slice(0,60)});const {opts,cb}=split(a);return oExecFile.call(cp,NODE,DEAD,opts,cb)};

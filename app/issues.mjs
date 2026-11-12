@@ -494,7 +494,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const now_=ci?{...card(ci),kind:cur.kind||'fix',step:cur.kind==='proof'?'prove':'fix',model:cur.model||null,effort:cur.effort||null,at:cur.at,minutes:cur.kind==='proof'?Math.min(30,pol.fixer?.proof_minutes||15):Math.min(40,pol.fixer?.minutes||25)}:null;
   const wait=ap?{...card(ap),step:step(ap.state),kind:ap.applyKind||'engine',since:ap.waitingSince||ap.updated,back:ap.state!=='applying',quiet:engineOk(),
    model:db.runs[ap.run]?.model||null,effort:db.runs[ap.run]?.effort||null}:null;
-  return {elsewhere:await elsewhere(t),cloud:await cloudStatus().catch(()=>null),on:pol.fixer?.on!==false,paused:db.pause||null,provider:limits?.hold?.()||null,now:now_,wait,cap:{used,cap,resetAt:nextDay(t,tz()),cost:Math.round(costToday(db.runs,today())*100)/100,costLimit:costCaps(pol).day},quiet:{from:1,to:5},
+  // held (AUD-6): the next run waits for the fixer's own user or its check; why and since when, for the fixer's card on Health
+  return {elsewhere:await elsewhere(t),cloud:await cloudStatus().catch(()=>null),on:pol.fixer?.on!==false,paused:db.pause||null,provider:limits?.hold?.()||null,now:now_,wait,held:db.heldSince&&db.heldWhy&&!now_?{since:db.heldSince,why:db.heldWhy}:null,cap:{used,cap,resetAt:nextDay(t,tz()),cost:Math.round(costToday(db.runs,today())*100)/100,costLimit:costCaps(pol).day},quiet:{from:1,to:5},
    line:lineOf(db.items,t).map(card),skipped:db.items.filter(i=>i.skipUntil>t&&['queued','verify'].includes(i.state)).map(card),
    sorting:db.items.filter(i=>i.sorting).length,stuck:db.items.filter(i=>i.state==='stuck'&&!i.need).map(card)}}
  // move one place up or down in the line; the two swap their places
@@ -585,12 +586,12 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const mode=kind==='proof'?'proof':i.sorted==='code'&&!cl&&git?'code':'repair';
   const pl=sandbox?await sandbox.plan(pol,i,{mode}).catch(e=>({hold:true,why:e.message})):{hold:true,why:'This install has no fixer user; fixes wait (the fixer never runs as the box user).'};
   if(pl.confine&&pl.canary){const c=await runCanary(pl,pol);if(c.ok)pl.variant=c.variant;else{pl.confine=false;pl.hold=true;pl.why=c.why}}
-  if(pl.hold||!pl.confine){i.notBefore=now()+10*60e3;i.updated=now();db.heldSince||=now();await save();if(now()-db.heldSince>30*60e3)await noteFull(pl.why);if(db.heldWhy!==pl.why){db.heldWhy=pl.why;await save();log('issues: '+i.id+' waits: '+pl.why)}return}
-  if(db.heldSince){db.heldSince=0;await save()}await clearFull();
+  if(pl.hold||!pl.confine)return await hold(i,pl.why);
+  if(db.heldSince||db.heldWhy){db.heldSince=0;db.heldWhy=null;await save()}await clearFull();
   let work;
   if(mode==='code'){gw=await git.prepare(i.id).catch(e=>({ok:false,why:e.message}));if(!gw.ok){i.notBefore=now()+10*60e3;await save();log('issues: '+i.id+' waits: no git work dir ('+gw.why+')');return}work=gw.dir}
   else{work=sandbox.scratch(i.id);await mkdir(work,{recursive:true})}
-  const pa=await sandbox.prepareDir(work);if(!pa.ok){i.notBefore=now()+10*60e3;await save();log('issues: '+i.id+' waits: '+pa.why);return}
+  const pa=await sandbox.prepareDir(work);if(!pa.ok)return await hold(i,'The fixer\'s own user (aq-fixer) cannot be given its work folder ('+pa.why+').');
   if(mode!=='code')await sandbox.clean(work).catch(()=>{});
   const cf={...pl,launch:sandbox.launch({workDir:work,issue:i.id,run:id,variant:pl.variant})},help=sandbox.help?.()||null;
   // the stronger model of the last try only when the earlier tries were cheap and at least one got as far as a result (12 Nov 2026: 8 escalated tries cost $37 of $58 and one of them was proven)
@@ -603,6 +604,10 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const minutes=kind==='fix'?Math.min(40,pol.fixer?.minutes||25):Math.min(30,pol.fixer?.proof_minutes||15);
   try{r.pid=await (launch||spawnRun)({dir,agent:r.agent,minutes,model:mdl.model,effort:mdl.effort,turns,lean:pol.fixer?.ignoreRules!==false,confine:cf.launch})}catch(e){r.done=now();r.exit=-1;r.notStarted=true;if(kind==='fix')i.tries--;i.state=kind==='fix'?'queued':'verify';await save();log('issues: fixer could not start: '+e.message);return}
   await save();log('issues: '+kind+' run started for '+i.id+' ('+id+')')}
+ // AUD-6: a run held because the fixer's own user or its check is not ready. It is not silently stuck: the reason is on the fixer's card on
+ // Health at once (fixerView held), and after half an hour it is a "Needs you" item too (needFull), since the root script should have made it by then.
+ async function hold(i,why){i.notBefore=now()+10*60e3;i.updated=now();db.heldSince||=now();await save();if(now()-db.heldSince>30*60e3)await noteFull(why);
+  if(db.heldWhy!==why){db.heldWhy=why;await save();log('issues: '+i.id+' waits: '+why)}}
  // CR-7: the confinement check. The confined engine is asked for `id -un`; only aq-fixer counts, so a run is never confined on a guess
  // (the engine may take its terminal from the profile's own settings). The first launch variant that passes is kept for this engine.
  async function runCanary(pl,pol){const agent=pol.fixer?.agent||'default',owner=process.env.USER||'claude';let last='no answer';

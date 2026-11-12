@@ -62,7 +62,7 @@ const HealthVerdict={
   if(tone==='ok')sub.push(rows.length?'Every agent answers and nothing waits for a fix.':'Nothing waits for a fix.');
   if(V.resume)sub.push(V.resume);
   const facts=[];if(rows.length)facts.push([bad?'a':'g',(rows.length-bad)+' of '+rows.length+' agents working']);
-  if(f.now)facts.push(['b','Fixer: '+(f.now.step==='prove'?'proving a fix':'fixing')]);else if(f.paused)facts.push(['a','Fixer paused']);else if(f.wait&&!f.wait.quiet)facts.push(['a','Fixer waits for quiet hours']);else if(line)facts.push(['b','Fixer: '+line+' in line']);else facts.push(['g','Fixer: nothing in line']);
+  if(f.now)facts.push(['b','Fixer: '+(f.now.step==='prove'?'proving a fix':'fixing')]);else if(f.paused)facts.push(['a','Fixer paused']);else if(f.wait&&!f.wait.quiet)facts.push(['a','Fixer waits for quiet hours']);else if(f.held&&line)facts.push(['a','Fixer waits for its own user']);else if(line)facts.push(['b','Fixer: '+line+' in line']);else facts.push(['g','Fixer: nothing in line']);
   if(f.cap&&f.cap.used>=f.cap.cap)facts.push(['a','All '+f.cap.cap+' fix runs used today']);
   if(n)facts.push(['a',pl(n,'thing needs you','things need you')]);
   if(mem)facts.push(grow.length?['a',pl(grow.length,'agent’s memory keeps growing','agents’ memory keeps growing')]:['g','Memory steady']);
@@ -277,6 +277,8 @@ const HealthIssues={
    if(w.kind==='engine'&&!w.quiet)return what+' needs the engine reloaded, and engine reloads wait for the quiet hours ('+String(f.quiet?.from??1).padStart(2,'0')+':00–'+String(f.quiet?.to??5).padStart(2,'0')+':00) so no one’s reply is cut off. Until then proof runs and urgent fixes go on; other fixes wait, so nothing lands on top of a change that is not loaded yet.';
    return what+' reloads as soon as no agent is in the middle of a reply.'}
   const l=f.line||[];if(!l.length)return '';
+  // AUD-6: a run waits for the fixer's own user (or its check); said at once, so the line is never silently stuck
+  if(f.held&&!f.now)return 'The fixer waits since '+at(f.held.since)+': '+f.held.why+' No fixer run ever starts as the box user, so nothing starts until then.';
   if(f.cap&&f.cap.used>=f.cap.cap&&!l.some(i=>i.why!=='line'))return 'All '+f.cap.cap+' fix runs of today are used. The next fix starts '+day(f.cap.resetAt)+' at '+at(f.cap.resetAt)+'.';
   const nb=l.find(i=>i.notBefore);if(!f.now&&nb&&l.every(i=>i.notBefore))return 'The next try starts at '+at(nb.notBefore)+'.';
   return ''},
