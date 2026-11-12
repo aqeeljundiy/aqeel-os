@@ -67,6 +67,9 @@ jobs:
         run: |
           cp main/scripts/check-globals.mjs pr/scripts/check-globals.mjs
           cp main/scripts/premerge-check.mjs pr/scripts/premerge-check.mjs
+          # the helpers main's tests read the source through (scripts/lib/source.mjs) and the recorded debt numbers: a pull request cannot change them
+          if [ -d main/scripts/lib ]; then mkdir -p pr/scripts/lib && cp main/scripts/lib/*.mjs pr/scripts/lib/; fi
+          if [ -f main/scripts/debt-baseline.json ]; then cp main/scripts/debt-baseline.json pr/scripts/debt-baseline.json; fi
           for f in main/scripts/*.test.mjs; do cp "$f" "pr/scripts/$(basename "$f")"; done
       # from here on the pull request's code runs: no token, no secret, nothing of this job is trusted afterwards
       - name: Run them

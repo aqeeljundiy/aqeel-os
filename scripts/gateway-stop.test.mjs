@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,chmodSync} from 'node:fs';import {tmpdir} from 'node:os';import path from 'node:path';import {execFileSync} from 'node:child_process';
 import {stopGatewayCmd,stopTimeoutMs,STOP_WAIT_S,STATE_PID} from '../app/gateway-stop.mjs';
+import {src as sourceOf} from './lib/source.mjs';
 // 7 Nov 2026: the engine needs ~40 s to stop; aqeelOS closed its window after 30 s and every such stop was an unclean exit
 assert.ok(STOP_WAIT_S>=120,'waits well past the engine\'s 30-45 s teardown');
 assert.ok(stopTimeoutMs()>STOP_WAIT_S*1000,'the shell may run longer than the wait');
@@ -36,7 +37,7 @@ assert.match(r.out,/FORCED/);assert.match(r.calls,/ALIVE/);
 // dashboard too when asked; no --yes when not asked
 assert.match(stopGatewayCmd({dashboard:true}),/kill-session -t "=dashboard"/);assert.doesNotMatch(stopGatewayCmd({yes:false}),/--yes/);
 // server.mjs uses it for every stop (no 30 s loops left)
-const src=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8');
+const src=sourceOf('app/server.mjs');
 assert.doesNotMatch(src,/seq 1 30\); do p=\$\(grep -o "\[0-9\]\*" ~\/\.hermes\/gateway\.pid/,'no 30 s stop loop left');
 assert.equal((src.match(/stopGatewayCmd\(/g)||[]).length,3,'restart, restore and Stop use it');
 console.log('gateway-stop ok');

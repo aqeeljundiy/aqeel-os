@@ -4,8 +4,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {mayStartAgents,busyTotal,guardPaused} from '../app/busy.mjs';
+import {src} from './lib/source.mjs';
 
-const server=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8');
+const server=src('app/server.mjs');
 
 test('restartGateway: refused while a restore runs, except the restore\'s own start',()=>{
  assert.equal(mayStartAgents({restoring:true}),false);assert.equal(mayStartAgents({restoring:true,forRestore:true}),true);assert.equal(mayStartAgents({restoring:false}),true);
