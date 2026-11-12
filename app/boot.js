@@ -49,7 +49,7 @@ document.addEventListener('click',e=>{
   case 'banner':{BannerOff.add(a.dataset.key);const b=a.closest('.banner');if(b)leave(b,200);setTimeout(()=>{const s=$('#bannerSlot');if(s){s._h=null;paintBanner()}},220);break}
   case 'banner-mux':go('/system/health');setTimeout(()=>ACT['gw-migrate']?.(),400);break;
   case 'new':Chat.newChat();break;
-  case 'close':closeLayers();break;
+  case 'close':askClose();break;
   case 'reload':reload();break;
   case 'step':a.closest('.step').classList.toggle('open');break;
   case 'think':{const b=a.nextElementSibling;b.hidden=!b.hidden;a.setAttribute('aria-expanded',String(!b.hidden));const t=Chat.live[Chat.id]?.turns[+a.dataset.i];if(t)t.thinkOpen=!b.hidden;break}
@@ -90,7 +90,7 @@ document.addEventListener('keydown',e=>{
  if(mod&&e.key==='/'){e.preventDefault();shortcuts()}
  // an open menu (a picker inside a drawer) closes alone; the drawer under it stays
  if(e.key==='Escape'&&$('.menu:not(.closing)')){leave($('.menu:not(.closing)'),150);return}
- if(e.key==='Escape'&&$('.palette,.drawer,.menu'))closeLayers();
+ if(e.key==='Escape'&&$('.palette,.drawer,.menu'))askClose();
  else if(e.key==='Escape')$('.app')?.classList.remove('nav-open');
 });
 addEventListener('hashchange',()=>{if(S.signedIn)render()});

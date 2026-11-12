@@ -105,3 +105,13 @@ test('signed out, an invite or sign-in address opened in the same tab is drawn (
  assert.ok(src('account-setup.js').includes(String.raw`if(!S.signedIn&&/^#\/?(reset|invite|signin)(\/|$)/.test(location.hash))render()`));
  assert.match(src('people.js'),/href="\/#signin"/,'the link it has to follow');
 });
+
+test('a drawer someone typed in asks before Escape, a click outside, Close or Cancel discards it', ()=>{
+ const c=src('core.js'),b=src('boot.js'),d=fn('core.js','drawer');
+ assert.match(d,/d\._typed=true/);
+ assert.match(d,/button\.primary,button\[type=submit\]'\)\)d\._typed=false/,'pressing the main button (save) is not a discard');
+ assert.match(fn('core.js','askClose'),/confirmBox\('Discard what you typed\?'/);
+ assert.match(c,/s\.onclick=\(\)=>askClose\(\)/);
+ assert.match(b,/case 'close':askClose\(\);break;/);
+ assert.match(b,/\$\('\.palette,\.drawer,\.menu'\)\)askClose\(\);/);
+});
