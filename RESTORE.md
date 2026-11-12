@@ -10,6 +10,37 @@ chats, sign-ins), aqeelOS's data and settings, people's files, the agents' works
 Left out: programs, caches and browser caches, which are installed again. The newest 14 are kept; older ones go to the
 Drive bin (Google keeps them 30 more days).
 
+### Media packs (13 Nov 2026)
+Elkiya's nightly archive had grown from 9 to 28.6 GB (41 GB of files, mostly reels, frames and browser downloads) and took
+112 minutes a night, though only about 3 GB a day is new. Now:
+- **Large files that did not change are kept once.** A file of 128 KB or more that is not a database and was not written in the
+  last 3 hours goes into a *media pack* (gzip, encrypted with the same key) in its own Drive folder, "aqeelOS backups media",
+  and is recorded in `apps/hermes-ui-data/backup-media.json` (path, size, mtime, sha-256). Next night a file with the same path,
+  size and mtime is not packed again. Each night's archive holds a manifest, `backup-manifest.json`, that names for every such
+  file the pack that holds it. The agents' files and everything else are in different packs, and a pack is at most about 4 GB.
+- **A night restores completely.** One night = its archive + the packs its manifest names. A pack stays in Drive while any kept
+  night names it; one that no kept night names goes to the Drive bin after a day (never deleted; if the index is lost, nothing
+  is binned until every kept night is known again, and the files are packed once more).
+- **A damaged or missing pack is found at backup time, not at restore time** (checked on Elkiya with a real round trip, 13 Nov
+  2026). After every upload the size and Google Drive's own checksum (md5) are compared with the file that was sent; a file
+  that arrived damaged goes to the Drive bin and the night fails. Every night the packs in Drive are listed, and one that is
+  gone, has another size or another checksum is packed again and said on the result (an earlier night that named it cannot
+  bring those files back). Only files tar itself lists as written into a pack are recorded as being there. A file is taken as
+  unchanged when its path, size, time and inode are the same. A SQLite database is never packed, whatever its name (a browser's
+  `Cookies`, `History`): it stays in the nightly archive next to its `-wal` and `-journal`. A folder with a `pyvenv.cfg` is
+  only left out when it holds nothing but a virtual environment (`bin`, `lib`, `include`, `share` ...): a project somebody ran
+  `python -m venv .` in is backed up whole.
+- **Left out because it can be made again:** AdsPower's downloaded browser kernels (`.config/adspower_global/cwd_global/chrome_*`,
+  about 1 GB in each of 9 workspaces), aqeelOS's own AdsPower install (`workspaces/.aqeelos-adspower`), Chromium's component,
+  certificate and safe-browsing lists and GPU caches, and Python virtual environments (a folder with a `pyvenv.cfg`). A virtual
+  environment's configuration and package list (name-version) are written to the manifest, so it can be made again exactly.
+  Nothing that a person or an agent made is left out by a name rule: reels and frames are backed up (they go to packs).
+- **Files that cannot be read** (the Linux user of a deleted agent owned them, or they are private to another user) are listed
+  once in `apps/hermes-ui-data/backup-skipped.json` with a reason, shown on the card, and not said again each night. A file in
+  the agent trash is backed up when it can be read, skipped with that reason when not.
+- Without a Google account nothing changes: one archive on the box, big files included (no packs); only the virtual
+  environments are left out, with their package lists in the manifest.
+
 **Settings** on the card: which Google account (a main-agent account with Drive), the time, how many to keep, and the
 Drive folder. A new folder name starts a new folder; backups in the old one stay there.
 
@@ -32,7 +63,8 @@ opened by hand (the app's Restore lists Drive backups and safety copies):
    earlier restores.
 2. **Prepare** downloads the backup, decrypts and unpacks it into a scratch folder and compares it with the box.
    Nothing on the box changes and the agents keep running. It needs free space in `/tmp` of about 3.5 times the
-   backup's size.
+   backup's size, plus the agents' big files from the media packs (it downloads only the packs that hold the agents' files, one
+   at a time, and takes those files out of them).
 3. When it is ready, **See what changes** shows: agents that go back to how they were, agents that come back (deleted
    since), agents made since (they stay), and how many files are replaced, come back, or stay as they are.
 4. **Restore now** (within 3 hours of Prepare):
@@ -74,7 +106,19 @@ agents' workspaces (`workspaces/`) are in the same backup but are not restored f
 on a new box, the backup can be unpacked by hand with the key:
 
 ```bash
-openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in aqeelos-<date>.tar.gz.enc | tar -xzf - -C ~ apps/hermes-ui-data people workspaces
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in aqeelos-<date>.tar.gz.enc | tar -xzf - -C ~ apps/hermes-ui-data people workspaces backup-manifest.json
 ```
 
 (openssl asks for the key as the password.) Do this before signing in for the first time, then restart aqeelOS.
+
+The big files that were in media packs come next. Download the packs the manifest names (the file names are the keys of `packs` in
+`~/backup-manifest.json`) from the Drive folder "aqeelOS backups media" into one folder, put the key in a file and run:
+
+```bash
+node scripts/restore-media.mjs ~/backup-manifest.json ~/packs ~ --key-file ~/key.txt            # everything
+node scripts/restore-media.mjs ~/backup-manifest.json ~/packs ~ --key-file ~/key.txt --only workspaces/   # one part
+```
+
+Each file is checked against its size and sha-256 and the script says what is missing or does not match. The virtual
+environments the manifest lists (`venvs`: path, configuration, packages) are not in the backup: make them again with
+`python3 -m venv <path>` and `pip install` of the listed packages.
