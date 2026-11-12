@@ -158,7 +158,7 @@ export function pruneLocal(files,{keep=LOCAL_KEEP,days=LOCAL_DAYS,max=LOCAL_MAX,
  return out}
 // the newest good backup (at, 0 = none yet; since = when aqeelOS first looked) is older than the limit: how old, else null
 export const staleBackup=(at,since,now=Date.now(),hours=STALE_H)=>{const age=now-(at||since||now);return age>hours*3600e3?{hours:Math.round(age/3600e3),never:!at}:null};
-export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=process.env.BACKUP_GOOGLE_ACCOUNT||'',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{},fetchImpl=fetch,tar='tar',TMP='/tmp',LOCALDIR=path.join(HOME,'aqeelos-local-backups'),MIN=1e6,disk:diskImpl,mem=memFree,drop=dropCache,PIECE=64*1024*1024,
+export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=process.env.BACKUP_GOOGLE_ACCOUNT||'',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{},fetchImpl=fetch,tar='tar',TMP='/tmp',LOCALDIR=path.join(HOME,'aqeelos-local-backups'),MIN=1e6,LOWFREE=3e9,WATCH=20000,disk:diskImpl,mem=memFree,drop=dropCache,PIECE=64*1024*1024,
  detach=false,jobCmd=null,jobPoll=5000,jobQuiet=3*60e3,readOnly=false,now=()=>Date.now()}){   // detach: the backup runs in its own process (backup-job.mjs) and outlives an app restart; readOnly: that process never writes backups.json
  const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key'),JOURNAL=path.join(DATA,'restore-journal.jsonl');let state=null,running=null,job=null,preparing=null,copying=false,held=false,testing=null,prep=null;   // prep: the running Prepare's stop switch
  const load=async()=>{if(!state){state=await readStore(STATE)
@@ -232,10 +232,12 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
    const terr=q(work+'.err'),tcnt=q(work+'.skipped'),oerr=q(work+'.oerr'),tcode=q(work+'.tcode'),junk=[terr,oerr,tcode].join(' ');
    // tar and openssl each report on their own (PIPESTATUS): when openssl stops first (disk full, file unwritable) tar only gets
    // SIGPIPE, exit 141, and the old one-line check reported that instead of the cause (11 Nov 2026). openssl's own error comes first.
-   await sh('{ tar -czf - --ignore-failed-read '+EXCLUDE.map(e=>'--exclude='+q(e)).join(' ')+' '+inc.map(q).join(' ')+' 2>'+terr+'; echo $? >'+tcode+'; } | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:AQ_BK -out '+q(work)+' 2>'+oerr+'; oc=${PIPESTATUS[1]}; tc=$(cat '+tcode+' 2>/dev/null); tc=${tc:-1}; '
+   const ctl={};let full=null;   // the disk watchdog: a backup never fills the disk it writes to (11 Nov 2026: 99%, the agents suffered)
+   let wd=null,over=false;const watch=async()=>{if(over||full)return;const f=(await disk(path.dirname(work)).catch(()=>null))?.free;if(f!=null&&f<LOWFREE){full='The disk filled up while packing: only '+gb(f)+' was left in '+path.dirname(work)+', so the backup was stopped and its half file removed.';try{process.kill(-ctl.child.pid,'SIGKILL')}catch{}}if(!over&&!full){wd=setTimeout(watch,WATCH);wd.unref?.()}};wd=setTimeout(watch,WATCH);wd.unref?.();
+   try{await sh('{ tar -czf - --ignore-failed-read '+EXCLUDE.map(e=>'--exclude='+q(e)).join(' ')+' '+inc.map(q).join(' ')+' 2>'+terr+'; echo $? >'+tcode+'; } | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:AQ_BK -out '+q(work)+' 2>'+oerr+'; oc=${PIPESTATUS[1]}; tc=$(cat '+tcode+' 2>/dev/null); tc=${tc:-1}; '
     +'grep -c "Cannot open\\|Cannot stat\\|Cannot read" '+terr+' >'+tcnt+' 2>/dev/null; '
     +'[ "$oc" = 0 ] || { echo "encrypting the backup failed (openssl exit $oc): $(tail -c 300 '+oerr+' | tr "\\n" " ")" >&2; rm -f '+junk+'; exit 1; }; '
-    +'[ "$tc" -le 1 ] || { grep -v "socket ignored\\|Cannot open\\|Cannot stat\\|Cannot read" '+terr+' | tail -2 >&2; echo "tar stopped (exit $tc)" >&2; rm -f '+junk+'; exit "$tc"; }; rm -f '+junk,{AQ_BK:await key()});
+    +'[ "$tc" -le 1 ] || { grep -v "socket ignored\\|Cannot open\\|Cannot stat\\|Cannot read" '+terr+' | tail -2 >&2; echo "tar stopped (exit $tc)" >&2; rm -f '+junk+'; exit "$tc"; }; rm -f '+junk,{AQ_BK:await key()},ctl)}catch(e){throw full?Error(full):e}finally{over=true;clearTimeout(wd)}
    const skipped=Number((await readFile(work+'.skipped','utf8').catch(()=>'0')).trim())||0;await rm(work+'.skipped',{force:true}).catch(()=>{});
    const size=(await stat(work)).size;if(size<MIN)throw Error('The backup came out too small ('+size+' bytes).');
    if(local){await rename(work,dest);const pruned=await pruneLocalDir();
@@ -249,7 +251,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
    const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&orderBy=createdTime desc&fields=files(id,name)&pageSize=100');
    for(const f of (l.files||[]).slice(settings().keep))await drive(g,'drive/v3/files/'+f.id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({trashed:true})}).catch(()=>{});
    await pruneLocalDir().catch(()=>{});return {last:{at,ok:true,name,size,id:file.id,account:g.account,why,secs:Math.round((Date.now()-at)/1000),skipped},note:name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+(skipped?', '+skipped+' unreadable file(s) skipped':'')}}
-  finally{await rm(work,{force:true}).catch(()=>{});await rm(work+'.skipped',{force:true}).catch(()=>{});await rm(tmp,{force:true}).catch(()=>{})}}
+  finally{await rm(work,{force:true}).catch(()=>{});for(const x of ['.skipped','.err','.oerr','.tcode'])await rm(work+x,{force:true}).catch(()=>{});await rm(tmp,{force:true}).catch(()=>{})}}
  const nameOf=at=>'aqeelos-'+new Date(at+7*3600e3).toISOString().slice(0,16).replace(/[:T]/g,'-')+'.tar.gz.enc';
  const good=async r=>{state.last=r.last;state.lastOkAt=r.last.at;state.lastSize=r.last.size;state.made=true;delete state.staleTold;await save();console.log('backup: '+r.note);solved();return state.last};
  // a failed scheduled backup is tried again within the hour, 3 times a morning; only the third failure is told (a

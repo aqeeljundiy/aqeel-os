@@ -60,3 +60,14 @@ test('Health: one item when the newest good backup is over 48 h old, again at mo
   // never made: counted from when aqeelOS first looked
   const s2=scene();writeFileSync(s2.DATA+'/backups.json',JSON.stringify({since:Date.now()-50*3600e3}));await s2.b.staleCheck();assert.match(s2.told[0][0],/No backup has been made yet/);s2.done()
  }finally{s.done()}});
+
+// 12 Nov 2026: a box with little room left must not be filled to the brim by a backup (Elkiya went to 99% on 11 Nov). While packing,
+// the free space is watched; below the limit the pipeline is killed, the cause is said, and no half file or note is left behind.
+test('the disk watchdog stops a backup that is filling the disk, says so, and leaves nothing behind',{skip:process.platform==='win32'&&'process groups are Linux-only'},async()=>{
+ let n=0;const s=scene({LOWFREE:1e9,WATCH:50,disk:async()=>({free:++n<2?1e12:2e8,dev:'d'})});const bin=s.T+'/bin';mkdirSync(bin);
+ // a tar that never ends, so only the watchdog can stop it
+ writeFileSync(bin+'/tar','#!/bin/sh\nwhile :; do head -c 100000 /dev/zero; sleep 0.05; done\n');chmodSync(bin+'/tar',0o755);
+ const was=process.env.PATH;process.env.PATH=bin+path.delimiter+was;
+ try{await assert.rejects(()=>s.b.run('by hand'),e=>/disk filled up while packing/.test(e.message)&&!/141/.test(e.message));
+  assert.equal((await s.b.status()).last.ok,false);assert.deepEqual(readdirSync(s.TMP),[]);assert.deepEqual(readdirSync(s.LOCALDIR),[],'no half file, no notes')}
+ finally{process.env.PATH=was;s.done()}});
