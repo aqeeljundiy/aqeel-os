@@ -6,6 +6,7 @@
 // Routine API (experimental): POST /v1/claude_code/routines/{trig_id}/fire, Bearer <per-routine token>, anthropic-version,
 // optional {text} (65,536 characters). 429 + Retry-After: the hourly cap (30 per routine, 100 per account). A used-up
 // subscription only shows after the run has started, so usage is the only guide.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
@@ -59,8 +60,8 @@ export function fireText(i,{why='',fix=null,prev=null}={}){const f=(k,v,n)=>v?k+
 
 export function createCloudFixer({DATA,accounts=async()=>[],fetchFn=(...a)=>fetch(...a),now=()=>Date.now(),log=m=>console.log(m),github=null}){
  const FILE=path.join(DATA,'cloud-fixer.json');let cfg=null;const cool={},last={};
- const load=async()=>{if(!cfg){try{cfg=JSON.parse(await readFile(FILE,'utf8'))}catch{cfg={}}cfg.routines=(Array.isArray(cfg.routines)?cfg.routines:[]).filter(r=>r&&r.account&&TRIG.test(r.trigId||'')&&r.token)}return cfg};
- const persist=async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(cfg),{mode:0o600});await rename(t,FILE)};
+ const load=async()=>{if(!cfg){cfg=await readStore(FILE);cfg.routines=(Array.isArray(cfg.routines)?cfg.routines:[]).filter(r=>r&&r.account&&TRIG.test(r.trigId||'')&&r.token)}return cfg};
+ const persist=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(cfg),{mode:0o600})};
  const ready=async()=>(await load()).routines.length>0;
  const scrub=s=>{s=String(s||'');for(const r of cfg?.routines||[])if(r.token)s=s.split(r.token).join('(hidden)');return redactText(s).slice(0,300)};
  // what the browser may see: never a token, only "saved"

@@ -12,6 +12,7 @@
 // run: a command inside the agent's folder (a bare path picks the interpreter from .py/.sh/.mjs). keep: only lines matching it are sent.
 // dedupe: a line already sent in the last 24 hours is not sent again (a script that repeats an error every run). The first event runs at
 // once; more inside minGapSec become one run when the gap is over. A run that fails twice in a row is one health line with the script's error.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
@@ -58,8 +59,8 @@ export function createEventHooks({DATA,WORK,runAs,deliver,problem=async()=>{},so
  const CFG=path.join(DATA,'event-hooks.json'),ST=path.join(DATA,'event-hooks-state.json');let cache={at:0,v:{}},st=null;const last=new Map(),pending=new Map(),chains=new Map();
  const config=async()=>{if(now()-cache.at>30e3){let v={};try{v=JSON.parse(await readFile(CFG,'utf8'))}catch{}if(v&&typeof v.hooks==='object'&&!Array.isArray(v.hooks))v=v.hooks;
    cache={at:now(),v:Object.fromEntries(Object.entries(v||{}).filter(([a,l])=>AGENT.test(a)&&Array.isArray(l)).map(([a,l])=>[a,l.map(cleanHook).filter(Boolean)]))}}return cache.v};
- const load=async()=>{if(!st){try{st=JSON.parse(await readFile(ST,'utf8'))}catch{st={}}st.runs||={};st.sent||={};st.held||={}}return st};
- const save=async()=>{const t=now();for(const [k,v] of Object.entries(st.sent))if(t-v>DEDUPE_MS)delete st.sent[k];await mkdir(DATA,{recursive:true});await writeFile(ST+'.tmp',JSON.stringify(st,null,1));await rename(ST+'.tmp',ST)};
+ const load=async()=>{if(!st){st=await readStore(ST);st.runs||={};st.sent||={};st.held||={}}return st};
+ const save=async()=>{const t=now();for(const [k,v] of Object.entries(st.sent))if(t-v>DEDUPE_MS)delete st.sent[k];await mkdir(DATA,{recursive:true});await writeStore(ST,JSON.stringify(st,null,1))};
  // the text to send: lines kept by the hook's filter, not sent before when the hook dedupes, with its prefix
  const shape=(out,h,s,k)=>{let lines=String(out||'').split('\n').map(l=>l.replace(/\s+$/,'')).filter(l=>l.trim());
   if(h.keep){const re=new RegExp(h.keep);lines=lines.filter(l=>re.test(l))}

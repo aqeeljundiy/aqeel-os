@@ -24,6 +24,7 @@
 //   send aqeelOS did not make) pauses the agent there for the line's quiet time (pauseMin, 15 by default)
 // - brands never mix: a line takes only events for its own phoneNumberId, and whatsapp_reply refuses a number that
 //   wrote to another line and not to this one
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,unlink,stat,appendFile} from 'node:fs/promises';
 import {publicUrl} from './install.mjs';   // Your address (System › Settings), read at the moment a webhook is made
 import {createHmac,timingSafeEqual,randomUUID} from 'node:crypto';
@@ -167,10 +168,10 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
- const put=async(f,v,mode=0o600)=>{await mkdir(DATA,{recursive:true});const t=f+'.'+process.pid+'.'+randomUUID().slice(0,8)+'.tmp';await writeFile(t,JSON.stringify(v,null,1),{mode});await rename(t,f)};
+ const put=(f,v,mode=0o600)=>writeStore(f,JSON.stringify(v,null,1),{mode});   // store.mjs: atomic, one at a time per file, refused while the file is unreadable
  let st=null,loading=null,chain=Promise.resolve();const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
  const state=async()=>st||(loading||=readState());
- const readState=async()=>st=Object.assign({seen:[],cut:{},recent:{},pending:{},turns:{},outbox:{},last:{},testerNums:{},ours:{},paused:{},human:{},proposed:{},drafts:{},handoffs:{},asked:{},images:{},waits:{},seq:0},await readJson(ST,{}));
+ const readState=async()=>st=Object.assign({seen:[],cut:{},recent:{},pending:{},turns:{},outbox:{},last:{},testerNums:{},ours:{},paused:{},human:{},proposed:{},drafts:{},handoffs:{},asked:{},images:{},waits:{},seq:0},await readStore(ST,{}));
  const saveState=()=>queue(async()=>{await state();st.seen=st.seen.slice(-3000);const t=now();
   for(const [k,v] of Object.entries(st.recent))if(t-v>48*3600e3)delete st.recent[k];
   for(const [k,v] of Object.entries(st.ours))if(t-v>48*3600e3)delete st.ours[k];
@@ -178,9 +179,9 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   for(const [k,v] of Object.entries(st.human))if(t-v>48*3600e3)delete st.human[k];
   for(const [k,d] of Object.entries(st.drafts))if(d.status!=='waiting'&&t-(d.doneAt||d.at)>7*86400e3||t-d.at>3*86400e3)delete st.drafts[k];
   await put(ST,st)});
- const lines=async()=>(await readJson(CONF,{lines:{}})).lines||{};
+ const lines=async()=>(await readStore(CONF,{lines:{}})).lines||{};
  const lineOf=async agent=>AGENT.test(agent)?(await lines())[agent]||null:null;
- const secretsOf=async agent=>((await readJson(SEC,{}))[agent]?.secrets)||[];
+ const secretsOf=async agent=>((await readStore(SEC,{}))[agent]?.secrets)||[];
  const modeOf=line=>MODES.includes(line?.mode)?line.mode:'test';
 
  async function api(p,body,{idem,method}={}){const key=await apiKey();if(!key)throw Error('No Kirimdev API key is saved (KIRIMDEV_API_KEY).');
@@ -211,7 +212,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  let checking=null;
  function check(){return checking||=doCheck().finally(()=>{checking=null})}
  async function doCheck(){await state();const key=await apiKey().catch(()=>null);const acc=key?await account(key):{ok:false,why:'nokey',text:'No Kirimdev API key is saved.'};
-  const L=await lines(),sec=await readJson(SEC,{}),t=now(),H=st.health||={lines:{}};H.lines||={};H.account={...acc,at:t};
+  const L=await lines(),sec=await readStore(SEC,{}),t=now(),H=st.health||={lines:{}};H.lines||={};H.account={...acc,at:t};
   for(const [agent,l] of Object.entries(L)){const pid=String(l.phoneNumberId||''),who=l.persona||agent,h={at:t};
    if(!acc.ok){h.api={ok:false,why:acc.why,text:acc.text}}
    else{const c=await probe(encodeURIComponent(pid)+'/conversations?limit=50',key);
@@ -573,17 +574,17 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
 
  // connect: one Kirimdev webhook for this line (Kirimdev makes the secret and shows it once)
  async function connect(agent){const line=await lineOf(agent);if(!line)throw Error('No line for '+agent+'.');
-  const url=pub()+'/kirimdev/'+agent;const sec=await readJson(SEC,{});
+  const url=pub()+'/kirimdev/'+agent;const sec=await readStore(SEC,{});
   const r=await api('webhook_subscriptions',{url,events:EVENTS,phone_number_ids:[String(line.phoneNumberId)],description:'aqeelOS · '+agent},{idem:'aqeelos-'+agent+'-'+url+'-2'});
   const s=r?.data?.initial_secret;if(!s)throw Error('Kirimdev did not return a webhook secret.');
   sec[agent]={id:r.data.id,url,secrets:[s],events:EVENTS,at:now()};await put(SEC,sec);return {id:r.data.id,status:r.data.status}}
  // a webhook made before message.sent was used gets it added (Kirimdev keeps the same secret)
- async function ensureEvents(agent){const sec=await readJson(SEC,{}),w=sec[agent];if(!w?.id)return null;if(EVENTS.every(e=>(w.events||[]).includes(e)))return w.events;
+ async function ensureEvents(agent){const sec=await readStore(SEC,{}),w=sec[agent];if(!w?.id)return null;if(EVENTS.every(e=>(w.events||[]).includes(e)))return w.events;
   const line=await lineOf(agent);const r=await api('webhook_subscriptions/'+w.id,{events:EVENTS,phone_number_ids:[String(line?.phoneNumberId||'')]},{method:'PATCH'});
-  const ev=Array.isArray(r?.data?.events)?r.data.events:EVENTS;const s2=await readJson(SEC,{});s2[agent]={...s2[agent],events:ev};await put(SEC,s2);log('kirimdev '+agent+': webhook now sends '+ev.join(', '));return ev}
- async function webhook(agent){const id=(await readJson(SEC,{}))[agent]?.id;if(!id)return null;try{return (await api('webhook_subscriptions/'+id)).data}catch(e){return {error:e.message}}}
+  const ev=Array.isArray(r?.data?.events)?r.data.events:EVENTS;const s2=await readStore(SEC,{});s2[agent]={...s2[agent],events:ev};await put(SEC,s2);log('kirimdev '+agent+': webhook now sends '+ev.join(', '));return ev}
+ async function webhook(agent){const id=(await readStore(SEC,{}))[agent]?.id;if(!id)return null;try{return (await api('webhook_subscriptions/'+id)).data}catch(e){return {error:e.message}}}
 
- async function status(){const L=await lines(),sec=await readJson(SEC,{});await state();const t=now();
+ async function status(){const L=await lines(),sec=await readStore(SEC,{});await state();const t=now();
   return Promise.all(Object.entries(L).map(async([agent,l])=>{const tg=await target(agent);const seen=new Set();
    return {agent,persona:l.persona,business:l.business,mode:modeOf(l),testers:(l.testers||[]).map(t=>t.who),connected:!!sec[agent]?.secrets?.length,
     hearsTeam:EVENTS.every(e=>(sec[agent]?.events||[]).includes(e)),last:st.last[agent]?.at||null,pauseMin:Number(l.pauseMin??15),
@@ -594,8 +595,8 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
     delivery:pollsNow(agent,l,sec)?'poll':'webhook',polledAt:st.poll?.[agent]?.at||null,pollError:st.poll?.[agent]?.error||null,
     settings:{persona:l.persona||'',business:l.business||'',language:l.language||'',pauseMin:Number(l.pauseMin??DEFAULT_PAUSE),resetWords:l.resetWords||['reset'],resetText:l.resetText||'',
      testers:(l.testers||[]).map(t=>({who:t.who||'',phone:String(t.phone||''),chat:!!t.conversationId})),payment:l.payment||null,orders:l.orders||null,labels:l.labels?.allowed||[]}}}))}
- async function setMode(agent,mode){if(!MODES.includes(mode))throw Error('Mode is test, draft or live.');const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');c.lines[agent].mode=mode;await put(CONF,c,0o644);return true}
- async function setPause(agent,min){const n=Number(min);if(!Number.isInteger(n)||n<0||n>1440)throw Error('The quiet time is a whole number of minutes, 0 to 1440.');const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');c.lines[agent].pauseMin=n;await put(CONF,c,0o644);return n}
+ async function setMode(agent,mode){if(!MODES.includes(mode))throw Error('Mode is test, draft or live.');const c=await readStore(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');c.lines[agent].mode=mode;await put(CONF,c,0o644);return true}
+ async function setPause(agent,min){const n=Number(min);if(!Number.isInteger(n)||n<0||n>1440)throw Error('The quiet time is a whole number of minutes, 0 to 1440.');const c=await readStore(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');c.lines[agent].pauseMin=n;await put(CONF,c,0o644);return n}
 
  // ---- Plug and play (7 Nov 2026, the owner: "If it's a clean OS, the user inserts the key, then how does the number
  // show up?"). The numbers come from Kirimdev (GET accounts); Connect makes a line from one with a dialog (agent,
@@ -684,7 +685,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   return {set:true,changed:done}}
  // the line for an agent: a new one (Connect: Test mode, delivery set up, first check) or changes to its settings
  async function saveLine(agent,b={}){if(!AGENT.test(String(agent||'')))throw Error('Pick the agent that answers this number.');
-  const c=await readJson(CONF,{lines:{}});c.lines||={};const cur=c.lines[agent]||null,isNew=!cur;
+  const c=await readStore(CONF,{lines:{}});c.lines||={};const cur=c.lines[agent]||null,isNew=!cur;
   const pid=String(b.phoneNumberId||cur?.phoneNumberId||'');if(!/^\d{6,20}$/.test(pid))throw Error('Pick a number from Kirimdev.');
   if(cur&&String(cur.phoneNumberId)!==pid)throw Error((cur.persona||agent)+' already answers another number. Disconnect that one first, or pick another agent.');
   const other=Object.entries(c.lines).find(([a,l])=>a!==agent&&String(l.phoneNumberId)===pid);if(other)throw Error('This number is already answered by '+(other[1].persona||other[0])+'.');
@@ -694,7 +695,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   await put(CONF,c,0o644);accCache=null;let delivery=null;
   if(isNew){delivery=await startDelivery(agent);check().catch(e=>log('kirimdev check: '+e.message))}
   return {agent,isNew,delivery}}
- const setDelivery=async(agent,how)=>{const c=await readJson(CONF,{lines:{}});if(!c.lines?.[agent])return;if(how)c.lines[agent].delivery=how;else delete c.lines[agent].delivery;await put(CONF,c,0o644)};
+ const setDelivery=async(agent,how)=>{const c=await readStore(CONF,{lines:{}});if(!c.lines?.[agent])return;if(how)c.lines[agent].delivery=how;else delete c.lines[agent].delivery;await put(CONF,c,0o644)};
  // a webhook when Kirimdev can reach aqeelOS; otherwise polling, said plainly
  async function startDelivery(agent){const pu=publicReach(pub());
   if(!pu.ok){await setDelivery(agent,'poll');return {how:'poll',why:pu.why}}
@@ -704,20 +705,20 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  async function connectWebhook(agent){const r=await connect(agent);await setDelivery(agent,null);return r}
  // Disconnect: the webhook is deleted in Kirimdev and the line stops; its chats, drafts and history stay, and its
  // settings are kept so connecting the number again starts from them
- async function disconnect(agent){const c=await readJson(CONF,{lines:{}});const line=c.lines?.[agent];if(!line)throw Error('No line for '+agent+'.');
-  const sec=await readJson(SEC,{}),w=sec[agent];let webhook='none';
+ async function disconnect(agent){const c=await readStore(CONF,{lines:{}});const line=c.lines?.[agent];if(!line)throw Error('No line for '+agent+'.');
+  const sec=await readStore(SEC,{}),w=sec[agent];let webhook='none';
   if(w?.id){try{await api('webhook_subscriptions/'+encodeURIComponent(w.id),null,{method:'DELETE'});webhook='deleted'}
    catch(e){if(e.status===404)webhook='gone';else throw Error('Kirimdev did not delete the webhook ('+e.message+'). Nothing changed; try again.')}}
   delete sec[agent];await put(SEC,sec);c.disconnected={...(c.disconnected||{}),[agent]:{...line,at:now()}};delete c.lines[agent];await put(CONF,c,0o644);accCache=null;
   await state();if(st.poll)delete st.poll[agent];const h=st.health?.lines?.[agent];for(const k of Object.keys(h?.told||{}))await solved(agent,k).catch(()=>{});if(st.health?.lines)delete st.health.lines[agent];
   await saveState();log('kirimdev '+agent+': disconnected (webhook '+webhook+'), history kept');return {webhook}}
  // Renew webhook secret: Kirimdev makes a new one, aqeelOS keeps it, then the old ones are revoked in Kirimdev
- async function renewSecret(agent){const w=(await readJson(SEC,{}))[agent];if(!w?.id)throw Error('This line has no webhook, so there is no secret to renew.');
+ async function renewSecret(agent){const w=(await readStore(SEC,{}))[agent];if(!w?.id)throw Error('This line has no webhook, so there is no secret to renew.');
   const r=await api('webhook_subscriptions/'+encodeURIComponent(w.id)+'/secrets',{},{idem:'aqeelos-renew-'+agent+'-'+randomUUID()});const s=r?.data?.secret;if(!s)throw Error('Kirimdev did not return a new secret.');
-  const s1=await readJson(SEC,{});s1[agent]={...s1[agent],secrets:[s,...(s1[agent]?.secrets||[])].slice(0,6),renewedAt:now()};await put(SEC,s1);let revoked=0;
+  const s1=await readStore(SEC,{});s1[agent]={...s1[agent],secrets:[s,...(s1[agent]?.secrets||[])].slice(0,6),renewedAt:now()};await put(SEC,s1);let revoked=0;
   try{const sub=(await api('webhook_subscriptions/'+encodeURIComponent(w.id))).data||{};for(const x of sub.secrets||[])if(x.id&&x.id!==r.data.id){await api('webhook_subscriptions/'+encodeURIComponent(w.id)+'/secrets/'+encodeURIComponent(x.id),null,{method:'DELETE'});revoked++}}
   catch(e){log('kirimdev '+agent+': new secret saved, an old one was not revoked: '+e.message);return {renewed:true,revoked,note:'The new secret works. An old one could not be revoked yet ('+e.message+'); both are accepted until then.'}}
-  const s2=await readJson(SEC,{});s2[agent]={...s2[agent],secrets:[s]};await put(SEC,s2);return {renewed:true,revoked}}
+  const s2=await readStore(SEC,{});s2[agent]={...s2[agent],secrets:[s]};await put(SEC,s2);return {renewed:true,revoked}}
  // Send test message: one plain text to a tester, straight through Kirimdev (not a customer reply)
  async function testSend(agent,idx){const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');const t=(line.testers||[])[Number(idx)];
   const to=String(t?.phone||'').replace(/\D/g,'');if(!/^\d{6,16}$/.test(to))throw Error('Pick a tester with a phone number.');await state();let r;
@@ -747,14 +748,14 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   catch(e){cur.error=e.message;cur.at=now();await saveState();throw e}
   await saveState();return {messages:n}}
  let polling=false;
- async function poll(){if(polling)return {};polling=true;try{await state();const L=await lines(),sec=await readJson(SEC,{}),out={};
+ async function poll(){if(polling)return {};polling=true;try{await state();const L=await lines(),sec=await readStore(SEC,{}),out={};
    for(const [a,l] of Object.entries(L)){if(!pollsNow(a,l,sec)){if(st.poll?.[a]){delete st.poll[a];await saveState()}continue}
     try{out[a]=await pollLine(a,l)}catch(e){out[a]={error:e.message};log('kirimdev '+a+': polling: '+e.message)}}
    return out}finally{polling=false}}
  // after a restart: conversations that were waiting are answered, handoffs are tried again, webhooks hear team replies
  let iv=null,civ=null,piv=null;
  // once: a quiet time of 0 meant the agent kept answering right after a team member (Gino's line until 7 Nov); new lines get 15
- async function fixQuiet(){await state();if(st.fixedQuiet)return;const c=await readJson(CONF,{lines:{}});let n=0;
+ async function fixQuiet(){await state();if(st.fixedQuiet)return;const c=await readStore(CONF,{lines:{}});let n=0;
   for(const l of Object.values(c.lines||{}))if(Number(l.pauseMin)===0){l.pauseMin=DEFAULT_PAUSE;n++}
   if(n)await put(CONF,c,0o644);st.fixedQuiet=now();await saveState();if(n)log('kirimdev: quiet time 0 set to '+DEFAULT_PAUSE+' min on '+n+' line(s)')}
  async function resume(){await state();for(const [k,p] of Object.entries(st.pending)){const l=await lineOf(p.agent);if(l)schedule(k,l)}

@@ -25,6 +25,7 @@
 // in a git work dir on branch fix/<issue>, committed, pushed and opened as a pull request (state "deploy" = waits for the
 // review and the deploy). No GitHub token yet: the branch waits committed, one "Needs you" item asks for the token, and
 // the tick opens the pull requests by itself once there is one. Without the checkout the older patch-file way still runs.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,open,stat,copyFile,readdir,rm} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
@@ -250,14 +251,14 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   // filed again and again while the fixer was off (before 7 Nov 2026 'open' was not matched): one issue per problem
   const seen=new Map();for(const i of db.items){if(i.state!=='open')continue;const k=seen.get(i.key);if(!k){seen.set(i.key,i);continue}
    k.count=(k.count||1)+(i.count||1);i.state='closed';i.history.push({kind:'person',at:now(),status:'close',summary:'Closed as a duplicate of '+k.id})}};
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.items||=[];db.runs||={};migrate();pruneRuns()}return db};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.items||=[];db.runs||={};migrate();pruneRuns()}return db};
  // runs of issues that are no longer in the list go once their day is over (the daily cap counts today's runs); the file was rewritten whole,
  // pretty-printed, with every run ever made (12 Nov 2026: 342 runs, a quarter of the file)
  const pruneRuns=()=>{const ids=new Set(db.items.map(i=>i.id)),day=today();let n=0;for(const [k,r] of Object.entries(db.runs))if(!ids.has(r.issue)&&r.day!==day){delete db.runs[k];n++}return n};
  const cap=()=>{const c=capItems(db.items);db.items=c.items;if(c.dropped.length)pruneRuns();
   if(c.over&&!(now()-(db.overTold||0)<864e5)){db.overTold=now();log('issues: '+c.live+' open issues, more than the list keeps ('+CAP+'): none is dropped');Promise.resolve().then(()=>onOver(c.live)).catch(()=>{})}
   else if(!c.over&&db.overTold){delete db.overTold;Promise.resolve().then(()=>onOver(0)).catch(()=>{})}};
- const save=async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.'+randomBytes(4).toString('hex')+'.tmp';await writeFile(t,JSON.stringify(db,null,1));await rename(t,FILE)};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
  const policy=async()=>{try{return JSON.parse(await readFile(POL,'utf8'))}catch{return {teams:[],fixer:{on:true}}}};
  const view=i=>({...i,agentName:nameOf(i.agent),sig:undefined});

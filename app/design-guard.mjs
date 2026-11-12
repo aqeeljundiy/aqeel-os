@@ -16,6 +16,7 @@
 //     response_silent), a schedule with 12 or more runs in 7 days of which 80% or more said nothing is one Health item per agent, with the
 //     better design and a button that applies it where that is mechanical (convert).
 //  5. "Why this trigger" is kept per schedule (DATA/design-guard.json) and shown on its card (triggers).
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,stat,chmod,realpath,open} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
@@ -161,8 +162,8 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const key=(a,id)=>a+'/'+id;
  let db=null,cache=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.triggers||={};db.kept||={}}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.triggers||={};db.kept||={}}return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const exists=f=>stat(f).then(()=>true,()=>false);
  const put=async(a,name,body)=>{const f=path.join(home(a),'scripts',name);await mkdir(path.dirname(f),{recursive:true});await writeFile(f,body,{mode:0o700});await chmod(f,0o700).catch(()=>{});return name};
  const own=async a=>{const o=await Promise.resolve(ownOf(a)).catch(()=>null)||{};return {user:/^ag-[\w-]+$/.test(String(o.user||''))?o.user:'',cwd:String(o.cwd||path.join(WORK,base(a)))}};
@@ -176,7 +177,7 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
  const setTrigger=async(a,id,t)=>{await load();db.triggers[key(a,id)]={...t,why:clip(t.why||'',300),at:now()};await save()};
  // ---- event hooks (DATA/event-hooks.json, the file event-hooks.mjs reads) ----
  const readHooks=async()=>{let d={};try{d=JSON.parse(await readFile(HOOKS,'utf8'))}catch{}return {d,hooks:d&&typeof d.hooks==='object'&&!Array.isArray(d.hooks)?d.hooks:d}};
- const writeHooks=async({d,hooks})=>{await mkdir(DATA,{recursive:true});await writeFile(HOOKS+'.tmp',JSON.stringify(d.hooks===hooks?d:hooks,null,1),{mode:0o600});await rename(HOOKS+'.tmp',HOOKS)};
+ const writeHooks=async({d,hooks})=>{await mkdir(DATA,{recursive:true});await writeStore(HOOKS,JSON.stringify(d.hooks===hooks?d:hooks,null,1),{mode:0o600})};
  async function hooksOf(a){const {hooks}=await readHooks();return (Array.isArray(hooks[a])?hooks[a]:[]).map(cleanHook).filter(Boolean)}
  async function putHook(a,h){const c=cleanHook(h);if(!c)throw Error('That event hook is not valid.');const x=await readHooks();
   x.hooks[a]=[...(Array.isArray(x.hooks[a])?x.hooks[a]:[]).filter(o=>o.id!==c.id),{id:c.id,on:c.on,run:c.run,...(c.deliver?{deliver:c.deliver}:{}),minGapSec:c.gap,...(c.keep?{keep:c.keep}:{}),...(c.prefix?{prefix:c.prefix}:{}),by:'agent'}];await writeHooks(x);return c}

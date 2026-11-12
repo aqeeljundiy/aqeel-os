@@ -14,6 +14,7 @@
 // the agent is still idle before it acts. The owner hears once per low-memory spell, with what was done.
 // It also keeps what each app holds (an hourly mean, 2 days) for System › Health: a line per app, and a warning for one
 // that grew by 1 GB and a third in a day.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,stat,appendFile} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
@@ -85,8 +86,8 @@ export const say=a=>a.kind==='sleep'?a.agent+'’s screen put to sleep (wakes on
 export function createMemWatch({DATA,HOME,HERMES_HOME,sessions=async()=>null,busy=()=>[],keepOn=()=>false,closeTabs=async()=>0,restartEngine=async()=>{},restarting=()=>false,tell=async()=>{},
  log=m=>console.log(m),now=()=>Date.now(),CG='/sys/fs/cgroup/',WAKE='/var/lib/aqeelos/wake',readPs=null}){
  const FILE=path.join(DATA,'memwatch.json'),REQ=path.join(HOME,'.aqeelos-agent-users.mem');let st=null;
- const load=async()=>{if(!st){try{st=JSON.parse(await readFile(FILE,'utf8'))}catch{st={}}st.apps||={}}return st};
- const save=async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(st));await rename(t,FILE)};
+ const load=async()=>{if(!st){st=await readStore(FILE);st.apps||={}}return st};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(st))};
  const ps=readPs||(()=>new Promise(res=>execFile('ps',['-ewwo','user:32=,rss=,args='],{maxBuffer:16e6},(e,o)=>res(e?'':String(o)))));
  const mtime=async f=>(await stat(f).catch(()=>null))?.mtimeMs||0;
  async function mem(){const r=f=>readFile(CG+f,'utf8').catch(()=>'');const [c,m,s]=await Promise.all([r('memory.current'),r('memory.max'),r('memory.stat')]);

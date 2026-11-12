@@ -6,6 +6,7 @@
 //  - unansweredComments: comments Tebar lists as not answered (REST GET /v1/comments, a Tebar API key);
 //  - postingAllowed: the agent's posting limits (posting-limits.mjs: pause file, a day, an hour, gap) say a post may go now.
 // Used by scripts/run-check.mjs, which a check script calls.
+import {writeStore} from './store.mjs';
 import {readFile,stat,writeFile,mkdir,rename} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
@@ -127,7 +128,7 @@ export function idleSafety(result,{state={},now=Date.now(),maxIdleMin=0}={}){
 // the per-job state file: <DATA>/run-checks/<job>.json
 export const stateFile=(DATA,key)=>path.join(DATA,'run-checks',String(key).replace(/[^\w.-]+/g,'_')+'.json');
 export async function loadState(DATA,key){try{return JSON.parse(await readFile(stateFile(DATA,key),'utf8'))}catch{return {}}}
-export async function saveState(DATA,key,st){const f=stateFile(DATA,key);await mkdir(path.dirname(f),{recursive:true});await writeFile(f+'.tmp',JSON.stringify(st));await rename(f+'.tmp',f)}
+export async function saveState(DATA,key,st){const f=stateFile(DATA,key);await mkdir(path.dirname(f),{recursive:true});await writeStore(f,JSON.stringify(st))}
 
 // ---- a command that prints when there is work (12 Nov 2026) --------------------------------------------------------------
 // Many schedules start the AI only to run a script that prints nothing most of the time (P&P meeting watcher, the Elkiya Close stages, the

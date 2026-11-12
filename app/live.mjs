@@ -7,6 +7,7 @@
 //   unlisted = anyone with the link; listed only for its publisher and admins
 //   private  = only people signed in to aqeelOS (Traefik asks aqeelOS first: forwardAuth to /live-auth)
 // Admins see every app with its visits (from the server's request log), can take any offline (stopped, kept) or delete it.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
@@ -21,10 +22,10 @@ const DAY=864e5,dayKey=t=>new Date(t).toISOString().slice(0,10);
 
 export function createLive({DATA,DOMAIN='app.localhost',SECRET,PUBLIC_URL,AUTH_URL=process.env.LIVE_AUTH_URL||'http://ai-box:4400/live-auth',auto=false,onIcons=async()=>{}}){
  const FILE=path.join(DATA,'live.json');let db=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.apps||=[];db.dokploy||={};db.stats||={}}return db};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.apps||=[];db.dokploy||={};db.stats||={}}return db};
  // saves run one after another so two never share the .tmp file; a failed one still lets the next run
  let saving=Promise.resolve();
- const save=()=>{const p=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)});saving=p.catch(()=>{});return p};
+ const save=()=>{const p=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))});saving=p.catch(()=>{});return p};
  // addresses being published right now, so two people can't claim the same new one at once
  const busy=new Set();
  // Dokploy's API: POST /api/<procedure> with the key in x-api-key (GET with ?input= for reads); trpc for the few

@@ -4,6 +4,7 @@
 // Composio is gone (11 Nov 2026, owner: apps connect directly); an old "composio" key in agent-optins.json is ignored.
 // The first start with this file keeps each one only for agents that really used it: tool calls that ran (role "tool"
 // in the engine's state.db, the last 14 days), never mentions in logs.
+import {writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,copyFile,stat} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
@@ -56,7 +57,7 @@ export function createOptins({DATA,HERMES_HOME,listAgents,readConfig,python,live
  const FILE=path.join(DATA,'agent-optins.json');let db=null;
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const load=async()=>db||=await readFile(FILE,'utf8').then(JSON.parse).catch(()=>null);
- const save=async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(db,null,1));await rename(t,FILE)};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const exec=run||((cmd,args)=>new Promise(res=>execFile(cmd,args,{timeout:120000,maxBuffer:8e6},(e,o,er)=>res({ok:!e,out:String(o||''),err:String(er||e?.message||'')}))));
 
  // on for this agent? Copies follow their agent. Before the first-start count has run, everything stays as it was (on),

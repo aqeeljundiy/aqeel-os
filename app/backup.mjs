@@ -5,6 +5,7 @@
 // Drive bin. A restore test downloads the newest backup, decrypts and unpacks it into a scratch folder and checks the
 // important files. The Google account, the time, how many to keep and the Drive folder are settings (System › Health).
 // Restoring: RESTORE.md.
+import {readStore,writeStore} from './store.mjs';
 import {spawn} from 'node:child_process';
 import {readFile,writeFile,mkdir,rm,stat,lstat,readdir,chmod,rename,copyFile,symlink,readlink,utimes,unlink} from 'node:fs/promises';
 import {createReadStream,createWriteStream,openSync,writeSync,closeSync,existsSync} from 'node:fs';
@@ -160,11 +161,11 @@ export const staleBackup=(at,since,now=Date.now(),hours=STALE_H)=>{const age=now
 export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=process.env.BACKUP_GOOGLE_ACCOUNT||'',notify=()=>{},solved=()=>{},restored=()=>{},stopEngine=async()=>{},startEngine=async()=>{},fetchImpl=fetch,tar='tar',TMP='/tmp',LOCALDIR=path.join(HOME,'aqeelos-local-backups'),MIN=1e6,disk:diskImpl,mem=memFree,drop=dropCache,PIECE=64*1024*1024,
  detach=false,jobCmd=null,jobPoll=5000,jobQuiet=3*60e3,readOnly=false,now=()=>Date.now()}){   // detach: the backup runs in its own process (backup-job.mjs) and outlives an app restart; readOnly: that process never writes backups.json
  const STATE=path.join(DATA,'backups.json'),KEYF=path.join(DATA,'backup-key'),JOURNAL=path.join(DATA,'restore-journal.jsonl');let state=null,running=null,job=null,preparing=null,copying=false,held=false,testing=null,prep=null;   // prep: the running Prepare's stop switch
- const load=async()=>{if(!state){try{state=JSON.parse(await readFile(STATE,'utf8'))}catch{state={}}
+ const load=async()=>{if(!state){state=await readStore(STATE)
    // the old switched-off restore's "running" mark (before 7 Nov 2026)
    if(state.restore?.running){state.restore={...state.restore,running:false,ok:false,phase:'failed',error:'Interrupted: aqeelOS stopped during the restore.'};await save().catch(()=>{})}
    if(state.restore?.phase==='preparing'){state.restore={...state.restore,phase:'failed',ok:false,error:'Interrupted: aqeelOS stopped while the backup was being prepared. Nothing on the box was changed.'};await save().catch(()=>{})}}return state};
- const save=async()=>{if(readOnly)return;await mkdir(DATA,{recursive:true});await writeFile(STATE,JSON.stringify(state,null,1))};
+ const save=async()=>{if(readOnly)return;await mkdir(DATA,{recursive:true});await writeStore(STATE,JSON.stringify(state,null,1))};
  const settings=()=>({...DEFAULTS,...(ENV_ACCOUNT?{account:'google_token_'+ENV_ACCOUNT+'.json'}:{}),...(state?.settings||{})});
  const tokenFile=()=>settings().account||'google_token.json';
  // the key that encrypts every backup (made once; admins see it under System › Health to keep it somewhere safe)

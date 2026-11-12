@@ -6,6 +6,7 @@
 // in its next turn (contextLines, like conflict answers) until it calls question_done. Same shape as rule-conflicts.mjs
 // (file / open / answer / answersFor / ack / contextLines), kept in its own file and store (questions.json).
 // Telegram: the app sends owner alerts as plain text (relay.sendAs has no inline buttons), so a question is not sent there.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
@@ -22,8 +23,8 @@ export function cleanQuestion(o){const question=clip(o?.question,240);if(!questi
 
 export function createQuestions({DATA,names=a=>a,now=()=>Date.now(),log=m=>console.log(m),onAnswer=async()=>{}}){
  const FILE=path.join(DATA,'questions.json');let db=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.items||=[]}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.items||=[]}return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  // asker: {kind:'fixer'|'agent'|'app', agent, issue}. The same open question from the same asker is one (asked once)
  async function file(asker,o){await load();const c=cleanQuestion(o),a=asker||{};
   const have=db.items.find(x=>x.state==='open'&&x.kind===(a.kind||'app')&&(x.agent||'')===(a.agent||'')&&(x.issue||'')===(a.issue||'')&&norm(x.question)===norm(c.question));

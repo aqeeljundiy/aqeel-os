@@ -1,3 +1,4 @@
+import {setStoreHooks,sweepTmp,writeStore} from './store.mjs';
 import {spawn} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import {setDefaultResultOrder} from 'node:dns';
@@ -193,7 +194,7 @@ function cookieId(req){const m=/(?:^|;\s*)hui=([^;]+)/.exec(req.headers.cookie||
  const a=Buffer.from(sign(v)),b=Buffer.from(sig);if(!(a.length===b.length&&timingSafeEqual(a,b)&&Number(exp)>Date.now()))return null;
  // "Sign out everywhere": cookies issued before that moment no longer count
  const cut=revoked[id];if(cut&&Number(exp)-SESSION_DAYS*864e5<cut)return null;return id}
-async function revokeSessions(uid){revoked[uid]=Date.now();const f=path.join(DATA,'session-revoke.json');await writeFile(f+'.tmp',JSON.stringify(revoked));await rename(f+'.tmp',f)}
+async function revokeSessions(uid){revoked[uid]=Date.now();const f=path.join(DATA,'session-revoke.json');await writeStore(f,JSON.stringify(revoked))}
 const validCookie=req=>!!cookieId(req);
 const cookieAttrs=max=>`Path=/; HttpOnly; SameSite=Strict; Max-Age=${max}${SECURE_COOKIE?'; Secure':''}`;
 function checkPassword(pw){const [kind,salt,hash]=PW_HASH.split(':');if(kind!=='scrypt'||!salt||!hash)return false;const got=scryptSync(String(pw),Buffer.from(salt,'hex'),64);const want=Buffer.from(hash,'hex');return got.length===want.length&&timingSafeEqual(got,want)}
@@ -289,7 +290,7 @@ const okProfile=n=>/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(n);
 async function readIds(){try{return JSON.parse(await readFile(IDS,'utf8'))}catch{return {}}}
 // for a change: missing is empty, but a file that does not parse stops it (never saved over, so nobody's identity is lost)
 async function readIdsForWrite(){let t;try{t=await readFile(IDS,'utf8')}catch(e){if(e.code==='ENOENT')return {};throw e}const j=JSON.parse(t);if(!j||typeof j!=='object'||Array.isArray(j))throw Error('not an object');return j}
-async function writeIds(ids){await mkdir(DATA,{recursive:true});const t=IDS+'.'+process.pid+'.'+randomBytes(4).toString('hex')+'.tmp';await writeFile(t,JSON.stringify(ids,null,1));await rename(t,IDS)}
+async function writeIds(ids){await mkdir(DATA,{recursive:true});await writeStore(IDS,JSON.stringify(ids,null,1))}
 // one change at a time, each on the file as it is then (read inside the queue, after its upload is in)
 let idsChain=Promise.resolve();const withIds=fn=>{const r=idsChain.then(async()=>{let ids;try{ids=await readIdsForWrite()}catch(e){throw Object.assign(Error('The agents’ names and pictures could not be read, so nothing was changed. Try again, or ask an admin to check identities.json.'),{status:500,cause:e})}return fn(ids)});idsChain=r.catch(()=>{});return r};
 async function setDisplayName(profile,name){
@@ -645,7 +646,7 @@ async function loopGuard(a,all){if(a.split('--')[0]==='default')return;const hom
   const keep=m[2].split(',').map(x=>x.trim()).filter(x=>{const d=x.replace(/\D/g,'');if(d&&others.has(d)){removed.push(x);changed=true;return false}return !!x});return m[1]+keep.join(',')});return changed?next.join('\n'):null})).catch(()=>{});
  const apF=path.join(home,'platforms','pairing','whatsapp-approved.json');const ap=await readFile(apF,'utf8').then(JSON.parse).catch(()=>null);
  if(ap&&typeof ap==='object'){let ch=false;for(const k of Object.keys(ap))if(others.has(k.replace(/\D/g,''))){delete ap[k];removed.push(k);ch=true}
-  if(ch){await writeFile(apF+'.tmp',JSON.stringify(ap));await rename(apF+'.tmp',apF)}}
+  if(ch){await writeStore(apF,JSON.stringify(ap))}}
  if(removed.length){platCache.delete(a);console.log('loop guard:',a,'no longer answers other agents\' WhatsApp numbers:',removed.join(', '))}}
 async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};const st=await getStatus();await users.load();
  for(const a of only?[only]:await listAllProfiles()){try{
@@ -973,6 +974,10 @@ const morning=createMorning({DATA,tz:()=>tzNow,send:text=>ownerSend(text,'telegr
 if(LIVE_APP)setInterval(()=>morning.tick().catch(e=>console.warn('morning line:',e.message)),5*60e3).unref();
 const newsInfo=(kind,text,detail)=>{const ok=/works again|fixed|back on|working again|passed/i.test(text);return news.add({aud:'admins',group:'ev|'+kind+'|'+String(text).replace(/\(.*?\)|[0-9]+/g,'#').replace(/\s+/g,' ').trim().slice(0,100),icon:kind==='down'?'activity':ok?'check':'refresh',kind:ok?'ok':'blue',title:text,text:detail,go:'/system/health',label:'Health'})};
 const bottlenecks=createBottlenecks({DATA,onInfo:newsInfo,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
+// a state file that cannot be read is left untouched and nothing is saved over it (store.mjs, audit H4): one Health item per file, gone when it reads again
+setStoreHooks({bad:(file,why)=>bottlenecks.event('store','aqeelOS cannot read '+path.basename(file),'The file is left exactly as it is and nothing is saved over it, so what it holds is not lost; changes to it are refused until it reads again. Repair '+file+' or put back its copy ('+path.basename(file)+'.last-good), then it carries on by itself. ('+why+')',{topic:'store|'+path.basename(file)}).catch(()=>{}),
+ good:file=>bottlenecks.resolve('store|'+path.basename(file)).catch(()=>{})});
+sweepTmp(DATA).then(n=>{if(n)console.log('store: removed '+n+' temp file(s) a cut-off write left in the data folder')}).catch(()=>{});
 // agents' instructions with a history, contradiction flags and approval for rewrites (instructions.mjs)
 const instructions=createInstructions({DATA,HERMES_HOME,DASH:DASH.origin,DASH_TOKEN,python:enginePython,root,names:a=>agentName(a),live:LIVE_APP});
 if(LIVE_APP){setTimeout(()=>listAgents().then(l=>instructions.tick(l)).catch(()=>{}),150000).unref();setInterval(()=>listAgents().then(l=>instructions.tick(l)).catch(()=>{}),30*60000).unref()}
@@ -1278,7 +1283,7 @@ async function trueWhatsApp(agent,v){const list=v?.platforms||v;if(!Array.isArra
    or the bridge stopped) is marked needs_link, so every screen offers the same "Link again". */
 const PAUSED_FILE=path.join(DATA,'channel-paused.json');
 const pausedLoad=async()=>{try{return JSON.parse(await readFile(PAUSED_FILE,'utf8'))}catch{return {}}};
-const pausedSave=async v=>{await writeFile(PAUSED_FILE+'.tmp',JSON.stringify(v,null,1));await rename(PAUSED_FILE+'.tmp',PAUSED_FILE)};
+const pausedSave=async v=>{await writeStore(PAUSED_FILE,JSON.stringify(v,null,1))};
 /* Pause / resume a channel: the engine's own on/off (an explicit "off" beats a saved login or token), so a paused
    WhatsApp keeps its link and a paused Telegram its bot; picking an agent again turns it on with no new QR. */
 async function setChannelOn(agent,platform,on){const h={'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'};
@@ -1409,7 +1414,7 @@ async function waSettingsPending(agent){try{
   if(Object.keys(run).length)return Object.entries(now).some(([k,v])=>k in run&&!same(run[k],v))}
  const hash=createHash('sha1').update(Object.keys(now).sort().map(k=>k+'='+now[k]).join('\n')).digest('hex');
  bridgeEnv||=await readFile(BRIDGE_ENV,'utf8').then(JSON.parse).catch(()=>({}));const s=bridgeEnv[agent];
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(BRIDGE_ENV+'.tmp',JSON.stringify(bridgeEnv));await rename(BRIDGE_ENV+'.tmp',BRIDGE_ENV)};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(BRIDGE_ENV,JSON.stringify(bridgeEnv))};
  if(!s||s.pid!==info.pid||Math.abs(s.start-info.start)>5000||!s.wa){bridgeEnv[agent]={pid:info.pid,start:info.start,wa:hash};await save();return false}   // first sight (or a record from before this rule): its baseline
  return s.wa!==hash}catch{return false}}
 /* Channel checks. "Check connection" asks the engine fresh and, for WhatsApp, also looks for its running bridge.
@@ -3787,7 +3792,7 @@ const server=createServer(async(req,res)=>{
       const r=await fetch(DASH.origin+'/api/messaging/platforms/'+encodeURIComponent(kp==='QQ'?'qqbot':kp.toLowerCase())+'?profile='+encodeURIComponent(ag),{method:'PUT',headers:{...hh,'content-type':'application/json'},body:JSON.stringify(engineChange(k,val)),signal:AbortSignal.timeout(30000)}).catch(()=>null);
       return {changed:true,hot:!!(r?.ok&&(await r.json().catch(()=>({}))).hot_served)}}),
      revoke:(platform,ids)=>envQueue(envF,()=>withFlock(path.join(pdir,'.lock'),async()=>{const f=path.join(pdir,platform+'-approved.json');let d;try{d=JSON.parse(await readFile(f,'utf8'))}catch(e){if(e.code==='ENOENT')return;throw new Error('The approved list for '+platform+' could not be read, so it was left as it is.')}
-      const {data,gone}=approvedWithout(d,platform,ids,waMapping(home));if(!gone.length)return;const t=f+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(data,null,2),{mode:0o600});await rename(t,f)},10)),
+      const {data,gone}=approvedWithout(d,platform,ids,waMapping(home));if(!gone.length)return;await writeStore(f,JSON.stringify(data,null,2),{mode:0o600})},10)),
      ...(ag==='default'?{}:{mainEnv:()=>readFile(path.join(HERMES_HOME,'.env'),'utf8').catch(()=>'')})};
     let out;try{out=await removePerson(io,{pf,id,every,clear})}catch(e){platCache.delete(ag);return send(res,e.status||500,{error:e.message})}
     if(id&&id!=='*'){const mp=waMapping(home);await editAdded(all=>{let ch=false;for(const k2 of Object.keys(all)){const [a2,p2,...r2]=k2.split('|');if(a2===ag&&(every||p2===pf)&&samePerson(p2,r2.join('|'),id,mp)){delete all[k2];ch=true}}return ch?undefined:false}).catch(()=>{})}

@@ -4,6 +4,7 @@
 // Resend, Brevo…), which is what makes mail arrive reliably. Settings live in DATA/mail.json.
 // Direct mail must come from a domain whose SPF lists this box (MAIL_DOMAIN) and greet with the box's reverse
 // name (MAIL_HELO): Gmail refuses senders with neither SPF nor DKIM. Defaults are neutral; set both in the app's env.
+import {writeStore} from './store.mjs';
 import net from 'node:net';
 import tls from 'node:tls';
 import {resolveMx} from 'node:dns/promises';
@@ -20,7 +21,7 @@ export function createMail(DATA){
   const sub=process.env.MAIL_DOMAIN&&new RegExp('@[a-z0-9-]+\\.'+DOM.replace(/\./g,'\\.')+'>?$','i');
   if(c.mode!=='smtp'&&sub&&sub.test(c.from||'')){c.from=c.from.replace(/@[^>]+/,'@'+DOM);c.helo=c.helo||HELO}
   if(c.mode!=='smtp'&&!c.helo)c.helo=HELO;return c};
- const save=async c=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(c,null,1),{mode:0o600});await rename(FILE+'.tmp',FILE)};
+ const save=async c=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(c,null,1),{mode:0o600})};
  const addr=s=>(/<([^>]+)>/.exec(s)||[,s])[1].trim();
 
  // one SMTP conversation; resolves with the server's last reply

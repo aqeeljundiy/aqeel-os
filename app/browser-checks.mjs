@@ -4,6 +4,7 @@
 // the version that is live (<app>/.deployed.tgz). Result in DATA/browser-checks.json; a failure is ONE Health item (topic
 // browser-checks), a pass takes it away. Never undoes a deploy. Only on a Docker box (~/services.sh and .deployed.tgz); install.json
 // "nightlyBrowserChecks": false switches it off.
+import {writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,copyFile,stat} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {homedir} from 'node:os';
@@ -19,7 +20,7 @@ export function createBrowserChecks({DATA,APP,HOME=homedir(),settings=()=>({}),b
  live=async()=>({box:true,sha:''}),timeoutMs=80*60e3}){
  const FILE=path.join(DATA,'browser-checks.json');let running=false;
  const read=async()=>{try{return JSON.parse(await readFile(FILE,'utf8'))}catch{return {}}};
- const write=async d=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(d,null,1));await rename(FILE+'.tmp',FILE)};
+ const write=async d=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(d,null,1))};
  const exists=f=>stat(f).then(()=>true,()=>false);
  // is an update running now (scripts/auto-update.mjs writes state.running and removes it when done; one left behind for 90 minutes is stale)
  async function updating(){try{const a=JSON.parse(await readFile(path.join(DATA,'auto-update.json'),'utf8'));return !!a.running&&now()-a.running.at<90*60e3}catch{return false}}

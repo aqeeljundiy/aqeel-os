@@ -3,6 +3,7 @@
 // each user's processes hold gives a number per agent. The app's own user is the main agent and the engine together.
 // A sample every 10 minutes; one point an hour (the mean of its samples) kept 7 days in DATA/agent-memory.json.
 // A warning when the daily mean rose for 3 days in a row and grew by at least half a GB to 1 GB or more.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {userInfo} from 'node:os';
@@ -23,8 +24,8 @@ export function growth(points){const m=dailyMeans(points);if(m.length<3)return n
 
 export function createAgentMemory({DATA,listAgents=async()=>[],boxMemory=async()=>null,ps=null,now=()=>Date.now(),self=userInfo().username,log=m=>console.log(m)}){
  const FILE=path.join(DATA,'agent-memory.json');let db=null,samples=new Map(),timer=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.agents||={}}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(db));await rename(t,FILE)};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.agents||={}}return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db))};
  const readPs=ps||(()=>new Promise(res=>execFile('ps',['-eo','rss=,user='],{maxBuffer:8e6},(e,o)=>res(e?'':String(o)))));
  // what each agent holds right now (bytes)
  async function current(){const [txt,agents]=await Promise.all([readPs(),listAgents().catch(()=>[])]);const out={};

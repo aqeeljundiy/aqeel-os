@@ -2,6 +2,7 @@
 // person asks for it. The file is copied as it is now into the UI's data folder and served at
 // <PUBLIC_URL>/pub/<code>/<name> without a sign-in; the agent can list its links and stop one.
 // Served in a sandbox (no scripts, no forms) so a web page or SVG shared this way can never act as aqeelOS.
+import {writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,rm,stat,copyFile,realpath} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {randomBytes} from 'node:crypto';
@@ -15,7 +16,7 @@ const PRIVATE=/(^|\/)(\.secrets|\.ssh|\.gnupg|mcp-tokens)(\/|$)|(^|\/)(\.env[\w.
 export function createPublicFiles({DATA,HERMES_HOME,PUBLIC_URL,types={}}){
  const DIR=path.join(DATA,'public'),FILE=path.join(DATA,'public.json');let db=null;
  const load=async()=>db||=await readFile(FILE,'utf8').then(JSON.parse).catch(()=>({links:{}}));
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const urlOf=(code,l)=>PUBLIC_URL+'/pub/'+code+'/'+encodeURIComponent(l.name);
  // where an agent's files can come from: its own folder and engine home (the main agent: the whole main user), and /tmp
  const roots=a=>a==='default'?[homedir(),'/tmp']:[path.join(homedir(),'workspaces',a),path.join(HERMES_HOME,'profiles',a),'/tmp'];

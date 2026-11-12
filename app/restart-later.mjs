@@ -5,6 +5,7 @@
 // entry of scripts/services.sh does: the same path as everything else, no loop of its own). App and tool-server changes need none: the engine re-reads config.yaml by itself
 // ("MCP servers reconciled with config"). Restarts the owner asks for (Restart agents, channels, a restore) and
 // repairs (no engine running, wrong home) stay immediate. Any immediate restart also covers what was waiting.
+import {writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,unlink} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -17,7 +18,7 @@ export const inQuiet=(date,tz)=>{const h=hourIn(date,tz);return h>=QUIET.from&&h
 export function createRestartLater({DATA,restart,tz=()=>'',now=()=>new Date(),log=m=>console.log(m),inWindow=d=>inQuiet(d,tz()),label=()=>'the quiet hours ('+QUIET.from+':00-'+QUIET.to+':00)'}){
  const FILE=path.join(DATA,'restart-later.json'),REQ=path.join(DATA,'restart-request.json');let st=null;
  const load=async()=>st||=await readFile(FILE,'utf8').then(JSON.parse).catch(()=>({whys:[],since:0}));
- const save=async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(st));await rename(t,FILE)};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(st))};
  // queue a reason; the same reason once
  async function add(why){await load();const w=String(why||'settings changed').slice(0,160);if(!st.whys.includes(w)){st.whys.push(w);st.whys=st.whys.slice(-20)}
   if(!st.since)st.since=now().getTime();await save();log('engine restart waits for '+label()+': '+w);return {queued:true,whys:[...st.whys]}}

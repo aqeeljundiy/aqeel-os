@@ -6,6 +6,7 @@
 // each deploy with its automatic undo (DATA/live-test.json, box-live.sh) and automatic rollbacks (an agent that stopped
 // answering after changing itself; agent-versions). Test
 // agents and planned tests are left out. Sent once a day (DATA/morning.json).
+import {writeStore} from './store.mjs';
 import {readFile,readdir,stat,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {similar} from './issues.mjs';
@@ -111,6 +112,6 @@ export function createMorning({DATA,deployLogs='/tmp',collect,send,tz=()=>'Asia/
  async function tick(){const t=now(),p=local(t);if(+p.hour*60+ +p.minute<AT.hour*60+AT.minute)return null;const day=p.year+'-'+p.month+'-'+p.day;
   const st=await readFile(FILE,'utf8').then(JSON.parse).catch(()=>({}));if(st.day===day)return null;
   // marked first: a send that fails lands in the bell (ownerSend) and is not sent again every few minutes
-  await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify({day,at:t}));await rename(FILE+'.tmp',FILE);
+  await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify({day,at:t}));
   const text=await build(t);try{await send(text);log('morning line sent: '+text.replace(/\n/g,' / '))}catch(e){log('morning line: not sent ('+e.message+'), it is in the bell')}return text}
  return {build,tick}}

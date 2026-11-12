@@ -5,6 +5,7 @@
 // work on their own computer; nobody types git commands. The members list says who may pull and who may also push, and is
 // checked on every request. History is aqeelOS's own record of each push (who, when, what changed), so a name written in
 // a commit can never pretend to be someone else. Pushes only move main forward: no deleting, no rewriting history.
+import {readStore,writeStore} from './store.mjs';
 import {spawn} from 'node:child_process';
 import {readFile,writeFile,mkdir,rename,chmod} from 'node:fs/promises';
 import {randomBytes} from 'node:crypto';
@@ -30,9 +31,9 @@ export function summarize(files){const by={A:[],M:[],D:[]};let chats=false;for(c
 
 export function createTeamFolders({DATA,git='git',names=uid=>uid,known=()=>true}){
  const HUB=path.join(DATA,'team-folders'),FILE=path.join(DATA,'team-folders.json');let db=null;
- const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.folders||={};return db};
+ const load=async()=>{if(db)return db;db=await readStore(FILE);db.folders||={};return db};
  // one write at a time with its own temp name (as code.mjs)
- let saving=Promise.resolve();const save=()=>saving=saving.catch(()=>{}).then(async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.'+Date.now()+'.tmp';await writeFile(t,JSON.stringify(db,null,1),{mode:0o600});await rename(t,FILE)});
+ let saving=Promise.resolve();const save=()=>saving=saving.catch(()=>{}).then(async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1),{mode:0o600})});
  // git here never reads the box's own git settings or hooks from elsewhere
  const genv={PATH:process.env.PATH||'/usr/bin:/bin',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',HOME:HUB,LANG:'C'};
  const run=(args,cwd)=>new Promise(res=>{let out='',err='';const c=spawn(git,args,{cwd,env:genv});c.stdout.on('data',d=>{out=(out+d).slice(-400000)});c.stderr.on('data',d=>{err=(err+d).slice(-4000)});c.on('error',e=>res({code:-1,out,err:e.message}));c.on('close',code=>res({code,out,err}))});

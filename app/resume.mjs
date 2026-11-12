@@ -24,6 +24,7 @@
 // second try), nothing older than the limit (2 h unless the install says otherwise), three interruptions of the same
 // thing and it stops, a provider that does not answer is tried again later instead of dropped.
 // The rules are pure and tested (scripts/resume.test.mjs); the engine side is resume-engine.mjs; server.mjs wires both.
+import {storeHooks} from './store.mjs';
 import {readFileSync,writeFileSync,mkdirSync,renameSync,unlinkSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
@@ -134,7 +135,7 @@ export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=t
  probeChannel=async()=>null,probeDeleg=async()=>null,probeFixer=async()=>null,kickFixer=async()=>({ok:true}),nameOf=a=>a}={}){
  const FILE=path.join(DATA,'resume','journal.json'),NOTE=path.join(DATA,'resume','planned.json'),PROC=randomBytes(6).toString('hex');
  let j=null;
- const load=()=>{if(j)return j;try{j=JSON.parse(readFileSync(FILE,'utf8'))}catch{j=null}if(!j||typeof j!=='object'||!Array.isArray(j.entries))j={v:1,entries:[],done:[],last:null};j.done||=[];return j};
+ const load=()=>{if(j)return j;try{j=JSON.parse(readFileSync(FILE,'utf8'))}catch(e){j=null;if(e.code!=='ENOENT'){const keep=FILE+'.corrupt-'+now();try{renameSync(FILE,keep)}catch{}log('resume: the journal could not be read ('+e.message+'); it is kept as '+path.basename(keep)+' and a new one starts');try{storeHooks.bad?.(FILE,'kept as '+path.basename(keep)+': '+e.message)}catch{}}}if(!j||typeof j!=='object'||!Array.isArray(j.entries))j={v:1,entries:[],done:[],last:null};j.done||=[];return j};
  // written at once and whole (a small file): a crash a moment later still finds it
  const save=()=>{try{mkdirSync(path.dirname(FILE),{recursive:true});j.saved=now();const t=FILE+'.'+process.pid+'.tmp';writeFileSync(t,JSON.stringify(j));renameSync(t,FILE)}catch(e){log('resume: journal not saved: '+e.message)}};
  const find=id=>load().entries.find(e=>e.id===id);

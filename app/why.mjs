@@ -3,6 +3,7 @@
 // chat message that led to it (the newest message a person sent that agent), so whoever decides sees the context.
 // It also keeps where each connected app on an agent came from: added by aqeelOS when the agent was set up, asked for
 // by the agent in a chat, or added by a person. An app nobody asked for doesn't nag for a sign-in.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
@@ -29,8 +30,8 @@ function readAccount(text){const flat={};
  return workspace||user||email?{workspace,user,email}:null}
 export function createWhy({DATA,HERMES_HOME,python}){
  const FILE=path.join(DATA,'why.json');let db=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.apps||={}}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.apps||={}}return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  // the newest message a person sent this agent (any chat or channel): what the agent was working on when it asked
  async function from(agent){const p=await python().catch(()=>null);if(!p)return null;

@@ -9,6 +9,7 @@
 // and payment.paid event follow as before.
 // Once a verified callback has arrived for an agent and provider, paid-labels polls that provider every 10 minutes instead of every minute
 // (the slow fallback for a callback the provider never sent). Seen-state: DATA/payment-callbacks.json {seen:{"<agent>|<provider>":{at,n}}}.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import {createHmac,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
@@ -29,8 +30,8 @@ export const callbackPath=(provider,agent)=>'/hooks/pay/'+provider+'/'+agent;
 
 export function createPaymentCallbacks({DATA,WORK,nudge=async()=>{},now=()=>Date.now(),log=m=>console.log(m),readSecret}){
  const F=path.join(DATA,'payment-callbacks.json');let db=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(F,'utf8'))}catch{db={}}db.seen||={}}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});const t=F+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(db,null,1),{mode:0o600});await rename(t,F)};
+ const load=async()=>{if(!db){db=await readStore(F);db.seen||={}}return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(F,JSON.stringify(db,null,1),{mode:0o600})};
  const secret=readSecret||(async(agent,provider)=>(await readFile(path.join(WORK,agent,'.secrets',SECRET[provider]),'utf8').catch(()=>'')).trim());
  // true while a verified callback of this provider arrived for this agent in the last 14 days
  async function active(agent,provider){await load();const s=db.seen[agent+'|'+provider];return !!s&&now()-s.at<ACTIVE_MS}

@@ -2,6 +2,7 @@
 // "hermes config set" rewrites the whole config.yaml, so two writers at once can undo each other (or make a
 // plugin enable refuse with "configuration changed"). Every aqeelOS writer for one agent goes through this
 // queue, one at a time, and each command's result is checked instead of assumed.
+import {writeStore} from './store.mjs';
 import {execFile,spawn} from 'node:child_process';
 import {readFile,writeFile,rename,readdir,stat,mkdir} from 'node:fs/promises';
 import {homedir} from 'node:os';
@@ -91,4 +92,4 @@ let STATUS=null,stChain=Promise.resolve();
 export function initStatus(DATA){STATUS=path.join(DATA,'agent-setup.json')}
 export async function getStatus(){if(!STATUS)return {};try{return JSON.parse(await readFile(STATUS,'utf8'))}catch{return {}}}
 export function setStatus(name,patch){if(!STATUS)return Promise.resolve();stChain=stChain.then(async()=>{const s=await getStatus();
- if(patch===null)delete s[name];else s[name]={...(s[name]||{}),...patch};await mkdir(path.dirname(STATUS),{recursive:true});await writeFile(STATUS+'.tmp',JSON.stringify(s,null,1));await rename(STATUS+'.tmp',STATUS)}).catch(()=>{});return stChain}
+ if(patch===null)delete s[name];else s[name]={...(s[name]||{}),...patch};await mkdir(path.dirname(STATUS),{recursive:true});await writeStore(STATUS,JSON.stringify(s,null,1))}).catch(()=>{});return stChain}
