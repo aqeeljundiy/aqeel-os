@@ -1,0 +1,33 @@
+# Who must approve a change (security audit CR-9, 12 Nov 2026; docs/cloud-fixer.md).
+# With branch protection "Require review from Code Owners" (and 0 other approvals), a pull request merges without a person
+# only when every file it touches has NO owner here. The last matching line wins; a line with no owner clears it.
+# GitHub reads this file from main, so a pull request cannot change who must approve it.
+
+# everything is the owner's ...
+*                               @aqeeljundiy
+
+# ... except what a fixer may change by itself: the app, tests, engine patches
+/app/
+/scripts/*.test.mjs
+/engine/patches/
+
+# ... and back under the owner inside the app: the fixers, sign-in, sessions, rights, updates, keys
+/app/cloud-fixer.mjs            @aqeeljundiy
+/app/issues.mjs                 @aqeeljundiy
+/app/fixer-git.mjs              @aqeeljundiy
+/app/fixer-watch.mjs            @aqeeljundiy
+/app/untrusted.mjs              @aqeeljundiy
+/app/users.mjs                  @aqeeljundiy
+/app/account-auth.mjs           @aqeeljundiy
+/app/proxy-agent.mjs            @aqeeljundiy
+/app/agent-settings.mjs         @aqeeljundiy
+/app/agent-access.mjs           @aqeeljundiy
+/app/client-ip.mjs              @aqeeljundiy
+/app/install.mjs                @aqeeljundiy
+/app/install-routes.mjs         @aqeeljundiy
+/app/local-owner.mjs            @aqeeljundiy
+/app/secret-links.mjs           @aqeeljundiy
+/app/code.mjs                   @aqeeljundiy
+/app/backup.mjs                 @aqeeljundiy
+/app/live.mjs                   @aqeeljundiy
+/app/apply-on-start.mjs         @aqeeljundiy
