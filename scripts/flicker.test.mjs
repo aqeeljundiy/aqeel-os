@@ -254,5 +254,5 @@ test('a part that lands late keeps the space it took last time (Keep): Usage\'s 
  const gone={style:{minHeight:'1px'},isConnected:false,offsetHeight:0};K().note('usage.spend',gone);assert.equal(JSON.parse(mem.get('ph-here'))['usage.spend@32'],402,'a part that left the page records nothing');
  width=390;p=el(0);assert.equal(K().hold('usage.spend',p),0,'another window width (a phone): its own height, not the desk one');
  assert.doesNotMatch(grab('core.js','const Keep={'),/\bstore\./,'kept in this browser only: what goes through store follows the person to every device');assert.equal(/^(hui-|draft:|cronSeen:|chAlert:|cronFail:)/.test('ph-here'),false);
- const s=src('schedules.js');assert.match(s,/Keep\.hold\('usage\.spend',panel\)/);assert.match(s,/Keep\.note\('usage\.spend',panel\)/);
+ const s=src('schedules.js');assert.ok(s.includes("const kk='usage.spend:'+(S.viewAll?'all':S.viewAgent||'own');{const h=Keep.hold(kk,panel)"),'per view: all agents is taller than one');assert.ok(s.includes('Keep.note(kk,panel)'));
  assert.match(s,/<div class="skel" style="height:280px"><\/div>';/,'before it is known: as tall as it usually is where the page is slow, not 120 px')});
