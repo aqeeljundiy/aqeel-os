@@ -6,7 +6,7 @@
 // drawn again while pages change, no page moves while it loads (layout shift), no replayed fades, pop-ups fade in.
 // Pages that need the engine only show their "could not load" box here, so that text is not counted (SWEEP_LOOSE).
 // CHROME=<path> picks the browser; FLICKER_PAGES="#/system/settings #/system/health" picks the pages.
-import {spawn,spawnSync} from 'node:child_process';import {mkdtempSync,writeFileSync,readFileSync,existsSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import path from 'node:path';import {fileURLToPath} from 'node:url';import {randomBytes} from 'node:crypto';
+import {spawn,spawnSync} from 'node:child_process';import {mkdtempSync,writeFileSync,readFileSync,existsSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import path from 'node:path';import {fileURLToPath} from 'node:url';import {randomBytes} from 'node:crypto';import {createServer} from 'node:net';
 const ROOT=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const chromeBin=()=>{if(process.env.CHROME)return process.env.CHROME;
  for(const c of ['google-chrome','google-chrome-stable','chromium','chromium-browser']){const r=spawnSync('which',[c],{encoding:'utf8'});if(r.status===0&&r.stdout.trim())return r.stdout.trim()}
@@ -14,10 +14,12 @@ const chromeBin=()=>{if(process.env.CHROME)return process.env.CHROME;
 const bin=chromeBin();if(!bin){console.log('flicker check: skipped (no Chrome on this machine; set CHROME=<path>)');process.exit(process.env.CI?1:0)}
 const PAGES=(process.env.FLICKER_PAGES||'#/chat #/system/settings #/system/health #/models/models #/system/keys #/system/people #/system/activity #/help').split(/\s+/).filter(Boolean);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+// a port nothing listens on (a number picked at random met a port in use about one run in twenty: "the app did not start", 12 Nov 2026)
+const freePort=()=>new Promise((ok,no)=>{const s=createServer();s.once('error',no);s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>ok(p))})});
 // one run: its own data folder, ports and browser profile
 async function attempt(){
 const tmp=mkdtempSync(path.join(process.env.TMPDIR||tmpdir(),'aq-flicker-')),home=path.join(tmp,'home'),data=path.join(tmp,'data');
-const port=4500+Math.floor(Math.random()*300),cport=9500+Math.floor(Math.random()*300),BASE='http://127.0.0.1:'+port,pw=randomBytes(9).toString('base64url');
+const port=await freePort(),cport=await freePort(),BASE='http://127.0.0.1:'+port,pw=randomBytes(9).toString('base64url');
 const env={...process.env,HOME:home,USERPROFILE:home,UI_DATA_DIR:data,UI_PORT:String(port),UI_INSECURE_COOKIE:'1',AQEELOS_LIVE:'0'};
 spawnSync('mkdir',['-p',home,data]);
 const hash=spawnSync(process.execPath,[path.join(ROOT,'app','server.mjs'),'hash',pw],{encoding:'utf8',env}).stdout.trim();
@@ -37,12 +39,12 @@ try{
  await cdp('Network.enable');await cdp('Network.setCookie',{name:ck[0],value:ck.slice(1).join('='),url:BASE});
  await cdp('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
  await cdp('Page.enable');await cdp('Page.navigate',{url:BASE+'/#/chat'});await sleep(4000);
- const js=`window.SWEEP_ONLY=${JSON.stringify(PAGES)};window.SWEEP_LOOSE=1;window.SWEEP_DWELL=[1500,2500];`+readFileSync(path.join(ROOT,'scripts','sweep.js'),'utf8');
+ const js=`window.SWEEP_ONLY=${JSON.stringify(PAGES)};window.SWEEP_LOOSE=1;window.SWEEP_WATCH=2500;`+readFileSync(path.join(ROOT,'scripts','sweep.js'),'utf8');
  const r=await cdp('Runtime.evaluate',{expression:js,awaitPromise:true,returnByValue:true});ws.close();
  const v=r.result?.result?.value;if(typeof v!=='string')throw new Error('the check did not run: '+JSON.stringify(r.result?.exceptionDetails?.exception?.description||r).slice(0,600));
  const res=JSON.parse(v);
  if(res.bad){console.log('✗ flicker check: '+res.bad+' problem'+(res.bad>1?'s':'')+' on '+res.pages+' pages');for(const l of res.out)console.log('  '+l)}
- else{console.log(`✓ flicker check: ${res.pages} pages, the shell stayed as it was, most a page moved: ${res.worstShift} (limit 0.05)`);code=0}
+ else{console.log(`✓ flicker check: ${res.pages} pages, the shell stayed as it was, most a page moved: ${res.worstShift} (limit 0.05), slowest to settle: ${res.slowestAt||'-'} ${res.slowest} ms`);code=0}
 }catch(e){console.log('✗ flicker check could not run: '+(e?.message||e))}
 finally{chrome.kill('SIGKILL');server.kill('SIGKILL');await sleep(300);try{rmSync(tmp,{recursive:true,force:true})}catch{}}
 return code}

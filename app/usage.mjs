@@ -15,8 +15,13 @@ export function createUsage(DASH,TOKEN,DATA,opt={}){
   const got=[];let off=0;for(;off<CAP;off+=100){const pg=await page(agent,off);got.push(...pg);if(pg.length<100||pg.some(s=>at(s,true)<stop))break}
   let list=got;if(warm){const m=new Map(hit.list.map(s=>[s.id,s]));for(const s of got)m.set(s.id,s);list=[...m.values()]}
   const e={t:Date.now(),full:warm?hit.full:Date.now(),since:warm?hit.since:since,list};cache.set(agent,e);return e}
- async function chats(agent,since,active=false){const pick=e=>e.list.filter(s=>at(s,active)>=since);
+ // shown: numbers a page shows (Usage, Health's cost of the week), not ones a limit is checked against. Once the list is a minute old every ask used to
+ // wait for the engine again, agent by agent: 8 to 29 s on a busy box, on every visit to System › Usage and System › Health (12 Nov 2026). A shown list is
+ // given as it is (up to SHOWN_MS old) and read again behind it for the next ask; a limit (today) always waits for the new one, as before.
+ const SHOWN_MS=opt.shownMs??30*60000;
+ async function chats(agent,since,active=false,shown=false){const pick=e=>e.list.filter(s=>at(s,active)>=since);
   const hit=cache.get(agent);if(hit&&Date.now()-hit.t<TTL&&hit.since<=since)return pick(hit);
+  if(shown&&hit&&hit.since<=since&&Date.now()-hit.t<SHOWN_MS){if(!flying.get(agent)){const p=read(agent,since).finally(()=>{if(flying.get(agent)?.p===p)flying.delete(agent)});flying.set(agent,{since,p});p.catch(e=>console.warn('usage',agent,e.message))}return pick(hit)}
   // a read already under way for this agent serves everyone asking meanwhile (Usage, the people table and limits at once)
   const f=flying.get(agent);if(f){const e=await f.p;if(f.since<=since)return pick(e)}
   const p=read(agent,since).finally(()=>{if(flying.get(agent)?.p===p)flying.delete(agent)});flying.set(agent,{since,p});return pick(await p)}
@@ -45,7 +50,7 @@ export function createUsage(DASH,TOKEN,DATA,opt={}){
  // ownerOf(sessionId) → person id
  // agents that could not be read are named in `failed`, the rest still add up
  async function breakdown(agents,days,ownerOf){const since=Date.now()/1000-days*86400;const byPerson={},byAgent={},byModel={},failed=[];
-  const per=await each(agents,a=>chats(a,since).catch(e=>{console.warn('usage',a,e.message);failed.push(a);return []}));
+  const per=await each(agents,a=>chats(a,since,false,true).catch(e=>{console.warn('usage',a,e.message);failed.push(a);return []}));
   agents.forEach((a,i)=>{for(const s of per[i]){const p=ownerOf(s.id,s);add(byPerson[p]||=blank(),s);add(byAgent[a]||=blank(),s);add(byModel[s.model||'unknown']||=blank(),s)}});
   return {days,byPerson,byAgent,byModel,...(failed.length?{failed}:{})}}
  // today's use counts only what a chat added today: each chat's totals at the first sight of the day are kept

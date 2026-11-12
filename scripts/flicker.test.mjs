@@ -121,10 +121,6 @@ test('late cards open their space and lists change height smoothly',()=>{
  const core=src('core.js');assert.match(core,/watchReveal\(v\);watchLate\(v\);/);assert.match(core,/const Late=\{/);assert.match(core,/function smoothHeight\(box,fn\)/);
  assert.match(src('connections.js'),/smoothHeight\(box,draw\)/)});
 
-test('the sweep never counts a first entrance as a replay: text round a block still fading in is not "shown" yet',()=>{
- const sw=readFileSync(new URL('./sweep.js',import.meta.url),'utf8');
- assert.match(sw,/const snap=\(\)=>\{shown=new Set\(\);const fl=\$\('#view'\)\?\.getAnimations\(\{subtree:true\}\)/);
-assert.match(sw,/if\(el\.closest\('\.staged'\)\|\|fl\.some\(f=>el\.contains\(f\)\)\)continue/,'a page still drawn out of sight is not on screen')});
 
 /* ---------- 12 Nov 2026: a page is drawn out of sight and shown whole; last-known answers while it is drawn ---------- */
 test('opening a page never blanks the view: render hands the drawing to Stage, which keeps what is on screen until the new page is whole',()=>{
@@ -185,9 +181,59 @@ test('a file tile and a file row are not a button inside a button: the open acti
  const f=src('files.js');
  for(const name of ['const tile=','const row=','const upTile=','const upRow=']){const l=f.split('\n').find(x=>x.includes(name));assert.ok(l,name);assert.doesNotMatch(l,/tabindex="0"/,name+' holds no tab stop of its own');assert.match(l,/ rm[ "]/,name+' is a row-main row');assert.match(l,/<button type="button" class="row-main" data-act="f-(open|cd)"/,name)}
  assert.match(src('app.css'),/\.ftile\.rm \.fmore\{position:absolute;z-index:1\}/)});
-test('Stage waits up to 6 s for a page that reads slowly (Health, Settings on a busy box) so it is shown whole; the sweep treats the page own first show as its entrance',()=>{
- assert.ok(src('core.js').includes('const Stage={ms:450,max:6000,'));
- assert.ok(readFileSync(new URL('./sweep.js',import.meta.url),'utf8').includes("if(t.id==='pg'||t.closest?.("))});
 test('the same page drawn again (Stage.same) shows no entrance again: its animations are finished at the swap; the sweep ignores what still runs out of sight',()=>{
  const c=src('core.js');assert.ok(c.includes("live.remove();pg.classList.remove('staged');Calm.settle(pg);"));assert.ok(c.includes(' settle(n){for(const a of n.getAnimations'));
  assert.ok(readFileSync(new URL('./sweep.js',import.meta.url),'utf8').includes("if(t.isConnected&&!t.closest('.staged')&&t.getAnimations()")); assert.ok(readFileSync(new URL('./sweep.js',import.meta.url),'utf8').includes("fetch('/ui/connections?fresh=1'"))});
+/* ---------- 12 Nov 2026: the sweep waits for a page to have settled (real conditions, no timer) and says precisely what a flicker is ---------- */
+test('the sweep: a page has settled only when nothing is being drawn or read, no placeholder shows and no entrance runs',async()=>{
+ const sw=readFileSync(new URL('./sweep.js',import.meta.url),'utf8');
+ const a=sw.indexOf("const LAYER="),b=sw.indexOf("let phase='off'");assert.ok(a>0&&b>a);
+ const mk=new Function('document','Swr','S','Calm',sw.slice(a,b)+'\nreturn busy');
+ const anim=(name,o={})=>({animationName:name,playState:o.state||'running',effect:{getTiming:()=>({iterations:o.forever?Infinity:1}),target:{closest:s=>o.in&&s.includes(o.in)?{}:null}}});
+ const view={_stage:null,staged:null,skels:[],anims:[],querySelector(s){return s==='.staged'?this.staged:null},querySelectorAll(){return this.skels},getAnimations(){return this.anims}};
+ const Swr={flying:0,flyNav:7,wait:0,drawing:0,nav:7},S={_nav:7},Calm={entry:()=>new Set(['viewIn','reveal'])};
+ const busy=mk({querySelector:s=>s==='#view'?view:null},Swr,S,Calm);
+ assert.equal(busy(),'','nothing going on: settled');
+ view._stage={};assert.equal(busy(),'being drawn');view._stage=null;view.staged={};assert.equal(busy(),'being drawn','a drawing still out of sight');view.staged=null;
+ Swr.flying=2;assert.equal(busy(),'reading');Swr.flyNav=6;assert.equal(busy(),'','reads of a page that was left do not count');Swr.flyNav=7;Swr.flying=0;
+ Swr.wait=1;assert.match(busy(),/reading again/,'a last-known answer is being checked: the page may be drawn once more');Swr.wait=0;
+ Swr.drawing=1;assert.match(busy(),/reading again/);Swr.nav=3;assert.equal(busy(),'');Swr.drawing=0;
+ const skel=(shown,desc)=>({offsetParent:shown?{}:null,closest:()=>desc?{}:null});
+ view.skels=[skel(true)];assert.equal(busy(),'a loading placeholder');view.skels=[skel(false),skel(true,true)];assert.equal(busy(),'','a hidden placeholder and a summary still being written do not hold the page');view.skels=[];
+ view.anims=[anim('reveal')];assert.equal(busy(),'its entrance');
+ view.anims=[anim('reveal',{state:'finished'}),anim('spin'),anim('viewIn',{forever:true}),anim('reveal',{in:'.staged'}),anim('viewIn',{in:'.toast'})];assert.equal(busy(),'','finished, endless, out of sight or on a layer: not the page entering');
+ assert.equal(mk({querySelector:()=>null},Swr,S,Calm)(),'no page')});
+test('the sweep: waits for settled instead of a timer, fails a page that never settles, and after settling counts every entrance (again or late)',()=>{
+ const sw=readFileSync(new URL('./sweep.js',import.meta.url),'utf8');
+ assert.doesNotMatch(sw,/await sl\(DWELL\[0\]\)/,'no fixed wait before judging a page');
+ assert.match(sw,/while\(performance\.now\(\)-t0<LOAD_MAX\)\{await sl\(40\);const b=busy\(\)/);assert.match(sw,/else if\(t-q>=QUIET\)\{ok=true;break\}/);
+ assert.match(sw,/never finished loading/);assert.match(sw,/slowPages/,'a slow page is named, not hidden and not called a flicker');
+ // 12 Nov 2026: a comment had swallowed "if(!shown.has(sig(t)))return", so every first entrance after 2.5 s counted as a replay. Which of the two it is is now said
+ assert.match(sw,/again=ph==='watch'\?shown\.has\(x\):t\.id!=='view'&&played\.has\(x\);if\(ph==='load'&&!again\)return;/);
+ assert.match(sw,/\(again\?' again':' late'\)/);assert.match(sw,/a\.id==='late'&&a\.playState==='running'/,'a block opening its space on a settled page is late too');
+ assert.match(sw,/if\(!b\|\|performance\.now\(\)-b<120\)return/,'an entrance Calm ended in its first frame never played');
+ for(const l of sw.split('\n'))assert.doesNotMatch(l,/\/\/[^\n]*\bif\(!?\w+\.has\(/,'no rule sits behind a comment on its line');
+ assert.match(sw,/document\.querySelector\('\.side'\)&&document\.querySelector\('\.topbar'\)/,'the shell is there before it is watched');
+ assert.ok(src('core.js').includes('const Stage={ms:450,max:2200,hard:6000,'))});
+
+/* a drawing slower than Stage.max: shown as far as it is once it has stalled, held a little longer while its reads still answer (12 Nov 2026) */
+test('Stage: a page whose reads keep answering is shown whole; one whose reads went silent for 2.2 s is shown as far as it is; none waits past 6 s',async()=>{
+ // a clock and timers the test moves; promises get their turn after every timer
+ const mk=()=>{let now=0,id=0;const tm=new Map();const flush=async()=>{for(let i=0;i<8;i++)await Promise.resolve()};
+  const clock={setTimeout:(fn,ms)=>{tm.set(++id,{at:now+(ms||0),fn});return id},clearTimeout:i=>tm.delete(i),performance:{now:()=>now},
+   async adv(ms){const end=now+ms;for(;;){let k=null;for(const [i,t] of tm)if(t.at<=end&&(k===null||t.at<tm.get(k).at))k=i;if(k===null)break;const t=tm.get(k);tm.delete(k);now=Math.max(now,t.at);t.fn();await flush()}now=end}};
+  const S={_nav:1};const env=new Function('S','performance','setTimeout','clearTimeout','$',grab('core.js','const Stage={')+'\n'+grab('core.js','const Swr={')+'\nreturn {Stage,Swr}')(S,clock.performance,clock.setTimeout,clock.clearTimeout,()=>null);
+  const shown=[],pg={isConnected:true,firstChild:{}},v={},st={pg,kind:'page',reveal:()=>shown.push(now)};
+  // reads: each answers at its time (ms after opening); the page function itself ends at once
+  const open=async reads=>{env.Stage.hold(v,st,()=>{for(const ms of reads)env.Swr.fly(new Promise(r=>clock.setTimeout(r,ms)))});await flush()};
+  return {clock,open,shown}};
+ // answers every second until 3.4 s (Settings for all agents on a busy box): whole at 3.4 s, not half drawn at 2.2 s
+ let x=mk();await x.open([900,1800,2700,3400]);await x.clock.adv(2300);assert.deepEqual(x.shown,[],'still being answered at 2.2 s: not shown half drawn');await x.clock.adv(1200);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=3400&&x.shown[0]<3500,'shown when whole, at '+x.shown[0]);
+ // one read that does not come (Health's cost of the week took 15 to 29 s): shown 2.2 s after the last other answer, not at 6 s
+ x=mk();await x.open([400,900,25000]);await x.clock.adv(3000);assert.deepEqual(x.shown,[],'2.1 s after the last answer');await x.clock.adv(200);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=3100&&x.shown[0]<3200,'at '+x.shown[0]);
+ // nothing answers at all (the engine hangs): as before, 2.2 s
+ x=mk();await x.open([30000]);await x.clock.adv(2150);assert.deepEqual(x.shown,[]);await x.clock.adv(100);assert.equal(x.shown.length,1);
+ // answers trickle in for ever: never past 6 s
+ x=mk();await x.open(Array.from({length:12},(_,i)=>(i+1)*1500));await x.clock.adv(5900);assert.deepEqual(x.shown,[]);await x.clock.adv(200);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=6000&&x.shown[0]<6100,'at '+x.shown[0]);
+ // a quick page is shown the moment it is whole
+ x=mk();await x.open([300]);await x.clock.adv(350);assert.equal(x.shown.length,1)});

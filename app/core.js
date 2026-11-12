@@ -419,10 +419,13 @@ function runPage(P,r,pg){const nav=S._nav;let gone=pageRun(pg);return Promise.re
    then one swap in one frame. A drawing slower than Stage.ms shows the new heading and the loading ring meanwhile, and
    one slower than Stage.max is shown as far as it is. The new drawing sits in the document before the old one, so every
    lookup by id finds the new one; it is laid out (sizes can be measured) but takes no room and shows nothing. */
-// max: a drawing slower than this is shown as far as it is, and what is still to come lands in view. 2.2 s was too short on a busy box: Health and
-// Settings read for 3 to 4 s on P&P, were shown half drawn at 2.2 s and then moved 0.46 and 0.45 (layout shift) as their last parts landed (sweep, 12 Nov
-// 2026). The loading ring is up from 0.45 s, so the wait is not a blank page.
-const Stage={ms:450,max:6000,
+// How long a person looks at the loading ring before they get what there is (12 Nov 2026). max (2.2 s) is the longest silence: a drawing none of whose
+// reads has answered for that long (since it was opened, or since the last answer) has stalled and is shown as far as it is. One that is still being
+// answered is nearly whole and waits on, because a page shown half drawn moves as each late part lands (Settings for all agents on a busy box: its reads
+// took 3.4 s, it was shown at 2.2 s and its list jumped 433 px a second later); none waits past `hard`. max was 6 s flat for a day: Health then sat behind
+// the ring for the full 6 s on every visit because of one read that took 15 to 29 s (its cost of the week, since made fast where it was slow) and still
+// landed late: a longer ring hides a slow read, it does not fix it. Now that page is shown 2.2 s after its last other answer.
+const Stage={ms:450,max:2200,hard:6000,
  drop(v){const st=v._stage;if(st){clearTimeout(st.t);clearTimeout(st.t2);v._stage=null;st.fin?.()}for(const x of v.querySelectorAll('.staged'))x.remove()},
  // st: {pg (the content being drawn, out of sight), kind, early (optional: show the heading and the ring), reveal (show pg)}
  hold(v,st,run){const prev=v._stage;v._stage=st;v._run=run;if(prev){clearTimeout(prev.t);clearTimeout(prev.t2);prev.fin?.()}
@@ -433,7 +436,11 @@ const Stage={ms:450,max:6000,
   // for them: the links under Keys, a list's second half)
   const quiet=()=>{if(ended)return;if(v._stage!==st||S._nav!==tok||!Swr.flying)return fin();Swr.idle=()=>setTimeout(quiet,0)};
   // too slow to wait for: shown as far as it is (a page with nothing drawn yet keeps the ring; the same page drawn again keeps what it shows)
-  st.t2=setTimeout(()=>{if(st.kind==='pg'&&!st.pg.firstChild)return;done()},this.max);   // the drawing goes on in view; fin comes when it ends
+  const t0=performance.now(),late=()=>{if(st.kind==='pg'&&!st.pg.firstChild)return;if(v._stage!==st)return;const t=performance.now();
+   const silent=t-Math.max(t0,Swr.last),left=Math.min(this.max-silent,this.hard-(t-t0));
+   if(left>0&&S._nav===tok&&Swr.flying&&Swr.flyNav===tok){st.t2=setTimeout(late,left+5);return}   // still being answered: nearly whole
+   done()};   // the drawing goes on in view; fin comes when it ends
+  st.t2=setTimeout(late,this.max);
   let p;try{p=run(st.pg)}catch{}Promise.resolve(p).catch(()=>{}).finally(()=>setTimeout(quiet,0))},
  // another page: the whole page (its heading too) is staged; what is on screen (a page, the chat, Help) stays meanwhile
  open(v,headHtml,run,enter){this.drop(v);
@@ -467,10 +474,10 @@ const Stage={ms:450,max:6000,
    differ the page is drawn once more (out of sight, swapped whole: Stage.again). Only while a page is being drawn and
    only for the visit that began the drawing: timers and buttons always ask the server. Any change (POST, PUT, DELETE…)
    forgets every answer, so a save never shows old data; answers older than 15 minutes are not used. */
-const Swr={m:new Map(),gen:0,nav:-1,drawing:0,wait:0,changed:false,fresh:8000,old:15*60e3,flying:0,flyNav:-1,idle:null,
+const Swr={m:new Map(),gen:0,nav:-1,drawing:0,wait:0,changed:false,fresh:8000,old:15*60e3,flying:0,flyNav:-1,idle:null,last:0,
  // reads on their way for this visit (Stage waits for them before it shows a page)
  fly(p){const nav=S._nav;if(nav!==this.flyNav){this.flyNav=nav;this.flying=0;this.idle=null}this.flying++;
-  const end=()=>{if(nav!==this.flyNav)return;this.flying=Math.max(0,this.flying-1);if(!this.flying&&this.idle){const f=this.idle;this.idle=null;f()}};p.then(end,end);return p},
+  const end=()=>{if(nav!==this.flyNav)return;this.last=performance.now();this.flying=Math.max(0,this.flying-1);if(!this.flying&&this.idle){const f=this.idle;this.idle=null;f()}};p.then(end,end);return p},
  skip:/\/(logs|stream|events|export|download)\b/,
  begin(){if(this.nav!==S._nav){this.nav=S._nav;this.drawing=0;this.changed=false}this.drawing++;return this.nav},
  end(tok){if(tok!==this.nav)return;this.drawing=Math.max(0,this.drawing-1);this.settle()},
