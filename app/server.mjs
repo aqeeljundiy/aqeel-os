@@ -23,7 +23,7 @@ import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
 import {createFixerGit} from './fixer-git.mjs';
 import {createFixerSandbox} from './fixer-sandbox.mjs';
-import {createSignInGuard,withRequest} from './signin-guard.mjs';import {createSignInRoutes} from './signin-routes.mjs';
+import {createSignInGuard,enterRequest} from './signin-guard.mjs';import {createSignInRoutes} from './signin-routes.mjs';
 import {peopleOf,approverState,buildApprovers,catalogRows,catalogFromRows,leftOut} from './kirimdev-settings.mjs';
 import {createCloudFixer} from './cloud-fixer.mjs';
 import {createLiveDrift} from './live-drift.mjs';
@@ -2511,8 +2511,8 @@ async function openBrowser(res,agent){
 
 /* ---------- routes ---------- */
 const LOCAL_KEY=await localKey(DATA).catch(e=>{console.warn('local owner key:',e.message);return null});   // DATA/local-owner.key, mode 600, kept across restarts
-const server=createServer((req,res)=>withRequest(req,async()=>{
- const url=new URL(req.url,'http://x');const p=url.pathname;
+const server=createServer(async(req,res)=>{
+ enterRequest(req);const url=new URL(req.url,'http://x');const p=url.pathname;   // the request is what the per-account sign-in limit reads the address and session cookie from
  try{
   await users.load();   // people (owners, shares) are read before any route uses them, also right after a restart
   pwa.hook(req,res);   // every HTML page this server sends (the app, sign-in, About/Privacy/Terms, the small result pages, the screen, proxied Code pages) gets the icon, manifest and theme tags as it goes out, so no page is forgotten
@@ -4054,7 +4054,7 @@ const server=createServer((req,res)=>withRequest(req,async()=>{
    res.writeHead(200,{'content-type':types['.html'],'cache-control':'no-store',...security});return res.end(req.method==='HEAD'?undefined:html)}
   send(res,404,'Not found');
  }catch(e){console.error(e);if(!res.headersSent)send(res,500,{error:'Server error'})}
-}));
+});
 // The screen's live connection is a WebSocket: same login, and only from this site (no cross-site hijacking).
 server.on('upgrade',(req,sock,headBuf)=>{
  const p=new URL(req.url,'http://x').pathname;

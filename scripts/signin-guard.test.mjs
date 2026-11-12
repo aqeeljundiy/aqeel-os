@@ -127,3 +127,10 @@ test('restart: the lock survives; the file holds no email, address or password; 
  assert.equal(g.wait(k),0);assert.equal(g.size(),0,'old entries are dropped');
  for(let i=0;i<MAX_ENTRIES+300;i++){clock.t+=1;g.fail('pw:name:'+i)}assert.ok(g.size()<=MAX_ENTRIES);await g.flush();
  assert.ok(make().size()<=MAX_ENTRIES,'and what is read back is bounded too')});
+
+test('enterRequest (what server.mjs calls per request): two requests in flight each see their own address and cookie',async()=>{
+ const {enterRequest}=await import('../app/signin-guard.mjs');const w=mk();
+ const one=async(ip,dev)=>{enterRequest(REQ(ip,dev));await new Promise(r=>setTimeout(r,10));w.guard.fail('pw:x');return w.guard.wait('pw:x',{signIn:true})};
+ await Promise.all([one('1.1.1.1','x'),one('2.2.2.2',null)]);
+ assert.equal(w.guard.wait('pw:x',{signIn:true}),0,'the request whose cookie is for x is trusted, and its tries are not counted');
+ assert.equal(w.guard.size(),1)});

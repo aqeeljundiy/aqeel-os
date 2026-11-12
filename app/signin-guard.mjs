@@ -29,6 +29,8 @@ export function burn(){burnSalt||=randomBytes(16);scryptSync('burn',burnSalt,64)
 // the request being served (set once per request by server.mjs), so the places that count a try do not each need the address and cookie handed down
 const als=new AsyncLocalStorage();
 export const withRequest=(req,fn)=>als.run(req,fn);
+// the server calls this at the top of each request: that request's own async work sees it, and a later request on the same connection replaces it
+export const enterRequest=req=>als.enterWith(req);
 
 export function createSignInGuard({file=null,now=()=>Date.now(),free=5,ipOf=()=>null,deviceOf=()=>null,onLock=()=>{},flushMs=1000}={}){
  let db=file?readStoreSync(file,()=>({v:1,salt:randomBytes(16).toString('hex'),e:{}})):{v:1,salt:randomBytes(16).toString('hex'),e:{}};
