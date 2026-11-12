@@ -117,5 +117,7 @@ test('L5: a version is given up on at once after a failed check or go-live, and 
 test('M18: an engine patch that does not fit is printed as MISFIT and the run ends with exit code 3',()=>{
  const s=read('apply-skill-patches.mjs');
  assert.match(s,/const misfit=w=>\{misfits\.push\(w\);console\.warn\('MISFIT '\+w\)\}/);assert.match(s,/if\(misfits\.length\)\{[^\n]*process\.exitCode=3\}/);
- assert.ok((s.match(/misfit\(/g)||[]).length>=5,'every place a patch can fail to fit says so');
+ // every place a patch can fail to fit says so, named one by one (12 Nov 2026: the 6 Nov patch's git apply and step 5 port-reuse were
+ // retired because upstream made them redundant, see engine/patches/README.md; a count of 5 call sites no longer fit)
+ for(const site of [/misfit\('token-type '\+pf\)/,/misfit\('2026-11-06-shared-skills\.patch'\)/,/for\(const f of r\.misfit\)\{[^\n]*misfit\(f\)\}/])assert.match(s,site,'every place a patch can fail to fit says so');
  assert.match(read('engine-sim.sh'),/\[ \$ru = 0 \] \|\| \[ \$ru = 3 \]/);assert.match(read('box-live.sh'),/apply-skill-patches\.mjs \|\| echo "! skill patches: see the message above \(exit \$\?\)"/)});
