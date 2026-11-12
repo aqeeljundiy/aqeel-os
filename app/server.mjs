@@ -2040,25 +2040,6 @@ async function srPlace(a){const c=await readConfig(a).catch(()=>null);if(!c)retu
  // no restart of its own (each one is a gap where agents drop, 5 Nov 2026): the lists take effect at the engine's next
  // restart, and until then run_self is refused on those channels anyway (judge in self-runs.mjs)
  if(JSON.stringify(m)!==before)await writeFile(SR_PLACED,JSON.stringify(m));if(changed)console.log('self-run tool lists updated for',a,'(in effect from the next engine restart)')}
-// the chat a call came from: the waiting call with these very arguments in the agent's own chat database
-async function srOrigin(a,tool,args){let calls=[];
- // a busy database (right after an engine restart) is tried again, like a call not saved yet
- let err=null;for(let i=0;i<6;i++){try{err=null;calls=(await srBox.lookup(a,tool)).filter(c=>{let x;try{x=typeof c.args==='string'?JSON.parse(c.args||'{}'):c.args}catch{return false}return srFp(x)===srFp(args)})}catch(e){err=e;console.warn('self-run: reading',a+'\'s chats failed:',e.detail||e.message)}
-  if(calls.length)break;await new Promise(r=>setTimeout(r,err?2000:800))}
- if(!calls.length&&err)return {ok:false,why:err.message+' Try again in a minute.'};
- const settings=await selfRuns.settings(a),trusted=await selfRuns.trusted();
- const sessionUser=id=>{const uid=users.sessionOwner(id),w=uid&&users.byId(uid);return w?{name:w.name||w.username||uid,ok:users.atLeast(w,a,'edit')}:null};
- if(!calls.length)return srJudge([],{settings,trusted,sessionUser});
- // the same call twice at once: every chat it could be from must pass
- const v=calls.map(c=>srJudge(c.chain,{settings,trusted,sessionUser}));return v.find(x=>!x.ok)||v[0]}
-const SR_TOOLS=[
- {name:'run_self',description:'Start a fresh run of yourself in the background, to test or re-run your own work: a new chat of your own with this prompt, with your own tools, files and keys, in your own workspace. It runs at most timeout_minutes ('+SR_MAX+' at most) and you can carry on meanwhile; the person who asked hears when it ends. Then call run_self_status with its id and wait true to get the result. Only in chats with your owner, a trusted person or the aqeelOS chat, and from your own schedules. At most 2 at once and a daily limit set in aqeelOS.',
-  inputSchema:{type:'object',properties:{prompt:{type:'string',description:'Everything the run needs to know: it starts with no memory of this chat'},reason:{type:'string',description:'Why, in a few words (shown to the owner)'},timeout_minutes:{type:'number',minimum:1,maximum:SR_MAX,description:'Stop it after this many minutes (default '+SR_DEF+', at most '+SR_MAX+')'},lock:{type:'string',description:'Optional: a lock file in your workspace, e.g. .tools/browser.lock. The run waits (up to 10 minutes) until nothing else holds it, and holds it while it runs.'}},required:['prompt','reason']}},
- {name:'run_self_status',description:'How a run you started with run_self is going, and its result when it is done. With wait true it waits up to 20 seconds for it to finish; for a longer run, do other work or sleep in your terminal between checks',inputSchema:{type:'object',properties:{id:{type:'string',description:'The run id run_self gave'},wait:{type:'boolean'}},required:['id']},annotations:{readOnlyHint:true}},
- {name:'run_self_list',description:'Your runs from run_self (newest first), how many you started today against your daily limit, and whether self-runs are paused.',inputSchema:{type:'object',properties:{}},annotations:{readOnlyHint:true}}];
-const SR_WAIT=20e3;
-const SR_STATE={waiting:'Waiting for the lock',running:'Running',ok:'Finished',failed:'Failed',timeout:'Ran out of time',stopped:'Stopped by an admin',interrupted:'Lost: aqeelOS restarted while it ran'};
-const srText=r=>'Run '+r.id+': '+(SR_STATE[r.state]||r.state)+(r.secs!=null?' after '+srDur(r.secs):'')+(r.exit!=null&&r.state!=='ok'?' (exit code '+r.exit+')':'')+'.\nReason: '+r.reason+(r.error?'\n'+r.error:'')+(r.answer?'\n\nIts last output:\n'+r.answer:'')+(r.state==='running'||r.state==='waiting'?'\n\nStill going. Do other work, or wait in your terminal (sleep 60), then call run_self_status again.':'');
 // every 5 seconds: runs that started or ended, trusted-person codes that arrived, and (live) the 08:00 summary
 let srTicking=false;setInterval(()=>{if(srTicking)return;srTicking=true;(async()=>{await selfRuns.check();
   const codes=await selfRuns.pendingCodes();if(codes.length){const hits=await srBox.findCodes(await listAllProfiles(),Math.min(...codes.map(c=>c.at))-60e3);
@@ -2442,7 +2423,7 @@ const schedulesRoutes=createSchedulesRoutes({designGuard,postingLimits,readBody,
 const identitiesRoutes=createIdentitiesRoutes({accountsApi,billion,builtins,channels,connect,DASH,DASH_TOKEN,DATA,designGuard,displayName,explain,graphify,HERMES_HOME,keysId,labels,listAgents,listAllProfiles,NAMES,okProfile,ownsAgent,pausedLoad,platCache,readBody,readIds,reconnectOne,restartGateway,runGates,security,send,setChannelOn,setDisplayName,starters,usage,users,waitingNow,withIds,writeIds});
 const hooksRoutes=createHooksRoutes({agentAccess,agentLive,customerTools:()=>customerTools,designGuard,HOOKS,issues,kirimdev,paymentCallbacks,pressKey,proxy,readBody,readRaw,send,smokeWatch,teamView,tebar,versions,WA_CLOUD});
 const oauthCallbackRoutes=createOAuthCallbackRoutes({DASH,DASH_TOKEN,deliverToGateway,esc,gconnect,googleConnected,HERMES_HOME,listAllProfiles,msconnect,NAMES,PUBLIC_URL,security,sharing,signinFlows:()=>signinFlows,writeAgentContext});
-const boxRoutes=createBoxRoutes({agentOps,codeBridge,eventHooks,fixerSandbox,googleFiles,kirimdev,postingLimits,readBody,relayKeys,runGates,selfRuns,send,sign,SR_STATE,SR_TOOLS,SR_WAIT,srDur,srEligible,srOrigin,srText});
+const boxRoutes=createBoxRoutes({agentOps,codeBridge,eventHooks,fixerSandbox,googleFiles,kirimdev,postingLimits,readBody,relayKeys,runGates,selfRuns,send,sign,srBox,srDur,srEligible,users});
 const server=createServer(async(req,res)=>{
  enterRequest(req);const url=new URL(req.url,'http://x');const p=url.pathname;   // the request is what the per-account sign-in limit reads the address and session cookie from
  try{
