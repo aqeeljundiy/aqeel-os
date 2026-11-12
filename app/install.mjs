@@ -14,6 +14,7 @@ import {randomBytes} from 'node:crypto';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {readStoreSync,saveStoreSync,storeBad} from './store.mjs';
 
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const env=process.env;
@@ -23,10 +24,13 @@ const HERMES_HOME=()=>(env.HERMES_HOME||path.join(homedir(),'.hermes')).replace(
 const PORT=()=>Number(env.UI_PORT)||4400;
 
 /* ---------- the settings file ---------- */
-let cache=null;
-export function settings(){if(cache)return cache;try{cache=JSON.parse(readFileSync(FILE(),'utf8'))||{}}catch{cache={}}
- if(!cache.id){cache.id=randomBytes(12).toString('base64url');try{write(cache)}catch{}}return cache}
-function write(o){mkdirSync(DATA_DIR,{recursive:true});const f=FILE();writeFileSync(f+'.tmp',JSON.stringify(o,null,1));renameSync(f+'.tmp',f)}
+// Through app/store.mjs (12 Nov 2026): a file that exists but cannot be read is never taken for an empty one. Before, settings() cached {} on any read
+// error and saveSettings({...settings(),...patch}) wrote that over the real file: the address and time zone were gone after one bad read. Now the last
+// good copy is used (else nothing), saving is refused with a message that names the file, and a repaired file is read again (nothing stays cached while it is bad).
+let cache=null,memId='';
+export function settings(){if(cache&&!storeBad(FILE()))return cache;cache=readStoreSync(FILE(),{})||{};
+ if(!cache.id){cache.id=memId||=randomBytes(12).toString('base64url');if(!storeBad(FILE())){try{write(cache)}catch{}}}return cache}
+function write(o){saveStoreSync(FILE(),o)}
 export function saveSettings(patch){const next={...settings()};for(const [k,v] of Object.entries(patch)){if(v===undefined||v===null||v==='')delete next[k];else next[k]=v}
  write(next);cache=next;return next}
 export const reloadSettings=()=>{cache=null;return settings()};

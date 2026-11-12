@@ -3,6 +3,7 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';import {tmpdir} from 'node:os';import path from 'node:path';import {fileURLToPath} from 'node:url';
 import {createServer} from 'node:http';import {spawn} from 'node:child_process';import {createHmac,randomBytes} from 'node:crypto';
 import {safePattern} from '../app/event-hooks.mjs';import {createUsers} from '../app/users.mjs';import {createCode} from '../app/code.mjs';
+import {src} from './lib/source.mjs';
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 
 test('C-M6: a pattern that can backtrack without end is not run; ordinary ones are',()=>{
@@ -72,4 +73,4 @@ test('A19: a new agent cannot be named like a copy of another; A10: a member\'s 
 test('N-3: the agent-live routes answer this server only (the key alone is not enough from elsewhere)',async()=>{
  // from loopback they still work as before (a wrong key is refused by the key check, not by the address check)
  const r=await fetch(base+'/agent-live/context',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({key:'wrong'})});assert.notEqual(r.status,404);await r.text();
- const s=await readFile(path.join(ROOT,'app','server.mjs'),'utf8');const at=s.indexOf("if(p.startsWith('/agent-live/')&&!/^(127"),first=s.indexOf("if(p==='/agent-live/team-view')");assert.ok(at>0&&at<first,'the address check comes before every agent-live route')});
+ const s=src('app/server.mjs');const at=s.indexOf("if(p.startsWith('/agent-live/')&&!/^(127"),first=s.indexOf("if(p==='/agent-live/team-view')");assert.ok(at>0&&at<first,'the address check comes before every agent-live route')});

@@ -15,6 +15,7 @@
 import {execFile} from 'node:child_process';
 import {readFile,writeFile,readdir,readlink,stat,rename,mkdir,rm,utimes} from 'node:fs/promises';
 import {homedir} from 'node:os';
+import {readStore,saveStore} from './store.mjs';
 import path from 'node:path';
 
 export const BASE_PORT=50400,ADS_PORT=50325,ADS_LAST=50425;   // AdsPower's own port and the last one it falls back to
@@ -56,15 +57,15 @@ export function createAgentAdspower({DATA,HERMES_HOME,screens,codeUser,agentName
  const SHIM_SRC=new URL('../scripts/adspower-port-shim.c',import.meta.url).pathname,SHIM=path.join(HOME,'workspaces','.aqeelos-adspower-port.so');
  const run=(c,a,t=60000)=>new Promise(res=>execFile(c,a,{timeout:t,maxBuffer:4e6},(e,o,er)=>res({ok:!e,out:String(o||''),err:String(er||e?.message||'')})));
  const wsOf=a=>path.join(HOME,'workspaces',a);
- let db=null;const load=async()=>db||=await readFile(FILE,'utf8').then(JSON.parse).catch(()=>({ports:{},next:0,off:{}}));
+ // through app/store.mjs: an unreadable adspower.json is not an empty one (the next save would forget every agent's port)
+ let db=null;const load=async()=>db||=await readStore(FILE,{ports:{},next:0,off:{}});
  let realPort={};   // agent → the port its copy really listens on, when not its own (found by tick and tools)
  // the CDP bridge (scripts/adspower-bridge.mjs) reads this to find an agent's own copy
  const writePorts=()=>writeFile(PORTS,Object.entries(db.ports).map(([a,p])=>a+' '+(realPort[a]||p)).join('\n')+'\n').catch(()=>{});
  // one save at a time, each with its own tmp file: parallel status reads (the list on a fresh install) all saved through
  // one FILE.tmp, so the second rename failed (ENOENT) and /ui/adspower never answered
  let saving=Promise.resolve();
- const save=()=>saving=saving.catch(()=>{}).then(async()=>{const tmp=FILE+'.'+process.pid+'.'+Math.random().toString(36).slice(2)+'.tmp';
-  await mkdir(path.dirname(FILE),{recursive:true});await writeFile(tmp,JSON.stringify(db,null,1));await rename(tmp,FILE);await writePorts()});
+ const save=()=>saving=saving.catch(()=>{}).then(async()=>{await saveStore(FILE,db);await writePorts()});
  // every agent switched on for it (Edit agent › Abilities, agent-optins.mjs), but never Help or test agents; the main
  // agent's extra numbers are the main agent. Agents switched off get no copy, screen, tool or skill (7 Nov 2026).
  const agents=async()=>{const out=[];for(const a of await agentNames())if(NAME.test(a)&&!a.includes('--')&&!await skip(a)&&await wanted(a))out.push(a);return out};

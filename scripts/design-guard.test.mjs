@@ -16,8 +16,9 @@ import {cleanHook,createEventHooks} from '../app/event-hooks.mjs';
 import {gateBody} from '../app/run-gates.mjs';
 import {createAgentCare,scriptOnlyCommand} from '../app/agent-care.mjs';
 import {createAgentVersions,VERSION_TOOLS} from '../app/agent-versions.mjs';
+import {src} from './lib/source.mjs';
 
-const ROOT=path.join(path.dirname(fileURLToPath(import.meta.url)),'..'),src=f=>readFileSync(path.join(ROOT,f),'utf8');
+const ROOT=path.join(path.dirname(fileURLToPath(import.meta.url)),'..');
 
 // ---- the audit's real prompts ----
 const RECAP_A='Shop Sales Recap tick. In the terminal run exactly: python3 -I /w/bot/sales-recap/run.py\nIf it prints nothing, your whole final answer must be exactly: [SILENT]\nIf it prints lines, your final answer is those lines verbatim, nothing added. Do not run anything else, do not change files, do not message customers.';

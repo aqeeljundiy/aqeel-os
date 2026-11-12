@@ -15,6 +15,8 @@ cd "$(dirname "$0")/.."
 export AQ_BOX=${AQ_BOX:-ai-vps}
 export AQ_REPO=${AQ_REPO:-$(git remote get-url origin 2>/dev/null | sed -E 's#^git@([^:]+):#https://\1/#')}
 node scripts/check-globals.mjs
+# the pre-merge check (conflict markers, every JS/shell/JSON/YAML/Python file parses, lost backslashes in a regex): before anything goes to a box
+node scripts/premerge-check.mjs || { echo "✗ the pre-merge check failed (above); nothing was sent."; exit 1; }
 [ ! -f data/private-words.json ] || node --test --test-timeout=120000 scripts/repo-privacy.test.mjs >/dev/null 2>&1 || { echo "✗ the code names something private (see: node --test scripts/repo-privacy.test.mjs); nothing was sent."; exit 1; }
 for f in app/*.js app/*.mjs; do node --check "$f" || { echo "✗ $f does not parse"; exit 1; }; done
 # 0) Never take the box back (5 Nov 2026: two sessions deployed at once and the later one dropped the other's work).

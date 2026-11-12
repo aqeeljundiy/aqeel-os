@@ -15,8 +15,8 @@
 //    "updated": "2026-11-12", "source": "PRICELIST.md" } }
 // A line without an entry here can take payments in Test only (the amount is then the order form's own total line); in Draft and Live
 // create_payment refuses until the line has a price list.
-import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import path from 'node:path';
+import {readStore,updateStore} from './store.mjs';
 
 const int=v=>Number.isInteger(Number(v))?Number(v):NaN;
 export const money=(n,cur='')=>(cur?cur:'')+String(Math.round(Number(n))).replace(/\B(?=(\d{3})+(?!\d))/g,'.');
@@ -94,8 +94,10 @@ export function parsePriceList(text){const products={};const add=(id,name,price)
  return products}
 
 export function createCatalog({DATA,log=m=>console.log(m)}){const F=path.join(DATA,'price-catalog.json');
- const read=async()=>{try{return JSON.parse(await readFile(F,'utf8'))}catch{return {}}};
+ // through app/store.mjs (12 Nov 2026): a price-catalog.json that cannot be read is not an empty list. Before, one bad read and the next save wrote every other
+ // agent's customer price list away; now the save is refused (StoreRefused names the file) and the file stays as it is.
+ const read=()=>readStore(F,{});
  async function of(agent){const c=(await read())[String(agent).split('--')[0]];return cleanCatalog(c)}
- async function set(agent,cat){const c=cleanCatalog(cat);if(!c)throw Error('A price list needs at least one product with a name and a whole-number price.');const all=await read();all[agent]={...c,updated:c.updated||new Date().toISOString().slice(0,10)};
-  await mkdir(DATA,{recursive:true});const t=F+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(all,null,1),{mode:0o600});await rename(t,F);log('price list: '+agent+' has '+Object.keys(c.products).length+' products');return all[agent]}
+ async function set(agent,cat){const c=cleanCatalog(cat);if(!c)throw Error('A price list needs at least one product with a name and a whole-number price.');const saved=await updateStore(F,{},all=>{all[agent]={...c,updated:c.updated||new Date().toISOString().slice(0,10)};return all[agent]},{mode:0o600});
+  log('price list: '+agent+' has '+Object.keys(c.products).length+' products');return saved}
  return {of,set,file:F}}

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
 import vm from 'node:vm';
 import {agentNameFrom,prettyId} from '../app/agent-name.mjs';
+import {src} from './lib/source.mjs';
 
 const NAMES={default:'Dora AI','bay-sales':'Bay Sales',sela:'Sela AI'};
 test('the server names an agent by its display name, the main one never "aqeelOS", extra numbers say which',()=>{const n=agentNameFrom(NAMES);
@@ -29,5 +30,5 @@ test('no picker shows a raw profile id as its label',()=>{const bad=[];
   for(const m of s.matchAll(/\(\s*(\w+)\s*=>\s*\(\{\s*label:\s*(\w+)\s*[,}]/g))if(m[1]===m[2]&&!OK.has(f+'|'+m[1]))bad.push(f+': menu item labelled with its value '+m[1]);
   for(const m of s.matchAll(/'default'\?'aqeelOS'/g))bad.push(f+': the main agent shown as "aqeelOS"')}
  assert.deepEqual(bad,[])});
-test('no server text names the main agent "aqeelOS" or falls back to a raw id',()=>{const s=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8');
+test('no server text names the main agent "aqeelOS" or falls back to a raw id',()=>{const s=src('app/server.mjs');
  assert.doesNotMatch(s,/NAMES\[a\]\|\|\(a==='default'\?'aqeelOS'/);assert.doesNotMatch(s,/'default'\?'aqeelOS'/)});

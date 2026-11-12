@@ -3,9 +3,8 @@
 // team_group tool), never from their prompt, and change it with that tool when the owner says so in chat; each change
 // is shown in the bell. Kirimdev handoffs and drafts go to its Questions topic.
 //   { "<agent>": { name, chatId, topics: { questions, orders, log, own }, mention, at, by } }
-import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
-import {randomUUID} from 'node:crypto';
 import path from 'node:path';
+import {readStore,updateStore} from './store.mjs';
 
 export const ROLES=[['questions','Questions','questions it cannot answer, handoffs and drafts to approve'],['orders','Orders','every new order'],['log','Log','what it did (sends, changes)'],['own','Own topic','where it talks with the team and takes instructions']];
 const AGENT=/^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -28,12 +27,12 @@ export function contextLines(g){if(!g?.chatId)return ['No team group is set for 
   'This comes from aqeelOS (Channels page, Team group), not from your prompt: when an older note, memory or decision names another group or topic, this one wins. When the owner tells you in chat to use another group or topic, change it with the team_group tool, then use the new one.']}
 
 export function createTeamGroups({DATA,tell=async()=>{}}){const F=path.join(DATA,'team-groups.json');
- const all=async()=>{try{return JSON.parse(await readFile(F,'utf8'))}catch{return {}}};
+ // through app/store.mjs: a team-groups.json that cannot be read is not an empty one (the next save would drop every agent's group)
+ const all=()=>readStore(F,{});
  const get=async a=>AGENT.test(a)?(await all())[a]||null:null;
  let chain=Promise.resolve();
  // by: who changed it (a person's name, or "<agent> (asked in chat)")
- function set(a,patch,by){if(!AGENT.test(a))return Promise.reject(Error('Unknown agent.'));const p=chain.then(async()=>{const db=await all();const before=db[a]||null;
-  const g=cleanGroup(before,patch);g.at=Date.now();g.by=String(by||'').slice(0,80);db[a]=g;await mkdir(DATA,{recursive:true});
-  const t=F+'.'+randomUUID().slice(0,8)+'.tmp';await writeFile(t,JSON.stringify(db,null,1),{mode:0o644});await rename(t,F);
+ function set(a,patch,by){if(!AGENT.test(a))return Promise.reject(Error('Unknown agent.'));const p=chain.then(async()=>{let before=null,g=null;
+  await updateStore(F,{},db=>{before=db[a]||null;g=cleanGroup(before,patch);g.at=Date.now();g.by=String(by||'').slice(0,80);db[a]=g},{mode:0o644});
   await tell(a,before,g).catch(()=>{});return g});chain=p.catch(()=>{});return p}
  return {all,get,set}}

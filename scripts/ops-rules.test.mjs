@@ -6,6 +6,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {LEFTOVER} from '../app/backup.mjs';
+import {src} from './lib/source.mjs';
 
 const ROOT=path.join(path.dirname(fileURLToPath(import.meta.url)),'..');
 const read=f=>readFileSync(path.join(ROOT,f),'utf8');
@@ -59,7 +60,7 @@ test('rule 7: the backup\'s temporary file is one the leftover sweep knows',()=>
  assert.match(b,/dropLeftovers()/,'cut-off backups must be removed on start (rule 7)')});
 
 test('rule 7: screen logs are trimmed and the app expires temporary files',()=>{
- assert.match(USERS,/trim_logs/);assert.match(read('app/server.mjs'),/boxOps\.start\(\)/,'the app must run box-ops (expiry, rule 7)')});
+ assert.match(USERS,/trim_logs/);assert.match(src('app/server.mjs'),/boxOps\.start\(\)/,'the app must run box-ops (expiry, rule 7)')});
 
 test('the rules document names a test or check for every rule that is no longer planned',()=>{
  const doc=read('OPERATIONS.md');

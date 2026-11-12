@@ -8,6 +8,7 @@
 // - every write is atomic (own temp name, fsync, rename), one at a time per file, and keeps the version before it as <file>.last-good.
 // - two first readers of one file get the same object (the in-flight read is shared), so neither works on a copy the other replaces.
 import {readFile,writeFile,rename,mkdir,unlink,link,copyFile,open,readdir,stat} from 'node:fs/promises';
+import {readFileSync,openSync,writeSync,fsyncSync,closeSync,renameSync,linkSync,unlinkSync,copyFileSync,mkdirSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
 
@@ -58,6 +59,23 @@ export const saveStore=(file,value,{pretty=1,mode}={})=>writeStore(file,JSON.str
 export function updateStore(file,fallback,fn,o){const r=rec(file);let out;
  const p=r.queue.then(async()=>{const d=await readStore(file,fallback);if(r.bad)throw new StoreRefused(file,r.bad);out=await fn(d);if(out===false)return;await atomicWrite(file,JSON.stringify(d,null,o?.pretty??1),{mode:o?.mode,keepLast:true})}).then(()=>out);
  r.queue=p.catch(()=>{});return p}
+/* The same rules for the few modules that must stay synchronous (install.mjs: the address and time zone are asked for in the middle of other code).
+   readStoreSync(file, fallback): the file; fallback when it does not exist; when it exists but cannot be read the last good copy (else the fallback) and the
+   file is BAD (shared with the async functions above: one Health item, saves refused). It reads again on every call, so a repaired file is picked up.
+   saveStoreSync(file, value) / writeStoreSync(file, text): atomic (temp name, fsync, rename, <file>.last-good); throws StoreRefused while the file is BAD. */
+export function readStoreSync(file,fallback={}){const r=rec(file);
+ let t;try{t=readFileSync(file,'utf8')}catch(e){if(e.code==='ENOENT'){heal(file,r);return fresh(fallback)}mark(file,r,e);return lastGoodSync(file,fallback)}
+ try{const v=parse(t);heal(file,r);return v}catch(e){mark(file,r,e);return lastGoodSync(file,fallback)}}
+const lastGoodSync=(file,fallback)=>{try{return parse(readFileSync(file+LAST,'utf8'))}catch{return fresh(fallback)}};
+export function writeStoreSync(file,text,{mode}={}){const r=rec(file);
+ if(r.bad){try{parse(readFileSync(file,'utf8'));heal(file,r)}catch(e){if(e.code==='ENOENT')heal(file,r);else throw new StoreRefused(file,r.bad)}}
+ mkdirSync(path.dirname(file),{recursive:true});
+ const tmp=file+'.'+process.pid+'.'+randomBytes(4).toString('hex')+'.tmp';
+ try{const h=openSync(tmp,'w',mode??0o666);try{writeSync(h,text);fsyncSync(h)}finally{closeSync(h)}
+  const lg=file+LAST;try{try{unlinkSync(lg)}catch{}linkSync(file,lg)}catch(e){if(e.code!=='ENOENT'){try{copyFileSync(file,lg)}catch{}}}
+  renameSync(tmp,file)}
+ catch(e){try{unlinkSync(tmp)}catch{}throw e}}
+export const saveStoreSync=(file,value,{pretty=1,mode}={})=>writeStoreSync(file,JSON.stringify(value,null,pretty),{mode});
 // temp files a killed write left behind (older than an hour) are removed at start
 export async function sweepTmp(dir,{olderMs=3600e3,now=Date.now()}={}){let n=0;for(const f of await readdir(dir).catch(()=>[])){if(!/\.tmp$/.test(f))continue;const p=path.join(dir,f),s=await stat(p).catch(()=>null);if(s?.isFile()&&now-s.mtimeMs>olderMs){await unlink(p).catch(()=>{});n++}}return n}
 export const _reset=()=>files.clear();   // tests

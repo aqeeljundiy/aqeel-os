@@ -11,6 +11,7 @@ import path from 'node:path';
 import {channelsPause,payHook,beforeEngineStop} from '../app/route-handlers.mjs';
 import {createPaymentCallbacks} from '../app/payment-callbacks.mjs';
 import {createIssues} from '../app/issues.mjs';
+import {src} from './lib/source.mjs';
 
 /* ---------- 1. /ui/channels/pause ---------- */
 // the same rule server.mjs builds: an admin, or the agent's owner
@@ -63,13 +64,13 @@ test('before an engine stop, what runs now is journaled; a journal that fails do
  assert.equal(await beforeEngineStop({syncDelegs:async()=>{n++;return true}}),true);assert.equal(n,1);
  const said=[];assert.equal(await beforeEngineStop({syncDelegs:async()=>{throw Error('ledger locked')},log:m=>said.push(m)}),false);assert.match(said[0],/ledger locked/);
  // and the restart really calls it, before the stop commands: in the function, not in a comment or behind a switch
- const s=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8'),fn=s.slice(s.indexOf('function restartGateway('),s.indexOf('\nconst later=createRestartLater('));
+ const s=src('app/server.mjs'),fn=s.slice(s.indexOf('function restartGateway('),s.indexOf('\nconst later=createRestartLater('));
  const lines=fn.split('\n').map(l=>l.replace(/\/\/.*$/,'')),at=lines.findIndex(l=>/^\s*await beforeEngineStop\(\{syncDelegs/.test(l)),stop=lines.findIndex(l=>/stopOwnGatewayCmd\(|gateway stop|kill-session/.test(l));
  assert.ok(at>=0,'restartGateway must await beforeEngineStop({syncDelegs…}) as a statement of its own');assert.ok(stop<0||at<=stop,'before anything is stopped')});
 
 /* ---------- 5. restart later, not now ---------- */
 test('every restart call site is known: the ones that wait for the quiet moment stay restartLater, and no new immediate restart appears',()=>{
- const s=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8').split('\n').map(l=>l.replace(/(^|\s)\/\/ .*$/,'')).join('\n');
+ const s=src('app/server.mjs').split('\n').map(l=>l.replace(/(^|\s)\/\/ .*$/,'')).join('\n');
  const sites=fn=>{const out={};for(const m of s.matchAll(new RegExp('(?<![\\w.])'+fn+'\\(([^,)]{0,40})','g')))out[m[1]]=(out[m[1]]||0)+1;return out};
  // waits for the maintenance moment: changing any of these to restartGateway restarts the engine in the middle of people's chats
  assert.deepEqual(sites('restartLater'),{"'agent defaults'":1,"'new agent defaults'":1,"why":2,"'aqeelos-live plugin for '+(c.length||'a":1,"'billion-context plugin for '+c.length+'":1,"'efficient defaults for '+c.length+' age":1,"'graph search tool for '+r.changed.lengt":1,"'new or changed aqeelOS tools for '+chan":1,"'tool addresses of the agents were re-is":1,"base+' changed its own '+A.key":1,"why+' (asked by '+(NAMES[mn[1].split('--":1,"base+' changed its own '+key":1});
