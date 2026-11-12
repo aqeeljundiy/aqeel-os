@@ -1898,7 +1898,7 @@ async function originOf(agent,tool='report_bottleneck'){const py=await enginePyt
 const agentMemory=createAgentMemory({DATA,listAgents:()=>listAgents(),boxMemory:()=>boxMemory()});if(LIVE_APP)agentMemory.start();
 if(LIVE_APP){setTimeout(()=>codeChanges.raise().catch(e=>console.warn("code changes",e.message)),45e3).unref();setInterval(()=>codeChanges.raise().catch(()=>{}),3600e3).unref()}   // drift patches become one Needs-you item each
 if(LIVE_APP){setTimeout(()=>issues.tick().catch(e=>console.warn('issues',e.message)),60e3).unref();setInterval(()=>issues.tick().catch(e=>console.warn('issues',e.message)),30e3).unref()}
-/* Continue after a restart (resume.mjs, owner 12 Nov 2026). Nothing waits for an idle box any more: a reply aqeelOS was
+/* Continue after a restart (resume.mjs). Nothing waits for an idle box any more: a reply aqeelOS was
    streaming, a schedule run or a fixer run that a deploy, the nightly update, a crash or an engine restart cut off is
    journaled as it starts and continued once the app and the engine answer again. A reply is continued the way the
    chat's Retry does it (one more message into the same chat, here a short system note), streamed into LIVE so an open
@@ -1937,7 +1937,7 @@ function resumeLiveEnd(rec){if(!rec.jid)return null;return rec.ended||=(async()=
  if(gwRestarting||upd||!pid||(rec.gw&&pid!==rec.gw)){resume.cut(rec.jid,upd?'update':'restart');setTimeout(()=>resumeTick().catch(()=>{}),15000).unref();return 'cut'}
  resume.end(rec.jid);return 'end'})()}
 const pidLives=p=>{if(!p)return false;try{process.kill(p,0);return true}catch{return false}};
-const resume=createResume({DATA,on:LIVE_APP,maxAge:()=>resumeMaxMs(installSettings()),tz:()=>installTz()||process.env.TZ||'',nameOf:a=>NAMES[a]||a,
+const resume=createResume({DATA,health:bottlenecks,backoff:1,on:LIVE_APP,maxAge:()=>resumeMaxMs(installSettings()),tz:()=>installTz()||process.env.TZ||'',nameOf:a=>NAMES[a]||a,
  ready:async()=>!gwStopped&&!gwRestarting&&!engineUpd.busy()&&!backups.busy()&&!!await gatewayPid()&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(8000)}).then(r=>r.ok,()=>false),
  probeChat:e=>resumeEng.probeChat(e),probeChannel:e=>resumeEng.probeChannel(e),sendChat:resumeSend,probeRun:e=>resumeEng.probeRun(e),probeDeleg:e=>resumeEng.probeDeleg(e),
  triggerRun:async e=>{runGates.noteManual(e.agent,e.job);const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(e.job)+'/trigger?profile='+encodeURIComponent(e.agent),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(30000)}).catch(er=>({ok:false,status:0,text:async()=>er.message}));
@@ -3254,8 +3254,8 @@ const server=createServer(async(req,res)=>{
     if(p==='/ui/news/hide')return send(res,200,{n:await news.hide(u,admin,{id:b.id?String(b.id):'',read:!!b.read})})}
    if(p==='/ui/thinking'&&req.method==='GET'){const sid=String(url.searchParams.get('session')||'');if(!/^[\w.-]{3,120}$/.test(sid))return send(res,200,{items:[]});const l=await readFile(path.join(DATA,'thinking',sid+'.json'),'utf8').then(JSON.parse).catch(()=>[]);return send(res,200,{items:l.filter(x=>users.isAdmin(u)||x.by===u.id).map(({u:q,think})=>({u:q,think}))})}
    if(p==='/ui/live'&&req.method==='GET'){const rec=LIVE.get((url.searchParams.get('agent')||'default')+'|'+(url.searchParams.get('session')||''));
-    if(!rec||rec.done||rec.user!==u.id){const it=url.searchParams.has('peek')?resume.pendingFor(url.searchParams.get('agent')||'default',url.searchParams.get('session')||''):null;
-     return send(res,url.searchParams.has('peek')?200:204,url.searchParams.has('peek')?{live:false,...(it&&it.user===u.id?{interrupted:it.why}:{})}:'')}
+    if(!rec||rec.done||rec.user!==u.id){const it=url.searchParams.has('peek')?resume.peekFor(url.searchParams.get('agent')||'default',url.searchParams.get('session')||''):null;
+     return send(res,url.searchParams.has('peek')?200:204,url.searchParams.has('peek')?{live:false,...(it&&it.user===u.id?it.peek:{})}:'')}
     if(url.searchParams.has('peek'))return send(res,200,{live:true,since:rec.t});
     res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no',...security});res.socket?.setNoDelay(true);
     for(const c of rec.chunks)res.write(c);rec.subs.add(res);res.on('close',()=>rec.subs.delete(res));return}
