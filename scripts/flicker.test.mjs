@@ -274,6 +274,9 @@ test('Settings and Models: the parts added round the page ask with the page, not
  before('activity-page.js',"{const settings=PAGES.settings;","UI('/ui/notify-settings')");
  before('boot.js',"{const settings=PAGES.settings;","H('/shared-metrics/consent')");
  before('people.js',"{const base=PAGES.models;PAGES.models=async(p,el)=>{const gone=pageTok(el),pre","H('/config')");
+ before('access.js',"{const base=PAGES.keys;","Access.load('key')");
+ before('access-ask.js',"for(const id of Object.keys(ASK_KIND)){","UI('/ui/access/others");
+ assert.match(grab('access-ask.js','async function askSection('),/await \(pre\|\|UI\('\/ui\/access\/others/);
  assert.match(grab('cloud-fixer-page.js','async function cfMount('),/await \(pre\|\|CloudFixer\.load\(\)\)/);
  assert.match(grab('people.js','async function moaPanel('),/await \(pre\|\|H\('\/config'\)\)/);
  assert.match(src('boot.js'),/await \(pre\|\|H\('\/shared-metrics\/consent'\)\)/);

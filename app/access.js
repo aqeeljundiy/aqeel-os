@@ -71,7 +71,8 @@ ACT['acc-use']=async a=>{a.disabled=true;const was=a.innerHTML;a.innerHTML='<spa
  const deco=()=>{for(const r of el.querySelectorAll('.row[data-pl]:not([data-acc])')){const it=d.items.find(x=>x.id===r.dataset.pl);r.dataset.acc='1';if(!it)continue;
   r.querySelectorAll('.share-box,.chip.access').forEach(x=>x.remove());r.querySelector('.act')?.insertAdjacentHTML('afterbegin',Access.owner(it,d.agents,d.canEdit)+(d.canEdit?Access.btn(it):Access.who(it)));if(it.owner!==ag)r.querySelector('.txt')?.insertAdjacentHTML('beforeend',Access.from(it))}Access.bindOwners(el)};
  deco();const mo=new MutationObserver(()=>{if(!el.isConnected||route().page?.id!=='plugins')return mo.disconnect();deco()});mo.observe(el,{childList:true,subtree:true})}}
-{const base=PAGES.keys;PAGES.keys=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone())return;if(S.me?.admin===false)return;const d=await Access.load('key');if(gone())return;if(!d)return Access.failed(el,'who owns and uses each key');const ag=viewing();
+{const base=PAGES.keys;PAGES.keys=async(p,el)=>{const gone=pageTok(el),pre=S.me?.admin===false?null:Access.load('key');await base(p,el);if(gone())return;if(!pre)return;const d=await pre;   // asked with the page (install-page.js, 12 Nov 2026)
+ if(gone())return;if(!d)return Access.failed(el,'who owns and uses each key');const ag=viewing();
  for(const b of el.querySelectorAll('[data-act="key-edit"]')){const k=b.dataset.k;const it=d.items.find(x=>x.label===k&&x.users.some(u=>u.id===ag));if(!it)continue;const row=b.closest('.field')||b.parentElement;if(row.dataset.acc)continue;row.dataset.acc='1';
   b.parentElement.insertAdjacentHTML('afterbegin',Access.owner(it,d.agents,d.canEdit)+(it.bot?Access.who(it):Access.btn(it)));if(it.owner!==ag)row.querySelector('label')?.insertAdjacentHTML('beforeend','<small>'+Access.from(it)+'</small>')}Access.bindOwners(el)}}
 
