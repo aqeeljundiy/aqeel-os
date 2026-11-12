@@ -33,7 +33,7 @@ const SHOW=process.env.RIGHTS_SHOW?new RegExp(process.env.RIGHTS_SHOW):null;   /
 const A='agent-a',B='agent-b',MAIN='default';
 export const ROLES=['anon','owner','admin','member','member@A','member@B','member@main'];
 // the source files that decide routes (relative to app/). A route moved to a new file must be listed here, or the minimum below fails.
-const SOURCES=['server.mjs','users.mjs','accounts.mjs','connect.mjs','help.mjs','install-routes.mjs','plugin-host.mjs','screens.mjs','agent-adspower.mjs','account-auth.mjs','signin-routes.mjs','notify-tools-routes.mjs','code-device-routes.mjs','channels-routes.mjs','health-routes.mjs','connected-routes.mjs','system-routes.mjs','abilities-routes.mjs'];
+const SOURCES=['server.mjs','users.mjs','accounts.mjs','connect.mjs','help.mjs','install-routes.mjs','plugin-host.mjs','screens.mjs','agent-adspower.mjs','account-auth.mjs','signin-routes.mjs','notify-tools-routes.mjs','code-device-routes.mjs','channels-routes.mjs','health-routes.mjs','connected-routes.mjs','system-routes.mjs','abilities-routes.mjs','instructions-routes.mjs'];
 // routes whose first path part names an agent (the first capture of its regex): a member's "agent A / B / main" goes in the path, not the query
 const AGENT_IN_PATH=['/ui/screens/','/ui/instructions/','/ui/agent-versions/','/ui/browser-choice/','/agent-ops/','/google-files/','/mcp/self/','/mcp/notify/','/mcp/customer/','/mcp/code/','/run-gate/','/event-hook/','/posting-','/team-message/','/hooks/tebar/','/hooks/pay/','/kirimdev/','/webhooks/','/whatsapp-cloud/'];
 // not sent to a signed-in person: answering it signs that person out for the rest of the run
