@@ -7,13 +7,14 @@ import {mkdtemp,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createIssues,capItems,ENDED,CAP,dayIn} from '../app/issues.mjs';
+import {fakeFixerSandbox} from './lib/fake-fixer-sandbox.mjs';
 
 const POL={owner:{name:'Owner'},teams:[],fixer:{on:false}};   // fixer off: filed issues stay 'open', nothing runs
 const item=(id,state,at,x={})=>({id,key:'k|'+id,agent:'a',state,missing:'m '+id,created:at,updated:at,count:1,tries:0,history:[],sorted:'fixer',...x});
 async function setup(db,x={}){const d=await mkdtemp(path.join(tmpdir(),'cap-'));await writeFile(path.join(d,'team-policy.json'),JSON.stringify(POL));
  if(db)await writeFile(path.join(d,'issues.json'),JSON.stringify({dupLink:1,...db}));
  let clock=x.at||Date.UTC(2026,10,12,8,0,0);const over=[];
- const I=createIssues({DATA:d,bin:'x',fixerHome:d,log:()=>{},launch:async()=>1,alive:async()=>false,now:()=>clock,tz:()=>'UTC',onOver:async n=>{over.push(n)},defer:()=>{},...x.opts});
+ const I=createIssues({sandbox:fakeFixerSandbox(),DATA:d,bin:'x',fixerHome:d,log:()=>{},launch:async()=>1,alive:async()=>false,now:()=>clock,tz:()=>'UTC',onOver:async n=>{over.push(n)},defer:()=>{},...x.opts});
  return {I,d,over,file:async o=>{clock+=1000;return I.file(o)},saved:async()=>JSON.parse(await readFile(path.join(d,'issues.json'),'utf8')),step:ms=>{clock+=ms}}}
 
 test('capItems: under the cap nothing goes; over it only ended items go, oldest first; open ones never',()=>{

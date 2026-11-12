@@ -7,7 +7,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';import {existsSync,readFileSync} from 'node:fs';import {tmpdir} from 'node:os';import path from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createServer} from 'node:http';import {spawn} from 'node:child_process';
-import {FakeEngine,NOTE_START} from './lib/fake-engine.mjs';
+import {FakeEngine,NOTE_START} from './lib/fake-engine.mjs';import {createFixerSandbox} from '../app/fixer-sandbox.mjs';
 
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const WARP=60,R0=Date.now();
@@ -18,7 +18,8 @@ const portFree=()=>new Promise(r=>{const s=createServer();s.listen(0,'127.0.0.1'
 let tmp,home,hh,data,logf,engine,port,base,appLog='',proc=null,cookie='',stub,fakePy;const kids=[];
 const tail=()=>'--- journal ---\n'+JSON.stringify(journal()).slice(0,2500)+'\n--- app log (resume lines) ---\n'+appLog.split('\n').filter(l=>/resume|=== app/.test(l)).slice(-30).join('\n');
 const journal=()=>{try{return JSON.parse(readFileSync(path.join(data,'resume','journal.json'),'utf8'))}catch{return {entries:[],done:[]}}};
-const launches=()=>{try{return readFileSync(logf,'utf8').trim().split('\n').filter(Boolean).map(l=>JSON.parse(l)).filter(x=>x.k==='launch')}catch{return []}};
+const logged=k=>{try{return readFileSync(logf,'utf8').trim().split('\n').filter(Boolean).map(l=>JSON.parse(l)).filter(x=>x.k===k)}catch{return []}};
+const launches=()=>logged('launch'),acls=()=>logged('acl');
 const api=async(method,p,body)=>fetch(base+p,{method,headers:{cookie,'x-hui':'1',...(body?{'content-type':'application/json'}:{})},body}).then(async r=>({status:r.status,json:await r.json().catch(()=>null)}));
 
 async function startApp(){
@@ -39,6 +40,10 @@ test.before(async()=>{
  await writeFile(path.join(data,'install.json'),JSON.stringify({timezone:'Asia/Jakarta',resumeMaxHours:0.25}));
  // one problem waiting for the fixer, so a fixer run exists early (the app's own start-up checks may file others)
  await writeFile(path.join(data,'issues.json'),JSON.stringify({items:[{id:'ie2e00001',key:'default|the weekly sheet is not updated',agent:'default',state:'queued',tries:0,count:1,created:R0,updated:R0,notBefore:0,history:[],missing:'The weekly sheet is not updated',evidence:'The sheet job ends with an empty answer.',sorted:'unique'}],runs:{}}));
+ // AUD-6: every fixer run is confined to the fixer's own user and none starts before it exists and its canary passed. This box is one where
+ // the root script made aq-fixer (its answer file) and the canary passed for this engine (recorded by the app's own sandbox module, as after a real check)
+ await writeFile(path.join(home,'.aqeelos-fixer-user.done'),'aq-fixer\n');
+ {const S=createFixerSandbox({DATA:data,home,sign:v=>v});await S.recordCanary(await S.engineSig(),'env',true,'resume e2e: a box where the check passed')}
  engine=await new FakeEngine({home:hh,warp:WARP,r0:R0}).start();
  const s=await new Promise(r=>{const x=createServer((q,a)=>{a.writeHead(200,{'content-type':'application/json'});a.end('{}')});x.listen(0,'127.0.0.1',()=>r(x))});kids.push(s);stub='http://127.0.0.1:'+s.address().port;
  port=await portFree();base='http://127.0.0.1:'+port;
@@ -162,6 +167,8 @@ const alive=p=>{try{process.kill(p,0);return true}catch{return false}};
 test('fixer run: its process outlives the app: after a kill it is looked at, never started a second time, and taken over once when it ends',async()=>{
  const r1=await until('a fixer run is going',()=>liveRun()&&journal().entries.some(e=>e.kind==='fixer'&&e.run===liveRun().id&&e.state==='open'),30000);
  const run=liveRun(),before=launches().length;assert.ok(alive(run.pid));
+ // it runs confined (AUD-6): its tools over SSH as aq-fixer, its folder given to that user; the process the app tracks is the one it started itself
+ assert.equal(run.confined,'env');assert.equal(launches().find(l=>l.which==='fixer'&&l.pid===run.pid)?.confined,'aq-fixer','launched with the terminal of aq-fixer');assert.ok(acls().length>=1,'its work folder got the access list for aq-fixer');
  await killApp();await startApp();await settle(1500);
  assert.equal(launches().length,before,'no second fixer was started while the first one lives');assert.ok(alive(run.pid));assert.ok(!issuesDb().runs[run.id].done,'its run is still open');
  assert.equal(journal().done.filter(d=>d.kind==='fixer'&&d.result==='gaveup').length,0);

@@ -5,12 +5,13 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {createIssues,fingerprint,costCaps,turnLimit,runCost,costToday,cameBackMs,fixerModel,fixerPrompt,proofPrompt,turnLine,COST_CAPS,TURNS} from '../app/issues.mjs';
+import {createIssues,fingerprint,costCaps,turnLimit,runCost,costToday,cameBackMs,fixerModel,repairPrompt,proofPrompt,turnLine,COST_CAPS,TURNS} from '../app/issues.mjs';
+import {fakeFixerSandbox} from './lib/fake-fixer-sandbox.mjs';
 
 const T=Date.UTC(2026,10,12,8,0);
 async function mk(o={}){const DATA=await mkdtemp(path.join(tmpdir(),'fc-'));let t=T;const started=[],told=[];
  await writeFile(path.join(DATA,'team-policy.json'),JSON.stringify({teams:[],owner:{name:'Owner'},fixer:{on:true,agent:'default',...(o.fixer||{})}}));
- const fx=createIssues({DATA,home:DATA,bin:'x',fixerHome:DATA,now:()=>t,tellOwner:async x=>{told.push(x)},ready:async()=>true,log:()=>{},tz:()=>'UTC',git:o.git||null,
+ const fx=createIssues({sandbox:fakeFixerSandbox(),DATA,home:DATA,bin:'x',fixerHome:DATA,now:()=>t,tellOwner:async x=>{told.push(x)},ready:async()=>true,log:()=>{},tz:()=>'UTC',git:o.git||null,
   launch:async a=>{started.push(a);const p=await readFile(path.join(a.dir,'prompt.txt'),'utf8');if(o.answer){await writeFile(path.join(a.dir,'out.txt'),'RESULT: '+JSON.stringify(await o.answer(a,p)));await writeFile(path.join(a.dir,'exit'),'0')}return 999999},alive:async()=>false});
  return {fx,DATA,started,told,step:ms=>{t+=ms},now:()=>t}}
 const run=(id,issue,o={})=>({id,issue,kind:'fix',day:'2026-11-12',at:T,done:T+1,agent:'default',usage:{cost:o.cost??0},...o});
@@ -74,8 +75,8 @@ test('the last try uses the stronger model only when allowed; default behaviour 
 
 test('the prompts tell the run its turn limit; without one nothing is added',()=>{
  const i={id:'iabc12345',agent:'a',missing:'m',evidence:'e',history:[]};
- assert.match(fixerPrompt(i,{turns:30}),/at most 30 tool-calling turns[^\n]*turn 24/);assert.match(proofPrompt(i,null,{turns:16}),/at most 16 tool-calling turns/);
- assert.doesNotMatch(fixerPrompt(i),/tool-calling turns/);assert.equal(turnLine(0),null)});
+ assert.match(repairPrompt(i,{turns:30,url:"http://x"}),/at most 30 tool-calling turns[^\n]*turn 24/);assert.match(proofPrompt(i,null,{turns:16}),/at most 16 tool-calling turns/);
+ assert.doesNotMatch(repairPrompt(i,{url:"http://x"}),/tool-calling turns/);assert.equal(turnLine(0),null)});
 
 test('a run is started with the turn limit and lean (no agent rules or memory) unless the policy turns it off; the escalated try has its own limit',async()=>{
  const {fx,started}=await mk({fixer:{models:{fix:'sonnet',proof:'haiku',escalate:'opus'},maxTurns:{fix:25,proof:10,escalate:18}}});
@@ -163,7 +164,7 @@ test('GIT: the checkout\'s own files stay for the commit (the run lists them wit
   finish:async id=>{seen.content=await readFile(dirs[id]+'/app/x.mjs','utf8').catch(()=>null);return {ok:true,sha:'abc',files:['app/x.mjs']}}};
  const {fx,DATA}=await mk({git,answer:async a=>{const dir=Object.values(dirs).at(-1),f=dir+'/app/x.mjs';await writeFile(f+'.bak','old\n');await writeFile(f,'fixed\n');
    return {status:'patch',apply:'none',changes:[{file:f,backup:f+'.bak'}],patches:[],summary:'changed app/x.mjs',proof:'tests pass',check:'c'}}});
- await fx.file({agent:'a',missing:'A bug in the app code somewhere',evidence:'e'});const db=await fx._db(),i=db.items[0];
+ await fx.file({agent:'a',missing:'A bug in the app code somewhere',evidence:'e'});const db=await fx._db(),i=db.items[0];i.sorted='code';
  try{await fx.tick();await fx.tick();assert.equal(seen.content,'fixed\n','the fix is still in the checkout when it is committed');assert.equal(i.state,'deploy');assert.equal(i.git.branch,'fix/'+i.id);
  assert.doesNotMatch(i.history.at(-1).outcome,/no code change/)}finally{await rm(base,{recursive:true,force:true})}});
 

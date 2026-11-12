@@ -8,7 +8,8 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createFixerGit,repoSlug,unsafeFile,branchOf} from '../app/fixer-git.mjs';
 import {createLiveDrift,liveDrift,blobId} from '../app/live-drift.mjs';
-import {createIssues,fixerPrompt,gitRule} from '../app/issues.mjs';
+import {createIssues,confinedPrompt,repairPrompt} from '../app/issues.mjs';
+import {fakeFixerSandbox} from './lib/fake-fixer-sandbox.mjs';
 import {createCodeChanges} from '../app/code-changes.mjs';
 import {personNeed} from '../app/bottlenecks.mjs';
 let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
@@ -77,17 +78,18 @@ function fakeGit(d,{token=false,dirty=true,finish=null}={}){const g={calls:[],to
 async function loop({fix=[],proof=[],git={},codeRoots=[]}={}){const d=await tmp('is-');await writeFile(path.join(d,'team-policy.json'),JSON.stringify(POL));const runs=[],asked={need:0,ok:0};const g=fakeGit(d,git);
  const launch=async o=>{const p=await readFile(path.join(o.dir,'prompt.txt'),'utf8');const kind=/^You are the aqeelOS fixer's proof run/.test(p)?'proof':'fix';runs.push({kind,prompt:p});
   const ans=(kind==='fix'?fix:proof).shift();await writeFile(path.join(o.dir,'out.txt'),'RESULT: '+JSON.stringify(ans));await writeFile(path.join(o.dir,'exit'),'0');return 1};
- const I=createIssues({DATA:d,bin:'x',fixerHome:d,log:()=>{},launch,alive:async()=>false,git:g,codeRoots,tz:()=>'UTC',busy:async()=>0,apply:async()=>({ok:true}),
+ const I=createIssues({sandbox:fakeFixerSandbox(),DATA:d,bin:'x',fixerHome:d,log:()=>{},launch,alive:async()=>false,git:g,codeRoots,tz:()=>'UTC',busy:async()=>0,apply:async()=>({ok:true}),
   needToken:async()=>{asked.need++},tokenOk:async()=>{asked.ok++}});
- return {d,I,g,runs,asked,ticks:async k=>{for(let j=0;j<k;j++)await I.tick()},db:async()=>(await I._db()).items}}
+ const file=async o=>{const r=await I.file(o);(await I._db()).items.find(x=>x.id===r.issue.id).sorted='code';return r};
+ return {d,I,g,runs,asked,file,ticks:async k=>{for(let j=0;j<k;j++)await I.tick()},db:async()=>(await I._db()).items}}
 
 await t('no token: the fix waits as a committed branch, nothing live, one "needs a token" note however many fixes wait, then the pull requests open by themselves',async()=>{
  const L=await loop({fix:[{status:'patch',summary:'guard the push',proof:'tests pass; test copy answers'},{status:'patch',summary:'second one',proof:'ok'}]});
- await L.I.file({agent:'a1',missing:'tool server answers 500'});await L.ticks(3);
+ await L.file({agent:'a1',missing:'tool server answers 500'});await L.ticks(3);
  let [i]=await L.db();assert.equal(i.state,'deploy');assert.equal(i.git.branch,'fix/'+i.id);assert.equal(i.git.state,'waiting');assert.equal(i.patch,'fix/'+i.id);assert.equal(L.runs.length,1,'no proof run before the merge and the deploy');
- assert.match(L.runs[0].prompt,/NEVER changed in the live folders/);assert.match(L.runs[0].prompt,new RegExp('work.'+i.id));assert.match(L.runs[0].prompt,/fixer-testcopy\.sh/);assert.match(L.runs[0].prompt,/4402/);assert.doesNotMatch(L.runs[0].prompt,/you may change those files on the box/);
+ assert.match(L.runs[0].prompt,/confined/);assert.match(L.runs[0].prompt,new RegExp('work.'+i.id));assert.match(L.runs[0].prompt,/testcopy/);assert.match(L.runs[0].prompt,/4402/);assert.doesNotMatch(L.runs[0].prompt,/you may change those files on the box/);
  assert.match(i.history[0].outcome,/branch fix\/.* committed; waits for review/);assert.equal(L.asked.need,1);
- await L.I.file({agent:'a2',missing:'a different problem entirely about payments'});await L.ticks(3);assert.equal(L.asked.need,1,'once, not one per fix');assert.equal((await L.db()).filter(x=>x.git).length,2);
+ await L.file({agent:'a2',missing:'a different problem entirely about payments'});await L.ticks(3);assert.equal(L.asked.need,1,'once, not one per fix');assert.equal((await L.db()).filter(x=>x.git).length,2);
  const rv=await L.I.reviews();assert.equal(rv.length,2);assert.deepEqual([rv[0].state,rv[0].url],['waiting',null]);assert.equal(rv[0].files[0],'app/x.mjs');
  // the token appears
  L.g.token=true;await L.ticks(1);const done=await L.db();assert.deepEqual(done.map(x=>x.git.state),['pr','pr']);assert.equal(L.asked.ok,1);
@@ -95,21 +97,21 @@ await t('no token: the fix waits as a committed branch, nothing live, one "needs
  assert.equal(L.g.calls.filter(c=>c.startsWith('publish')).length,4,'two tries without a token, then each opened once');await L.ticks(2);assert.equal(L.g.calls.filter(c=>c.startsWith('publish')).length,4,'an open pull request is not pushed again')});
 
 await t('with a token the pull request opens at once; the commit says what and why; urgent goes the same way',async()=>{
- const L=await loop({git:{token:true},fix:[{status:'patch',summary:'reset clears the pause',proof:'ok'}]});await L.I.file({agent:'a1',missing:'reset reply held by a pause',urgent:true});await L.ticks(3);
+ const L=await loop({git:{token:true},fix:[{status:'patch',summary:'reset clears the pause',proof:'ok'}]});await L.file({agent:'a1',missing:'reset reply held by a pause',urgent:true});await L.ticks(3);
  const [i]=await L.db();assert.equal(i.git.state,'pr');assert.match(i.git.url,/pull\//);assert.equal(L.asked.need,0);assert.match(L.g.message,/^Fixer: reset reply held by a pause/);assert.match(L.g.message,/Opened by the aqeelOS fixer/);
- assert.match(i.git.body,/Proof \(test copy and tests\)/);assert.match(L.runs[0].prompt,/URGENT: say so/);assert.doesNotMatch(L.runs[0].prompt,/you may change those files on the box/);assert.match(gitRule({id:'i1'},{dir:'/w/i1',branch:'fix/i1'}),/\/w\/i1/)});
+ assert.match(i.git.body,/Proof \(test copy and tests\)/);assert.match(L.runs[0].prompt,/URGENT \(an outage\): say so/);assert.doesNotMatch(L.runs[0].prompt,/you may change those files on the box/)});
 
 await t('nothing changed in the checkout: that is a failed try, the issue is queued again',async()=>{
- const L=await loop({git:{dirty:false,finish:{ok:true,empty:true,files:[]}},fix:[{status:'patch',summary:'did nothing'}]});await L.I.file({agent:'a1',missing:'something broke'});await L.ticks(2);
+ const L=await loop({git:{dirty:false,finish:{ok:true,empty:true,files:[]}},fix:[{status:'patch',summary:'did nothing'}]});await L.file({agent:'a1',missing:'something broke'});await L.ticks(2);
  const [i]=await L.db();assert.equal(i.state,'queued');assert.equal(i.tries,1);assert.match(i.history[0].outcome,/no code change in the checkout/);assert.equal(i.git,undefined)});
 
 await t('a fix that is not a code change (status changed, nothing in the checkout) goes the normal way: reload and proof',async()=>{
- const L=await loop({git:{dirty:false},fix:[{status:'no_change',summary:'already works',check:'rerun it'}],proof:[{status:'proven',proof:'works'}]});await L.I.file({agent:'a1',missing:'looks broken'});await L.ticks(4);
+ const L=await loop({git:{dirty:false},fix:[{status:'no_change',summary:'already works',check:'rerun it'}],proof:[{status:'proven',proof:'works'}]});await L.file({agent:'a1',missing:'looks broken'});await L.ticks(4);
  const [i]=await L.db();assert.equal(i.state,'fixed');assert.equal(L.g.calls.filter(c=>c.startsWith('finish')).length,0)});
 
-await t('with no checkout the older patch-file prompt is unchanged (git: null)',()=>{
- const i={id:'i1',agent:'a1',missing:'m'};assert.match(fixerPrompt(i),/never changed in place/);assert.doesNotMatch(fixerPrompt(i),/NEVER changed in the live folders/);assert.match(fixerPrompt({...i,urgent:true}),/you may change those files on the box/);
- assert.match(fixerPrompt(i,{git:{dir:'/w/i1',branch:'fix/i1'}}),/branch fix\/i1/)});
+await t('the confined code prompt names the checkout and the branch; nothing in it lets the run change the live folders',()=>{
+ const i={id:'i1',agent:'a1',missing:'m'},p=confinedPrompt(i,{git:{dir:'/w/i1',branch:'fix/i1'},url:'http://127.0.0.1:4400/fixer-ops/i1/i1-1/'+'a'.repeat(32)});
+ assert.match(p,/branch fix\/i1/);assert.match(p,/cd \/w\/i1/);assert.doesNotMatch(p,/you may change those files on the box|hot-patch/)});
 
 // ---------- Health: fixes waiting for review, hand edits
 await t('Health list: a fixer branch with its pull request link (or its wait for a token), one hand-edit item, the diff to view',async()=>{const D=await tmp('cc-');

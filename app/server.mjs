@@ -157,7 +157,8 @@ import {createCatalog} from './price-catalog.mjs';import {createPaymentProviders
 import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
-import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';   // the routes that used to sit in this file (one module each)
+import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';import {createSchedulesRoutes} from './schedules-routes.mjs';import {createIdentitiesRoutes} from './identities-routes.mjs';import {createHooksRoutes} from './hooks-routes.mjs';import {createOAuthCallbackRoutes} from './oauth-callback-routes.mjs';import {createBoxRoutes} from './box-routes.mjs';   // the routes that used to sit in this file (one module each)
+import {createScreenLink,createScreenTickets} from './screen-link.mjs';   // the screen viewer's own connection, ticket per connection (AUD-15)
 
 delete Object.prototype.__proto__;   // a key named __proto__ from a request is an ordinary key: no lookup reaches Object.prototype (security audit, 12 Nov 2026)
 const here=path.dirname(fileURLToPath(import.meta.url));
@@ -317,36 +318,6 @@ async function setDisplayName(profile,name){
  y=/^display_name:.*$/m.test(y)?y.replace(/^display_name:.*$/m,line):(y&&!y.endsWith('\n')?y+'\n':y)+line+'\n';
  try{await writeFile(f,y)}catch(e){console.warn('profile.yaml not written:',e.message)}
 }
-// agent pictures: a photo (cropped to 256x256 in the browser, checked by its first bytes, one file per agent) or an emoji
-// from assets/emoji (avatar-file.mjs). The two replace each other. With neither, the agent gets an automatic emoji from its
-// id. avatarV changes with every new photo, so /ui/avatar/<agent>?v= shows the new one everywhere at once
-async function identities(req,res,p,u){
- if(p==='/ui/identities'&&req.method==='GET'){const ids=await readIds();for(const a of await listAgents().catch(()=>[])){const n=String(ids[a]?.name||'').trim();if(!n)ids[a]={...(ids[a]||{}),name:NAMES[a]||await displayName(a)}}return send(res,200,ids)}
- const m=/^\/ui\/(identities|avatar)\/([^/]+)$/.exec(p);if(!m)return send(res,404,{error:'Not found'});
- const profile=decodeURIComponent(m[2]);if(!okProfile(profile))return send(res,400,{error:'Bad profile name'});
- const dropPhoto=async(cur,x)=>{if(cur.avatar)await unlink(path.join(DATA,'avatars',cur.avatar)).catch(()=>{});delete x.avatar;delete x.avatarV};
- const fail=e=>send(res,e.status||500,{error:e.message});
- if(m[1]==='identities'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{return send(res,400,{error:'Bad JSON'})}
-  if('emoji' in b){const e=String(b.emoji||'');if(e&&!(await emojiSlugs()).includes(e))return send(res,400,{error:'Pick one of the listed emoji.'})}
-  return withIds(async ids=>{const cur=ids[profile]||{};
-   const name='name' in b?String(b.name||'').trim().slice(0,60):cur.name||'',title='title' in b?String(b.title||'').trim().slice(0,80):cur.title||'';   // a body with only the emoji keeps the name
-   const next={...cur,name,title,updated:Date.now()};
-   if('emoji' in b){const e=String(b.emoji||'');if(!e)delete next.emoji;else{next.emoji=e;await dropPhoto(cur,next)}}   // an emoji replaces the photo
-   ids[profile]=next;await writeIds(ids);await setDisplayName(profile,name);if(!String(profile).includes('--'))NAMES[profile]=name||await displayName(profile);return send(res,200,ids[profile])}).catch(fail)}
- // no photo: send the agent's emoji (chosen or automatic) so anything outside the app that asks for the picture still gets one.
- // A private agent the person may not open shows only its automatic emoji, never its photo or chosen picture.
- if(m[1]==='avatar'&&req.method==='GET'){const cur=(await readIds())[profile]||{},base=profile.split('--')[0],ow=users.byId(users.agentOwner(base));
-  const hidden=!!u&&!!ow&&!users.isAdmin(ow)&&!users.level(u,base);
-  if(!cur.avatar||hidden){const l=await emojiSlugs(),e=!hidden&&l.includes(cur.emoji)?cur.emoji:emojiAuto(profile,l);if(!e)return send(res,404,'No picture');res.writeHead(302,{location:'/assets/emoji/'+e+'.png','cache-control':'private, max-age=300',...security});return res.end()}
-  try{const body=await readFile(path.join(DATA,'avatars',cur.avatar));res.writeHead(200,{'content-type':AVATAR_TYPES[cur.avatar.split('.').pop()]||'application/octet-stream','cache-control':'private, max-age=86400',...security});return res.end(body)}catch{return send(res,404,'No picture')}}
- if(m[1]==='avatar'&&req.method==='PUT'){const r=await readPicture(req);if(r.error)return send(res,r.status,{error:r.error});
-  return withIds(async ids=>{const cur=ids[profile]||{};
-   const dir=path.join(DATA,'avatars'),file=profile+'.'+r.ext,tmp=path.join(dir,file+'.'+randomBytes(4).toString('hex')+'.tmp');await mkdir(dir,{recursive:true});await writeFile(tmp,r.buf);await rename(tmp,path.join(dir,file));
-   if(cur.avatar&&cur.avatar!==file)await unlink(path.join(dir,cur.avatar)).catch(()=>{});   // one file per agent
-   const {emoji:_e,...rest}=cur;ids[profile]={...rest,avatar:file,avatarV:Date.now()};await writeIds(ids);return send(res,200,ids[profile])}).catch(fail)}   // a photo replaces the emoji
- if(m[1]==='avatar'&&req.method==='DELETE')return withIds(async ids=>{const cur=ids[profile]||{};await dropPhoto(cur,cur);ids[profile]=cur;await writeIds(ids);return send(res,200,cur)}).catch(fail);   // back to its emoji, or the automatic one
- send(res,405,{error:'Method not allowed'});
-}
 
 const accountsApi=createAccounts(DATA);
 /* Background work follows changes (reconcile.mjs, 12 Nov 2026). The "apply this to every agent" jobs ran every 10 minutes
@@ -392,7 +363,6 @@ const relay=createRelay({ownerAgent:a=>{const o=users.agentOwner(String(a).split
 const NAMES={};   // agents' display names (refreshed with the agent context), for messages people read
 const agentName=agentNameFrom(NAMES);   // agent-name.mjs: display names everywhere, never a profile id
 // names and notes people give their Google accounts, "<agent>|<account name>" → {label, note}
-const FX={rates:{IDR:16500},at:0,day:''};   // dollar → every currency, refreshed by /ui/fx (7 Nov 2026: not only rupiah)
 let GLABELS=null;const googleLabels=async()=>GLABELS??=await readFile(path.join(DATA,'google-accounts.json'),'utf8').then(JSON.parse).catch(()=>({}));
 async function writeJsonAtomic(f,v){await mkdir(path.dirname(f),{recursive:true});const t=f+'.'+process.pid+'.'+Math.random().toString(36).slice(2)+'.tmp';await writeFile(t,JSON.stringify(v,null,1));await rename(t,f)}
 // the Google accounts an agent has, with what the person called them, for its working notes
@@ -635,10 +605,6 @@ function leadScope(me,t,part){me=String(me).split('--')[0];t=String(t).split('--
  if(part==='share')return 'Changing sharing levels is for admins. Your person can share their agents in aqeelOS (Edit agent › Sharing).';return null}
 // may this agent touch aqeelOS itself (its code, the web app, deploys, other people's agents, keys, permissions)? admins' agents only
 const adminTier=a=>users.tierOf(String(a).split('--')[0])==='admin';
-// the other way (Unlock): terminal, files, code and computer use back on for this agent, where its owner may have them
-async function unlockTools(a){const c=await readConfig(a);if(!c)throw new Error('the settings could not be read');
- const cur=pick(c,'agent.disabled_toolsets')||[];const list=Array.isArray(cur)?cur.map(String):String(cur).split(',').map(x=>x.trim()).filter(Boolean);
- if(!UNSAFE_TOOLSETS.some(t=>list.includes(t)))return false;const r=await setKey(a,'agent.disabled_toolsets',list.filter(t=>!UNSAFE_TOOLSETS.includes(t)));if(!r.ok)throw new Error(r.err);return true}
 const lockedAgent=(a,st)=>{if(st[a]?.safe)return true;const ow=users.agentOwner(a);if(!ow||ow==='owner')return false;const u=users.byId(ow);return !!u&&!users.can(u,'unsafe')};
 /* Loop guard. Two agents on WhatsApp that may answer each other reply back and forth until WhatsApp logs both out
    (it happened once). So an extra agent never answers another agent's own WhatsApp number: such a number is taken
@@ -692,7 +658,7 @@ async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};c
    environment (~/.local/bin on the PATH, so Claude is found). The dashboard keeps running, so sign-ins in
    progress survive. The watch (every minute) starts a gateway when none runs, and replaces one the engine
    started itself only when THAT gateway cannot reach Claude. A deliberate Stop from the app is respected. */
-let gwStopped=false,gwRestarting=null,gwMissing=0,sshLock=Promise.resolve(),restoreBusy=()=>false;   // restoreBusy: backups.busy() once it exists (a restore copies the agents' files)   // sshLock: authorized_keys changes, one at a time
+let gwStopped=false,gwRestarting=null,gwMissing=0,restoreBusy=()=>false;   // restoreBusy: backups.busy() once it exists (a restore copies the agents' files)
 // Thinking survives a refresh: the engine keeps no thinking text for some models (only a sealed signature), so when
 // a reply streamed through aqeelOS ends, the thinking it showed is saved per chat and shown again when it is reopened.
 async function saveThinking(key,rec){try{const sid=key.split('|').slice(1).join('|');if(!/^[\w.-]{3,120}$/.test(sid))return;
@@ -856,8 +822,6 @@ async function appsOff(only){for(const a of await agentNames({copies:true})){if(
 async function closeSolvedSignins(){const l=(await issues.list().catch(()=>({items:[]}))).items||[];
  const stillOn=async(a,w)=>{const c=await readConfig(a).catch(()=>null)||{};for(const n of appNames(c))if((w==='*'||n.toLowerCase().includes(w))&&await optins.appOn(a,n))return true;return false};
  for(const id of await solvedIssues(l,stillOn)){await issues.close(id,'aqeelOS: the app is switched off for this agent, so no sign-in is needed').catch(()=>{});console.log('abilities: closed solved sign-in issue',id)}}
-// the sign-in apps an agent can switch: its own, and every one in the catalog (one per address) it could get
-async function knownApps(a){const own=appNames(await readConfig(a).catch(()=>null)||{});let cat=[];try{cat=(await connectors.plan()).catalog.map(x=>x.name)}catch{}return [...new Set([...own,...cat])].sort()}
 const connectors=createConnectors({listAgents:()=>listAgents(),readConfig,setKey,allow:async(a,e,n)=>await optins.appOn(a,n),redirect:n=>MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(n),
  hasEnv:async(a,v)=>new RegExp('^'+v.replace(/[^\w]/g,'')+'=.+','m').test(await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env'),'utf8').catch(()=>'')),
  noteApp:(a,n,r)=>whyOf.noteApp(a,n,r),origin:(a,n,u)=>whyOf.app(a,n,u),eligible:async(a,c)=>!await isTestAgent(a)&&!!c?.mcp_servers?.['aqeelos-notify'],log:(...x)=>console.log(...x)});
@@ -1224,12 +1188,6 @@ const appSettings=(tool,url)=>{const k=Object.keys(APP_SETTINGS).find(k=>tool.to
 const FLOWS_FILE=path.join(DATA,'signin-flows.json');let signinFlows=new Map();
 readFile(FLOWS_FILE,'utf8').then(t=>{signinFlows=new Map(Object.entries(JSON.parse(t)))}).catch(()=>{});
 const saveFlows=()=>writeFile(FLOWS_FILE,JSON.stringify(Object.fromEntries(signinFlows))).catch(()=>{});
-/* A sign-in started inside the chat engine (its own connector) waits on a private local listener; the public return
-   page reaches it by trying the gateway's local listening ports (the listener checks the one-time state itself). */
-async function deliverToGateway(search){try{const pid=JSON.parse(await readFile(path.join(HERMES_HOME,'gateway.pid'),'utf8')).pid;
-  const inodes=new Set();for(const fd of await readdir('/proc/'+pid+'/fd').catch(()=>[])){const l=await readlink('/proc/'+pid+'/fd/'+fd).catch(()=>'');const m=/^socket:\[(\d+)\]$/.exec(l);if(m)inodes.add(m[1])}
-  const ports=[];for(const line of (await readFile('/proc/net/tcp','utf8')).split('\n').slice(1)){const c=line.trim().split(/\s+/);if(c[3]==='0A'&&c[1]?.startsWith('0100007F:')&&inodes.has(c[9])){const port=parseInt(c[1].split(':')[1],16);if(![8642,8644,9119].includes(port))ports.push(port)}}
-  for(const port of ports){const r=await fetch('http://127.0.0.1:'+port+'/callback'+search,{signal:AbortSignal.timeout(4000)}).catch(()=>null);if(r&&r.ok){console.log('sign-in delivered to the chat engine on',port);return true}}}catch(e){console.warn('deliverToGateway',e.message)}return false}
 const linkSeen=new Map();   // flow|link → when that link was first handed out
 /* connect_mcp_tool with a url (11 Nov 2026): an agent adds an MCP address the person gave it to itself, with no terminal.
    The same checks as Connections › Add › An app by its address (mcpAddProblem, the admins' block list, a public address,
@@ -1565,10 +1523,6 @@ async function saveSecret(base,name,value,{admin=false}={}){if(!admin&&RESERVED_
  await editEnv(path.join(home,'.env'),cur=>{const lines=cur.split('\n').filter(l=>!l.startsWith(name+'='));while(lines.length&&lines[lines.length-1]==='')lines.pop();return [...lines,name+'='+value.replace(/[\r\n]/g,''),''].join('\n')});
  const dir=secretDir(base);await mkdir(dir,{recursive:true,mode:0o770});await writeFile(path.join(dir,name),value,{mode:0o660});await secretAccess.saved(base,name)?.catch(()=>{})}   // group-shared: an agent with its own user reads its own lock box; still closed to other agents
 const secretHow=(base,name)=>'To enter it on your screen, click the field and call type_secret with name '+name+'. In a command use "$(cat ~/workspaces/'+base+'/.secrets/'+name+')". Never print, echo or show the value.';
-async function useSecret(rec,value,{admin=false}={}){
- if(rec.mode==='type'){await screens.typeInto(rec.base,value,{enter:rec.enter,secret:true});return 'Typed it into the focused field on your screen'+(rec.enter?' and pressed Enter':'')+'. You never saw the value; take a screenshot to check the result.'}
- await saveSecret(rec.base,rec.name,value,{admin});
- return 'Saved as '+rec.name+' in your settings (the engine and its tools read it from there). '+secretHow(rec.base,rec.name)}
 /* One-time secret links (secret-links.mjs, 4 Nov 2026): request_secret_link gives the agent a link to send on Telegram or
    WhatsApp; the person opens it on their phone, outside aqeelOS, and the value is saved like ask_secret's "save" (never as
    an admin, so the keys that wire aqeelOS stay out of reach). The page (/secret) is public: the token after # is the credential. */
@@ -1823,7 +1777,7 @@ accountHooks.exhausted=until=>{if(until)providerLimits.set(until,'every AI accou
 const questions=createQuestions({DATA,names:a=>agentName(a),onAnswer:async q=>{if(q.kind==='fixer'&&q.issue)await issues.answered(q.issue,q);if(q.kind==='app'&&q.issue==='brand-logo'&&q.answered?.choice==='b'){await brand.setMono(true);await pwa.current()}if(q.kind==='app'&&String(q.issue).startsWith('live-logo-')&&q.answered?.choice==='b')await live.useLetter(String(q.issue).slice(10))}});
 // the cloud fixer (cloud-fixer.mjs, 12 Nov 2026): code fixes are written by a Claude Code routine in Anthropic's cloud; the account with the most room is used
 const cloudFixer=createCloudFixer({DATA,accounts:async()=>{const b=accountsApi.backup,d=await b.load();return Promise.all(b.all(d).map(a=>b.details(a)))},github:id=>fixerGit.mergedPr(id)});
-const issues=createIssues({DATA,watch:createFixerWatch({list:()=>protectedFiles({HOME:homedir(),HERMES_HOME,DATA}),log:m=>console.warn(m)}),onOver:n=>n?bottlenecks.event('issues',n+' open issues: more than the list is meant to hold','None is dropped. Close or decline the ones that no longer matter under System › Health, so new ones stay easy to find.',{topic:'issues-over'}):bottlenecks.resolve('issues-over'),ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,sandbox:fixerSandbox,needFull:why=>bottlenecks.event('fixer_full_rights','The fixer runs with full rights',String(why||'')+' A code fix then runs with the owner\'s user, which holds every key. Make the fixer\'s own user on the box (the root script does it; Health shows when it is ready) or accept this.',{topic:'fixer_full_rights'}),fullOk:()=>bottlenecks.resolve('fixer_full_rights'),cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
+const issues=createIssues({DATA,watch:createFixerWatch({list:()=>protectedFiles({HOME:homedir(),HERMES_HOME,DATA}),log:m=>console.warn(m)}),onOver:n=>n?bottlenecks.event('issues',n+' open issues: more than the list is meant to hold','None is dropped. Close or decline the ones that no longer matter under System › Health, so new ones stay easy to find.',{topic:'issues-over'}):bottlenecks.resolve('issues-over'),ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,sandbox:fixerSandbox,needFull:why=>bottlenecks.event('fixer_full_rights','The fixer waits for its own user',String(why||'')+' Fixes and proofs never run as the box user, so they wait until the fixer\'s own user works (the root script makes it; Health shows when it is ready).',{topic:'fixer_full_rights'}),fullOk:()=>bottlenecks.resolve('fixer_full_rights'),cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
  needCloud:()=>bottlenecks.event('cloud_fixer','Set up the cloud fixer','A bug in aqeelOS\'s own code is fixed in the cloud. Add a routine on System › Settings › Cloud fixer; until then the older way runs.',{topic:'cloud_fixer'}),cloudOk:()=>bottlenecks.resolve('cloud_fixer'),needToken:()=>bottlenecks.event('github_token','The fixer needs a GitHub token','Fixes wait for review as branches on the box. Add the token and their pull requests open by themselves.',{topic:'github_token'}),tokenOk:()=>bottlenecks.resolve('github_token'),usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
  tz:()=>installTz()||process.env.TZ||'',sortRun:engineSortRun({bin:path.join(homedir(),'.local','bin','aqeelos'),home:homedir(),dir:path.join(DATA,'issues','sort')}),
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,engineOk:()=>inQuiet(new Date(),installTz()||process.env.TZ||''),envFiles:issueEnvFiles,
@@ -2071,49 +2025,6 @@ async function srPlace(a){const c=await readConfig(a).catch(()=>null);if(!c)retu
  // no restart of its own (each one is a gap where agents drop, 5 Nov 2026): the lists take effect at the engine's next
  // restart, and until then run_self is refused on those channels anyway (judge in self-runs.mjs)
  if(JSON.stringify(m)!==before)await writeFile(SR_PLACED,JSON.stringify(m));if(changed)console.log('self-run tool lists updated for',a,'(in effect from the next engine restart)')}
-// the chat a call came from: the waiting call with these very arguments in the agent's own chat database
-async function srOrigin(a,tool,args){let calls=[];
- // a busy database (right after an engine restart) is tried again, like a call not saved yet
- let err=null;for(let i=0;i<6;i++){try{err=null;calls=(await srBox.lookup(a,tool)).filter(c=>{let x;try{x=typeof c.args==='string'?JSON.parse(c.args||'{}'):c.args}catch{return false}return srFp(x)===srFp(args)})}catch(e){err=e;console.warn('self-run: reading',a+'\'s chats failed:',e.detail||e.message)}
-  if(calls.length)break;await new Promise(r=>setTimeout(r,err?2000:800))}
- if(!calls.length&&err)return {ok:false,why:err.message+' Try again in a minute.'};
- const settings=await selfRuns.settings(a),trusted=await selfRuns.trusted();
- const sessionUser=id=>{const uid=users.sessionOwner(id),w=uid&&users.byId(uid);return w?{name:w.name||w.username||uid,ok:users.atLeast(w,a,'edit')}:null};
- if(!calls.length)return srJudge([],{settings,trusted,sessionUser});
- // the same call twice at once: every chat it could be from must pass
- const v=calls.map(c=>srJudge(c.chain,{settings,trusted,sessionUser}));return v.find(x=>!x.ok)||v[0]}
-const SR_TOOLS=[
- {name:'run_self',description:'Start a fresh run of yourself in the background, to test or re-run your own work: a new chat of your own with this prompt, with your own tools, files and keys, in your own workspace. It runs at most timeout_minutes ('+SR_MAX+' at most) and you can carry on meanwhile; the person who asked hears when it ends. Then call run_self_status with its id and wait true to get the result. Only in chats with your owner, a trusted person or the aqeelOS chat, and from your own schedules. At most 2 at once and a daily limit set in aqeelOS.',
-  inputSchema:{type:'object',properties:{prompt:{type:'string',description:'Everything the run needs to know: it starts with no memory of this chat'},reason:{type:'string',description:'Why, in a few words (shown to the owner)'},timeout_minutes:{type:'number',minimum:1,maximum:SR_MAX,description:'Stop it after this many minutes (default '+SR_DEF+', at most '+SR_MAX+')'},lock:{type:'string',description:'Optional: a lock file in your workspace, e.g. .tools/browser.lock. The run waits (up to 10 minutes) until nothing else holds it, and holds it while it runs.'}},required:['prompt','reason']}},
- {name:'run_self_status',description:'How a run you started with run_self is going, and its result when it is done. With wait true it waits up to 20 seconds for it to finish; for a longer run, do other work or sleep in your terminal between checks',inputSchema:{type:'object',properties:{id:{type:'string',description:'The run id run_self gave'},wait:{type:'boolean'}},required:['id']},annotations:{readOnlyHint:true}},
- {name:'run_self_list',description:'Your runs from run_self (newest first), how many you started today against your daily limit, and whether self-runs are paused.',inputSchema:{type:'object',properties:{}},annotations:{readOnlyHint:true}}];
-const SR_WAIT=20e3;
-const SR_STATE={waiting:'Waiting for the lock',running:'Running',ok:'Finished',failed:'Failed',timeout:'Ran out of time',stopped:'Stopped by an admin',interrupted:'Lost: aqeelOS restarted while it ran'};
-const srText=r=>'Run '+r.id+': '+(SR_STATE[r.state]||r.state)+(r.secs!=null?' after '+srDur(r.secs):'')+(r.exit!=null&&r.state!=='ok'?' (exit code '+r.exit+')':'')+'.\nReason: '+r.reason+(r.error?'\n'+r.error:'')+(r.answer?'\n\nIts last output:\n'+r.answer:'')+(r.state==='running'||r.state==='waiting'?'\n\nStill going. Do other work, or wait in your terminal (sleep 60), then call run_self_status again.':'');
-async function srMcp(req,res,ms){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
- let msg={};try{msg=JSON.parse(await readBody(req,262144))}catch{return send(res,400,{error:'bad json'})}
- const a=ms[1];if(!relayKeys.ok(ms[2],'self-runs:',a))return send(res,403,{error:'bad token'});
- const rpc=result=>send(res,200,{jsonrpc:'2.0',id:msg.id,result}),reply=(text,isError)=>rpc({content:[{type:'text',text}],...(isError?{isError:true}:{})});
- if(msg.method==='initialize')return rpc({protocolVersion:msg.params?.protocolVersion||'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'aqeelos-self',version:'1.0.0'}});
- if(msg.method==='notifications/initialized'||msg.id==null)return send(res,202,'');
- if(msg.method==='ping')return rpc({});
- if(msg.method==='tools/list')return rpc({tools:await srEligible(a)?SR_TOOLS:[]});
- if(msg.method!=='tools/call')return send(res,200,{jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'Method not found'}});
- const name=String(msg.params?.name||''),args=msg.params?.arguments&&typeof msg.params.arguments==='object'?msg.params.arguments:{};
- if(!SR_TOOLS.some(t=>t.name===name))return reply('Unknown tool.',true);
- if(!await srEligible(a))return reply('Running yourself is not available for this agent.',true);
- let origin=await srOrigin(a,name,args);
- try{if(name==='run_self'){const ws=path.join(homedir(),'workspaces',a);let lockPath=null;
-   if(origin.ok&&args.lock)try{lockPath=await safeLock(ws,args.lock)}catch(e){origin={ok:false,by:origin.by,why:e.message}}
-   const r=await selfRuns.start({agent:a,args,origin,ws,lockPath});console.log('self-run',r.id,'started by',a,'for',origin.by?.kind||'?');
-   return reply('Started run '+r.id+' ('+r.minutes+' minutes at most'+(r.state==='waiting'?', it first waits for the lock':'')+'). It runs on its own, so carry on. Call run_self_status with id '+r.id+' and wait true for the result; the person who asked also hears when it ends.')}
-  if(!origin.ok){await selfRuns.start({agent:a,args:{prompt:'('+name+')',reason:'('+name+')'},origin}).catch(()=>{});return reply(origin.why,true)}
-  if(name==='run_self_status'){// a short wait only: the engine runs one call at a time per tool server, so a long one held up every other call to it
-   // (5 Nov 2026: a run's own run_self waited 3 minutes behind its parent's run_self_status)
-   const r=args.wait?await selfRuns.wait(a,args.id,SR_WAIT):await selfRuns.status(a,args.id);return r?reply(srText(r)):reply('You have no run with id '+String(args.id||'').slice(0,40)+'. run_self_list shows yours.',true)}
-  const m=await selfRuns.mine(a);
-  return reply('Today: '+m.today+' of '+m.cap+' runs.'+(m.paused?' Self-runs are PAUSED ('+(m.paused.why==='cap'?'daily limit reached, until tomorrow':'3 failed runs in a row, until an admin resumes them')+').':'')+(m.on?'':' Running yourself is switched off for you in aqeelOS.')+'\n'+(m.runs.map(r=>'- '+r.id+' · '+(SR_STATE[r.state]||r.state)+(r.secs!=null?' · '+srDur(r.secs):'')+' · '+r.reason).join('\n')||'No runs yet.'))}
- catch(e){return reply(e.message,true)}}
 // every 5 seconds: runs that started or ended, trusted-person codes that arrived, and (live) the 08:00 summary
 let srTicking=false;setInterval(()=>{if(srTicking)return;srTicking=true;(async()=>{await selfRuns.check();
   const codes=await selfRuns.pendingCodes();if(codes.length){const hits=await srBox.findCodes(await listAllProfiles(),Math.min(...codes.map(c=>c.at))-60e3);
@@ -2445,35 +2356,12 @@ async function hermesCall(req,res,u,url){
  return proxy(req,res,GATE,'/gapi',{authorization:'Bearer '+API_KEY},{transform,body,live});
 }
 
-/* ---------- service logos: fetched once per domain, cached on the box, served from this origin ---------- */
-const LOGOS=path.join(DATA,'logos');
-const letterSvg=(d)=>{const l=(d||'?')[0].toUpperCase();return `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="16" fill="#0b0c10"/><text x="32" y="42" font-family="Arial,sans-serif" font-size="30" font-weight="700" fill="#fff" text-anchor="middle">${l}</text></svg>`};
-// what kind of image a logo file really is (Google sometimes answers with JPEG or ICO)
-const imgType=b=>b[0]===0x89&&b[1]===0x50?'image/png':b[0]===0xff&&b[1]===0xd8?'image/jpeg':b.slice(0,3).toString()==='GIF'?'image/gif':b.slice(8,12).toString()==='WEBP'?'image/webp':'image/x-icon';
-async function logo(req,res){
- const d=String(new URL(req.url,'http://x').searchParams.get('d')||'').toLowerCase();
- if(!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(d)||d.length>80)return send(res,400,'bad domain');
- const file=path.join(LOGOS,d+'.png'),miss=path.join(LOGOS,d+'.miss');
- const hdr={'cache-control':'public, max-age=604800','x-content-type-options':'nosniff'};
- try{const b=await readFile(file);res.writeHead(200,{'content-type':imgType(b),...hdr});return res.end(b)}catch{}
- const short={'cache-control':'private, max-age=300','x-content-type-options':'nosniff'};   // a letter is a stand-in: let browsers ask again soon
- try{await stat(miss);res.writeHead(200,{'content-type':'image/svg+xml',...short});return res.end(letterSvg(d))}catch{}
- // Google answers unknown domains with a generic 16 px globe, so a logo counts only when the PNG is at least
- // 48 px wide (read from its header; small files can still be real logos). DuckDuckGo is the second source.
- const pngWidth=b=>b.length>24&&b.readUInt32BE(0)===0x89504e47?b.readUInt32BE(16):0;
- for(const [url,ok] of [[`https://www.google.com/s2/favicons?domain=${encodeURIComponent(d)}&sz=128`,b=>pngWidth(b)>=48],[`https://icons.duckduckgo.com/ip3/${encodeURIComponent(d)}.ico`,b=>pngWidth(b)>=32||(b.length>1500&&b[0]===0&&b[2]===1)||(b.length>1500&&b.slice(8,12).toString()==='WEBP')]]){
-  try{const r=await fetch(url,{signal:AbortSignal.timeout(8000)});const buf=Buffer.from(await r.arrayBuffer());
-   if(r.ok&&ok(buf)){await mkdir(LOGOS,{recursive:true});await writeFile(file,buf);res.writeHead(200,{'content-type':imgType(buf),...hdr});return res.end(buf)}}catch{}}
- await mkdir(LOGOS,{recursive:true}).catch(()=>{});await writeFile(miss,'').catch(()=>{});
- res.writeHead(200,{'content-type':'image/svg+xml',...short});res.end(letterSvg(d));
-}
 
 /* ---------- live screens: the shared one (noVNC on 127.0.0.1:6080) and one per agent (screens.mjs) ---------- */
-const screens=createScreens({keepOn:a=>agentAds.keepOn(a),wake:a=>boxOps.wake(a)});
+const screenTickets=createScreenTickets({sign}),screens=createScreens({keepOn:a=>agentAds.keepOn(a),wake:a=>boxOps.wake(a),tickets:screenTickets});
 // every agent's own AdsPower on its own screen, as its own user, with its own port and sign-in (app/agent-adspower.mjs, 1 Nov 2026)
 const agentAds=createAgentAdspower({DATA,HERMES_HOME,screens,wanted:a=>optins.on('adspower',a),help:a=>a===HELP_AGENT,codeUser:a=>agentDefaults.codeUser(a),agentNames,readConfig,pick,withAgent,live:LIVE_APP,nameOf:a=>agentName(a),skip:async a=>a===HELP_AGENT||await isTestAgent(a),
  mcp:(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))})});
-const SCREEN=new URL(env.UI_SCREEN||'http://127.0.0.1:6080');
 const BUILD=String(Date.now());
 // home-screen app for every page (pwa.mjs): icons from the brand's real mark, the manifest, head tags and the service worker. No real mark = one question under Needs you
 const brandNeeds=async(set,s)=>{try{const ask={kind:'app',issue:'brand-logo'};if(set.needsLogo)await questions.file(ask,{question:'No logo found for '+s.name+': upload its mark',options:[{label:'Upload the mark',effect:'Opens Branding, where you choose its SVG or PNG file.',recommended:true,go:'/system/branding'},{label:'Use its first letter',effect:'The first letter on the colour tile instead. You can still upload the mark later.'}],allowOther:false});else await questions.retire(ask)}catch(e){console.warn('brand icon question:',e.message)}};
@@ -2484,11 +2372,7 @@ const pwa=createPwa({brand,build:()=>BUILD,onSet:(set,s,failed)=>{if(failed)retu
 pwa.current().catch(e=>console.warn('icons:',e.message));
 const sameOrigin=req=>{const o=req.headers.origin;if(!o)return true;try{return new URL(o).host===req.headers.host}catch{return false}};
 const plugins=createPluginHost({DASH,DASH_TOKEN,users,send,security,proxy,me,validCookie,sameOrigin});
-function screenHttp(req,res){
- const url=new URL(req.url,'http://x');const up=httpRequest({hostname:SCREEN.hostname,port:SCREEN.port,path:url.pathname.replace(/^\/screen/,'')||'/',method:'GET',headers:{host:SCREEN.host}},r=>{
-  res.writeHead(r.statusCode||502,{'content-type':r.headers['content-type']||'application/octet-stream','cache-control':'no-cache','x-content-type-options':'nosniff','x-frame-options':'SAMEORIGIN','content-security-policy':"frame-ancestors 'self'",'referrer-policy':'same-origin'});r.pipe(res)});
- up.on('error',()=>{if(!res.headersSent)send(res,502,'The screen is not running on the box.')});up.end();
-}
+const screenLink=createScreenLink({tickets:screenTickets,me,users,screens,validCookie,sameOrigin,screenUrl:new URL(env.UI_SCREEN||'http://127.0.0.1:6080'),security});
 // Spare browser window on the screen for manual use (aqeelOS's own browser opens itself when it browses).
 async function openBrowser(res,agent){
  const {spawn}=await import('node:child_process');const {existsSync,readdirSync}=await import('node:fs');
@@ -2510,6 +2394,16 @@ const codeDeviceRoutes=createCodeDeviceRoutes({API_KEY,GATE,NAMES,accountsApi,ag
 const channelsRoutes=createChannelsRoutes({ADDED_FILE,DASH,DASH_TOKEN,HERMES_HOME,NAMES,PERSON_HELP,approvePerson,attention:{get t(){return attention.t},set t(v){attention.t=v}},channelAttention,checkChannel,editAdded,envQueue,links,listAllProfiles,pairingDir,pausedLoad,pausedSave,personId,platCache,platformsCached,readBody,relay,restartGateway,samePerson,send,stopBridges,syncNotifyTool,users,waLinking,waMapping,waPrepOff});
 const healthRoutes=createHealthRoutes({agentGraph,agentMemory,agentName,chatHistory,cloudFixer,codeChanges,effView,escalations,health,issues,listAgents,listAllProfiles,memWatch,needCtx,ownerSend,questions,readBody,relay,resume,send,teamSettings,usage,users});
 const connectedRoutes=createConnectedRoutes({DASH,DASH_TOKEN,HERMES_HOME,NAMES,PUBLIC_URL,backupModels,backups,engineUpd,gconnect,googleConnected,guard,kirimdev,kirimdevChanged,kirimdevSetup,listAgents,localAppVersions,mcpEdit,msconnect,newerApp,ownsAgent,priceCatalog,privateAddress,readBody,releaseAppVersions,secretLinks,selfRuns,send,slackc,srEligible,syncNotifyTool,teamGroups,teamSettings,tebar,users,whyOf,writeAgentContext});
+const systemRoutes=createSystemRoutes({accountsApi,addonBy,addons,agentAds,agentHealth,antigravity,appsOff,boxOps,brand,closeSolvedSignins,connectors,cookieAttrs,DATA,env,googleLabels,HERMES_HOME,links,listAllProfiles,makeCookie,makeLead,memNow,NAMES,optins,ownsAgent,platCache,PUBLIC_URL,pwa,readBody,readRaw,restartGateway,revokeSessions,security,send,SESSION_DAYS,setChannelOn,setGlabels:v=>{GLABELS=v},SSH_HOST,SSH_PORT,syncNotifyTool,sysEvents:()=>sysEvents,users,writeAgentContext,writeJsonAtomic});
+const abilitiesRoutes=createAbilitiesRoutes({agentDefaults,channelIdentity,code,codeAgents,codeBridge,codeOnline,displayName,envOf,isTestAgent,listAgents,listAllProfiles,live,lockedAgent,lockTools,MCP_OAUTH_BASE,n8n,NAMES,readBody,restartGateway,send,sharing,slackClientChannels,slackQuiet,users});
+const instructionsRoutes=createInstructionsRoutes({accountsApi,backupModels,bottlenecks,cfgLimit,channelAttention,code,DATA,DESKTOP_RELEASES,displayName,help,instructions,listAgents,localAppVersions,n8n,NAMES,needsFor,newerApp,readBody,releaseAppVersions,security,send,signinsDue,teamFolders,users,versions});
+const accessRoutes=createAccessRoutes({access,accessAsk,agentAccess,bottlenecks,conflicts,connAccounts,connections,DATA,keysId,labels,listAgents,NAMES,questions,readBody,send,shareLevels,users});
+const mcpSecretsRoutes=createMcpSecretsRoutes({access,browserAsks,channelList,displayName,freshSignins,HERMES_HOME,listAgents,localBrowser,MCP_OAUTH_BASE,memberSecretName,NAMES,optins,ownsAgent,readBody,saveSecret,screens,secretAsks,secretDir,secretHow,security,send,sharing,signinsAt:()=>signinsAt,signinsDue,slackClientFor,startSignin,users,whyOf});
+const schedulesRoutes=createSchedulesRoutes({designGuard,postingLimits,readBody,relay,schedules,send,users});
+const identitiesRoutes=createIdentitiesRoutes({accountsApi,billion,builtins,channels,connect,DASH,DASH_TOKEN,DATA,designGuard,displayName,explain,graphify,HERMES_HOME,keysId,labels,listAgents,listAllProfiles,NAMES,okProfile,ownsAgent,pausedLoad,platCache,readBody,readIds,reconnectOne,restartGateway,runGates,security,send,setChannelOn,setDisplayName,starters,usage,users,waitingNow,withIds,writeIds});
+const hooksRoutes=createHooksRoutes({agentAccess,agentLive,customerTools:()=>customerTools,designGuard,HOOKS,issues,kirimdev,paymentCallbacks,pressKey,proxy,readBody,readRaw,send,smokeWatch,teamView,tebar,versions,WA_CLOUD});
+const oauthCallbackRoutes=createOAuthCallbackRoutes({DASH,DASH_TOKEN,esc,gconnect,googleConnected,HERMES_HOME,listAllProfiles,msconnect,NAMES,PUBLIC_URL,security,sharing,signinFlows:()=>signinFlows,writeAgentContext});
+const boxRoutes=createBoxRoutes({agentOps,codeBridge,eventHooks,fixerSandbox,googleFiles,kirimdev,postingLimits,readBody,relayKeys,runGates,selfRuns,send,sign,srBox,srDur,srEligible,users});
 const server=createServer(async(req,res)=>{
  enterRequest(req);const url=new URL(req.url,'http://x');const p=url.pathname;   // the request is what the per-account sign-in limit reads the address and session cookie from
  try{
@@ -2534,150 +2428,25 @@ const server=createServer(async(req,res)=>{
   if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),engine:(void engineAgents(),engAgents.n),busy:busyTotal({live:liveCount(),setups:export_setups.running(),ops:opsBusy(),relay:relay.sending(),gwRestarting:!!gwRestarting,engineUpdate:engineUpd.busy(),restore:backups.busy()}),
    // hold: what a deploy still waits for (it cannot be continued afterwards); resume: what is waiting to continue
    hold:holdTotal({setups:export_setups.running(),ops:opsBusy(),relay:relay.sending(),gwRestarting:!!gwRestarting,engineUpdate:engineUpd.busy(),restore:backups.busy()}),resume:{inFlight:resume.inFlight(),waiting:resume.pending()}});
-  // the code bridge agents' engines call during a Code run for a computer project (app/code-bridge.mjs)
-  if(p.startsWith('/mcp/code/')&&await codeBridge.handle(req,res,{send,readBody}))return;
-  // run_self and the rest (aqeelos-self): from this box only, each agent's address signed
-  {const ms=/^\/mcp\/self\/([\w-]+)\/([\w-]+)$/.exec(p);if(ms)return await srMcp(req,res,ms)}
-  // an agent's Kirimdev calls without a key (agent-ops.mjs, audit H3): from this box only, signed per agent, its own line only, sends through the guards
-  {const mo=/^\/agent-ops\/([\w-]+)\/([\w-]+)$/.exec(p);if(mo){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
-   const x=Buffer.from(String(mo[2])),y=Buffer.from(sign('agent-ops:'+mo[1]).slice(0,32));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad signature'});
-   let body;try{body=JSON.parse(await readBody(req,1e6))}catch{return send(res,400,{error:'bad json'})}const r=await agentOps.call(mo[1],body).catch(e=>({status:500,json:{error:e.message}}));return send(res,r.status,r.json)}}
-  // the confined fixer's routes (fixer-sandbox.mjs, CR-7): from this box only, signed for one run, closed when the run ends
-  {const mf=/^\/fixer-ops\/([\w-]+)\/([\w-]+)\/([A-Za-z0-9_-]{32})\/(\w+)$/.exec(p);if(mf){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
-   let body={};try{body=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'bad json'})}
-   const r=await fixerSandbox.ops(mf[4],mf[1],mf[2],mf[3],body).catch(e=>({status:500,json:{error:String(e.message).slice(0,200)}}));return send(res,r.status,r.json)}}
-  // a person's message in the team's Telegram topic, from the engine's hook (audit H5): from this box only, signed per agent. The sender
-  // is checked against the line's approvers in kirimdev.teamMessage; nothing here trusts the text alone.
-  {const mt=/^\/team-message\/([\w-]+)\/([\w-]+)$/.exec(p);if(mt){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
-   const x=Buffer.from(String(mt[2])),y=Buffer.from(sign('team-message:'+mt[1]).slice(0,32));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad signature'});
-   let body;try{body=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}
-   const r=await kirimdev.teamMessage(mt[1].split('--')[0],{chatId:body.chatId,threadId:body.threadId,userId:body.userId,text:String(body.text||'')}).catch(e=>({handled:false,why:e.message}));return send(res,200,{handled:!!r.handled})}}
-  // an agent's Google files (google-files.mjs): from this box only, signed per agent, only the files listed for it
-  {const mf=/^\/google-files\/([\w-]+)\/([\w-]+)$/.exec(p);if(mf){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
-   if(!relayKeys.ok(mf[2],'google-files:',mf[1]))return send(res,403,{error:'bad signature'});
-   let body;try{body=JSON.parse(await readBody(req,4e6))}catch{return send(res,400,{error:'bad json'})}const r=await googleFiles.call(mf[1],body);return send(res,r.status,r.json)}}
-  // the run gate every schedule runs first (run-gates.mjs): from this box only, signed per agent; always answers
-  {const mr=/^\/run-gate\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mr){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   if(!relayKeys.ok(mr[3],'relay:',mr[1]))return send(res,403,'bad signature');
-   const t=await runGates.check(mr[1],mr[2],{nothing:url.searchParams.get('nothing')==='1'}).catch(()=>'aqeelOS run check: clear to run.\n{"wakeAgent": true}');res.writeHead(200,{'content-type':'text/plain; charset=utf-8'});return res.end(t+'\n')}}
-  // the slow fallback run of an event hook (event-hooks.mjs, scripts/hooks-wire.mjs): from this box only, signed per agent; 200 when the run went well, else 500 with the error
-  {const mh=/^\/event-hook\/([\w-]+)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mh){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   if(!relayKeys.ok(mh[3],'relay:',mh[1]))return send(res,403,'bad signature');
-   const e=await eventHooks.runNow(mh[1],mh[2]).catch(e=>e.message);res.writeHead(e?500:200,{'content-type':'text/plain; charset=utf-8'});return res.end((e||'ok')+'\n')}}
-  // for a script that posts without a model (the comment queue, 12 Nov 2026): GET ?json=1&kind=comment on the gate says {allow,n,reason} (it reserves nothing); POST /posting-record does what the record_post tool does.
-  // The guard of every script that posts (scripts/posting-guard.py, posting-limits.mjs): POST /posting-check {kind} -> {allow,ticket,reason}, /posting-sending {ticket}, /posting-record {ticket,kind,ref,text}, /posting-cancel {ticket}
-  {const mj=/^\/posting-(gate|record|check|sending|cancel)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mj&&(mj[1]!=='gate'||url.searchParams.get('json')==='1')){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   if(!relayKeys.ok(mj[3],'relay:',mj[2])){postingLimits.staleKey(mj[2]);return send(res,403,'bad signature')}
-   if(mj[1]==='gate')return send(res,200,await postingLimits.allowNow(mj[2].split('--')[0],url.searchParams.get('kind')||'').catch(e=>({allow:false,n:0,reason:'aqeelOS could not check the limits ('+e.message+')'})));
-   if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'})}
-   const ag=mj[2].split('--')[0];
-   if(mj[1]==='check'){const g=await postingLimits.guard(ag,b.kind).catch(e=>({allow:false,reason:'aqeelOS could not check the limits ('+e.message+'), so nothing may be posted.'}));return send(res,g.allow?200:409,g)}
-   if(mj[1]==='sending'||mj[1]==='cancel'){const g=await postingLimits.mark(ag,b.ticket,mj[1]).catch(e=>({ok:false,text:e.message}));return send(res,g.ok?200:409,g)}
-   const r=await postingLimits.record(ag,b).catch(e=>({isError:true,text:e.message}));return send(res,r.isError?409:200,{ok:!r.isError,text:r.text})}}
-  // the posting gate an agent's posting schedule runs first (posting-limits.mjs): from this box only, signed per agent
-  {const mg=/^\/posting-gate\/([\w-]+)\/([\w-]+)$/.exec(p);if(mg){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   if(!relayKeys.ok(mg[2],'relay:',mg[1])){postingLimits.staleKey(mg[1]);return send(res,403,'bad signature')}
-   const t=await postingLimits.gate(mg[1]).catch(e=>'aqeelOS could not check the limits ('+e.message+'), so no post this run.\n{"wakeAgent": false}');res.writeHead(200,{'content-type':'text/plain; charset=utf-8'});return res.end(t+'\n')}}
+  if(await boxRoutes(req,res,p,url))return;
   if(await notifyToolsRoutes(req,res,p))return;
   // private Live apps: Traefik asks here before each request (forwardAuth); /live-login sends a signed-in person back with a pass
   if(p==='/live-auth')return live.auth(req,res,id=>users.user(id)).catch(()=>{if(!res.headersSent){res.writeHead(503);res.end()}});
   if(p==='/live-login'&&req.method==='GET')return live.login(req,res,await me(req)).catch(()=>{if(!res.headersSent)send(res,500,'Try again.')});
-  // Incoming webhooks (GitHub, Stripe…) reach Hermes' webhook listener here. No sign-in: each
-  // subscription checks its own secret signature, and nothing but POST /webhooks/<name> passes.
-  if(/^\/webhooks\/[\w.-]{1,64}$/.test(p)&&req.method==='POST')return proxy(req,res,HOOKS,'',{});
-  {const wm=/^\/webhooks\/([a-z0-9][a-z0-9_-]{0,63})\/([\w.-]{1,64})$/.exec(p);if(wm&&req.method==='POST'){req.url='/p/'+wm[1]+'/webhooks/'+wm[2]+url.search;
-   // an agent's own webhook for a provider that signs its own way (create_my_webhook): its signature is checked with the
-   // agent's saved key and the call is signed again for the engine; any other route passes untouched
-   let raw;try{raw=await readRaw(req,1e6)}catch{return send(res,413,{error:'too large'})}
-   const g=await versions.hookGate(wm[1],wm[2],req.headers,raw).catch(e=>({pass:false,status:500,error:e.message}));if(!g.pass)return send(res,g.status||401,{error:g.error||'refused'});
-   if(g.headers){for(const h of ['x-webhook-signature','x-hub-signature-256','x-gitlab-token','linear-signature','webhook-signature','svix-signature','x-kirim-signature'])delete req.headers[h];Object.assign(req.headers,g.headers)}
-   return proxy(req,res,HOOKS,'',{},{body:raw})}}
-  // WhatsApp Business (Meta's Cloud API) calls here: GET is Meta's address check, POST the messages. No sign-in:
-  // the engine checks Meta's signature with the app secret. The main agent's listener serves every agent (/p/<agent>/…).
-  {const cm=/^\/whatsapp-cloud(?:\/([a-z0-9][a-z0-9_-]{0,63}))?$/.exec(p);if(cm&&(req.method==='GET'||req.method==='POST')){req.url=(cm[1]&&cm[1]!=='default'?'/p/'+cm[1]:'')+'/whatsapp/webhook'+url.search;return proxy(req,res,WA_CLOUD,'',{})}}
-  // Tebar posts its events here, signed with the secret pasted for that agent (tebar.mjs): answered at once (Tebar waits 5 s), handled after
-  {const tm=/^\/hooks\/tebar\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(tm){if(req.method!=='POST')return send(res,405,{error:'POST only'});let raw;
-   if(+req.headers['content-length']>1024*1024)return send(res,413,{error:'Too large'});try{raw=await readRaw(req,1024*1024)}catch{return send(res,413,{error:'Too large'})}
-   try{const r=await tebar.receive(tm[1],req.headers,raw);send(res,r.status,r.body);if(r.after)setImmediate(()=>r.after().catch(e=>console.warn('tebar event',e.message)));return}catch(e){console.warn('tebar receive',e.message);return send(res,500,{error:'Try again'})}}}
-  // Tripay and Xendit call here when a payment is paid, no sign-in: each call is checked with the agent's own provider secret (payment-callbacks.mjs)
-  {const pm=/^\/hooks\/pay\/(tripay|xendit)\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(pm){if(req.method!=='POST')return send(res,405,{success:false});let raw;
-   if(+req.headers['content-length']>65536)return send(res,413,{success:false});try{raw=await readRaw(req,65536)}catch{return send(res,413,{success:false})}
-   {const r=await payHook({provider:pm[1],agent:pm[2],headers:req.headers,raw,receive:(...a)=>paymentCallbacks.receive(...a),live:LIVE_APP});send(res,r.status,r.body);if(r.after)setImmediate(r.after);return}}}
-  // one-time secret links (no sign-in: the token after # is the credential)
-  // Kirimdev posts customer messages here, signed; nothing else is taken (kirimdev.mjs)
-  {const km=/^\/kirimdev\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(km){if(req.method!=='POST')return send(res,405,{error:'POST only'});let raw;
-   if(+req.headers['content-length']>1024*1024)return send(res,413,{error:'Too large'});try{raw=await readRaw(req,1024*1024)}catch{return send(res,413,{error:'Too large'})}
-   try{const r=await kirimdev.receive(km[1],req.headers,raw);return send(res,r.status,r.body)}catch(e){console.warn('kirimdev receive',e.message);return send(res,500,{error:'Try again'})}}}
-  // a press on an issue's Telegram button, posted by the gateway plugin aqeelos-issue-buttons (this box only, with the key)
-  // the engine plugin aqeelos-live (this box only, with the key in HERMES_HOME/secrets/agent-live.key): a turn's context, a held error
-  // the customer-run tool server (local only; a run's own key in X-Aqeelos-Run)
-  {const cm=/^\/mcp\/customer\/([a-z0-9][a-z0-9_-]{0,63})$/.exec(p);if(cm){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');
-   if(req.method!=='POST')return send(res,405,'POST only');let msg={};try{msg=JSON.parse(await readBody(req,262144))}catch{return send(res,400,{error:'bad json'})}
-   {const w=msg.method==='tools/call'&&smokeWatch.get(String(msg.params?.arguments?.run||''));if(w)w.push({name:String(msg.params?.name||''),path:String(msg.params?.arguments?.path||'')})}
-   const r=await customerTools.mcp(cm[1],String(req.headers['x-aqeelos-run']||''),msg);return r.status===202?send(res,202,''):send(res,r.status,r.body)}}
-  if(p.startsWith('/agent-live/')&&!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(req.socket.remoteAddress||''))return send(res,403,{error:'local only'});
-  if(p==='/agent-live/team-view'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
-   if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});if(String(b.agent||'')!==agentAccess.MAIN)return send(res,403,{error:'Only the main agent has this.'});
-   try{return send(res,200,await teamView.call({session:String(b.session||'').slice(0,120)},b.args&&typeof b.args==='object'?b.args:{}))}catch(e){return send(res,200,{error:e.message})}}
-  if(p==='/agent-live/schedule-review'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,65536))}catch{}
-   if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});const ag=String(b.agent||'');if(!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(ag)||!(await agentLive.homes()).includes(ag))return send(res,404,{error:'no such agent'});
-   return send(res,200,{block:await designGuard.engineCall(ag,b.args&&typeof b.args==='object'?b.args:{}).catch(()=>null)})}
-  if(p==='/agent-live/context'||p==='/agent-live/held'){if(req.method!=='POST')return send(res,405,{error:'POST only'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
-   if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'});const ag=String(b.agent||'');if(!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(ag)||!(await agentLive.homes()).includes(ag))return send(res,404,{error:'no such agent'});
-   if(p==='/agent-live/held')return send(res,200,{ok:true,...await agentLive.hold(ag,{error:String(b.error||'').slice(0,8000),platform:String(b.platform||'').slice(0,40),session:String(b.session||'').slice(0,120)})});
-   try{const ch=b.chat&&typeof b.chat==='object'?Object.fromEntries(['chat_id','thread_id','chat_type','chat_name'].map(k=>[k,String(b.chat[k]||'').slice(0,200)])):{};return send(res,200,await agentLive.context(ag,{platform:String(b.platform||''),sender:String(b.sender||''),first:!!b.first,seen:String(b.seen||''),chat:ch}))}catch(e){console.warn('agent-live context',ag,e.message);return send(res,200,{text:''})}}
-  if(p==='/issue-press'){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra)||req.method!=='POST')return send(res,403,{error:'local only'});
-   let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=await pressKey();
-   if(typeof b.key!=='string'||b.key.length!==k.length||!timingSafeEqual(Buffer.from(b.key),Buffer.from(k)))return send(res,403,{error:'bad key'});
-   const r=await issues.press(b.data,String(b.from||''));console.log('issue button',String(b.data||'').slice(0,15),'from',b.from,'→',r.toast);return send(res,200,r)}
+  if(await hooksRoutes(req,res,p,url))return;
   // an old Approve / Decline link (issues.mjs before 7 Nov 2026): it only shows where the issue is now
   // /issue/<id>/<token> approval links ended on 7 Nov 2026 (the fixer handles every issue itself). They no longer exist: such a link is a plain 404 like any missing page, whatever its token (13 Nov 2026; it used to show the issue to anyone with a made-up token)
   // a one-purpose PDF link for a WhatsApp document (doc-links.mjs): unguessable, 15 minutes, no sign-in
   {const dm=/^\/doc\/([\w-]{43})\/([^/]+)$/.exec(p);if(dm&&(req.method==='GET'||req.method==='HEAD'))return await docLinks.serve(req,res,dm[1],dm[2])}
   if(p==='/secret'||p.startsWith('/secret/'))return await secretRoute(req,res,p);
-  // MCP sign-in (OAuth) returns here from Slack, Notion…; the engine checks the one-time state. No sign-in needed.
-  // Google sign-ins (Google Workspace skill with a Web-application client) return here, and aqeelOS finishes them:
-  // it finds the agent and account whose pending sign-in has this state and runs the skill's --auth-code step.
-  // Microsoft sign-ins started with Connect Microsoft (microsoft-connect.mjs) come back here; the one-time state is the check
-  if(p==='/microsoft-oauth/callback'&&req.method==='GET'){
-   const page=(t,m)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...security});return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><style>@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/google-sans-flex-digits.woff2') format('woff2');unicode-range:U+30-39}</style><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${t}</h2><p>${m}</p></body>`)};
-   if(!await msconnect.has(url.searchParams.get('state')||''))return page('Not connected','This sign-in link has expired or was already used. Go back to aqeelOS and press Connect Microsoft again.');
-   try{const r=await msconnect.finish(url.search);if(LIVE_APP)writeAgentContext().catch(()=>{});return page('Microsoft account connected',(r.email?'<b>'+esc(r.email)+'</b> is':'Your Microsoft account is')+' connected to '+esc(NAMES[r.agent]||r.agent)+'. You can close this tab and go back to aqeelOS.')}catch(e){return page('Not connected',esc(e.message))}}
-  if(p==='/google-oauth/callback'&&req.method==='GET'){const st=url.searchParams.get('state')||'';
-   const page=(t,m)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...security});return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><style>@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/google-sans-flex-digits.woff2') format('woff2');unicode-range:U+30-39}</style><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${t}</h2><p>${m}</p></body>`)};
-   // a sign-in started in the app (Connect Google): finished here, nothing for an agent to do
-   if(await gconnect.has(st)){try{const r=await gconnect.finish(url.search);googleConnected(r);return page('Google account connected',(r.email?'<b>'+esc(r.email)+'</b> is':'Your Google account is')+' connected to '+esc(NAMES[r.agent]||r.agent)+'. You can close this tab and go back to aqeelOS.')}catch(e){return page('Not connected',esc(e.message))}}
-   if(url.searchParams.get('error'))return page('Not connected','You clicked Cancel (or Google said no). Ask your agent for a new link if you want to connect.');
-   let hit=null;for(const a of await listAllProfiles()){const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
-    for(const fn of await readdir(home).catch(()=>[])){const m=/^google_oauth_pending(?:_(.+))?\.json$/.exec(fn);if(!m)continue;
-     try{const j=JSON.parse(await readFile(path.join(home,fn),'utf8'));if(j.state&&j.state===st){hit={a,home,acct:m[1]||''};break}}catch{}}if(hit)break}
-   if(!hit)return page('This link has expired','A newer link replaced it, or it was already used. Ask your agent for a new Google sign-in link and open it right away.');
-   const py=await sharing.python();const script=path.join(hit.home,'skills','productivity','google-workspace','scripts','setup.py');const {execFile}=await import('node:child_process');
-   const r=await new Promise(done=>execFile(py,[script,...(hit.acct?['--account',hit.acct]:[]),'--auth-code',PUBLIC_URL+'/google-oauth/callback'+url.search],{timeout:90000,env:{...process.env,HERMES_HOME:hit.home}},(e,o,er)=>done({ok:!e,out:String(o||'')+String(er||'')})));
-   if(!r.ok||/ERROR/.test(r.out))return page('Google sign-in did not finish',esc((r.out.trim().split('\n').filter(Boolean).pop()||'Unknown error').slice(0,300))+' Ask your agent for a new link.');
-   return page('Google account connected',(hit.acct?'<b>'+esc(hit.acct)+'</b> is ':'Your Google account is ')+'connected to '+esc(NAMES[hit.a]||hit.a)+'. You can close this tab and go back to aqeelOS.')}
+  if(await oauthCallbackRoutes(req,res,p,url))return;
   if(await codeDeviceRoutes(req,res,p,url))return;
   if(p==='/ui/brand'&&req.method==='GET')return send(res,200,{...await brand.get(),owner:legalOwner(),pwa:await pwa.info().catch(()=>null)});
   if(p==='/ui/brand/logo'&&req.method==='GET'){const l=await brand.logo();if(!l){res.writeHead(302,{location:env.BRAND_LOGO_FALLBACK||'/assets/aqeelos-mark.svg'});return res.end()}res.writeHead(200,{'content-type':l.type,'cache-control':'public, max-age=86400','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'",'x-content-type-options':'nosniff'});return res.end(l.data)}
   if(p==='/aqeelos-login'&&req.method==='GET'){res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer'});return res.end(n8n.page())}
   if(p==='/aqeelos-login/go'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
    try{const set=await n8n.go(b.t,b.b);res.writeHead(200,{'content-type':'application/json','cache-control':'no-store','set-cookie':set});return res.end('{"ok":true}')}catch(e){return send(res,400,{error:e.message})}}
-  if(p.startsWith('/mcp-oauth/api/mcp/oauth/callback/')&&req.method==='GET'){
-   const tool=decodeURIComponent(p.split('/').pop()||'');let r=await fetch(DASH.origin+p.slice('/mcp-oauth'.length)+url.search).catch(()=>null);if(r)await r.text();
-   if(r&&r.status===404&&url.searchParams.get('code')){const g=await deliverToGateway(url.search);if(g)r={ok:true,status:200,viaGateway:true}}
-   // say what really happened: wait for the engine to finish trading the code, then report it plainly
-   let title='Signed in',msg='You can close this tab and go back to aqeelOS.';
-   if(url.searchParams.get('error'))[title,msg]=['Not connected','You clicked Cancel (or the service said no). Go back to aqeelOS and press Sign in again if you want to connect.'];
-   else if(!r)[title,msg]=['aqeelOS is not reachable','Try again in a minute.'];
-   else if(r.status===404)[title,msg]=['This link has expired','It was replaced by a newer one or is older than a few minutes. Go back to aqeelOS, press Sign in (or ask your agent to connect it) and use the newest link right away.'];
-   else if(!r.ok)[title,msg]=['Sign-in did not finish','The service sent back something unexpected. Press Sign in again.'];
-   else{const ids=[...signinFlows.entries()].filter(([k])=>k.endsWith('|'+tool)).map(([,v])=>v);const h={'x-hermes-session-token':DASH_TOKEN};let st=null;
-    for(let i=0;i<20&&ids.length;i++){for(const id of ids){const f=await fetch(DASH.origin+'/api/mcp/oauth/flows/'+encodeURIComponent(id),{headers:h}).then(x=>x.ok?x.json():null).catch(()=>null);if(f&&!/authorization_required|pending|exchang|connecting/i.test(f.status||'')){st=f;break}}if(st)break;await new Promise(x=>setTimeout(x,750))}
-    if(st&&/error|fail/i.test(st.status||''))[title,msg]=['Sign-in did not finish',esc(String(st.error||'The service refused the sign-in.').slice(0,300))+' Press Sign in again; if it keeps happening, ask your agent to connect it with the app’s own API key instead.'];
-    else if(st&&st.tools?.length)msg=`${esc(tool)} is connected with ${st.tools.length} tools. You can close this tab and go back to aqeelOS.`}
-   res.writeHead(r?.status&&r.status<500?200:502,{'content-type':'text/html; charset=utf-8',...security});
-   return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>aqeelOS</title><style>@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/plus-jakarta-sans.woff2') format('woff2')}@font-face{font-family:'Plus Jakarta Sans';font-weight:200 800;font-display:swap;src:url('/assets/google-sans-flex-digits.woff2') format('woff2');unicode-range:U+30-39}</style><body style="font-family:'Plus Jakarta Sans',system-ui,sans-serif;max-width:440px;margin:15vh auto;text-align:center;color:#111;line-height:1.5"><h2>${title}</h2><p>${msg}</p></body>`)}
-  if(p.startsWith('/screen/')){if(!validCookie(req))return send(res,401,'Sign in first.');return screenHttp(req,res)}
+  if(p.startsWith('/screen/')){if(!validCookie(req))return send(res,401,'Sign in first.');return screenLink.page(req,res)}
   if(p==='/ui/screen/browser'||p.startsWith('/ui/screens')){const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'});if(req.method!=='GET'&&req.headers['x-hui']!=='1')return send(res,403,{error:'Sign in first.'});
    const sm=/^\/ui\/screens\/([^/]+)/.exec(p);if(p==='/ui/screens'&&!users.isAdmin(u))return send(res,200,{screens:[]});
    const no=users.gate(u,p,req.method,url.searchParams,sm?decodeURIComponent(sm[1]):agentOf(p,url.searchParams));if(no)return send(res,no.status,{error:no.error});
@@ -2696,170 +2465,7 @@ const server=createServer(async(req,res)=>{
    if(p.startsWith('/ui/plugin-'))return plugins.handle(req,res,u,url);
    if(p.startsWith('/ui/help/'))return help.handle(req,res,u,url);
    if((p==='/ui/install'||p.startsWith('/ui/install/'))&&await install.handle(req,res,u,url))return;
-   // the real-life test after each deploy (scripts/live-test.mjs) and any automatic undo (box-live.sh), for System › Health
-   if(p==='/ui/live-test'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});try{return send(res,200,JSON.parse(await readFile(path.join(DATA,'live-test.json'),'utf8')))}catch{return send(res,200,{runs:[]})}}
-   // Edit agent › Abilities: AdsPower and sign-in apps per agent (admins change them; the agent's editors may read them)
-   if(p==='/ui/optins'&&req.method==='GET'){const a=String(url.searchParams.get('agent')||'default');if(!users.isAdmin(u)&&!users.atLeast(u,a,'edit'))return send(res,403,{error:'Not your agent.'});return send(res,200,{agent:a,admin:users.isAdmin(u),abilities:await optins.state(a),apps:await optins.appsState(a,await knownApps(a))})}
-   if(p==='/ui/optins'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change this.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-    const a=String(b.agent||'').split('--')[0],k=String(b.kind||''),v=!!b.on;if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(a)||!await isAgent(a))return send(res,400,{error:'Unknown agent'});
-    try{if(k==='app')await optins.setApp(a,String(b.name||''),v);else await optins.set(k,a,v)}catch(e){return send(res,400,{error:e.message})}
-    // applied now: AdsPower starts (or stops and loses its tool); a sign-in app is added (or removed)
-    if(k==='adspower')(v?agentAds.tick().then(()=>agentAds.tools()):agentAds.retire(a)).catch(e=>console.warn('abilities',e.message));
-    if(k==='app')(v?connectors.ensureAll():appsOff(a).then(()=>closeSolvedSignins())).catch(e=>console.warn('abilities',e.message));
-    return send(res,200,{ok:true,abilities:await optins.state(a),apps:await optins.appsState(a,await knownApps(a))})}
-   // a new password signs out every other browser and phone; this one gets a fresh sign-in
-   if(p==='/ui/me/password'&&req.method==='PUT')return users.api(u,req,res,p,async(r,code,data,h)=>{if(code===200){await revokeSessions(u.id);return send(r,code,data,{...(h||{}),'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}return send(r,code,data,h)},readBody);
-   // System › Branding (admins): the name, logo and contact of this install
-   if(p.startsWith('/ui/brand')&&req.method!=='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins change the branding.'});
-    try{let r;if(p==='/ui/brand'&&(req.method==='POST'||req.method==='PUT')){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if('name' in b)r=await brand.setName(b.name);if('contact' in b)r=await brand.setContact(b.contact);if('colour' in b||'accent' in b)r=await brand.setColours({colour:b.colour,accent:b.accent});if('mono' in b)r=await brand.setMono(!!b.mono);r||=await brand.get()}
-     else if(p==='/ui/brand/logo'&&req.method==='POST')r=await brand.setLogo(await readRaw(req,600*1024),String(req.headers['content-type']||''));
-     else if(p==='/ui/brand/logo'&&req.method==='DELETE')r=await brand.clearLogo();
-     else if(p==='/ui/brand/icon'&&req.method==='POST')r=await brand.setIcon(await readRaw(req,3.2*1024*1024),String(req.headers['content-type']||''));
-     else if(p==='/ui/brand/icon'&&req.method==='DELETE')r=await brand.clearIcon();else return send(res,404,{error:'Not found'});
-     await pwa.current().catch(e=>console.warn('icons:',e.message));
-     console.log('branding changed by',u.name||u.id,'→',r.name);return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
-   {const lm=/^\/ui\/people\/([\w-]+)\/lead$/.exec(p);if(lm&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const x=users.byId(lm[1]);if(!x||x.id==='owner')return send(res,404,{error:'Unknown person'});try{return send(res,200,{ok:true,lead:await makeLead(x)})}catch(e){return send(res,502,{error:'The lead agent could not be made: '+e.message})}}}
-   if(p==='/ui/me'||p.startsWith('/ui/me/')||p.startsWith('/ui/people')||p.startsWith('/ui/agents')||p.startsWith('/ui/mail')||p.startsWith('/ui/roles'))return users.api(u,req,res,p,send,readBody);
-   // A true gateway restart (stop and start the service). The engine's own restart only reloads agents inside
-   // the running process, so things read at startup (shell hooks) would not change.
-   // extra connections of one app for one agent (WhatsApp 2…): admins, or whoever may edit that agent
-   if(p.startsWith('/ui/channels')&&req.method!=='GET'){platCache.clear();setTimeout(()=>syncNotifyTool().catch(()=>{}),20000)}
-   if(p==='/ui/channels/links'){const a=url.searchParams.get('agent')||'';
-    if(req.method==='GET')return send(res,200,{links:(await links.list(a||null)).filter(l=>users.isAdmin(u)||users.gate(u,'/hapi/profiles/'+l.agent+'/soul','PUT',new URLSearchParams(),l.agent)===null)});
-    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||a);
-    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'You can only add connections to agents you may edit.'});
-    try{if(req.method==='POST')return send(res,200,await links.create(ag,String(b.platform||'')));
-     if(req.method==='DELETE'){const l=(await links.list()).find(x=>x.name===b.name&&x.agent===ag);if(!l)throw new Error('Unknown connection.');await links.remove(l.name);return send(res,200,{ok:true})}
-     if(req.method==='PUT'){const l=(await links.list()).find(x=>x.name===b.name&&x.agent===ag);if(!l)throw new Error('Unknown connection.');return send(res,200,await links.rename(l.name,b.label))}}
-    catch(e){return send(res,400,{error:e.message})}}
-   // pictures agents make (MEDIA:/…/cache/generated/…): served to signed-in people, nothing outside those folders
-   if(p==='/ui/media'&&req.method==='GET'){const want=String(url.searchParams.get('path')||'');const ext=(/\.(png|jpe?g|gif|webp|bmp)$/i.exec(want)||[])[1];
-    let real='';try{real=await realpath(want)}catch{}
-    const okDir=real&&(real.startsWith(HERMES_HOME+'/')||real.startsWith(path.join(homedir(),'workspaces')+'/'))&&/\/cache\/generated\/|\/workspaces\//.test(real);
-    if(!ext||!okDir)return send(res,404,{error:'Not found'});
-    if(!users.isAdmin(u)){const m=/\/workspaces\/([^/]+)\/|\/profiles\/([^/]+)\//.exec(real);const ag=(m&&(m[1]||m[2])||'default').split('--')[0];if(users.gate(u,'/ui/screens/'+ag,'GET',new URLSearchParams(),ag))return send(res,404,{error:'Not found'})}
-    try{const buf=await readFile(real);res.writeHead(200,{'content-type':'image/'+(ext.toLowerCase()==='jpg'?'jpeg':ext.toLowerCase()),'cache-control':'private, max-age=86400',...security});return res.end(buf)}catch{return send(res,404,{error:'Not found'})}}
-   // recently deleted agents (backups) and restoring one
-   if(p==='/ui/agent-trash'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});const trash=path.join(DATA,'agent-trash');const out=[];
-    for(const f of await readdir(trash).catch(()=>[])){
-     // a restored agent's backup is kept aside (.restored) for the same 30 days, out of this list
-     if(f.endsWith('.tgz.restored')){const st=await stat(path.join(trash,f)).catch(()=>null);if(st&&Date.now()-st.mtimeMs>30*864e5)await unlink(path.join(trash,f)).catch(()=>{});continue}
-     const m=/^(.+)__(.+)\.tgz$/.exec(f);if(!m)continue;const st=await stat(path.join(trash,f)).catch(()=>null);if(!st)continue;
-     if(Date.now()-st.mtimeMs>30*864e5){await unlink(path.join(trash,f)).catch(()=>{});continue}out.push({file:f,agent:m[1],deleted:st.mtimeMs,size:st.size})}
-    return send(res,200,{items:out.sort((a,b)=>b.deleted-a.deleted)})}
-   if(p==='/ui/agent-trash/purge'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-    const f=String(b.file||'');if(!/^[\w.-]+__[\w.-]+\.tgz$/.test(f)||f.includes('..'))return send(res,400,{error:'Unknown backup'});await unlink(path.join(DATA,'agent-trash',f)).catch(()=>{});console.log('deleted the kept backup',f);return send(res,200,{ok:true})}
-   if(p==='/ui/agent-restore'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-    const f=String(b.file||'');const m=/^([a-z0-9][a-z0-9_-]{0,63})__[\w-]+\.tgz$/.exec(f);if(!m)return send(res,400,{error:'Unknown backup.'});
-    const dir=path.join(HERMES_HOME,'profiles',m[1]);if(await stat(dir).catch(()=>null))return send(res,409,{error:'An agent with that name exists already.'});
-    await mkdir(dir,{recursive:true});const {execFile}=await import('node:child_process');
-    // a failed unpack leaves no half agent folder behind
-    const ok=await new Promise(r=>execFile('tar',['-xzf',path.join(DATA,'agent-trash',f),'-C',dir],{timeout:180000},e=>r(!e)));if(!ok){await (await import('node:fs/promises')).rm(dir,{recursive:true,force:true}).catch(()=>{});return send(res,500,{error:'Could not unpack the backup.'})}
-    // its extra numbers came back inside it: move each to its own folder and list it again (one that exists already stays as it is)
-    const cl=path.join(dir,'.aqeel-copies.json');let copies=[];try{copies=JSON.parse(await readFile(cl,'utf8'))}catch{}
-    for(const c of Array.isArray(copies)?copies:[]){const cn=String(c?.name||'');if(!cn.startsWith(m[1]+'--')||!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(cn))continue;const src=path.join(dir,cn),dst=path.join(HERMES_HOME,'profiles',cn);
-     if(!await stat(src).catch(()=>null))continue;if(await stat(dst).catch(()=>null)){console.warn('restore: copy exists already',cn);continue}
-     try{await rename(src,dst);await links.adopt(cn,{...c,agent:m[1]})}catch(e){console.warn('restore copy',cn,e.message)}}
-    await unlink(cl).catch(()=>{});
-    await users.restoreAgent(m[1]).catch(()=>{});await rename(path.join(DATA,'agent-trash',f),path.join(DATA,'agent-trash',f+'.restored')).catch(()=>{});restartGateway('restored '+m[1]).then(()=>agentHealth(m[1])).catch(()=>{});
-    return send(res,200,{ok:true,agent:m[1]})}
-   // plugins on/off for ONE agent (the engine's own plugin routes always change the main agent)
-   // what each person added (apps, skills, plugins) and the block list of apps and hosts: admins only (addons.mjs)
-   if(p==='/ui/addons'||p==='/ui/addons/block'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see what each person added.'});
-    if(p==='/ui/addons'&&req.method==='GET'){const d=await addons.list();return send(res,200,{...d,added:d.added.map(x=>({...x,agentName:x.agent?(NAMES[x.agent]||x.agent):null}))})}
-    if(p==='/ui/addons/block'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,{blocked:await addons.block(b.value,{note:b.note,by:addonBy(u)})})}catch(e){return send(res,400,{error:e.message})}}
-    if(p==='/ui/addons/block'&&req.method==='DELETE')return send(res,200,{blocked:await addons.unblock(url.searchParams.get('value')||'')});
-    return send(res,405,{error:'Not allowed'})}
-   // personal add-ons (11 Nov 2026): anyone turns plugins on or off on the agents they own; admins on every agent
-   if(p==='/ui/plugins/toggle'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),name=String(b.name||'');
-    if(!/^[\w.@-]{1,80}$/.test(name))return send(res,400,{error:'Unknown plugin'});
-    {const no=users.addonCheck(u,ag,'plugin');if(no)return send(res,403,{error:no})}
-    if(b.enabled){const no=await addons.refusal({name});if(no)return send(res,403,{error:no})}
-    if(!(await listAllProfiles()).includes(ag))return send(res,400,{error:'Unknown agent'});
-    const r=await hcmd(ag,['plugins',b.enabled?'enable':'disable',name],{timeout:150000});
-    if(r.ok&&b.enabled)addons.note({kind:'plugin',agent:ag,name,by:addonBy(u),via:'turned on'}).catch(()=>{});
-    return r.ok?send(res,200,{ok:true,restart_required:/restart/i.test(r.out)}):send(res,400,{error:(r.err||'Could not change the plugin').slice(0,300)})}
-   // Google AI Pro through Antigravity (Google's agy tool): status for everyone, connecting, cancelling and removing for admins
-   if(p.startsWith('/ui/antigravity/')){const act=p.slice(16);if(act==='status'&&req.method==='GET')return send(res,200,await antigravity.status(url.searchParams.has('fresh')));
-    if(!users.isAdmin(u))return send(res,403,{error:'Only admins can connect Google AI Pro.'});if(req.method!=='POST')return send(res,405,{error:'POST only'});
-    let b={};try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}
-    try{if(act==='start')return send(res,200,await antigravity.start());if(act==='code')return send(res,200,await antigravity.code(b.code));if(act==='cancel')return send(res,200,await antigravity.cancel());if(act==='logout'){const r=await antigravity.logout();await accountsApi.forget('p:antigravity-subscription').catch(()=>{});return send(res,200,r)}}catch(e){return send(res,400,{error:e.message})}
-    return send(res,404,{error:'Unknown'})}
-   // today's US dollar → rupiah rate, so costs can be shown in rupiah (fetched twice a day, last good one kept)
-   if(p==='/ui/fx'&&req.method==='GET'){if(!FX.at||Date.now()-FX.at>12*3600e3){try{const r=await fetch('https://open.er-api.com/v6/latest/USD',{signal:AbortSignal.timeout(8000)});const j=await r.json();const rates=Object.fromEntries(Object.entries(j?.rates||{}).filter(([k,v])=>/^[A-Z]{3}$/.test(k)&&+v>0));if(rates.EUR)Object.assign(FX,{rates,at:Date.now(),day:(j.time_last_update_utc||'').slice(5,16)})}catch{}}
-    return send(res,200,{rates:FX.rates,IDR:FX.rates.IDR,updated:FX.day||null})}
-   if(p==='/ui/box'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,{...await boxMemory(),processes:await boxOps.janitor().catch(()=>null),screens:await boxOps.screens().catch(()=>null),agents:await boxOps.agentMemory().catch(()=>[])});}
-   // Google accounts an agent can use (the Google Workspace skill keeps one sign-in per account); never the tokens themselves
-   if(p==='/ui/google-accounts'){const a=String(url.searchParams.get('agent')||'default');if(!(await listAllProfiles()).includes(a))return send(res,400,{error:'Unknown agent'});
-    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
-    const home=a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
-    if(req.method==='GET'){const out=[];for(const f of await readdir(home).catch(()=>[])){const m=/^google_token(?:_([\w.-]+))?\.json$/.exec(f);if(!m)continue;
-      try{const j=JSON.parse(await readFile(path.join(home,f),'utf8'));const L=(await googleLabels())[a+'|'+(m[1]||'')]||{};out.push({name:m[1]||'',email:j.account||'',label:L.label||'',note:L.note||'',scopes:(j.scopes||[]).map(s=>String(s).split('/').pop()),renews:!!j.refresh_token,expiry:j.expiry||null})}catch{}}
-     return send(res,200,{accounts:out})}
-    // the name people see and a note on what the account is for; the agent is told both (see writeAgentContext).
-    // The skill's own account name (google_token_<name>.json) never changes, so nothing has to sign in again.
-    if(req.method==='PUT'){if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+a+'/soul','PUT',new URLSearchParams(),a)!==null)return send(res,403,{error:'You can only change agents you may edit.'});
-     let b={};try{b=JSON.parse(await readBody(req,8192))}catch{return send(res,400,{error:'Bad request'})}const n=String(b.name||'');if(n&&!/^[\w.-]{1,60}$/.test(n))return send(res,400,{error:'Unknown account'});
-     const all=await googleLabels();const k=a+'|'+n;const label=String(b.label||'').replace(/[\r\n"]+/g,' ').trim().slice(0,60),note=String(b.note||'').replace(/[\r\n]+/g,' ').trim().slice(0,400);
-     if(label||note)all[k]={label,note};else delete all[k];await writeJsonAtomic(path.join(DATA,'google-accounts.json'),all);GLABELS=all;
-     if(LIVE_APP)writeAgentContext().catch(()=>{});return send(res,200,{ok:true,label,note})}
-    if(req.method==='DELETE'){if(!ownsAgent(u,a))return send(res,403,{error:'Only an admin or this agent’s owner removes its Google accounts.'});const n=String(url.searchParams.get('name')||'');if(n&&!/^[\w.-]{1,60}$/.test(n))return send(res,400,{error:'Unknown account'});
-     await unlink(path.join(home,'google_token'+(n?'_'+n:'')+'.json')).catch(()=>{});console.log('removed google account',n||'(main)','from',a);return send(res,200,{ok:true})}}
-   // WhatsApp Business (Meta's Cloud API) for one agent: the keys from Meta's app go in the agent's own .env, aqeelOS
-   // makes the check word (verify token) and gives the address to paste into Meta. Values are never sent back.
-   if(p==='/ui/channels/wa-cloud'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can set up WhatsApp Business.'});
-    const a=String(url.searchParams.get('agent')||'default');if(!(await listAllProfiles()).includes(a)||a.includes('--'))return send(res,400,{error:'Unknown agent'});
-    const envF=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'.env');const KEYS={phone_number_id:'WHATSAPP_CLOUD_PHONE_NUMBER_ID',access_token:'WHATSAPP_CLOUD_ACCESS_TOKEN',app_secret:'WHATSAPP_CLOUD_APP_SECRET',app_id:'WHATSAPP_CLOUD_APP_ID',waba_id:'WHATSAPP_CLOUD_WABA_ID'};
-    const read=async()=>{const t=await readFile(envF,'utf8').catch(()=>'');const v=k=>(new RegExp('^'+k+'=["\']?([^"\'\\n]*)','m').exec(t)||[])[1]||'';return {v,t}};
-    const callback=PUBLIC_URL+'/whatsapp-cloud'+(a==='default'?'':'/'+a);
-    if(req.method==='GET'){const {v}=await read();return send(res,200,{callback,verify_token:v('WHATSAPP_CLOUD_VERIFY_TOKEN'),set:Object.fromEntries(Object.entries(KEYS).map(([k,e])=>[k,!!v(e)]))})}
-    if(req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{return send(res,400,{error:'Bad request'})}
-     const put={};for(const [k,e] of Object.entries(KEYS)){const x=String(b[k]||'').trim();if(!x)continue;if(/[\s"'\\]/.test(x)||x.length>600)return send(res,400,{error:'That '+k.replace(/_/g,' ')+' does not look right.'});put[e]=x}
-     if(put.WHATSAPP_CLOUD_PHONE_NUMBER_ID&&!/^\d{6,30}$/.test(put.WHATSAPP_CLOUD_PHONE_NUMBER_ID))return send(res,400,{error:'The phone number ID is the long number Meta shows under API Setup, not the phone number itself.'});
-     const {v}=await read();if(!v('WHATSAPP_CLOUD_VERIFY_TOKEN'))put.WHATSAPP_CLOUD_VERIFY_TOKEN=randomBytes(18).toString('base64url');
-     if(!(put.WHATSAPP_CLOUD_PHONE_NUMBER_ID||v(KEYS.phone_number_id))||!(put.WHATSAPP_CLOUD_ACCESS_TOKEN||v(KEYS.access_token)))return send(res,400,{error:'The phone number ID and the access token are both needed.'});
-     await editEnv(envF,cur=>{const lines=cur.split('\n').filter(l=>!Object.keys(put).some(k=>l.startsWith(k+'=')));while(lines.length&&lines[lines.length-1]==='')lines.pop();return [...lines,...Object.entries(put).map(([k,x])=>k+'='+x),''].join('\n')});
-     console.log('whatsapp business set up for',a,Object.keys(put).map(k=>k.replace('WHATSAPP_CLOUD_','')).join(' '));
-     let on=true;try{await setChannelOn(a,'whatsapp_cloud',true)}catch(e){on=false;console.warn('whatsapp business on',a,e.message)}
-     const r=await read();return send(res,200,{ok:true,on,callback,verify_token:r.v('WHATSAPP_CLOUD_VERIFY_TOKEN')})}}
-   // Who can reach the AI box over SSH: one public key per device or AI tool, added and removed here (admins only).
-   // Only public keys are ever handled; the key aqeelOS's own builder uses cannot be removed from here.
-   if(p==='/ui/ssh-keys'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can manage access to the AI box.'});
-    // every other line (comments, blank lines, ones not understood) is kept as it is; key lines may start with options
-    // (from="…",command="…"); the builder's key is known by its fingerprint, recorded the first time (DATA/ssh-protected.json)
-    const f=path.join(homedir(),'.ssh','authorized_keys'),pf=path.join(DATA,'ssh-protected.json');const {createHash}=await import('node:crypto');
-    const KEY=/(?:^|\s)(ssh-ed25519|ssh-rsa|ssh-dss|ecdsa-sha2-nistp(?:256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+([A-Za-z0-9+/]+={0,3})(?:\s+(.*))?$/;
-    const fpOf=b=>{try{return 'SHA256:'+createHash('sha256').update(Buffer.from(b,'base64')).digest('base64').replace(/=+$/,'')}catch{return ''}};
-    const read=async()=>{const lines=(await readFile(f,'utf8').catch(()=>'')).split('\n');if(lines.length&&lines[lines.length-1]==='')lines.pop();
-     const keys=lines.map((l,i)=>{if(l.trim().startsWith('#'))return null;const m=KEY.exec(l.trim());return m?{i,type:m[1],b64:m[2],name:(m[3]||'').trim()||'(no name)',fp:fpOf(m[2])}:null}).filter(Boolean);
-     let prot=await readFile(pf,'utf8').then(JSON.parse).catch(()=>null);
-     // which keys stay: chosen here with Protect (or SSH_PROTECTED_FP); none by default on a new install
-     if(!Array.isArray(prot)){prot=[];await writeJsonAtomic(pf,prot).catch(()=>{})}
-     const pset=new Set([...prot,...String(process.env.SSH_PROTECTED_FP||'').split(',').map(x=>x.trim()).filter(Boolean)]);
-     return {lines,keys,list:keys.map(k=>({type:k.type,name:k.name,fp:k.fp,protected:pset.has(k.fp)}))}};
-    // the user people sign in as (shown in "How to connect"): set here, else SSH_USER, else the user aqeelOS runs as
-    const sf=path.join(DATA,'ssh-settings.json'),sshUser=async()=>(await readFile(sf,'utf8').then(JSON.parse).catch(()=>({}))).user||env.SSH_USER||(()=>{try{return userInfo().username}catch{return 'root'}})();
-    if(req.method==='GET')return send(res,200,{keys:(await read()).list,host:SSH_HOST,port:SSH_PORT,user:await sshUser()});
-    let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
-    if(req.method==='PUT'&&'user' in b){const un=String(b.user||'').trim();if(un&&!/^[a-z_][a-z0-9_-]{0,31}$/.test(un))return send(res,400,{error:'Use a Linux user name: small letters, numbers, dashes or underscores.'});await writeJsonAtomic(sf,{user:un});return send(res,200,{user:await sshUser()})}
-    // one change at a time, each on a fresh read, so two adds at once both stay
-    const locked=fn=>{const r=sshLock.then(fn);sshLock=r.catch(()=>{});return r};
-    // Protect: a key that can't be removed here by mistake (the one that maintains the box, for example)
-    if(req.method==='PUT'&&b.fp)return locked(async()=>{const r=await read();if(!r.keys.some(x=>x.fp===b.fp))return send(res,404,{error:'No such key'});let prot=await readFile(pf,'utf8').then(JSON.parse).catch(()=>[]);if(!Array.isArray(prot))prot=[];
-     if(!b.protected&&String(env.SSH_PROTECTED_FP||'').split(',').map(x=>x.trim()).includes(b.fp))return send(res,400,{error:'This key is protected in the server settings (SSH_PROTECTED_FP), so it stays.'});
-     prot=b.protected?[...new Set([...prot,b.fp])]:prot.filter(x=>x!==b.fp);await writeJsonAtomic(pf,prot);
-     console.log('ssh key',b.fp,b.protected?'protected':'no longer protected','by',u.name||u.id);return send(res,200,{keys:(await read()).list})});
-    if(req.method==='POST'){const k=String(b.key||'').trim().replace(/\s+/g,' ');const name=String(b.name||'').trim().replace(/[^\w .@-]/g,'').slice(0,60);
-     const m=/^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521)|sk-ssh-ed25519@openssh\.com) ([A-Za-z0-9+/=]{60,}) ?(.*)$/.exec(k);if(!m)return send(res,400,{error:'That is not an SSH public key. It starts with ssh-ed25519 (or ssh-rsa) and is one line. Never paste a private key.'});
-     if(!name)return send(res,400,{error:'Give it a name, like “Sam’s laptop” or “Codex on the office PC”.'});
-     return locked(async()=>{const r=await read();if(r.keys.some(x=>x.b64===m[2]))return send(res,400,{error:'That key already has access.'});
-      const line=m[1]+' '+m[2]+' '+name.replace(/\s+/g,'-');await mkdir(path.dirname(f),{recursive:true,mode:0o700});await writeFile(f,[...r.lines,line].join('\n')+'\n',{mode:0o600});
-      console.log('ssh access added:',name,'by',u.name||u.id);return send(res,200,{keys:(await read()).list})})}
-    if(req.method==='DELETE')return locked(async()=>{const r=await read();const k=r.keys.find(x=>x.fp===b.fp);if(!k)return send(res,404,{error:'No such key'});
-     if(r.list.find(x=>x.fp===k.fp).protected)return send(res,400,{error:'This key is protected. Choose Allow removing first.'});
-     r.lines.splice(k.i,1);await writeFile(f,r.lines.join('\n')+'\n',{mode:0o600});console.log('ssh access removed:',k.name,'by',u.name||u.id);return send(res,200,{keys:(await read()).list})})}
-   if(p==='/ui/memory'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});return send(res,200,await memNow())}
-   if(p==='/ui/system-events'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{events:[]});return send(res,200,{events:sysEvents.filter(e=>e.kind!=='restart-failed')})}   // that one is a Bottlenecks item (noteSys)
+   if(await systemRoutes(req,res,p,url,u))return;
    // the bell's list (news.mjs): the same on every device, read and cleared per person; the app adds a person's own news
    if(p==='/ui/news'&&req.method==='GET')return send(res,200,{items:await news.list(u,users.isAdmin(u)),needs:await needsFor(u).catch(()=>null)});   // null: not known this time, the bell keeps its last count (OPS-14)
    // Activity (System › Activity): the quiet log, no badge
@@ -2897,84 +2503,7 @@ const server=createServer(async(req,res)=>{
      // keep it small: drop the oldest seen-markers first
      const keys=Object.keys(cur);if(JSON.stringify(cur).length>500000)for(const k of keys.filter(k=>/^(cronFail:|chAlert:|draft:)/.test(k)).slice(0,Math.ceil(keys.length/4)))delete cur[k];
      await mkdir(path.dirname(f),{recursive:true});const t=f+'.'+process.pid+'.'+Math.random().toString(36).slice(2)+'.tmp';await writeFile(t,JSON.stringify(cur));await rename(t,f);return send(res,200,{ok:true})}}
-   if(p==='/ui/agent-approvals'){const ag=req.method==='GET'?(url.searchParams.get('agent')||'default'):null;let b={};if(req.method==='PUT'){try{b=JSON.parse(await readBody(req,2048))}catch{}}
-    const a=ag||String(b.agent||'default');if(!(await listAllProfiles()).includes(a))return send(res,400,{error:'Unknown agent'});
-    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
-    if(req.method==='GET'){const c=await readConfig(a);return send(res,200,{mode:pick(c,'approvals.mode')||'manual'})}
-    if(req.method==='PUT'){if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+a+'/soul','PUT',new URLSearchParams(),a))return send(res,403,{error:'You can chat with this agent but not change how it asks for approval.'});const mode=b.mode==='smart'?'smart':'manual';const r=await setKey(a,'approvals.mode',mode);if(!r.ok)return send(res,500,{error:r.err||'Could not save'});console.log('approvals for',a,'→',mode);return send(res,200,{mode})}}
-   if(p==='/ui/agent-safe'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'');
-    if(!await isAgent(ag)||ag==='default')return send(res,400,{error:'Unknown agent'});
-    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'You can only change agents you may edit.'});
-    // Unlock (admins): the admin's lock comes off; an agent whose owner may not have these tools stays locked by that
-    if(b.safe===false){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can unlock an agent.'});
-     try{await setStatus(ag,{safe:false});if(lockedAgent(ag,await getStatus())){const ow=users.byId(users.agentOwner(ag));return send(res,200,{ok:true,still:(ow?.name||'Its owner')+' is not allowed terminal, files or code, so the agent keeps them off. Give them that under People first.'})}
-      await unlockTools(ag);agentDefaults.ensure(ag).catch(()=>{});console.log('agent unlocked from safe tools:',ag,'by',u.id);return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
-    try{await setStatus(ag,{safe:true});await lockTools(ag);return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
-   // Channels › Slack: channels whose name starts with this stay quiet ('' = none)
-   // quiet Slack channels, per workspace: GET {teams:{<id>:{prefix,name}}}; PUT {team,prefix,name}
-   if(p==='/ui/slack-quiet'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});if(req.method==='GET'){const bots=[];for(const a of await listAgents()){const env=await envOf(a);if(!env.SLACK_BOT_TOKEN)continue;const r=await channelIdentity(a,{id:'slack'},env).catch(()=>null);if(r?.account?.team)bots.push({agent:a,team:r.account.team,name:r.account.name||''})}
-     return send(res,200,{teams:await slackQuiet.get(),bots})}
-    if(req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{const t=await slackQuiet.set(String(b.team||''),b.prefix,b.name);setTimeout(()=>slackClientChannels().catch(()=>{}),1000).unref();console.log('slack quiet for',b.team,'is now',JSON.stringify(t.prefix),'by',u.id);return send(res,200,t)}catch(e){return send(res,400,{error:e.message})}}}
-   // Trusted (runs as the main user): admins, for agents of admins. Others run as their own Linux user
-   if(p==='/ui/agent-trust'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const tr=await agentDefaults.trusted();
-    if(req.method==='GET'){const out={};for(const a of String(url.searchParams.get('names')||'').split(',').filter(Boolean).slice(0,200))out[a]={trusted:tr.has(a),main:a==='default',may:a==='default'||users.tierOf(a)==='admin'};return send(res,200,out)}
-    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'');if(!await isAgent(ag)||ag==='default'||ag.includes('--'))return send(res,400,{error:'Unknown agent'});
-    if(b.trusted&&users.tierOf(ag)!=='admin')return send(res,400,{error:'Only agents of admins can run as the main user.'});
-    await agentDefaults.setTrusted(ag,!!b.trusted);console.log('agent',ag,b.trusted?'trusted: runs as the main user':'runs as its own user','(by '+u.id+')');
-    agentDefaults.added(ag).then(async n=>{if(n&&!await isTestAgent(ag).catch(()=>false))Promise.resolve(restartGateway('Trusted changed for '+ag)).catch(()=>{})}).catch(e=>console.warn('agent defaults',ag,e.message));return send(res,200,{ok:true,trusted:!!b.trusted})}
-   // Abilities › Skills › Only these agents (admins): one skill's rule in skills-policy.json
-   if(p==='/ui/skills-policy'){if(req.method==='GET')return send(res,200,skillRules());if(!users.isAdmin(u))return send(res,403,{error:'Only admins decide which agents get a skill.'});
-    let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
-    try{const r=await accountHooks.skillShare({key:b.skill,agents:Array.isArray(b.agents)?b.agents.map(String):null,dry:!!b.dry});if(b.dry)return send(res,200,r);
-     console.log('skill',b.skill,Array.isArray(b.agents)?'only for '+b.agents.join(', '):'for every agent','(by '+u.id+')');return send(res,200,{...skillRules(),done:r})}catch(e){return send(res,400,{error:e.message})}}
-   // who has one skill right now and who built it (the Access block opens with this)
-   if(p==='/ui/skills-policy/who'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});try{return send(res,200,await accountHooks.skillShare({key:url.searchParams.get('skill'),agents:[],dry:true}))}catch(e){return send(res,400,{error:e.message})}}
-   // which agents are locked to safe tools, and why (the Tool groups grid shows a lock with this reason instead of a switch)
-   if(p==='/ui/agent-locks'&&req.method==='GET'){const st=await getStatus();const out={};
-    for(const a of String(url.searchParams.get('names')||'').split(',').filter(Boolean).slice(0,200)){if(a==='default'||!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)!==null||!lockedAgent(a,st))continue;
-     const ow=users.byId(users.agentOwner(a));out[a]=st[a]?.safe?'An admin locked this agent to safe tools: terminal, files, code and computer use stay off.':'Its owner'+(ow?.name?' '+ow.name:'')+' isn’t allowed terminal, files, code or computer use, so this agent can’t have them either.'}
-    return send(res,200,out)}
-   // abilities across agents: who has what, copy to other agents, rename an MCP tool (admins, or owners of both agents)
-   if(p==='/ui/share/used'&&req.method==='GET'){const kind=url.searchParams.get('kind')||'';const all=await sharing.usedBy(kind);if(!users.isAdmin(u)){for(const k of Object.keys(all))all[k]=all[k].filter(a=>users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)===null)}return send(res,200,all)}
-   if(p==='/ui/share'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const from=String(b.from||''),to=(Array.isArray(b.to)?b.to:[]).map(String);
-    const may=a=>users.isAdmin(u)||users.gate(u,'/hapi/profiles/'+a+'/soul','PUT',new URLSearchParams(),a)===null;if(!may(from)||!to.every(may))return send(res,403,{error:'You can only share between agents you can edit.'});
-    if(!users.isAdmin(u)&&b.kind==='mcp')return send(res,403,{error:'Only admins can copy MCP tools between agents.'});
-    // the same rights as doing it on each agent directly: plugins on agents they own (addonCheck), skills and schedules need that permission
-    if(!users.isAdmin(u)&&b.kind==='plugin'){const no=to.map(a=>users.addonCheck(u,a,'plugin')).find(Boolean);if(no)return send(res,403,{error:no})}
-    if(!users.isAdmin(u)&&b.kind==='skill'&&!to.every(a=>users.canOn(u,'skills',a)))return send(res,403,{error:'Your role does not include adding skills to that agent.'});
-    if(!users.isAdmin(u)&&b.kind==='schedule'&&!to.every(a=>users.canOn(u,'schedules',a)))return send(res,403,{error:'Your role does not include schedules on that agent.'});
-    try{return send(res,200,await sharing.share(String(b.kind||''),String(b.name||''),from,to,b.replace===true))}catch(e){return send(res,400,{error:e.message})}}
-   // a provider without automatic registration (Slack, Google…): its app's client ID/secret, and the return address to give it
-   if(p==='/ui/mcp/oauth-client'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can set this.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
-    try{return send(res,200,await sharing.setOauthClient(String(b.agent||'default'),String(b.name||''),String(b.client_id||'').trim(),String(b.client_secret||'').trim(),MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(String(b.name||''))))}catch(e){return send(res,400,{error:e.message})}}
-   // every agent's model and the account it runs on, for "All agents" on Agents' models
-   if(p==='/ui/n8n/status'&&req.method==='GET'){const a=String(url.searchParams.get('agent')||'default');
-    // every agent's n8n address is for admins only; a member sees an agent's own only when they have that agent
-    // (the n8n page always asks for the main agent, so no access still answers, just without the address)
-    const s=await n8n.status(a);if(!users.isAdmin(u)){delete s.users;if(users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))s.user=null}return send(res,200,s)}
-   // "Open in Code" from a chat: the request an agent kept, for a person who may chat with that agent
-   if(p==='/ui/code/handoff'&&req.method==='GET'){const v=await codeAgents.handoffGet(url.searchParams.get('id'));if(!v)return send(res,404,{error:'This link has expired. Ask the agent again.'});
-    if(users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),v.agent))return send(res,403,{error:'You can’t use that agent.'});return send(res,200,{agent:v.agent,agentName:NAMES[v.agent]||await displayName(v.agent),text:v.text})}
-   if(p==='/ui/code/pair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}return send(res,200,{token:await code.pair(u.id,b.name)})}
-   if(p==='/ui/code/online'&&req.method==='GET'){if(!onlineCodeOn())return send(res,410,{error:ONLINE_CODE_MSG});return send(res,200,{url:codeOnline.url(u.id),origin:new URL(codeOnline.url(u.id)).origin})}
-   // Files: search a folder and everything inside it (names only), and which of the quick places exist
-   if(p==='/ui/files/search'&&req.method==='GET'){const root=path.resolve(url.searchParams.get('path')||homedir()),q=String(url.searchParams.get('q')||'').trim().toLowerCase(),hid=url.searchParams.get('hidden')==='1';
-    if(!q)return send(res,200,{results:[]});if(!users.filePathOk(u,root))return send(res,403,{error:'You can only search your own files.'});
-    const SKIP=new Set(['node_modules','.git','__pycache__','.venv','venv','.cache','.npm','.local','browser-profile']);const out=[];let seen=0;const queue=[[root,0]];
-    const t0=Date.now();while(queue.length&&seen<300000&&Date.now()-t0<4000&&out.length<200){const [dir,depth]=queue.shift();let list=[];try{list=await readdir(dir,{withFileTypes:true})}catch{continue}
-     for(const e of list){seen++;if(!hid&&e.name.startsWith('.'))continue;const fp=path.join(dir,e.name);const isDir=e.isDirectory();
-      if(e.name.toLowerCase().includes(q)){let st=null;try{st=await stat(fp)}catch{}out.push({name:e.name,path:fp,is_directory:isDir,size:st?.size||0,mtime:st?Math.floor(st.mtimeMs/1000):0,rel:path.relative(root,dir)||'.'});if(out.length>=200)break}
-      if(isDir&&!SKIP.has(e.name)&&depth<8)queue.push([fp,depth+1])}}
-    return send(res,200,{results:out,more:out.length>=200||queue.length>0})}
-   if(p==='/ui/files/exist'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}const ok=[];for(const x of (Array.isArray(b.paths)?b.paths:[]).slice(0,20)){const fp=path.resolve(String(x));if(!users.filePathOk(u,fp))continue;try{if((await stat(fp)).isDirectory())ok.push(String(x))}catch{}}return send(res,200,{exist:ok})}
-   if(p==='/ui/code/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const d=await code.runs(days,users.isAdmin(u)?null:u.id);const people={};for(const id of Object.keys(d.byPerson)){const x=users.byId(id);people[id]={name:x?.name||id,avatar:x?.avatar?'/ui/people/avatar/'+id:null}}
-    // admins: the latest calls agents made into projects on people's computers (the code bridge), newest first
-    const bridge=users.isAdmin(u)?(await codeBridge.recent(40)).map(x=>({...x,userName:users.byId(x.user)?.name||x.user||''})):undefined;return send(res,200,{...d,people,...(bridge?{bridge}:{})})}
-   // Bottlenecks: what is stuck until a person acts (admins also see what aqeelOS itself noticed)
-   // Live: every published app (everyone sees them; publisher or admin takes one offline; admins connect the server)
-   // Connected apps › Code (admins): every computer's Code with its GitHub accounts and tool servers, and Live's server
-   if(p==='/ui/code/connected'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const names=Object.fromEntries(users.people().map(x=>[x.id,x.name||x.username||'Someone']));
-    return send(res,200,{devices:(await code.allDevices()).map(d=>({...d,person:names[d.user]||'Someone'})),live:{connected:(await live.list(u,true)).connected}})}
+   if(await abilitiesRoutes(req,res,p,url,u))return;
    if(await connectedRoutes(req,res,p,url,u))return;
    // company-wide defaults (the currency for people who never picked one): everyone reads them, admins set them
    if(p==='/ui/defaults'){const F=path.join(DATA,'defaults.json');let d={};try{d=JSON.parse(await readFile(F,'utf8'))}catch{}
@@ -2989,320 +2518,16 @@ const server=createServer(async(req,res)=>{
      if(p==='/ui/apps/visits'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.countVisits(!!b.on))}
      if(p==='/ui/apps/connect'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await live.connect(b))}}catch(e){return send(res,400,{error:e.message})}}
    if(await healthRoutes(req,res,p,url,u))return;
-   // an agent's instructions (instructions.mjs): history, a version with its changes, save, bring back, rewrites waiting for approval, flags
-   // an agent's own changes (agent-versions.mjs): list, and undo one (Edit agent › Changes); same rights as its instructions
-   {const vm=/^\/ui\/agent-versions\/([^/]+)(?:\/(undo))?$/.exec(p);if(vm){const ag=decodeURIComponent(vm[1]),who=u.name||u.username||'Someone';
-    if(!(await listAgents()).includes(ag))return send(res,404,{error:'No such agent.'});
-    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'You can chat with this agent but not change it.'});
-    try{if(!vm[2]&&req.method==='GET')return send(res,200,await versions.changes(ag,{limit:60}));
-     if(vm[2]==='undo'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const x=await versions.undo(ag,String(b.id||''),{by:who});console.log('agent-versions:',who,'undid',ag,b.id);return send(res,200,x)}
-     return send(res,405,{error:'Not allowed'})}catch(e){return send(res,400,{error:e.message})}}}
-   {const im=/^\/ui\/instructions\/([^/]+)(?:\/(v\/\d+|p\/[a-z0-9]+|save|restore|propose|decide|check))?$/.exec(p);if(im){const ag=decodeURIComponent(im[1]),act=im[2]||'',who=u.name||u.username||'Someone';
-    if(!(await listAgents()).includes(ag))return send(res,404,{error:'No such agent.'});
-    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'You can chat with this agent but not change it.'});
-    if(act==='decide'&&!users.isAdmin(u)&&users.agentOwner(ag)!==u.id)return send(res,403,{error:'Only an owner of this agent can approve its instructions.'});
-    let b={};if(req.method==='POST'||req.method==='PUT'){try{b=JSON.parse(await readBody(req,400e3)||'{}')}catch{return send(res,400,{error:'bad json'})}}
-    try{if(!act&&req.method==='GET')return send(res,200,await instructions.history(ag));
-     if(act.startsWith('v/')&&req.method==='GET')return send(res,200,await instructions.version(ag,+act.slice(2)));
-     if(act.startsWith('p/')&&req.method==='GET')return send(res,200,await instructions.proposal(ag,act.slice(2)));
-     if(act==='save'&&req.method==='PUT'){const x=await instructions.write(ag,b.content,{kind:'edit',by:who,why:b.why||'',said:b.said||''});console.log('instructions:',who,'saved',ag,'v'+x.v);return send(res,200,x)}
-     if(act==='restore'&&req.method==='POST'){const x=await instructions.restore(ag,+b.v,who);console.log('instructions:',who,'brought back',ag,'v'+b.v);return send(res,200,x)}
-     if(act==='propose'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,await instructions.propose(ag,{content:b.content,why:b.why,said:b.said,by:b.by||who}))}
-     if(act==='decide'&&req.method==='POST'){const r=await instructions.decide(ag,String(b.id||''),!!b.ok,who);console.log('instructions:',who,r.state,'a rewrite of',ag);return send(res,200,r)}
-     if(act==='check'&&req.method==='POST'){await instructions.check(ag,{force:true});return send(res,200,await instructions.history(ag))}}
-    catch(e){return send(res,400,{error:e.message})}
-    return send(res,405,{error:'Not allowed'})}}
-   if(p==='/ui/bottlenecks'&&req.method==='GET')return send(res,200,{items:await needsFor(u)});
-   if((p==='/ui/bottlenecks/done'||p==='/ui/bottlenecks/later')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const id=String(b.id||'').slice(0,300);if(!id)return send(res,400,{error:'Which one?'});const admin=users.isAdmin(u);
-    // a Help ticket: admins resolve it (the person is told in their Help chat) or put it off a day
-    if(id.startsWith('ticket|')){try{return send(res,200,await help.decide(id,p.endsWith('/done')?'done':'later',u))}catch(e){return send(res,e.status||400,{error:e.message})}}
-    // only what this person is shown: a report from an agent they may use, anything else for admins and only when it is there
-    if(id.startsWith('report|')){const r=await bottlenecks.find(id);if(!r)return send(res,404,{error:'That one is already gone.'});if(users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),r.agent))return send(res,403,{error:'That agent is not shared with you.'})}
-    else{if(!admin)return send(res,403,{error:'Only admins.'});const cur=await bottlenecks.list({admin:true,mayUse:()=>false,signins:[...signinsDue.values()],invites:users.expiredInvites(),accounts:await accountsApi.signedOut().catch(()=>[]),channels:await channelAttention(false).catch(()=>[])});if(!cur.some(x=>x.id===id))return send(res,404,{error:'That one is already gone.'})}
-    await (p.endsWith('done')?bottlenecks.done(id):bottlenecks.later(id,admin?null:u.id));return send(res,200,{ok:true})}
-   // Code › Live › Team folders: the shared folders a person is in (admins see every one), read only
-   if(p==='/ui/team-folders'&&req.method==='GET')return send(res,200,{folders:await teamFolders.list(u.id,{all:users.isAdmin(u)})});
-   if(p==='/ui/code/devices'&&req.method==='GET')return send(res,200,{devices:await code.devices(u.id)});
-   if(p==='/ui/code/unpair'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const n=await code.unpair(u.id,String(b.id||''));return n?send(res,200,{ok:true}):send(res,400,{error:'That computer was not found.'})}
-   {const dm=/^\/ui\/code\/download\/(windows|mac)$/.exec(p);if(dm&&req.method==='GET'){
-    // the aqeelOS app installer (Windows: aqeelOS-Setup.exe, Mac: aqeelOS.dmg). ?check=1 says whether it is there; without one
-    // there is nothing to give (the older zip ran Code outside the app, which the browser no longer opens)
-    {const f=path.join(DATA,'desktop',dm[1]==='mac'?'aqeelOS.dmg':'aqeelOS-Setup.exe');const st=await stat(f).catch(()=>null);
-     // the public release, unless this install has its own newer build (or none is published)
-     const rel=await releaseAppVersions(),mine=await localAppVersions(),useRel=rel?.[dm[1]]&&(!st||newerApp(rel[dm[1]],mine[dm[1]]));
-     if(url.searchParams.get('check'))return send(res,200,{ok:Boolean(st||useRel)});
-     if(useRel){res.writeHead(302,{location:DESKTOP_RELEASES+'/'+path.basename(f),'cache-control':'no-store',...security});return res.end()}
-     if(st){res.writeHead(200,{'content-type':'application/octet-stream','content-disposition':'attachment; filename="'+(dm[1]==='mac'?'aqeelOS.dmg':'aqeelOS Setup.exe')+'"','content-length':st.size,...security});return createReadStream(f).pipe(res)}}
-    return send(res,404,{error:'The aqeelOS app for '+(dm[1]==='mac'?'Mac':'Windows')+' isn’t ready yet.'})}}
-   // an agent's n8n is its workflows, signed in as it: a member needs to be able to change that agent, chatting is not enough
-   if(p==='/ui/n8n/spaces'&&req.method==='GET'){const mine=users.isAdmin(u)?null:new Set((await listAgents()).filter(a=>users.atLeast(u,a,'edit')));const all=await n8n.spaces({fresh:url.searchParams.has('fresh')}),l=all.filter(x=>!mine||mine.has(x.agent));
-    return send(res,200,{spaces:l.map(x=>({...x,name:NAMES[x.agent]||x.agent,shared:x.shared.filter(a=>!mine||mine.has(a))})),agents:(await listAgents()).filter(a=>!mine||mine.has(a)).map(a=>({id:a,name:NAMES[a]||a})),canEdit:users.isAdmin(u),...(all.partial?{partial:true}:{})})}
-   if(p==='/ui/n8n/share'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share an agent’s n8n.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-    try{return send(res,200,await n8n.share(String(b.space||''),String(b.agent||''),!!b.on))}catch(e){return send(res,409,{error:e.message})}}
-   if(p==='/ui/n8n/base'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change the n8n address.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}try{return send(res,200,await n8n.setBase(b.url))}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/n8n/owner'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can connect n8n.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-    try{await n8n.setOwner(String(b.email||'').trim(),String(b.password||''));console.log('n8n: owner login saved');return send(res,200,{ok:true})}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/n8n/open'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const a=String(b.agent||'default');
-    // admins can open n8n as its owner, to see every agent's workflows
-    if(b.owner){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can open n8n as its owner.'});if(!await n8n.ready())return send(res,409,{error:'n8n is not connected yet.'});const st=await n8n.status(a);return send(res,200,{url:st.base+'/aqeelos-login?t='+n8n.ticket('__owner')})}if(!(await listAgents()).includes(a))return send(res,400,{error:'Unknown agent'});
-    if(!users.isAdmin(u)&&!users.atLeast(u,a,'edit'))return send(res,403,{error:'You can chat with this agent but not open its n8n.'});
-    try{const r=await n8n.ensure(a);const st=await n8n.status(a);return send(res,200,{url:st.base+'/aqeelos-login?t='+n8n.ticket(a),email:r.email})}catch(e){return send(res,409,{error:e.message})}}
-   if(p==='/ui/models/agents'&&req.method==='GET'){const ag=(await listAgents()).filter(a=>users.isAdmin(u)||users.level(u,a));   // the agents this person may use (owned or shared)
-    // side by side, a few at a time (each a config read; it was one after another)
-    const out=await Promise.all(ag.map(a=>cfgLimit(async()=>{const c=await readConfig(a).catch(()=>null)||{};return {id:a,name:NAMES[a]||await displayName(a),model:c.model?.default||'',provider:c.model?.provider||''}})));return send(res,200,{agents:out})}
-   // Models › AI accounts › If an account fails: each agent's fallback models, as backup-models.mjs keeps them (admins; 1 Nov 2026)
-   if(p==='/ui/models/fallbacks'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});const st=await backupModels.status().catch(()=>({agents:[],outages:[]}));return send(res,200,{...st,agents:(st.agents||[]).filter(x=>users.level(u,x.agent))})}   // like /ui/models/agents: not a member's private agent
-   // Access: who owns each connection and which agents may use it (see access.mjs). Admins only.
-   // asking for access: anyone may see what the other agents have (names only) and ask for it for an agent they use; admins decide
-   // Sharing levels (sharing.mjs): per resource (GET ?type&id) and per agent (GET ?agent); admins act as the owner,
-   // others may change a share only through an agent they are allowed to manage (its level on the resource decides)
-   // Agents › Edit agent › Access (agent-access.mjs): which agents may look after this one, at which level. Admins change it
-   // (as the main agent); a person who owns the agent may read it. Never shows a key.
-   if(p==='/ui/agent-access'){const ag=String(url.searchParams.get('agent')||'');let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,4096)||'{}')}catch{}}const t=String(b.agent||ag);
-    if(!users.isAdmin(u)&&users.level(u,t)!=='owner')return send(res,403,{error:'Only an admin or the agent\'s owner sees this.'});
-    try{await agentAccess.ensure(t);if(req.method==='GET'){const r=await shareLevels.get('agent',t);const all=(await agentNames({copies:false})).filter(x=>x!==t&&x!==agentAccess.MAIN);
-      return send(res,200,{agent:t,main:agentAccess.MAIN,owner:r?.owner||t,grants:r?.grants||{},agents:all.map(x=>({id:x,name:NAMES[x]||x})),levels:['manager','editor','viewer','none']})}
-     if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});const r=await shareLevels.share('agent',t,{person:u.name||u.email||u.id,admin:true},String(b.to||''),String(b.level||''));console.log('agent access:',t,'->',b.to,b.level);return send(res,200,{ok:true,...r})}
-    catch(e){return send(res,e.status||409,{error:e.message})}}
-   if(p.startsWith('/ui/sharing')){let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}}
-    const type=String(b.type||url.searchParams.get('type')||''),rid=String(b.id||url.searchParams.get('id')||''),ag=String(b.as||url.searchParams.get('agent')||'');
-    try{if(req.method==='GET'){if(p==='/ui/sharing/audit'){if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});return send(res,200,{items:await shareLevels.audit({k:type&&rid?type+':'+rid:undefined})})}
-      if(ag){if(!users.isAdmin(u)&&!users.level(u,ag))return send(res,403,{error:'This agent is private to its owner.'});return send(res,200,{enabled:await shareLevels.enabled(),items:await shareLevels.forAgent(ag)})}
-      if(!users.isAdmin(u))return send(res,403,{error:'Admins only.'});return send(res,200,{enabled:await shareLevels.enabled(),levels:SHARE_LEVELS,resource:type?await shareLevels.get(type,rid):null,items:type?undefined:await shareLevels.list()})}
-     if(req.method!=='POST')return send(res,405,{error:'POST only'});
-     const actor=users.isAdmin(u)?{person:u.name||u.email||u.id,admin:true}:(ag&&users.level(u,ag)==='owner'?{agent:ag}:null);if(!actor)return send(res,403,{error:'Only an admin, or the person who owns the acting agent, can change sharing.'});
-     let r;if(p==='/ui/sharing/share')r=await shareLevels.share(type,rid,actor,String(b.agent||''),String(b.level||''));
-     else if(p==='/ui/sharing/revoke')r=await shareLevels.revoke(type,rid,actor,String(b.agent||''));
-     else if(p==='/ui/sharing/transfer')r=await shareLevels.transfer(type,rid,actor,String(b.agent||''));
-     else if(p==='/ui/sharing/claim'){if(!actor.admin)return send(res,403,{error:'Admins only.'});r=await shareLevels.claim(type,rid,String(b.agent||''),{label:b.label||'',by:'person:'+actor.person})}
-     else if(p==='/ui/sharing/enabled'){if(!actor.admin)return send(res,403,{error:'Admins only.'});r=await shareLevels.setEnabled(!!b.on,'person:'+actor.person)}
-     else return send(res,404,{error:'Not found'});
-     console.log('sharing:',p.split('/').pop(),type+':'+rid,b.agent||'',b.level||'');return send(res,200,{ok:true,...r})}catch(e){return send(res,e.status||409,{error:e.message})}}
-   // Abilities › Connected accounts (connected-accounts.mjs): the owner's own logins the agents use; admins only
-   if(p.startsWith('/ui/connected-accounts')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see the logins agents use as the owner.'});let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}}
-    const id=String(b.id||url.searchParams.get('id')||'');
-    try{if(p==='/ui/connected-accounts'&&req.method==='GET')return send(res,200,await connAccounts.list({fresh:url.searchParams.get('fresh')==='1'}));
-     if(p==='/ui/connected-accounts/actions'&&req.method==='GET')return send(res,200,await connAccounts.actions(id));
-     if(req.method!=='POST')return send(res,405,{error:'POST only'});
-     const who=u.name||u.email||'';let r;
-     if(p==='/ui/connected-accounts/pause')r=await connAccounts.pause(id,!!b.on,who);
-     else if(p==='/ui/connected-accounts/can')r=await connAccounts.setCan(id,b.can);
-     else if(p==='/ui/connected-accounts/approve')r=await connAccounts.approve(id,who);
-     else if(p==='/ui/connected-accounts/check'){await connAccounts.check(id);r={ok:true}}
-     else if(p==='/ui/connected-accounts/disconnect')r=await connAccounts.disconnect(id);
-     // Add › A login: the owner adds a login an agent uses as them (until 7 Nov 2026 only an agent's register_account could)
-     else if(p==='/ui/connected-accounts/add'){const ag=String(b.agent||'default');if(!(await agentNames()).includes(ag))return send(res,400,{error:'Unknown agent'});
-      r=await connAccounts.register(ag,{kind:b.kind,label:b.label,where:b.where,can:b.can,note:b.note},{owner:who});if(r.isError)return send(res,400,{error:r.text})}   // no restart: the engine drops a removed app at its next look
-     else return send(res,404,{error:'Not found'});
-     console.log('connected accounts:',p.split('/').pop(),id,'by',who);return send(res,200,{ok:true,...r})}catch(e){return send(res,409,{error:e.message})}}
-   // Abilities › Connections (connections.mjs): everyone sees the agents they may use; changes are checked per row and agent
-   if(p.startsWith('/ui/connections')){const perm={admin:users.isAdmin(u),level:a=>users.level(u,a),canOn:(cap,a)=>users.canOn(u,cap,a)};let b={};if(req.method==='POST'){try{b=JSON.parse(await readBody(req,8192)||'{}')}catch{}}
-    const key=String(b.key||url.searchParams.get('key')||''),agent=String(b.agent||'');
-    try{if(p==='/ui/connections'&&req.method==='GET')return send(res,200,await keysId.decorate(await labels.applyRows(await connections.list(perm,{fresh:url.searchParams.get('fresh')==='1',check:url.searchParams.get('check')==='1'}))));
-     if(p==='/ui/connections/detail'&&req.method==='GET')return send(res,200,await keysId.decorate(await labels.applyRows(await connections.detail(key,perm))));
-     if(req.method!=='POST')return send(res,405,{error:'POST only'});if(!key)return send(res,400,{error:'Which connection?'});
-     if(p!=='/ui/connections/disconnect'&&!(await listAgents()).includes(agent))return send(res,400,{error:'Unknown agent'});let r;
-     if(p==='/ui/connections/level')r=await connections.setLevel(key,agent,String(b.level||''),perm);
-     else if(p==='/ui/connections/add')r=await connections.add(key,agent,perm);
-     else if(p==='/ui/connections/remove')r=await connections.remove(key,agent,perm);
-     else if(p==='/ui/connections/owner')r=await connections.setOwner(key,agent,perm);
-     else if(p==='/ui/connections/disconnect')r=await connections.disconnect(key,perm);
-     else return send(res,404,{error:'Not found'});
-     console.log('connections:',p.split('/').pop(),key,agent,b.level||'','by',u.name||u.email||u.id);return send(res,200,{ok:true,...r})}catch(e){return send(res,e.status||409,{error:e.message})}}
-   if(p==='/ui/access/others'&&req.method==='GET'){const agent=String(url.searchParams.get('agent')||'default');const mayU=a=>users.isAdmin(u)||!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);if(!mayU(agent))return send(res,403,{error:'Not your agent.'});
-    return send(res,200,{items:await accessAsk.others(agent),asked:(await accessAsk.of(agent)).filter(r=>!r.done).map(r=>r.kind+'|'+r.id)})}
-   if(p==='/ui/access/ask'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const to=String(b.agent||''),by=String(b.by||to);const mayU=a=>users.isAdmin(u)||!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);
-    if(!mayU(b.dir==='give'?by:to))return send(res,403,{error:'Not your agent.'});try{const r=await accessAsk.ask({kind:String(b.kind||''),id:String(b.id||''),to,by,dir:b.dir==='give'?'give':'get',why:b.why,person:u.name||u.email||''});console.log('access asked:',b.dir||'get',b.kind,b.id,'for',to);return send(res,200,{ok:true,...r})}catch(e){return send(res,409,{error:e.message})}}
-   // an answer to a conflict (rule-conflicts.mjs): admins any; a member only for an agent they may use and not when people disagree
-   if(p==='/ui/conflicts/decide'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-    try{const cid=String(b.cid||'');const r=(await conflicts.list()).find(x=>x.cid===cid);if(!r)return send(res,404,{error:'That one is already gone.'});
-     if(!users.isAdmin(u)&&(r.people||users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),r.agent)))return send(res,403,{error:'Only the owner answers this one.'});
-     const a=await conflicts.decide(cid,{choice:String(b.choice||''),value:b.value,text:b.text},u.name||u.email||'');return send(res,200,{ok:true,cid:a.cid,applied:a.answered.applied})}catch(e){return send(res,409,{error:e.message})}}
-   // the fixer's GitHub token, pasted in the item that asks for it (fixer-git.mjs reads DATA/fixer-github-token); admins only, never echoed
-   if(p==='/ui/health/fixer-token'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const tok=String(b.token||'').trim();
-    if(!/^[A-Za-z0-9_.-]{20,255}$/.test(tok))return send(res,400,{error:'That does not look like a GitHub token.'});await writeFile(path.join(DATA,'fixer-github-token'),tok+String.fromCharCode(10),{mode:0o600});await bottlenecks.resolve('github_token').catch(()=>{});console.log('fixer token saved by',u.name||u.email||'admin');return send(res,200,{ok:true})}
-   // an answer to a question (questions.mjs): admins any; a member only for an agent they may use
-   if(p==='/ui/questions/answer'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-    try{const qid=String(b.qid||'');const r=(await questions.list()).find(x=>x.qid===qid);if(!r)return send(res,404,{error:'That question is gone.'});
-     if(!users.isAdmin(u)&&(!r.agent||users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),r.agent)))return send(res,403,{error:'Only the owner answers this one.'});
-     const a=await questions.answer(qid,{choice:String(b.choice||''),text:b.text},u.name||u.email||'');return send(res,200,{ok:true,qid:a.qid,answer:a.answered.text})}catch(e){return send(res,409,{error:e.message})}}
-   if(p==='/ui/access/decide'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can allow access.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-    try{const r=await accessAsk.decide(String(b.rid||''),!!b.ok,u.name||u.email||'');console.log('access request',r.rid,r.ok?'allowed':'declined');return send(res,200,{ok:true,...r})}catch(e){return send(res,409,{error:e.message})}}
-   if(p==='/ui/access'||p==='/ui/access/owner'){const KINDS=['mcp','google','plugin','key'];
-    // everyone sees the agents they may use (admins: every agent); only admins change who uses what, and see keys
-    if(req.method==='GET'){const kind=String(url.searchParams.get('kind')||'');if(!KINDS.includes(kind))return send(res,400,{error:'Unknown kind'});
-     if(users.isAdmin(u))return send(res,200,{...await access.list(kind),canEdit:true});if(kind==='key')return send(res,403,{error:'Only admins can see keys.'});
-     {const l=await access.list(kind,new Set((await listAgents()).filter(a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a))));
-      const host=d=>{try{return new URL(String(d)).host}catch{return String(d||'').split(/\s+/)[0].split('/').pop().slice(0,40)}};
-      return send(res,200,{...l,items:(l.items||[]).filter(x=>!/^aqeelos-/.test(String(x.id))).map(x=>kind==='mcp'?{...x,detail:host(x.detail)}:x),canEdit:false})}}
-    if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change who uses a connection.'});
-    if(req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const kind=String(b.kind||''),id=String(b.id||''),agent=String(b.agent||'');
-     if(!KINDS.includes(kind)||!id||!(await listAgents()).includes(agent))return send(res,400,{error:'Bad request'});
-     try{const r=p==='/ui/access/owner'?await access.setOwner(kind,id,agent):b.on?await access.grant(kind,id,agent,b.from?String(b.from):undefined):await access.revoke(kind,id,agent);console.log('access:',kind,id,p==='/ui/access/owner'?'owner →':b.on?'on for':'off for',agent);return send(res,200,{ok:true,...r})}catch(e){return send(res,409,{error:e.message})}}}
-   if(p==='/ui/mcp/signins'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,200,{items:[]});await freshSignins();
-    // for each, the other agents that are signed in to the same app (their sign-in can be used instead)
-    const l=await access.list('mcp').catch(()=>({items:[]}));
-    return send(res,200,{checked:signinsAt,items:await Promise.all([...signinsDue.values()].map(async x=>{const it=l.items.find(y=>y.id===x.name);
-     const siblings=await Promise.all((x.siblings||[]).map(async s=>({...s,account:await whyOf.accountOf(x.agent,s.name)})));
-     return {...x,account:x.account||await whyOf.accountOf(x.agent,x.name),siblings,others:(it?.users||[]).filter(u2=>u2.signed&&u2.id!==x.agent).map(u2=>({id:u2.id,name:u2.name}))}}))})}
-   // "Use on other agents": a connected app (its settings and its sign-in) copied to other agents, so a second
-   // agent can use n8n, Notion… without signing in again. The agents restart once nobody is mid-reply.
-   if(p==='/ui/mcp/share'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can share connected apps between agents.'});
-    const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);const all=await listAgents();
-    if(req.method==='GET'){const from=String(url.searchParams.get('from')||'default'),name=String(url.searchParams.get('name')||'');
-     const out=[];for(const a of all){if(a===from)continue;const c=await readConfig(a).catch(()=>null);out.push({id:a,name:NAMES[a]||await displayName(a),has:!!pick(c||{},'mcp_servers.'+name)})}return send(res,200,{agents:out})}
-    if(req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const from=String(b.from||'default'),name=String(b.name||'');const to=(Array.isArray(b.to)?b.to:[]).map(String).filter(a=>all.includes(a)&&a!==from);
-     if(!/^[\w.-]{1,64}$/.test(name)||name==='aqeelos-notify')return send(res,400,{error:'This app can’t be shared.'});
-     const src=pick(await readConfig(from).catch(()=>null)||{},'mcp_servers.'+name);if(!src||typeof src!=='object')return send(res,404,{error:'That app isn’t set up on this agent.'});
-     const tokDir=path.join(homeOf(from),'mcp-tokens');const toks=(await readdir(tokDir).catch(()=>[])).filter(f=>f===name+'.json'||f.startsWith(name+'.')&&/\.(meta|client)\.json$/.test(f));
-     const done=[];for(const a of to){const r=await setKey(a,'mcp_servers.'+name,src);if(!r.ok)return send(res,500,{error:(NAMES[a]||a)+': '+(r.err||'could not save')});
-      const dst=path.join(homeOf(a),'mcp-tokens');await mkdir(dst,{recursive:true,mode:0o700});for(const f of toks)await copyFile(path.join(tokDir,f),path.join(dst,f)).catch(()=>{});done.push(NAMES[a]||a)}
-     if(done.length){console.log('connected app',name,'from',from,'now also on',done.join(', '),'(applied by the engine itself, no restart)');for(const a of to)await optins.setApp(a,name,true).catch(()=>{})}
-     return send(res,200,{ok:true,agents:done})}}
-   if(p==='/ui/mcp/start-signin'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default'),tool=String(b.name||'');
-    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'Not your agent.'});
-    // who started it: an admin's own sign-in is never asked about as an unknown login (connected-accounts.mjs ownerMade)
-    await whyOf.noteApp(ag,tool,{by:'person',admin:users.isAdmin(u),who:u.name||u.username||''}).catch(()=>{});
-    try{const pr=await sharing.prepareSignin(ag,tool,MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool),null,slackClientFor);if(pr.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,await startSignin(ag,tool))}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/mcp/prepare-signin'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default');
-    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'Not your agent.'});
-    try{const r=await sharing.prepareSignin(ag,String(b.name||''),MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(String(b.name||'')),null,slackClientFor);if(r.changed)await new Promise(r=>setTimeout(r,2500));return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/mcp/oauth-redirect'&&req.method==='GET')return send(res,200,{redirect:MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(url.searchParams.get('name')||'')});
-   if(p==='/ui/share/duplicate'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'default');
-    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+ag+'/soul','PUT',new URLSearchParams(),ag)!==null)return send(res,403,{error:'You can only change agents you may edit.'});
-    if(b.kind==='schedule'&&!users.isAdmin(u)&&!users.can(u,'schedules'))return send(res,403,{error:'Your role does not include schedules.'});
-    if(b.kind==='mcp'&&!users.can(u,'unsafe')&&!users.isAdmin(u))return send(res,403,{error:'Ask an admin to duplicate MCP tools.'});
-    try{return send(res,200,await sharing.duplicate(String(b.kind||''),ag,String(b.name||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/share/rename-mcp'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!ownsAgent(u,b.agent||'default'))return send(res,403,{error:'Only an admin or this agent’s owner renames its apps.'});try{return send(res,200,await sharing.renameMcp(String(b.agent||'default'),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}
-   // channels across all agents (admins), and handing one to another agent
-   if(p==='/ui/channels'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see every channel.'});return send(res,200,await channelList(url.searchParams.has('fresh')))}
-   // WhatsApp: clear a login that WhatsApp has ended, so a fresh QR can link the phone again
-   if(p==='/ui/secrets/give'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,20000))}catch{}const base=String(b.agent||'default').split('--')[0];
-    if(!(await listAgents()).includes(base))return send(res,400,{error:'Unknown agent'});
-    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+base,'GET',new URLSearchParams(),base))return send(res,403,{error:'Not your agent.'});
-    const label=String(b.label||'').trim().slice(0,140),value=String(b.value||'');if(!label)return send(res,400,{error:'Say what it is, so the agent knows when to use it.'});if(!value||value.length>8000)return send(res,400,{error:'Type or paste the value.'});
-    let name=String(b.name||'').trim().toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);if(!/^[A-Z]/.test(name))name='SECRET_'+name;if(name.length<3)name='SECRET_'+Date.now().toString(36).toUpperCase();
-    // anyone but an admin writes SECRET_<NAME> only: never a name the engine, a shell or the app reads (BASH_ENV, HTTPS_PROXY, PUBLIC_URL...)
-    if(!users.isAdmin(u))name=memberSecretName(name);
-    // a member who may only chat cannot replace a key that already exists and was not given as a secret
-    if(!users.isAdmin(u)&&users.gate(u,'/hapi/profiles/'+base+'/soul','PUT',new URLSearchParams(),base)){const envT=await readFile(path.join(base==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',base),'.env'),'utf8').catch(()=>'');if(new RegExp('^'+name+'=','m').test(envT)&&!await stat(path.join(secretDir(base),name)).catch(()=>null))name='SECRET_'+name}
-    try{await saveSecret(base,name,value,{admin:users.isAdmin(u)})}catch(e){return send(res,400,{error:e.message})}console.log('secret saved for',base,'('+name+')');
-    return send(res,200,{ok:true,name,message:'🔒 '+label+' — saved for you as '+name+'. You cannot see the value. '+secretHow(base,name)})}
-   if(p==='/ui/secrets/pending'&&req.method==='GET'){const ag=String(url.searchParams.get('agent')||'default').split('--')[0];
-    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+ag,'GET',new URLSearchParams(),ag))return send(res,200,{items:[]});
-    return send(res,200,{items:[...[...secretAsks.values()].filter(x=>x.base===ag).map(x=>({id:x.id,label:x.label,mode:x.mode,name:x.name,enter:x.enter,t:x.t,expires:x.t+270000})),
-     ...[...browserAsks.values()].filter(x=>x.base===ag).map(x=>({id:x.id,kind:'browser',task:x.task,suggest:x.suggest,why:x.why,t:x.t,expires:x.t+270000,connected:localBrowser.connected(u.id)}))]})}
-   if(p==='/ui/local-browser/pair'&&req.method==='POST')return send(res,200,{token:await localBrowser.pair(u.id)});
-   if(p==='/ui/local-browser/version'&&req.method==='GET')return send(res,200,{latest:await localBrowser.latest()});
-   if(p==='/ui/local-browser/status'&&req.method==='GET')return send(res,200,{connected:localBrowser.connected(u.id),version:localBrowser.version(u.id),latest:await localBrowser.latest(),session:url.searchParams.get('session')?localBrowser.linked(url.searchParams.get('session')):undefined});
-   if(p==='/ui/local-browser/extension.zip'&&req.method==='GET'){const z=await localBrowser.zip();res.writeHead(200,{'content-type':'application/zip','content-disposition':'attachment; filename="aqeelos-browser.zip"','content-length':z.length,...security});return res.end(z)}
-   if(p==='/ui/local-browser/frame'&&req.method==='GET'){const ses=url.searchParams.get('session')||'';if(ses)localBrowser.retitle(ses,url.searchParams.get('title')||'');const r=await localBrowser.ask(u.id,'frame',6000,ses?{session:ses}:{});res.writeHead(200,{'content-type':'application/json','cache-control':'no-store',...security});return res.end(JSON.stringify({connected:!r.offline,...r,type:undefined,id:undefined}))}
-   if(p==='/ui/local-browser/focus'&&req.method==='POST'){const ses=url.searchParams.get('session')||'';return send(res,200,await localBrowser.ask(u.id,'focus',6000,ses?{session:ses}:{}))}
-   if(p==='/ui/local-browser/off'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}return send(res,200,{ok:localBrowser.unlink(String(b.session||''),users.isAdmin(u)?null:u.id)})}
-   {const bm=/^\/ui\/browser-choice\/([\w-]+)$/.exec(p);if(bm&&req.method==='POST'){const rec=browserAsks.get(bm[1]);if(!rec)return send(res,404,{error:'This question has ended. Ask the agent again.'});
-    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+rec.base,'GET',new URLSearchParams(),rec.base))return send(res,403,{error:'Not your agent.'});
-    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const session=String(b.session||'');
-    // the chat named must be the caller's own, whichever browser they pick
-    if(session&&!users.isAdmin(u)&&users.ownerOf(session)!==u.id)return send(res,403,{error:'That chat is not yours.'});
-    if(b.where==='yours'){if(!session)return send(res,400,{error:'Open the chat the agent is working in, then choose.'});
-     try{await localBrowser.link(u.id,rec.base,session,String(b.title||''))}catch(e){return send(res,409,{error:e.message})}
-     browserAsks.delete(rec.id);rec.resolve({text:'The person chose their own browser. Its tools (browser_navigate, browser_snapshot, browser_click, browser_type, browser_press, browser_scroll, browser_back) are added from your next turn and run in their Chrome, in a separate window they can watch, with the sign-ins they already have there. End this turn now with one short line saying you are ready; aqeelOS then tells you to go ahead. In this chat do not use browser_exec (that one runs on the AI box). Screenshots and browser_vision are not available in their browser; read pages with browser_snapshot. Ask before you submit anything that sends, pays, deletes or invites.'});return send(res,200,{ok:true})}
-    if(session)localBrowser.unlink(session,users.isAdmin(u)?null:u.id);browserAsks.delete(rec.id);rec.resolve({text:'The person chose your screen on the AI box. Use your browser as usual there.'});return send(res,200,{ok:true})}}
-   {const sm=/^\/ui\/secrets\/([\w-]+)$/.exec(p);if(sm&&req.method==='POST'){const rec=secretAsks.get(sm[1]);if(!rec)return send(res,404,{error:'This request has ended. Ask the agent again.'});
-    if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+rec.base,'GET',new URLSearchParams(),rec.base))return send(res,403,{error:'Not your agent.'});
-    let b={};try{b=JSON.parse(await readBody(req,20000))}catch{}
-    if(b.cancel){secretAsks.delete(rec.id);rec.resolve({text:'The person chose not to give it. Do not ask again unless they say so.',isError:true});return send(res,200,{ok:true})}
-    const value=String(b.value||'');if(!value||value.length>8000)return send(res,400,{error:'Type or paste the value first.'});
-    try{const text=await useSecret(rec,value,{admin:users.isAdmin(u)});secretAsks.delete(rec.id);rec.resolve({text});console.log('secret given to',rec.agent,'('+rec.mode+(rec.name?' '+rec.name:'')+')');return send(res,200,{ok:true,text:rec.mode==='type'?'Typed into the screen.':'Saved as '+rec.name+'.'})}
-    catch(e){return send(res,409,{error:e.message})}}}   // stays open: the person can fix it (open the screen) and send again
+   if(await instructionsRoutes(req,res,p,url,u))return;
+   if(await accessRoutes(req,res,p,url,u))return;
+   if(await mcpSecretsRoutes(req,res,p,url,u))return;
    if(await channelsRoutes(req,res,p,url,u))return;
-   // Schedules: folders, plain descriptions, recipients by name and what each run cost
-   // only the schedules this person may see in the list (the same rule as the cron list: users.schedOk), admins included
-   if(p==='/ui/schedules/info'&&req.method==='GET'){try{const d0=await schedules.info();const d={...d0,meta:{...d0.meta},runs:{...d0.runs},names:{...d0.names}};const ok=a=>users.schedOk(u,a);
-    // how each schedule starts and why (design-guard.mjs): an event, a script with no AI, a check first, or the AI on a timer
-    d.triggers=await schedules.jobs().then(l=>designGuard.triggers(l.filter(j=>ok(j.profile||'default')))).catch(()=>({}));
-    for(const k of Object.keys(d.meta))if(!ok(k.split('|')[0]))delete d.meta[k];for(const k of Object.keys(d.runs))if(!ok(k.split('|')[0]))delete d.runs[k];
-    // a member sees only the folders their schedules are in, and keeps their own open and shut folders (in the browser)
-    if(!users.isAdmin(u)){d.names={};const f=new Set(Object.values(d.meta).map(m=>m.folder).filter(Boolean));d.folders=d.folders.filter(x=>f.has(x));d.order=d.order.filter(x=>f.has(x));d.colors=Object.fromEntries(Object.entries(d.colors).filter(([x])=>f.has(x)));d.folds={}}
-    return send(res,200,d)}catch(e){return send(res,500,{error:e.message})}}
-   if(p==='/ui/schedules/detail'&&req.method==='GET'){const a=url.searchParams.get('profile')||'default';if(!users.schedOk(u,a))return send(res,403,{error:'Not your agent'});
-    try{return send(res,200,await schedules.detail(a,url.searchParams.get('id')||''))}catch(e){return send(res,404,{error:e.message})}}
-   if(p==='/ui/schedules/meta'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const a=String(b.profile||'default');if(!users.isAdmin(u)&&users.gate(u,'/hapi/cron/jobs','POST',new URLSearchParams('profile='+a),a))return send(res,403,{error:'Not your agent'});
-    return send(res,200,await schedules.setMeta(a,String(b.id||''),b))}
-   // Run rules (posting-limits.mjs): one run at a time and posting limits per agent; admins change them, anyone who sees its schedules may look
-   if(p==='/ui/run-rules'&&req.method==='GET'){const a=url.searchParams.get('agent')||'default';if(!users.schedOk(u,a))return send(res,403,{error:'Not your agent'});
-    try{return send(res,200,await postingLimits.view(a))}catch(e){return send(res,500,{error:e.message})}}
-   if(p==='/ui/run-rules'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change run rules.'});let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}const a=String(b.agent||'');
-    if(!await isAgent(a))return send(res,404,{error:'No such agent'});try{const v=await postingLimits.set(a,{serial:b.serial,rules:b.rules});console.log('run rules: '+a+(b.serial!==undefined?' one at a time '+(b.serial?'on':'off'):'')+(b.rules?' limits '+(v.rules.on?'on':'off'):''));return send(res,200,v)}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/schedules/folder'&&req.method==='POST'&&!users.isAdmin(u))return send(res,403,{error:'Only admins can rename folders.'});
-   if(p==='/ui/schedules/folder'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,65536))}catch{}try{return send(res,200,await schedules.folderOp(b))}catch(e){return send(res,400,{error:e.message})}}
-   if(p==='/ui/channels/job-relays'&&req.method==='GET'){const all=await relay.jobRelays();if(users.isAdmin(u))return send(res,200,all);const out={};for(const [k,v] of Object.entries(all||{})){const a=k.split('|')[0];if(!users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))out[k]=v}return send(res,200,out)}
+   if(await schedulesRoutes(req,res,p,url,u))return;
    // reconnect ONE channel: a second agent's channel is switched off and on by itself (no engine restart);
    // the main agent's channels live in the engine itself, so for those the proper restart is the only way
    // a short note on a channel (what it is for), shown on its row
    if(p==='/ui/channels/note'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.agent||'')+'|'+String(b.platform||'');const f=path.join(DATA,'channel-notes.json');const all=await readFile(f,'utf8').then(JSON.parse).catch(()=>({}));const v=String(b.note||'').trim().slice(0,120);if(v)all[k]=v;else delete all[k];await writeFile(f,JSON.stringify(all,null,1));platCache.clear();return send(res,200,{ok:true})}
-   if(p==='/ui/channels/reconnect'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!ownsAgent(u,b.agent))return send(res,403,{error:'Only an admin or this agent’s owner reconnects its channels.'});
-    const ag=String(b.agent||''),pf=String(b.platform||'');if(!(await listAllProfiles()).includes(ag)||!/^[a-z0-9_]{1,40}$/.test(pf))return send(res,400,{error:'Unknown channel'});
-    if((await pausedLoad())[ag+'|'+pf])return send(res,409,{error:'This channel is paused. Pick who answers it under Owned by first.'});
-    if(ag==='default'){restartGateway('reconnect '+pf+' (main agent)',{bridges:pf==='whatsapp'}).catch(()=>{});return send(res,200,{ok:true,restarting:true,waiting:await waitingNow()})}
-    let j;try{j=await reconnectOne(ag,pf)}catch(e){platCache.clear();return send(res,502,{error:e.message})}platCache.clear();
-    console.log('reconnected',pf,'on',ag,j.hot_served?'(live)':'');return send(res,200,{ok:true,restarting:false})}
-   // an admin or the agent's owner (ownsAgent(u, agent) is checked inside: route-handlers.mjs, tested as a member, an owner and an admin)
-   if(p==='/ui/channels/pause'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const r=await channelsPause({u,body:b,ownsAgent,profiles:listAllProfiles,setChannelOn});return send(res,r.status,r.body)}
-   if(p==='/ui/channels/move'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can move channels.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-    try{return send(res,200,await channels.move(String(b.platform||''),String(b.from||''),String(b.to||'')))}catch(e){return send(res,400,{error:e.message})}}   // the pause, sharing and note follow in channels' moved hook
-   // QR codes (WhatsApp linking…): drawn here with the qrcode library that ships with the engine
-   if(p==='/ui/qr'&&req.method==='GET'){const d=String(url.searchParams.get('d')||'');if(!d||d.length>2000)return send(res,400,'bad');
-    try{const mod=await import(path.join(HERMES_HOME,'hermes-agent','node_modules','qrcode','lib','index.js'));const QR=mod.default||mod;const svg=await QR.toString(d,{type:'svg',margin:1,errorCorrectionLevel:'M',color:{dark:'#0b0c10',light:'#ffffff'}});
-     res.writeHead(200,{'content-type':'image/svg+xml','cache-control':'no-store','x-content-type-options':'nosniff'});return res.end(svg)}catch(e){return send(res,500,{error:'QR could not be drawn: '+e.message})}}
-   // names and descriptions (labels.mjs): everyone signed in reads them, admins change them; ids never change here
-   // which account each key belongs to (keys-identity.mjs): admins only; never a secret, only the account and last 4
-   if(p==='/ui/keys/identity'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see keys.'});return send(res,200,await keysId.list())}
-   if(p==='/ui/keys/identity/check'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can check keys.'});let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
-    try{return send(res,200,await keysId.check(String(b.id||'')))}catch(e){return send(res,e.status||500,{error:e.message})}}
-   // which skills and plugins are Built in (ship with aqeelOS or the engine); the rest were added on this OS
-   if(p==='/ui/skills/builtin'&&req.method==='GET')return send(res,200,await builtins.names());
-   if(p==='/ui/skills/builtin'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change this.'});let b={};try{b=JSON.parse(await readBody(req,1024))}catch{}await builtins.setWanted(!!b.install);return send(res,200,b.install?await builtins.install({log:m=>console.log(m),force:true}):{ok:true})}
-   if(p==='/ui/labels'&&req.method==='GET')return send(res,200,{labels:await labels.all()});
-   if(p==='/ui/labels'&&req.method==='PUT'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can rename things.'});let b={};try{b=JSON.parse(await readBody(req,8192))}catch{return send(res,400,{error:'Bad JSON'})}
-    try{const v=await labels.set(String(b.kind||''),String(b.id||''),{name:b.name,description:b.description});console.log('label',b.kind+':'+b.id,'by',u.id||u.name||'?');return send(res,200,{ok:true,label:v})}catch(e){return send(res,e.status||500,{error:e.message})}}
-   if(p==='/ui/explain'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,300000))}catch{}const items=(Array.isArray(b.items)?b.items:[]).slice(0,300).map(x=>({id:String(x?.id||'').slice(0,120),name:String(x?.name||'').slice(0,160),desc:String(x?.desc||'').slice(0,600)}));return send(res,200,await explain.get(String(b.kind||''),items,{write:users.isAdmin(u)}))}
-   // what billion-context saved and whether graphify is ready, for the Usage page (admins: it covers every agent)
-   // run gates (run-gates.mjs): per schedule how many runs the gate stopped, and the rate proposals (admins)
-   // "Add a check" / "Keep every N min" on the Health item of a schedule that starts the AI too often with no check (run-gates.mjs)
-   if(p==='/ui/run-gates/decide'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins decide this.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}
-    try{return send(res,200,await runGates.decide(String(b.agent||''),String(b.job||''),String(b.choice||'')))}catch(e){return send(res,409,{error:e.message})}}
-   // schedules that mostly woke the AI for nothing (design-guard.mjs): the Health item's buttons, and the review on demand
-   if(p==='/ui/design-guard/decide'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins decide this.'});let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}
-    try{return send(res,200,await designGuard.decide(String(b.agent||''),String(b.job||''),String(b.choice||'')))}catch(e){return send(res,409,{error:e.message})}}
-   if(p==='/ui/design-guard/review'&&(req.method==='GET'||req.method==='POST')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see this.'});return send(res,200,{agents:await designGuard.review({force:req.method==='POST'})})}
-   if(p==='/ui/run-gates'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see this.'});return send(res,200,await runGates.view())}
-   if(p==='/ui/usage/savings'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins see savings for every agent.'});
-    const [compress,maps]=await Promise.all([billion.savings().catch(()=>null),graphify.status().catch(()=>null)]);return send(res,200,{compress,maps})}
-   if(p==='/ui/usage'&&req.method==='GET'){const days=Math.min(365,Math.max(1,+url.searchParams.get('days')||7));const ag=String(url.searchParams.get('agent')||''),every=[...await listAllProfiles(),HELP_AGENT];   // Help's chats are each person's: its own line on Usage
-    const all=await usage.breakdown(ag&&ag!=='all'?every.filter(x=>x===ag||x.startsWith(ag+'--')):every,days,users.ownerOf);
-    const people=Object.fromEntries(users.people().map(x=>[x.id,{...users.face(x),name:x.name,limit:users.limitOf(x)||null}]));   // the limit that applies (a role's too), not only one set on the person
-    if(!users.isAdmin(u))return send(res,200,{days,byPerson:{[u.id]:all.byPerson[u.id]||null},people:{[u.id]:people[u.id]},today:await usage.today(await listAllProfiles(),u.id,users.ownerOf)});
-    return send(res,200,{...all,people})}
-   // the suggestions an empty chat starts with, for this install (admins write them on System › Branding)
-   if(p==='/ui/starters/defaults'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});if(req.method==='GET')return send(res,200,await starters.defaults());
-    let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}return send(res,200,await starters.setDefaults(b))}
-   if(p==='/ui/starters'){const agent=url.searchParams.get('agent')||'default';if(users.gate(u,'/ui/screens/'+agent,'GET',new URLSearchParams(),agent))return send(res,403,{error:'That agent is not shared with you.'});
-    let recent=[];try{const r=await fetch(`${DASH.origin}/api/sessions?limit=60${agent==='default'?'':'&profile='+encodeURIComponent(agent)}`,{headers:{'x-hermes-session-token':DASH_TOKEN}});recent=users.filter(u,'/hapi/sessions',await r.json()).sessions||[]}catch{}
-    return send(res,200,await starters.get(u.id,users.isAdmin(u)?'admin':'member',agent,recent))}
-   // a member finishing the setup of an agent they own (New agent, Finish setup): the same steps the app runs for it
-   if(p==='/ui/accounts/setup-agent'&&req.method==='POST'&&!users.isAdmin(u)){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const n=String(b.name||'');
-    if(users.level(u,n)!=='owner')return send(res,403,{error:'Only the owner of this agent can finish its setup.'});
-    return accountsApi(req,res,p,send,async()=>JSON.stringify({name:n}),a=>users.level(u,a)==='owner')}
-   const no=users.gate(u,p,req.method,url.searchParams,'default');if(no)return send(res,no.status,{error:no.error});
-   // connecting, reconnecting, renaming and removing a model account, its priority and switching: admins only, every
-   // route the same way (25 Oct; before, adding a Claude account and sending its code were open to any signed-in admin
-   // check that passed the gate, while Google checked inside its own handler). Reading the list stays as the gate says.
-   if((p.startsWith('/ui/accounts/old-code')||/^\/ui\/accounts\/[a-z0-9-]+\/login$/.test(p)||p.startsWith('/ui/accounts')&&req.method!=='GET')&&!users.isAdmin(u))return send(res,403,{error:'Only admins can change model accounts.'});
-   if(p.startsWith('/ui/connect/')){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can change model accounts.'});return connect.handle(req,res,p,send,readBody)}
-   if(p.startsWith('/ui/accounts'))return accountsApi(req,res,p,send,readBody,a=>!!users.level(u,a));
-   if(p==='/ui/logo')return logo(req,res);
-   return identities(req,res,p,u);
+   if(await identitiesRoutes(req,res,p,url,u))return;
   }
   if(p.startsWith('/hapi/')||p.startsWith('/gapi/')){
    const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'},{'x-hui-auth':'required'});
@@ -3335,12 +2560,9 @@ server.on('upgrade',(req,sock,headBuf)=>{
   me(req).then(u=>{if(!u||!users.isAdmin(u)||users.gate(u,'/hapi/status','GET',new URLSearchParams({profile:ag}),ag)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}return engineConsole.upgrade(req,sock,headBuf,{agent:ag,user:u.name||u.id})}).catch(()=>sock.destroy());return}
  // a plugin's live connection (the Task board's event stream among them): see plugin-host.mjs
  if(p.startsWith('/hapi/plugins/')||p.startsWith('/ui/plugin-api/')){plugins.upgrade(req,sock,headBuf);return}
- if(p!=='/screen/websockify'||!validCookie(req)||!sameOrigin(req)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
- const agent=new URL(req.url,'http://x').searchParams.get('agent');
- me(req).then(u=>{if(!u||users.gate(u,'/ui/screens/'+(agent||'default'),'GET',new URLSearchParams(),agent||'default')){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
-  // screen=ads: the old shared :99 screen, no longer offered in the app (each agent has its own AdsPower); admins only
-  const ads=new URL(req.url,'http://x').searchParams.get('screen')==='ads';if(ads&&!users.isAdmin(u)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
-  return screens.upgrade(req,sock,headBuf,ads?null:agent,users.isAdmin(u))}).catch(()=>sock.destroy());
+ // an agent's screen: signed in on this site, allowed to see that screen, and a ticket for this one connection (app/screen-link.mjs)
+ if(p==='/screen/websockify'){screenLink.upgrade(req,sock,headBuf).catch(()=>sock.destroy());return}
+ sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');
 });
 server.listen(PORT,HOST,()=>console.log(`aqeelOS on http://${HOST}:${PORT} → dashboard ${DASH.origin}, gateway ${GATE.origin}`));
 // Skills and Schedules show at once from the first visit: their slow engine answers are asked for once, one agent at a time

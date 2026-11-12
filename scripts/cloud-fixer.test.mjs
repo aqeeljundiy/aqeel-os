@@ -7,6 +7,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createCloudFixer,rankRoutines,fireText,API,accountRows,ROUTINE_PROMPT} from '../app/cloud-fixer.mjs';
 import {createIssues} from '../app/issues.mjs';
+import {fakeFixerSandbox} from './lib/fake-fixer-sandbox.mjs';
 import {beforeWindow} from '../app/maintenance.mjs';
 import {limitNote} from '../app/accounts.mjs';
 
@@ -83,7 +84,7 @@ const POL={owner:{name:'Owner'},teams:[],fixer:{on:true,agent:'default',cap:20}}
 async function fixer(o={}){const S=await make(o.plan||{},o.accts,{rows:o.rows===undefined?R:o.rows});let sorted='code';const runs=[],told=[],need=[],ok=[];
  await writeFile(path.join(S.d,'team-policy.json'),JSON.stringify(o.policy||POL));let clock=o.at||T0;const files={};
  const launch=async x=>{runs.push(x);if(o.result){await writeFile(path.join(x.dir,'out.txt'),'RESULT: '+JSON.stringify(o.result));await writeFile(path.join(x.dir,'exit'),'0')}return 1};
- const I=createIssues({DATA:S.d,bin:'x',fixerHome:S.d,log:()=>{},launch,alive:async()=>false,now:()=>clock,tz:()=>'UTC',cloud:S.cf,needCloud:async()=>need.push(1),cloudOk:async()=>ok.push(1),
+ const I=createIssues({sandbox:fakeFixerSandbox(),DATA:S.d,bin:'x',fixerHome:S.d,log:()=>{},launch,alive:async()=>false,now:()=>clock,tz:()=>'UTC',cloud:S.cf,needCloud:async()=>need.push(1),cloudOk:async()=>ok.push(1),
   sortRun:async()=>'SORT: '+JSON.stringify({kind:o.sort||'code',title:'Checkout crashes on an empty cart'}),tellOwner:async m=>told.push(m),busy:async()=>0,apply:async()=>({ok:true}),checks:o.checks||{},...(o.deps||{})});
  const file=async x=>{clock+=1000;const r=await I.file({agent:'shop',...x});await I.sortNext();return r};
  return {...S,I,file,runs,told,need,ok,at:()=>clock,tick:async ms=>{clock+=ms||0;S.step(ms||0);await I.tick()},db:()=>I._db()}}

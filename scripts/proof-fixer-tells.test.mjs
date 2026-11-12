@@ -10,7 +10,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile} from 'node:fs/promises';import {tmpdir} from 'node:os';import path from 'node:path';
 import {createIssues} from '../app/issues.mjs';import {createNews} from '../app/news.mjs';import {issueReply} from '../app/route-handlers.mjs';
-import {src as sourceOf} from './lib/source.mjs';
+import {src as sourceOf} from './lib/source.mjs';import {fakeFixerSandbox} from './lib/fake-fixer-sandbox.mjs';
 
 const POL={owner:{name:'Owner',telegram:['1']},teams:[{name:'Brand',agents:['a1'],contact:'Mem',members:[{name:'Mem',telegram:['2']}]}],fixer:{on:true,agent:'default',cap:20}};
 const CHAT='api_1794370454_294eabeb',SAM={id:'u-sam',name:'Sam'},ADMIN={id:'u-admin',name:'Admin'};
@@ -18,8 +18,11 @@ async function setup({fix=[],proof=[],owners={[CHAT]:SAM.id},quiet=()=>null}={})
  const runs=[],said={owner:[],team:[],channel:[],health:[]},news=createNews({DATA:d});
  const users={sessionOwner:id=>owners[id]||null,byId:id=>[SAM,ADMIN].find(u=>u.id===id)||null};
  const launch=async o=>{const p=await readFile(path.join(o.dir,'prompt.txt'),'utf8'),kind=/^You are the aqeelOS fixer's proof run/.test(p)?'proof':'fix';runs.push(kind);
+  // every run, fix and proof, is launched confined, and a proof run works through the app's named checks only (AUD-6)
+  assert.equal(o.confine?.env?.TERMINAL_SSH_USER,'aq-fixer',kind+' run not confined');assert.deepEqual(o.confine.args.slice(0,2),['-t','terminal,file']);if(kind==='proof')assert.match(p,/CHECKS \(read-only; nothing else exists\)[\s\S]*agent_log/);
   await writeFile(path.join(o.dir,'out.txt'),'RESULT: '+JSON.stringify((kind==='fix'?fix:proof).shift()));await writeFile(path.join(o.dir,'exit'),'0');return 1};
- const I=createIssues({DATA:d,bin:'x',fixerHome:d,log:()=>{},launch,alive:async()=>false,quiet,tz:()=>'UTC',busy:async()=>0,apply:async()=>({ok:true}),envFiles:async()=>[],
+ // AUD-6: every fixer run is confined to the fixer's own user; here that user is ready and its canary passed, as on a box where the root script made it
+ const I=createIssues({sandbox:fakeFixerSandbox(),DATA:d,bin:'x',fixerHome:d,log:()=>{},launch,alive:async()=>false,quiet,tz:()=>'UTC',busy:async()=>0,apply:async()=>({ok:true}),envFiles:async()=>[],
   reply:(i,text)=>issueReply({i,text,users,news,nameOf:a=>a==='a1'?'Rory':a,info:async t=>{said.health.push(t)},send:async o=>{said.channel.push(o)}}),
   tellOwner:async x=>{said.owner.push(x)},toTeam:async(a,m,x)=>{said.team.push([m.name,x]);return true}});
  const item=async()=>(await I._db()).items[0];
