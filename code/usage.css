@@ -23,3 +23,6 @@ table.data input{width:84px;padding:6px 8px;border:1px solid var(--border);borde
 /* tables fill their card; long account emails shorten with … instead of making the table scroll sideways */
 #by-model table,#by-account table{width:100%}
 #by-account td:first-child{max-width:340px;overflow:hidden;text-overflow:ellipsis}
+
+/* numbers in columns and live meters keep one width (Google Sans Flex digits have tnum) */
+.meter .row,.meter .reset,table.data td,table.data input{font-variant-numeric:tabular-nums}
