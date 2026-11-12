@@ -62,7 +62,7 @@ const Teams={
  repaint(){const el=document.querySelector('.tm')?.parentElement;if(el&&Teams.d)Teams.paint(el)},
  async show(el){const gone=pageTok(el);setActions('');
   if(S.me?.admin===false){el.innerHTML=emptyBox('Only admins','Teams decide who hears about problems, so only admins see them.');return}
-  if(!el.querySelector('.tm'))el.innerHTML='<div class="skel" style="height:200px;border-radius:18px;margin-bottom:16px"></div><div class="skel" style="height:140px;border-radius:18px"></div>';
+  if(!el.querySelector('.tm'))el.innerHTML='<div class="skel" style="height:200px;border-radius:var(--r-md);margin-bottom:16px"></div><div class="skel" style="height:140px;border-radius:var(--r-md)"></div>';
   let d;try{d=await UI('/ui/teams',{fresh:true})}catch(e){if(!gone())el.innerHTML=emptyBox('Teams did not load',e.message||'Try again in a moment.');return}if(gone())return;
   Teams.d=d;Teams.paint(el)},
  async save(teams,owner){const r=await put(UI,'/ui/teams',{teams,owner:owner||Teams.d.owner});Teams.d=r;Teams.repaint();return r}};

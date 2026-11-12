@@ -56,7 +56,7 @@ ACT['sr-add']=async()=>{const {d,close}=stackPop('Add a trusted person',`<label 
  d.querySelector('#srMake').onclick=async e=>{const btn=e.currentTarget;btn.disabled=true;let c;try{c=await UI('/ui/self-runs/code',{method:'POST',body:{name:d.querySelector('#srWho').value}})}catch(er){btn.disabled=false;return fail(er)}
   const before=(SR.d?.trusted||[]).length;
   d.querySelector('.drawer-body').innerHTML=`<p style="margin:0 0 10px;color:var(--ink-2)">Have them send exactly this message to any agent:</p>
-   <div style="display:flex;gap:8px;align-items:center"><code style="font-size:20px;letter-spacing:.06em;padding:10px 14px;border-radius:10px;background:var(--soft,#f1f2f5);flex:1;text-align:center">${esc(c.code)}</code><button class="ghost icon" id="srCopy" aria-label="Copy the code">${icon('copy',17)}</button></div>
+   <div style="display:flex;gap:8px;align-items:center"><code style="font-size:20px;letter-spacing:.06em;padding:10px 14px;border-radius:var(--r-md);background:var(--soft,#f1f2f5);flex:1;text-align:center">${esc(c.code)}</code><button class="ghost icon" id="srCopy" aria-label="Copy the code">${icon('copy',17)}</button></div>
    <p class="hint sr-wait" style="margin:12px 0 0">${icon('clock',13)} Waiting for it to arrive. Works until ${esc(SR.when(c.exp))}.</p>`;
   d.querySelector('.drawer-foot').innerHTML=`<button class="ghost" data-x2>Close</button>`;d.querySelector('[data-x2]').onclick=()=>{clearInterval(timer);close();reload()};
   d.querySelector('#srCopy').onclick=()=>{navigator.clipboard?.writeText(c.code).then(()=>toast('Code copied'),()=>{})};

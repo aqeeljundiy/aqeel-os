@@ -28,7 +28,7 @@ const Connect={
  acctKey:(p,way)=>way==='signin'?(p.signin.kind==='google'?'p:antigravity-subscription':p.signin.kind==='engine'?'p:'+p.signin.id:''):p.custom?'':'p:'+p.key.slug,
  have(p,way){const k=Connect.acctKey(p,way);return !!k&&(Pages._acctSrc||[]).some(s=>s.key===k)},
  // one dialog; each step replaces the one before, its height easing from the old to the new (no jump)
- open(title){const d=drawer(title,`<div class="cx-step"><div class="skel" style="height:200px;border-radius:14px"></div></div>`,`<button class="ghost" data-act="close">Cancel</button>`,{size:'md'});d.classList.add('cx');
+ open(title){const d=drawer(title,`<div class="cx-step"><div class="skel" style="height:200px;border-radius:var(--r-md)"></div></div>`,`<button class="ghost" data-act="close">Cancel</button>`,{size:'md'});d.classList.add('cx');
   const obs=new MutationObserver(()=>{if(!d.isConnected){obs.disconnect();d._stop?.();d._stop=null}});obs.observe(document.body,{childList:true});return d},
  view(d,title,body,foot){d._stop?.();d._stop=null;const b=d.querySelector('.drawer-body'),h0=b.offsetHeight;d.querySelector('.drawer-head h2').textContent=title;d.setAttribute('aria-label',title);
   b.innerHTML=`<div class="cx-step">${body}</div>`;let f=d.querySelector('.drawer-foot');if(!f){f=document.createElement('div');f.className='drawer-foot';d.append(f)}f.innerHTML=foot;

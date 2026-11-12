@@ -43,7 +43,7 @@ const Screen={
  noteTip(){return 'Not the agent of this chat'},
  async loadList(){try{this.list=(await call('','/ui/screens')).screens||[]}catch{}},
  choose(v){this.ads=v==='ads';this.pick=v&&v!=='ads'?v:null;this.st=null;this.paint(true);this.refresh()},
- toggle(){this.open=!this.open;store.set('screenOpen',this.open);this.paint(true);this.watch();this.mirror();paintTop()},
+ toggle(){if(!this.open){const a=document.activeElement;this._back=a&&a!==document.body&&!a.closest('#screenFloat,#screenPane')?a:this._back}this.open=!this.open;store.set('screenOpen',this.open);this.paint(true);this.watch();this.mirror();paintTop()},
  /* My browser view: a live picture of the agent's tab in your Chrome (the aqeelOS extension sends it), every 1.5 s
     while this view is open and the page is visible. Take over brings that tab to the front. */
  // a Chrome that is linked but asleep (lid closed, Chrome in the background) answers nothing: after a few silent
@@ -150,3 +150,7 @@ const openAgentScreen=a=>{if(a&&(S.profile||'default')!==a&&typeof switchAgent==
 ACT['screen-box']=()=>openScreen('box');ACT['screen-mine']=()=>openScreen('mine');
 ACT['lb-focus']=async()=>{try{const r=await post((p,o)=>call('',p,o),'/ui/local-browser/focus?session='+encodeURIComponent(Chat.id||''));if(r.offline)toast('Your browser isn’t connected','err');else if(r.none)toast('No agent tab yet','err');else toast('Brought to the front in Chrome')}catch(e){fail(e)}};
 ACT['lb-retry']=()=>{const n=$('#lbNote');if(n){n.dataset.h='';n.innerHTML='<span class="spinner"></span><span>Connecting to your browser…</span>'}Screen.mirror()};
+// Escape closes the screen view (the floating one always, the docked one while focus is inside it), once, with nothing under it
+// closing too; focus goes back to the button that opened it. Inside the remote screen Escape stays the remote's own.
+escLayer({el:()=>Screen.mode==='float'?$('#screenFloat'):$('#screenPane'),back:()=>Screen._back,
+ when:()=>Screen.open&&(Screen.mode==='float'||$('#screenPane')?.contains(document.activeElement)),close:()=>{if(Screen.open)Screen.toggle()}});

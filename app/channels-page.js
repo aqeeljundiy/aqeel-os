@@ -8,7 +8,7 @@ const CH_TABS=['Connections','Who can message'];
 {const oldCh=PAGES.channels,oldPair=PAGES.pairing;
  PAGES.channels=async(p,el,r)=>{const tab=CH_TABS.includes(S.tab.channels)?S.tab.channels:'Connections';
   const tok=S._chtok=(S._chtok||0)+1,stale=()=>tok!==S._chtok;
-  el.innerHTML=`${tabs('channels',CH_TABS,tab)}<div id="chtab"><div class="skel" style="height:160px;border-radius:18px"></div></div>`;placePills();
+  el.innerHTML=`${tabs('channels',CH_TABS,tab)}<div id="chtab"><div class="skel" style="height:160px;border-radius:var(--r-md)"></div></div>`;placePills();
   const live=el.querySelector('#chtab'),box=document.createElement('div');box.hidden=true;document.body.append(box);
   // All agents: the all-agents view (all-agents.js) fills this tab, so one agent's list isn't fetched first
   const skip=tab==='Who can message'&&showingAll();

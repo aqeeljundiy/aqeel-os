@@ -646,6 +646,18 @@ const Layer={back:null};
 function closeLayers(animate=true,{keepScrim=false}={}){const back=animate?document.querySelector('.drawer:not(.closing)')?._back:null;
  document.querySelectorAll('.scrim,.palette,.drawer,.menu').forEach(e=>{if(keepScrim&&e.classList.contains('scrim')&&!e.classList.contains('closing'))return;animate?leave(e,e.classList.contains('menu')?150:210):e.remove()});
  if(back)setTimeout(()=>{if(back.isConnected&&!document.querySelector('.drawer:not(.closing),.palette:not(.closing)')&&(!document.activeElement||document.activeElement===document.body||!document.activeElement.isConnected||document.activeElement.closest('.drawer')))try{back.focus({preventScroll:true})}catch{}},0)}
+// One Escape for every overlay that is not a drawer, menu or palette (the screen viewer, the file preview, the usage card):
+// escLayer({el,close,when}) registers it; Escape closes the top-most one only, nothing under it, and focus goes back to the
+// button that opened it. A drawer, menu or palette opened after the layer sits above it and keeps its own Escape.
+const EscLayers=[];
+const escEl=l=>typeof l.el==='function'?l.el():l.el;
+const escTop=(layers,hasAbove)=>{for(let i=layers.length-1;i>=0;i--){const l=layers[i],el=escEl(l);if(!el?.isConnected)continue;if(l.when&&!l.when())continue;return hasAbove&&hasAbove(l)?null:l}return null};
+function escLayer(o){const l={el:o.el,close:o.close,when:o.when,back:o.back===undefined?document.activeElement:o.back};   // el and back may be functionsEscLayers.push(l);
+ return ()=>{const i=EscLayers.indexOf(l);if(i>=0)EscLayers.splice(i,1)}}
+document.addEventListener('keydown',e=>{if(e.key!=='Escape'||e.isComposing||e.defaultPrevented)return;
+ const l=escTop(EscLayers,l=>[...document.querySelectorAll('.drawer:not(.closing),.palette:not(.closing),.menu:not(.closing),.scrim.stack:not(.closing),.plug-layer')].some(x=>escEl(l).compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING));
+ if(!l)return;e.preventDefault();e.stopImmediatePropagation();const back=typeof l.back==='function'?l.back():l.back,el=escEl(l);l.close();
+ if(back&&back.isConnected&&back!==document.body)setTimeout(()=>{if(!document.activeElement||document.activeElement===document.body||el?.contains(document.activeElement)||!document.activeElement.isConnected)try{back.focus({preventScroll:true})}catch{}},0)},true);
 const openLayer=()=>{const had=document.querySelector('.scrim:not(.closing)'),open=document.querySelector('.drawer:not(.closing)'),a=document.activeElement;
  Layer.back=open?open._back||null:a&&a!==document.body&&!a.closest('.drawer,.palette,.menu')?a:null;closeLayers(false,{keepScrim:true});if(!had)scrim()};
 function toast(msg,kind){if(kind==='err')Oops.add('toast',msg);const t=document.createElement('div');t.className='toast';t.innerHTML=icon(kind==='err'?'alert':'check',15)+esc(msg);$('#toasts').append(t);setTimeout(()=>{t.classList.add('out');setTimeout(()=>t.remove(),260)},kind==='err'?6000:2800)}

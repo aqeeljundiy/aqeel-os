@@ -16,7 +16,7 @@ const panelsTitled=(root,re)=>[...root.querySelectorAll('.panel')].filter(p=>re.
   if(!S.tab.models||S.tab.models==='Accounts')S.tab.models='AI accounts';const tab=MODEL_TABS.includes(S.tab.models)?S.tab.models:'AI accounts';
   // a newer draw (another tab clicked meanwhile) wins: an older one stops at its next step
   const tok=S._mtok=(S._mtok||0)+1,stale=()=>tok!==S._mtok;
-  el.innerHTML=`${tabs('models',MODEL_TABS,tab)}<div id="mtab"><div class="skel" style="height:160px;border-radius:18px"></div></div>`;placePills();const live=el.querySelector('#mtab');const box=document.createElement('div');
+  el.innerHTML=`${tabs('models',MODEL_TABS,tab)}<div id="mtab"><div class="skel" style="height:160px;border-radius:var(--r-md)"></div></div>`;placePills();const live=el.querySelector('#mtab');const box=document.createElement('div');
   const actions=()=>{setActions(tab==='AI accounts'?`<button data-act="acct-refresh">${icon('refresh',16)}Refresh</button>${S.me?.admin!==false?`<button class="primary" data-act="acct-new">${icon('plus',16)}Add account</button>`:''}`:tab==='Agents’ models'?`<button data-act="acct-refresh" title="Ask every provider for its model list again">${icon('refresh',16)}Refresh models</button>`:'');
    if(tab==='Agents’ models')viewAgents().then(viewPick);else viewPick([])};
   actions();
