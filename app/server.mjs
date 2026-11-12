@@ -1742,7 +1742,7 @@ async function engineSessions(a){const c=sessCache.get(a);if(c&&Date.now()-c.t<5
  const l=r&&r.ok?(await r.json().catch(()=>null))?.sessions:null;const v=Array.isArray(l)?{lastActive:Math.max(0,...l.map(x=>Number(x.last_active)||0))*1000,
   active:l.some(x=>x.is_active&&Date.now()-(Number(x.last_active)||0)*1000<2*3600e3)}:null;sessCache.set(a,{t:Date.now(),v});return v}
 const agentUsersNow=async()=>(await readFile(path.join(homedir(),'.aqeelos-agent-users'),'utf8').catch(()=>'')).split('\n').map(x=>x.trim()).filter(Boolean);
-const boxOps=createBoxOps({HOME:homedir(),DATA,HERMES_HOME,fileIssue:o=>issues.file(o),keepOn:a=>agentAds.keepOn(a),keepKnown:()=>agentAds.keepKnown(),busyKeys:()=>[...LIVE].filter(([,r])=>!r.done).map(([k])=>k),
+const boxOps=createBoxOps({HOME:homedir(),DATA,HERMES_HOME,fileIssue:o=>issues.file(o),keepOn:a=>agentAds.keepOn(a),hasOwnAds:a=>agentAds.hasOwn(a),keepKnown:()=>agentAds.keepKnown(),busyKeys:()=>[...LIVE].filter(([,r])=>!r.done).map(([k])=>k),
  engineBusy:async()=>{const out=[];for(const a of await agentUsersNow())if((await engineSessions(a))?.active)out.push(a);return out}});if(LIVE_APP)boxOps.start();
 /* Memory watchdog (memwatch.mjs, OPS-17): under 15% of the container's limit free, idle screens sleep and idle tabs go,
    then the biggest idle agent Chrome or AdsPower starts again, then the engine restarts gracefully; the owner hears once
