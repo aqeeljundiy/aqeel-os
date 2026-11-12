@@ -291,7 +291,7 @@ export function memProblems({used,max,load1,cpus:n},{memMax=0.9,loadMax=2}={}){c
 // running root script whose sum is not the deployed copy's (left running: its update refused or never done), and a status that
 // stopped being written. No status file: no root script on this install, nothing shown.
 export const FW_STATUS='.aqeelos-devtools-fw.json';
-export const ROOT_SCRIPT=fileURLToPath(new URL('../scripts/agent-users.sh',import.meta.url));
+const ROOT_SCRIPT=fileURLToPath(new URL('../scripts/agent-users.sh',import.meta.url));
 export function fwProblems(s,{now=Date.now(),appSum=null,appMtime=0}={}){const out=[],T='health|aqeelos|devtools';
  if(!s||typeof s!=='object'||!Number.isFinite(s.at))return out;const at=s.at*1000,list=x=>Array.isArray(x)?x.map(String):[];
  if(now-at>10*60e3)out.push({topic:T+'|stale',text:'Browser port rules not checked lately',detail:'The root script last checked them '+Math.round((now-at)/60e3)+' minutes ago (it does every minute). See whether aq-agent-users still runs (Agents page).'});
