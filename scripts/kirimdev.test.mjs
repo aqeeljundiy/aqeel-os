@@ -8,6 +8,16 @@ import {createHmac} from 'node:crypto';
 import {createDocLinks} from '../app/doc-links.mjs';
 import {createKirimdev,verifySignature,parseInbound,parseSent,splitReply,withCaptions,parseApproval,parseRelease,chunkText} from '../app/kirimdev.mjs';
 
+test('configured protocol tools are explained without treating an old payment as protocol evidence',async()=>{
+ const t=await make({extra:{protocolPdf:{baseUrl:'https://member.example.com',email:'staff@example.com',secret:'MEMBER_PASSWORD'}}});
+ await t.post(meta('628123','please send my protocol PDF'));await t.settle();
+ assert.match(t.asked[0][1],/get_protocol.*send_protocol_pdf/);
+ assert.match(t.asked[0][1],/An expired or unpaid order does not prove that no protocol exists/);
+ assert.match(t.asked[0][1],/A protocol the expert team has set on the member profile IS the team's confirmation/,'TS-6: the expert setting it is the confirmation');
+ const other=await make();await other.post(meta('628123','hello'));await other.settle();
+ assert.doesNotMatch(other.asked[0][1],/send_protocol_pdf/);
+});
+
 const SECRET='whsec_test_123';
 const PERSON={human:true,via:'page'};   // what only the Channels page (a signed-in admin) and teamMessage (a checked Telegram sender) give
 
