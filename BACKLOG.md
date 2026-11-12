@@ -46,7 +46,7 @@ Reports are kept outside the repo (private archive). `[x]` = fixed and live; `[~
 - [x] **AUD-13 Account pools**: calm by construction (move only near the limit, one-hour pin, at most 8 automatic moves per agent a day). Elkiya: 0 moves in the hour after deploy (was 9-18 an hour).
 - [x] **AUD-14 Deploys**: new files are switched in by rename; undo restores everything a deploy changed; the test copy is private and wiped.
 - [ ] **AUD-15 Left from the audit** (per-account sign-in limiter done 13 Nov: app/signin-guard.mjs): the screen viewer's own connection; the box user's Chrome debugging ports; `pepclub-social` as its own Linux user; the unsigned desktop installer; "never sleep" leaves a running Chrome unreachable (continue-threads is pinned to a 30-day sleep instead); mediums and lows listed in the reports.
-- [ ] **AUD-16 Not yet done**: the UI and functionality walkthrough of every page as owner, member and employee; maintainability (app/server.mjs is about 620 KB).
+- [ ] **AUD-16 Not yet done**: the UI and functionality walkthrough of every page as owner, member and employee; maintainability (app/server.mjs is about 620 KB). First slice of the split done 12 Nov (branch w-split, not merged): five route groups moved verbatim, server.mjs 641 KB to 498 KB; next slice: the rest of the /ui/ block (identities and sharing, mcp, secrets, local browser, schedules, about 70 KB) and the pre-auth webhooks and callbacks.
 
 ### Session of 11–12 Nov (token savings, reliability, "never fix by hand again")
 Live on both servers unless a line says otherwise. `[x]` = seen working live; `[~]` = live in code, not yet seen working.

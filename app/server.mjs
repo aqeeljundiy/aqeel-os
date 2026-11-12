@@ -23,7 +23,7 @@ import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
 import {createFixerGit} from './fixer-git.mjs';
 import {createFixerSandbox} from './fixer-sandbox.mjs';
-import {createSignInGuard,enterRequest} from './signin-guard.mjs';import {createSignInRoutes} from './signin-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';
+import {createSignInGuard,enterRequest} from './signin-guard.mjs';import {createSignInRoutes} from './signin-routes.mjs';
 import {peopleOf,approverState,buildApprovers,catalogRows,catalogFromRows,leftOut} from './kirimdev-settings.mjs';
 import {createCloudFixer} from './cloud-fixer.mjs';
 import {createLiveDrift} from './live-drift.mjs';
@@ -157,6 +157,7 @@ import {createCatalog} from './price-catalog.mjs';import {createPaymentProviders
 import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
+import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';   // the routes that used to sit in this file (one module each)
 
 delete Object.prototype.__proto__;   // a key named __proto__ from a request is an ordinary key: no lookup reaches Object.prototype (security audit, 12 Nov 2026)
 const here=path.dirname(fileURLToPath(import.meta.url));
