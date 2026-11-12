@@ -22,6 +22,9 @@ import {createAgentMemory} from './agent-memory.mjs';
 import {createTeamSettings} from './team-settings.mjs';
 import {createCodeChanges} from './code-changes.mjs';
 import {createFixerGit} from './fixer-git.mjs';
+import {createFixerSandbox} from './fixer-sandbox.mjs';
+import {createAccountLimiter} from './account-limit.mjs';
+import {peopleOf,approverState,buildApprovers,catalogRows,catalogFromRows,leftOut} from './kirimdev-settings.mjs';
 import {createCloudFixer} from './cloud-fixer.mjs';
 import {createLiveDrift} from './live-drift.mjs';
 import {withTebar} from './tebar-app.mjs';   // Tebar in the catalog: one click sign-in, or a pasted API key (11 Nov 2026)
@@ -1018,7 +1021,11 @@ const newerApp=(a,b)=>{if(!a)return false;if(!b)return true;const x=String(a).sp
 const teamSettings=createTeamSettings({DATA,HERMES_HOME,listAgents:()=>listAgents()});
 // GIT-2: the fixer ships through GitHub: its own git checkout, a branch per issue, a pull request (fixer-git.mjs); and the live app folder
 // is checked against the deployed commit for hand edits (live-drift.mjs), no model
-const fixerGit=createFixerGit({DATA,home:homedir(),log:m=>console.log(m)});
+const fixerGit=createFixerGit({DATA,home:homedir(),log:m=>console.log(m),clean:d=>fixerSandbox.clean(d)});
+// CR-7: the fixer's own Linux user and the signed routes it uses (fixer-sandbox.mjs); the issues module decides per fix whether to confine it
+const fixerSandbox=createFixerSandbox({DATA,home:homedir(),sign:v=>sign(v),redactText,appPort:PORT,isActive:(a,b)=>issues.runActive(a,b),issueText:id=>issues.textFor(id),diffOf:id=>fixerGit.diffWork(id),
+ logs:async id=>{const db=await issues._db(),i=db.items.find(x=>x.id===id),a=String(i?.agent||'default');if(!/^[\w-]+$/.test(a))return '';
+  const t=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'logs','errors.log'),'utf8').catch(()=>'');return t.split('\n').slice(-120).join('\n')}});
 const liveDrift=createLiveDrift({DATA,live:root,repo:fixerGit.src});
 const codeChanges=createCodeChanges({DATA,fileIssue:o=>issues.file(o),fixes:()=>issues.reviews(),hand:()=>liveDrift.item(),diff:id=>fixerGit.diff(id)});   // fixes waiting for review, hand edits, deploy drift, fixer patches (System › Health)
 if(LIVE_APP){setTimeout(()=>liveDrift.check().catch(e=>console.warn('hand-edit check',e.message)),3*60e3).unref();setInterval(()=>liveDrift.check().catch(()=>{}),30*60e3).unref()}
@@ -1152,7 +1159,7 @@ async function adoptFirstModel(slug){const agents=['default',...(await listAgent
 const connect=createConnect({HERMES_HOME,DASH,DASH_TOKEN,live:LIVE_APP,afterSave:slug=>adoptFirstModel(slug)});accountHooks.keyStatus=()=>connect.status();accountHooks.keyCheck=()=>connect.checkAll();
 const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
-const users=createUsers(DATA,mailer,{ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name(),relaxed:!LIVE_APP,ownerSeesAll:()=>installSettings().supervision===true});
+const users=createUsers(DATA,mailer,{limiter:createAccountLimiter({free:Number(env.UI_SIGNIN_FREE_TRIES)||4}),ownerCheck:pw=>!!PW_HASH&&checkPassword(pw),envOwner:()=>!!PW_HASH,brandName:()=>brand.name(),relaxed:!LIVE_APP,ownerSeesAll:()=>installSettings().supervision===true});
 const addons=createAddons({DATA});
 // who an add-on was added by, for the admins' list: the person, or the person an agent acts for
 const addonBy=u=>({id:u?.id||null,name:u?.name||(u?.role==='owner'?'Owner':null)});
@@ -1745,7 +1752,7 @@ async function engineSessions(a){const c=sessCache.get(a);if(c&&Date.now()-c.t<5
  const l=r&&r.ok?(await r.json().catch(()=>null))?.sessions:null;const v=Array.isArray(l)?{lastActive:Math.max(0,...l.map(x=>Number(x.last_active)||0))*1000,
   active:l.some(x=>x.is_active&&Date.now()-(Number(x.last_active)||0)*1000<2*3600e3)}:null;sessCache.set(a,{t:Date.now(),v});return v}
 const agentUsersNow=async()=>(await readFile(path.join(homedir(),'.aqeelos-agent-users'),'utf8').catch(()=>'')).split('\n').map(x=>x.trim()).filter(Boolean);
-const boxOps=createBoxOps({HOME:homedir(),DATA,HERMES_HOME,fileIssue:o=>issues.file(o),keepOn:a=>agentAds.keepOn(a),keepKnown:()=>agentAds.keepKnown(),busyKeys:()=>[...LIVE].filter(([,r])=>!r.done).map(([k])=>k),
+const boxOps=createBoxOps({HOME:homedir(),DATA,HERMES_HOME,fileIssue:o=>issues.file(o),keepOn:a=>agentAds.keepOn(a),hasOwnAds:a=>agentAds.hasOwn(a),keepKnown:()=>agentAds.keepKnown(),busyKeys:()=>[...LIVE].filter(([,r])=>!r.done).map(([k])=>k),
  engineBusy:async()=>{const out=[];for(const a of await agentUsersNow())if((await engineSessions(a))?.active)out.push(a);return out}});if(LIVE_APP)boxOps.start();
 /* Memory watchdog (memwatch.mjs, OPS-17): under 15% of the container's limit free, idle screens sleep and idle tabs go,
    then the biggest idle agent Chrome or AdsPower starts again, then the engine restarts gracefully; the owner hears once
@@ -1830,7 +1837,7 @@ accountHooks.exhausted=until=>{if(until)providerLimits.set(until,'every AI accou
 const questions=createQuestions({DATA,names:a=>agentName(a),onAnswer:async q=>{if(q.kind==='fixer'&&q.issue)await issues.answered(q.issue,q);if(q.kind==='app'&&q.issue==='brand-logo'&&q.answered?.choice==='b'){await brand.setMono(true);await pwa.current()}if(q.kind==='app'&&String(q.issue).startsWith('live-logo-')&&q.answered?.choice==='b')await live.useLetter(String(q.issue).slice(10))}});
 // the cloud fixer (cloud-fixer.mjs, 12 Nov 2026): code fixes are written by a Claude Code routine in Anthropic's cloud; the account with the most room is used
 const cloudFixer=createCloudFixer({DATA,accounts:async()=>{const b=accountsApi.backup,d=await b.load();return Promise.all(b.all(d).map(a=>b.details(a)))},github:id=>fixerGit.mergedPr(id)});
-const issues=createIssues({DATA,watch:createFixerWatch({list:()=>protectedFiles({HOME:homedir(),HERMES_HOME,DATA}),log:m=>console.warn(m)}),onOver:n=>n?bottlenecks.event('issues',n+' open issues: more than the list is meant to hold','None is dropped. Close or decline the ones that no longer matter under System › Health, so new ones stay easy to find.',{topic:'issues-over'}):bottlenecks.resolve('issues-over'),ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
+const issues=createIssues({DATA,watch:createFixerWatch({list:()=>protectedFiles({HOME:homedir(),HERMES_HOME,DATA}),log:m=>console.warn(m)}),onOver:n=>n?bottlenecks.event('issues',n+' open issues: more than the list is meant to hold','None is dropped. Close or decline the ones that no longer matter under System › Health, so new ones stay easy to find.',{topic:'issues-over'}):bottlenecks.resolve('issues-over'),ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,sandbox:fixerSandbox,needFull:why=>bottlenecks.event('fixer_full_rights','The fixer runs with full rights',String(why||'')+' A code fix then runs with the owner\'s user, which holds every key. Make the fixer\'s own user on the box (the root script does it; Health shows when it is ready) or accept this.',{topic:'fixer_full_rights'}),fullOk:()=>bottlenecks.resolve('fixer_full_rights'),cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
  needCloud:()=>bottlenecks.event('cloud_fixer','Set up the cloud fixer','A bug in aqeelOS\'s own code is fixed in the cloud. Add a routine on System › Settings › Cloud fixer; until then the older way runs.',{topic:'cloud_fixer'}),cloudOk:()=>bottlenecks.resolve('cloud_fixer'),needToken:()=>bottlenecks.event('github_token','The fixer needs a GitHub token','Fixes wait for review as branches on the box. Add the token and their pull requests open by themselves.',{topic:'github_token'}),tokenOk:()=>bottlenecks.resolve('github_token'),usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
  tz:()=>installTz()||process.env.TZ||'',sortRun:engineSortRun({bin:path.join(homedir(),'.local','bin','aqeelos'),home:homedir(),dir:path.join(DATA,'issues','sort')}),
  reply:replyInTopic,tellOwner:srToOwner,toTeam:issueToTeam,quiet:alertQuiet,busy:async()=>busyNow(),ready:async()=>!gwStopped&&!gwRestarting&&!!await gatewayPid(),apply:issueApply,engineOk:()=>inQuiet(new Date(),installTz()||process.env.TZ||''),envFiles:issueEnvFiles,
@@ -2527,6 +2534,12 @@ const server=createServer(async(req,res)=>{
    if(p==='/local/needs'&&req.method==='GET'){console.log('local owner: needs listed');return send(res,200,{items:(await needsFor(owner)).map(localView)})}
    if(p==='/local/answer'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     try{const r=await localAnswer({items:await needsFor(owner),id:String(b.id||''),choice:b.choice,value:b.value,text:b.text,conflicts,questions,runGates});console.log('local owner: answered',b.id,'with',String(b.choice||'').slice(0,40));return send(res,200,r)}catch(e){return send(res,e.status||409,{error:e.message})}}
+   // an issue closed or sorted again from the box (aq-needs.mjs issue <id> resort|close "<reason>"); the app's own issue functions, as the owner
+   if(p==='/local/issue'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+    const id=String(b.id||''),why=String(b.reason||'').trim();if(!/^i[0-9a-f]{8}$/.test(id))return send(res,400,{error:'That is not an issue id.'});
+    if(!['resort','close'].includes(b.action))return send(res,400,{error:'Use resort or close.'});if(!why)return send(res,400,{error:'Give a reason.'});
+    try{const i=b.action==='close'?await issues.close(id,'owner (local): '+why.slice(0,200)):await issues.resort(id,why,'owner (local)');if(!i)return send(res,404,{error:'No such issue.'});
+     console.log('local owner: issue',id,b.action);return send(res,200,{ok:true,id,action:b.action,state:i.state})}catch(e){return send(res,e.status||409,{error:e.message})}}
    return send(res,404,'Not found')}
   if(p==='/healthz')return send(res,200,{ok:true,build:BUILD,live:liveCount(),engine:(void engineAgents(),engAgents.n),busy:busyTotal({live:liveCount(),setups:export_setups.running(),ops:opsBusy(),relay:relay.sending(),gwRestarting:!!gwRestarting,engineUpdate:engineUpd.busy(),restore:backups.busy()}),
    // hold: what a deploy still waits for (it cannot be continued afterwards); resume: what is waiting to continue
@@ -2539,6 +2552,10 @@ const server=createServer(async(req,res)=>{
   {const mo=/^\/agent-ops\/([\w-]+)\/([\w-]+)$/.exec(p);if(mo){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
    const x=Buffer.from(String(mo[2])),y=Buffer.from(sign('agent-ops:'+mo[1]).slice(0,32));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad signature'});
    let body;try{body=JSON.parse(await readBody(req,1e6))}catch{return send(res,400,{error:'bad json'})}const r=await agentOps.call(mo[1],body).catch(e=>({status:500,json:{error:e.message}}));return send(res,r.status,r.json)}}
+  // the confined fixer's routes (fixer-sandbox.mjs, CR-7): from this box only, signed for one run, closed when the run ends
+  {const mf=/^\/fixer-ops\/([\w-]+)\/([\w-]+)\/([A-Za-z0-9_-]{32})\/(\w+)$/.exec(p);if(mf){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
+   let body={};try{body=JSON.parse(await readBody(req,65536)||'{}')}catch{return send(res,400,{error:'bad json'})}
+   const r=await fixerSandbox.ops(mf[4],mf[1],mf[2],mf[3],body).catch(e=>({status:500,json:{error:String(e.message).slice(0,200)}}));return send(res,r.status,r.json)}}
   // a person's message in the team's Telegram topic, from the engine's hook (audit H5): from this box only, signed per agent. The sender
   // is checked against the line's approvers in kirimdev.teamMessage; nothing here trusts the text alone.
   {const mt=/^\/team-message\/([\w-]+)\/([\w-]+)$/.exec(p);if(mt){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only');if(req.method!=='POST')return send(res,405,'POST only');
@@ -2851,11 +2868,7 @@ const server=createServer(async(req,res)=>{
    if(typeof b.key!=='string'||b.key.length!==k.length||!timingSafeEqual(Buffer.from(b.key),Buffer.from(k)))return send(res,403,{error:'bad key'});
    const r=await issues.press(b.data,String(b.from||''));console.log('issue button',String(b.data||'').slice(0,15),'from',b.from,'→',r.toast);return send(res,200,r)}
   // an old Approve / Decline link (issues.mjs before 7 Nov 2026): it only shows where the issue is now
-  {const im=/^\/issue\/(i[0-9a-f]{8})\/([\w-]{10,40})$/.exec(p);if(im){const H={'cache-control':'no-store','x-robots-tag':'noindex'};
-   const page=(body)=>{res.writeHead(200,{'content-type':'text/html; charset=utf-8',...H});res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>aqeelOS issue</title><body style="font:16px/1.5 system-ui;max-width:560px;margin:40px auto;padding:0 18px">'+body+'</body>')};
-   const e=x=>String(x??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-   const l=(await issues.list()).items.find(x=>x.id===im[1]);if(!l)return page('<h2>Link not valid</h2>');
-   return page('<h2>'+e(l.agentName)+': '+e(l.missing)+'</h2><p>Nothing to approve any more: the fixer handles every issue by itself and proves the fix (7 Nov 2026).</p><p>State: '+e(l.state)+'</p>')}}
+  // /issue/<id>/<token> approval links ended on 7 Nov 2026 (the fixer handles every issue itself). They no longer exist: such a link is a plain 404 like any missing page, whatever its token (13 Nov 2026; it used to show the issue to anyone with a made-up token)
   // a one-purpose PDF link for a WhatsApp document (doc-links.mjs): unguessable, 15 minutes, no sign-in
   {const dm=/^\/doc\/([\w-]{43})\/([^/]+)$/.exec(p);if(dm&&(req.method==='GET'||req.method==='HEAD'))return await docLinks.serve(req,res,dm[1],dm[2])}
   if(p==='/secret'||p.startsWith('/secret/'))return await secretRoute(req,res,p);
@@ -3064,17 +3077,19 @@ const server=createServer(async(req,res)=>{
   if(p==='/auth/login'&&req.method==='POST'){
    const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+   // per account, whatever the address (account-limit.mjs): while it waits the password is not even looked at
+   const lk=await users.loginKey(b.name),lw=users.limits.wait(lk);if(lw)return send(res,429,{error:users.limits.text(lw),wait:lw});
    const u=await users.login(b.name,b.password||'',pw=>!!PW_HASH&&checkPassword(pw));
-   if(!u){(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());const nm=String(b.name||'').trim();return send(res,401,{error:!nm?'Enter your email.':!nm.includes('@')&&users.emailOnly()?'Sign in with your email address.':'That email and password do not match.'})}
+   if(!u){users.limits.fail(lk);(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());const nm=String(b.name||'').trim();return send(res,401,{error:!nm?'Enter your email.':!nm.includes('@')&&users.emailOnly()?'Sign in with your email address.':'That email and password do not match.'})}
    const note=users.loginNote(u,b.name);
-   attempts.delete(ip);
+   attempts.delete(ip);users.limits.ok(lk);
    // two-step: the password was right; now a code goes to their confirmed email
    if(u.twoStep&&u.emailVerified){try{return send(res,200,{needCode:true,key:await users.loginCode(u),to:u.email.replace(/^(.).*(@.*)$/,'$1•••$2'),note})}catch(e){return send(res,502,{error:'Your sign-in code could not be sent: '+e.message})}}
    return send(res,200,{ok:true,note},{'set-cookie':'hui='+makeCookie(u.id)+'; '+cookieAttrs(SESSION_DAYS*86400)});
   }
   if(p==='/auth/code'&&req.method==='POST'){const ip=clientIp(req);if(limited(ip))return send(res,429,{error:'Too many attempts. Try again in a few minutes.'});
    let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const v=users.finishLogin(b.key,b.code);
-   if(v.error){(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());return send(res,401,{error:v.error})}
+   if(v.error){(attempts.get(ip)||attempts.set(ip,[]).get(ip)).push(Date.now());return send(res,v.wait?429:401,{error:v.error})}
    return send(res,200,{ok:true},{'set-cookie':'hui='+makeCookie(v.user.id)+'; '+cookieAttrs(SESSION_DAYS*86400)})}
   if(p==='/auth/logout'&&req.method==='POST')return send(res,200,{ok:true},{'set-cookie':'hui=; '+cookieAttrs(0)});
   if(p==='/auth/logout-all'&&req.method==='POST'){const id=cookieId(req);if(!id)return send(res,401,{error:'Sign in first.'});await revokeSessions(id);console.log('signed out everywhere:',id);return send(res,200,{ok:true},{'set-cookie':'hui=; '+cookieAttrs(0)})}
@@ -3185,7 +3200,7 @@ const server=createServer(async(req,res)=>{
    // today's US dollar → rupiah rate, so costs can be shown in rupiah (fetched twice a day, last good one kept)
    if(p==='/ui/fx'&&req.method==='GET'){if(!FX.at||Date.now()-FX.at>12*3600e3){try{const r=await fetch('https://open.er-api.com/v6/latest/USD',{signal:AbortSignal.timeout(8000)});const j=await r.json();const rates=Object.fromEntries(Object.entries(j?.rates||{}).filter(([k,v])=>/^[A-Z]{3}$/.test(k)&&+v>0));if(rates.EUR)Object.assign(FX,{rates,at:Date.now(),day:(j.time_last_update_utc||'').slice(5,16)})}catch{}}
     return send(res,200,{rates:FX.rates,IDR:FX.rates.IDR,updated:FX.day||null})}
-   if(p==='/ui/box'&&req.method==='GET')return send(res,200,{...await boxMemory(),processes:await boxOps.janitor().catch(()=>null),screens:await boxOps.screens().catch(()=>null),agents:await boxOps.agentMemory().catch(()=>[])});
+   if(p==='/ui/box'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});return send(res,200,{...await boxMemory(),processes:await boxOps.janitor().catch(()=>null),screens:await boxOps.screens().catch(()=>null),agents:await boxOps.agentMemory().catch(()=>[])});}
    // Google accounts an agent can use (the Google Workspace skill keeps one sign-in per account); never the tokens themselves
    if(p==='/ui/google-accounts'){const a=String(url.searchParams.get('agent')||'default');if(!(await listAllProfiles()).includes(a))return send(res,400,{error:'Unknown agent'});
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a))return send(res,403,{error:'Not your agent'});
@@ -3325,7 +3340,7 @@ const server=createServer(async(req,res)=>{
     try{const r=await accountHooks.skillShare({key:b.skill,agents:Array.isArray(b.agents)?b.agents.map(String):null,dry:!!b.dry});if(b.dry)return send(res,200,r);
      console.log('skill',b.skill,Array.isArray(b.agents)?'only for '+b.agents.join(', '):'for every agent','(by '+u.id+')');return send(res,200,{...skillRules(),done:r})}catch(e){return send(res,400,{error:e.message})}}
    // who has one skill right now and who built it (the Access block opens with this)
-   if(p==='/ui/skills-policy/who'&&req.method==='GET'){try{return send(res,200,await accountHooks.skillShare({key:url.searchParams.get('skill'),agents:[],dry:true}))}catch(e){return send(res,400,{error:e.message})}}
+   if(p==='/ui/skills-policy/who'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});try{return send(res,200,await accountHooks.skillShare({key:url.searchParams.get('skill'),agents:[],dry:true}))}catch(e){return send(res,400,{error:e.message})}}
    // which agents are locked to safe tools, and why (the Tool groups grid shows a lock with this reason instead of a switch)
    if(p==='/ui/agent-locks'&&req.method==='GET'){const st=await getStatus();const out={};
     for(const a of String(url.searchParams.get('names')||'').split(',').filter(Boolean).slice(0,200)){if(a==='default'||!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)!==null||!lockedAgent(a,st))continue;
@@ -3394,13 +3409,21 @@ const server=createServer(async(req,res)=>{
      return send(res,404,{error:'Not here.'})}catch(e){return send(res,400,{error:e.message})}}
    // one-time secret links (admins, System › Keys and secrets): open links (cancel) and what happened, never a value
    // Kirimdev lines (kirimdev.mjs): the API key and its check, each line's status, Test/Draft/Live, the optional webhook
+   // Channels › Kirimdev, per line (kirimdev-settings.mjs): who may approve drafts, the price list; admins only
+   if(/^\/ui\/kirimdev\/(settings|approvers|prices)$/.test(p)){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,262144)||'{}')}catch{}}
+    try{const a=String(b.agent||url.searchParams.get('agent')||''),L=await kirimdev.lines();if(!L[a])return send(res,404,{error:'No Kirimdev line for that agent.'});
+     const people=peopleOf(await teamSettings.policy(),a),cur=L[a].approvers||[];
+     if(req.method==='GET'&&p.endsWith('/settings')){const cat=await priceCatalog.of(a);return send(res,200,{people:people.map(x=>({name:x.name,team:x.team})),approvers:approverState(people,cur),prices:{...catalogRows(cat),leftOut:await leftOut({home:homedir(),agent:a,cat})}})}
+     if(req.method==='PUT'&&p.endsWith('/approvers')){const list=buildApprovers(people,cur,b.people,b.dropOthers);await kirimdev.saveLine(a,{approvers:list});console.log('kirimdev: approvers of',a,'set by',u.id,'('+list.length+')');return send(res,200,{ok:true,approvers:approverState(people,list)})}
+     if(req.method==='PUT'&&p.endsWith('/prices')){const old=await priceCatalog.of(a),c=catalogFromRows(old,b);await priceCatalog.set(a,{...c,source:old?.source||''});console.log('kirimdev: price list of',a,'saved by',u.id);const cat=await priceCatalog.of(a);return send(res,200,{ok:true,prices:{...catalogRows(cat),leftOut:await leftOut({home:homedir(),agent:a,cat})}})}
+     return send(res,405,{error:'Not allowed'})}catch(e){return send(res,400,{error:e.message})}}
    if(p==='/ui/kirimdev'||p==='/ui/kirimdev/setup'||p==='/ui/kirimdev/line'||p==='/ui/kirimdev/disconnect'||p==='/ui/kirimdev/renew'||p==='/ui/kirimdev/test'||p==='/ui/kirimdev/mode'||p==='/ui/kirimdev/release'||p==='/ui/kirimdev/connect'||p==='/ui/kirimdev/pause'||p==='/ui/kirimdev/draft'||p==='/ui/kirimdev/check'||p==='/ui/kirimdev/key'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'});
     if(req.method==='GET'&&p==='/ui/kirimdev'){const [lines,account,keySaved,numbers]=await Promise.all([kirimdev.status(),kirimdev.account(),readFile(path.join(HERMES_HOME,'secrets','kirimdev.env'),'utf8').then(t=>/^KIRIMDEV_API_KEY=\S/m.test(t),()=>false),kirimdev.numbers({fresh:url.searchParams.get('fresh')==='1'})]);return send(res,200,{lines,account,keySaved,numbers,reach:publicReach(PUBLIC_URL)})}
     if(req.method==='GET'&&p==='/ui/kirimdev/setup')return send(res,200,await kirimdevSetup(String(url.searchParams.get('agent')||'')));
     let b={};try{b=JSON.parse(await readBody(req,4096)||'{}')}catch{}
     try{if(req.method==='POST'&&p==='/ui/kirimdev/mode')return send(res,200,{ok:await kirimdev.setMode(String(b.agent||''),String(b.mode||''),u.name||'an admin')});
      // release a chat held for the team after a handoff: the agent answers there again
-     if(req.method==='POST'&&p==='/ui/kirimdev/release')return send(res,200,{released:await kirimdev.release(String(b.agent||''),String(b.phone||''),u.name||'an admin')});
+     if(req.method==='POST'&&p==='/ui/kirimdev/release')return send(res,200,{released:b.ref?await kirimdev.releaseRef(String(b.agent||''),String(b.ref),u.name||'an admin'):await kirimdev.release(String(b.agent||''),String(b.phone||''),u.name||'an admin')});
      if(req.method==='POST'&&p==='/ui/kirimdev/pause')return send(res,200,{pauseMin:await kirimdev.setPause(String(b.agent||''),b.min)});
      if(req.method==='POST'&&p==='/ui/kirimdev/draft')return send(res,200,await kirimdev.draft(String(b.agent||''),b.id,String(b.action||''),b.text,u.name||'an admin',{human:true,via:'page',user:u.id||''}));
      if(req.method==='POST'&&p==='/ui/kirimdev/connect'){const r=await kirimdev.connectWebhook(String(b.agent||''));kirimdev.check().catch(()=>{});return send(res,200,r)}
@@ -3518,7 +3541,7 @@ const server=createServer(async(req,res)=>{
     if(b.currency!==undefined){if(!/^[A-Z]{3}$/.test(String(b.currency)))return send(res,400,{error:'Pick a currency code like USD or EUR.'});d.currency=b.currency}await writeFile(F,JSON.stringify(d,null,1));return send(res,200,d)}
    if(p==='/ui/apps'&&req.method==='GET')return send(res,200,{...await live.list(u,users.isAdmin(u)),admin:users.isAdmin(u)});
    if(p.startsWith('/ui/apps/')&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}
-    try{if(p==='/ui/apps/check'){const a=await live.check(String(b.id||''));return send(res,200,{status:a.status,error:a.error||''})}
+    try{if(p==='/ui/apps/check'){if(!users.isAdmin(u)&&!(await live.list(u,false)).apps.some(x=>x.owner===u.id&&x.id===String(b.id||'')))return send(res,403,{error:'That app is not yours.'});const a=await live.check(String(b.id||''));return send(res,200,{status:a.status,error:a.error||''})}
      if(p==='/ui/apps/remove')return send(res,200,await live.remove(u,users.isAdmin(u),String(b.id||'')));
      if(p==='/ui/apps/visibility')return send(res,200,await live.setVisibility(u,users.isAdmin(u),String(b.id||''),String(b.visibility||'')));
      if(p==='/ui/apps/online')return send(res,200,await live.setOnline(u,users.isAdmin(u),String(b.id||''),!!b.on));

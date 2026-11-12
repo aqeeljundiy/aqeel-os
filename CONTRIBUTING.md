@@ -14,5 +14,8 @@ This repository is public and holds the product: code, tests, general documentat
 Use plainly made-up values: phone `62800000000x`, e-mail `@example.com`, IP `192.0.2.x`, `198.51.100.x`, `203.0.113.x`, Telegram user id `1000000001`, chat id `-1001234567890`. `scripts/repo-privacy.test.mjs` fails on anything that looks real, in every tracked file.
 
 ## Before you push
-`git config core.hooksPath scripts/hooks` (once per clone) runs the privacy test and a gitleaks scan before each push. Never `git add -A` in a scripted commit: name the paths.
+`git config core.hooksPath scripts/hooks` (once per clone) runs the pre-merge check (`scripts/premerge-check.mjs`), the privacy test and a gitleaks scan before each push. Never `git add -A` in a scripted commit: name the paths.
 A fixture that has to look like a key (a test of the secret filter) must look fake (`sk-ant-EXAMPLE...`); if gitleaks still flags it, add it to `.gitleaks.toml` by path **and** value. A real credential is never allowed: it is rotated.
+
+## Where to start
+`docs/ARCHITECTURE.md` (what runs where, which files to touch and which tests to run for the usual changes) and `AGENTS.md` (working rules, also for AI assistants).

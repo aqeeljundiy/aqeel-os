@@ -12,6 +12,7 @@ import {buildIcons,contrast,toRgb,RADIUS} from '../app/icons.mjs';
 import {createPwa,shortName} from '../app/pwa.mjs';
 import {createBrand} from '../app/brand.mjs';
 import {readZip,writeZip,dataOf,brandApp} from '../app/pwa-zip.mjs';
+import {src} from './lib/source.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url)),root=path.resolve(here,'..');
 const R=f=>readFileSync(path.join(root,f));
@@ -98,7 +99,7 @@ test('head tags: every page the server serves gets icon, apple-touch-icon, manif
  finally{srv.closeAllConnections?.();srv.close()}});
 
 test('the real server wires it first: hook before any route, icons public, index.html carries the markers',()=>{
- const s=readFileSync(path.join(root,'app/server.mjs'),'utf8'),h=s.indexOf('pwa.hook(req,res)');assert.ok(h>0);assert.ok(h<s.indexOf('codeOnline.handle(req,res))return;'),'before Code online');assert.ok(h<s.indexOf("p==='/install-ping'"));
+ const s=src('app/server.mjs'),h=s.indexOf('pwa.hook(req,res)');assert.ok(h>0);assert.ok(h<s.indexOf('codeOnline.handle(req,res))return;'),'before Code online');assert.ok(h<s.indexOf("p==='/install-ping'"));
  assert.ok(s.indexOf('pwa.isPwaPath(p)')<s.indexOf('codeOnline.handle(req,res))return;'),'icons answer before sign-in');
  const ix=readFileSync(path.join(root,'app/index.html'),'utf8');assert.match(ix,/<!--pwa-->[\s\S]*rel="manifest"[\s\S]*<!--\/pwa-->/);assert.match(ix,/viewport-fit=cover/);assert.match(ix,/pwa\.css/);
  assert.match(readFileSync(path.join(root,'app/pwa.css'),'utf8'),/safe-area-inset-top/)});

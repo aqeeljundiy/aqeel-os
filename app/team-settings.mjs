@@ -9,6 +9,7 @@
 //   - test agents (HERMES_HOME/.aqeelos-test-agents): their problems still show on Health, nobody is alerted.
 // Every write keeps the file before it as <file>.prev, so one step back is always there.
 import {readFile,writeFile,mkdir,rename,copyFile} from 'node:fs/promises';
+import {readStore,saveStore,storeBad} from './store.mjs';
 import path from 'node:path';
 import {holdUntil} from './alert-quiet.mjs';
 
@@ -52,8 +53,10 @@ export function setTestLine(text,agent,on){const out=String(text||'').split('\n'
 export function createTeamSettings({DATA,HERMES_HOME,listAgents=async()=>[],now=()=>Date.now()}){
  const POL=path.join(DATA,'team-policy.json'),ALERTS=path.join(DATA,'alerts.json'),HOLD=path.join(DATA,'restart-hold.json'),TESTS=path.join(HERMES_HOME,'.aqeelos-test-agents');
  let chain=Promise.resolve();const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
- const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
- const write=async(f,v)=>{await mkdir(path.dirname(f),{recursive:true});await copyFile(f,f+'.prev').catch(()=>{});const t=f+'.'+process.pid+'.tmp';
+ // JSON through app/store.mjs: a file that cannot be read is not an empty one, and while it cannot be read nothing is saved over it (nor over its .prev)
+ const readJson=(f,d)=>readStore(f,d);
+ const write=async(f,v)=>{if(typeof v!=='string'){await readStore(f,null);if(!storeBad(f)){await mkdir(path.dirname(f),{recursive:true});await copyFile(f,f+'.prev').catch(()=>{})}return saveStore(f,v)}
+  await mkdir(path.dirname(f),{recursive:true});await copyFile(f,f+'.prev').catch(()=>{});const t=f+'.'+process.pid+'.tmp';
   await writeFile(t,typeof v==='string'?v:JSON.stringify(v,null,1)+'\n');await rename(t,f)};
  const policy=()=>readJson(POL,{teams:[]});
 

@@ -40,4 +40,4 @@ export const NEVER_TRACKED=[
  [/^[^/]*Users[^/]*\.enc$/,'a stray test output file'],
 ];
 // the files allowed at the top of the repo
-export const ROOT_FILES=new Set(['.env.example','.gitignore','.gitleaks.toml','.github','BACKLOG.md','CONTRIBUTING.md','LICENSE','OPERATIONS.md','PUBLIC_EXCLUDE','README.md','RESTORE.md','VERSION','server.mjs','.gitattributes','.mailmap','SECURITY.md']);
+export const ROOT_FILES=new Set(['.env.example','.gitignore','.gitleaks.toml','.github','BACKLOG.md','CONTRIBUTING.md','LICENSE','OPERATIONS.md','PUBLIC_EXCLUDE','README.md','RESTORE.md','AGENTS.md','VERSION','server.mjs','.gitattributes','.mailmap','SECURITY.md']);

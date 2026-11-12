@@ -117,12 +117,15 @@ setup_box(){
   # the file permission tools (setfacl) and SSH logins for the agents' users
   command -v setfacl >/dev/null || { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq acl >/dev/null; } || echo "agent users: could not install acl"
   mkdir -p "$KEYS"; chmod 755 "$KEYS"
-  [ -f /etc/ssh/sshd_config.d/claude.conf ] && sed -i 's/^AllowUsers claude$/AllowUsers claude ag-*/' /etc/ssh/sshd_config.d/claude.conf
-  printf '%s\n' 'Match User ag-*' '  AuthorizedKeysFile /etc/ssh/agent-keys/%u' '  AllowTcpForwarding no' '  AllowStreamLocalForwarding no' '  X11Forwarding no' '  PermitTunnel no' '  AllowAgentForwarding no' '  PermitUserRC no' > /etc/ssh/sshd_config.d/zz-agents.conf
+  [ -f /etc/ssh/sshd_config.d/claude.conf ] && sed -i -e 's/^AllowUsers claude$/AllowUsers claude ag-* aq-fixer/' -e 's/^AllowUsers claude ag-[*]$/AllowUsers claude ag-* aq-fixer/' /etc/ssh/sshd_config.d/claude.conf
+  printf '%s\n' 'Match User ag-*,aq-fixer' '  AuthorizedKeysFile /etc/ssh/agent-keys/%u' '  AllowTcpForwarding no' '  AllowStreamLocalForwarding no' '  X11Forwarding no' '  PermitTunnel no' '  AllowAgentForwarding no' '  PermitUserRC no' > /etc/ssh/sshd_config.d/zz-agents.conf
+  # sshd reads its files at start: asked to read them again (running sessions stay)
+  pkill -HUP -x sshd 2>/dev/null
   # a Chrome every agent user may run (the engine's own copy lives in the closed part of the owner home)
   setup_wake || echo "agent users: could not set up the wake proxy"
   x11_dir
   local_fw
+  fixer_step
   if [ -n "$CHROME_SRC" ] && [ ! -x "$CHROME" ]; then mkdir -p /opt/aqeelos; rm -rf /opt/aqeelos/chrome; cp -a --no-preserve=ownership "$CHROME_SRC" /opt/aqeelos/chrome; chmod -R a+rX /opt/aqeelos; fi
 }
 
@@ -158,6 +161,50 @@ local_fw(){
   return 1
 }
 
+# CR-7 part 2 (13 Nov 2026): the on-box fixer ran as the owner's user, who holds every key. With the fixer's own user (aq-fixer) the
+# engine run that fixes aqeelOS's own code keeps its model access in the owner's process, but its terminal and file tools run
+# over SSH as aq-fixer: it passes through the owner's home to the checkout it was given (the app puts an access list on that
+# folder), cannot read ~/.hermes, the data folder, the agents' folders or the local-owner key, and its user may open one network
+# connection only: the app's own port on this box (the routes the app signs for it). GitHub and the AI provider are reached by
+# the app and the engine (the owner's user), never by the fixer's shell, so the firewall needs no address list for them.
+# aqeelOS asks with "on" in ~/.aqeelos-fixer-user (the setting fixer.isolate); the answer is "aq-fixer" in ~/.aqeelos-fixer-user.done.
+FIXREQ=$HOMEC/.aqeelos-fixer-user
+FIXUSER=aq-fixer
+APP_PORT=${AQ_APP_PORT:-4400}
+# read as the owner (the file is the owner's), eight letters at most
+fixer_wanted(){ local m; m=$(as_user "$OWNER" timeout 2 head -c 8 -- "$FIXREQ" 2>/dev/null </dev/null | tr -cd 'a-z'); [ "$m" = on ]; }
+fixer_make(){
+  local uid
+  if ! id "$FIXUSER" >/dev/null 2>&1; then
+    uid=$(uid_of "$FIXUSER") || return 1
+    groupadd -g "$uid" "$FIXUSER" && useradd -M -d "$HOMEC/apps/aqeel-os-fixer" -s /bin/bash -u "$uid" -g "$uid" "$FIXUSER" || return 1
+  fi
+  [ -f "$PUB" ] && install -m 644 "$PUB" "$KEYS/$FIXUSER"
+  # it may pass through the home (not list it); lock_home keeps this entry
+  setfacl -m "u:$(id -u "$FIXUSER"):--x" "$HOMEC"
+  echo "$FIXUSER" | own_put "$FIXREQ.done"
+}
+# the one outgoing connection of the fixer's user: the app on this box. Everything else is refused at once.
+fixer_fw(){
+  local ipt ok=1
+  id "$FIXUSER" >/dev/null 2>&1 || return 0
+  command -v iptables >/dev/null 2>&1 || ok=0
+  for ipt in iptables ip6tables; do
+    command -v "$ipt" >/dev/null 2>&1 || continue
+    "$ipt" -N AQ-FIXER 2>/dev/null
+    if ! { "$ipt" -C AQ-FIXER -o lo -p tcp --dport "$APP_PORT" -j RETURN && "$ipt" -C AQ-FIXER -j REJECT; } 2>/dev/null; then
+      "$ipt" -F AQ-FIXER && "$ipt" -A AQ-FIXER -o lo -p tcp --dport "$APP_PORT" -j RETURN && "$ipt" -A AQ-FIXER -j REJECT || { [ "$ipt" = iptables ] && ok=0; }
+    fi
+    "$ipt" -C OUTPUT -m owner --uid-owner "$FIXUSER" -j AQ-FIXER 2>/dev/null || "$ipt" -I OUTPUT 1 -m owner --uid-owner "$FIXUSER" -j AQ-FIXER 2>/dev/null || { [ "$ipt" = iptables ] && ok=0; }
+  done
+  mkdir -p "$RST"
+  if [ "$ok" = 1 ]; then rm -f -- "$RST/.fixer-fw-failed"; return 0; fi
+  echo "agent users: FIXER FIREWALL NOT APPLIED (iptables missing or refused): the fixer's user can reach the network"
+  [ -f "$RST/.fixer-fw-failed" ] || { : > "$RST/.fixer-fw-failed"; report default "fixer-firewall" "the firewall for the fixer's own user could not be applied (iptables is missing or refused the rules in this box). Until it is, the fixer's shell can reach the network; it still cannot read the owner's keys." "Install iptables in the box and run aq-agent-users once."; }
+  return 1
+}
+fixer_step(){ fixer_wanted || return 0; fixer_make && fixer_fw; }
+
 # /tmp/.X11-unix (every display's socket) belonged to whichever agent started a display first, who could then remove or
 # swap the others'. It is root's: chown -h never follows a link, and once the name is root's nobody else can replace it
 # (/tmp is sticky), so the mode is set only on a folder that is root's by then.
@@ -182,6 +229,8 @@ lock_home(){
     uid=$(awk -v n="$n" '$1==n && $2 ~ /^[0-9]+$/ {print $2; exit}' "$UIDS" 2>/dev/null)
     [ -n "$uid" ] && [ "$uid" -ge 2001 ] && acl="$acl,u:$uid:--x"
   done < "$REQ"
+  # the fixer's own user (CR-7), when aqeelOS asked for it and it has its number
+  if fixer_wanted; then uid=$(awk -v n="$FIXUSER" '$1==n && $2 ~ /^[0-9]+$/ {print $2; exit}' "$UIDS" 2>/dev/null); [ -n "$uid" ] && [ "$uid" -ge 2001 ] && acl="$acl,u:$uid:--x"; fi
   setfacl -k "$HOMEC" 2>/dev/null
   if [ -n "$acl" ]; then setfacl --set "u::rwx,g::r-x,o::---$acl" "$HOMEC" 2>/dev/null || setfacl -b "$HOMEC" 2>/dev/null; else setfacl -b "$HOMEC" 2>/dev/null; fi
   for d in "$HOMEC"/* "$HOMEC"/.[!.]*; do [ -e "$d" ] || continue; [ -L "$d" ] && continue; [ "$d" = "$HOMEC/workspaces" ] && continue; chmod o-rwx "$d" 2>/dev/null; done
@@ -373,9 +422,11 @@ limit_of(){
   [[ "$a" =~ ^[0-9]{1,7}$ ]] || a=0; [[ "$b" =~ ^[0-9]{1,5}$ ]] || b=0
   echo "$((10#$a)) $((10#$b))"
 }
-# the port Chrome itself listens on: the agent's own port when its screen never sleeps (as before 11 Nov), else 10000
-# above it, behind the wake proxy on the agent's own port
-chrome_port(){ local cdp=$1 sleep=$2; [ "$sleep" -gt 0 ] && echo $((cdp+10000)) || echo "$cdp"; }
+# the port Chrome itself listens on: always 10000 above the agent's own port, behind the wake proxy, which listens on the
+# agent's own port for EVERY agent whatever its sleep setting (13 Nov 2026: sleep 0 used to take an agent out of the proxy while
+# its running Chrome kept the inner port, so 127.0.0.1:<port> stopped answering until Chrome restarted). Sleep 0 only means
+# the screen is never put to sleep. The second argument (sleep minutes) is kept so callers need not change; it no longer matters.
+chrome_port(){ local cdp=$1; echo $((cdp+10000)); }
 
 # OPS-19 (12 Nov 2026, the owner's decision): an agent's screen is an X server and one tiny window manager, nothing else
 # ("lean"), started when the agent's browser is first used or a person opens the view, and put to sleep after its sleep
@@ -768,13 +819,12 @@ screens(){
   while read -r n; do [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue; id "ag-$n" >/dev/null 2>&1 && screen_up "$n" "ag-$n"; done < "$REQ"
   wake_ports
 }
-# the agents whose screen may sleep, for the wake proxy: "<agent> <its port> <Chrome's port>"
+# every agent with a screen, for the wake proxy: "<agent> <its port> <Chrome's port>" (the sleep setting does not matter)
 wake_ports(){
   [ -d "$WAKE" ] || return 0
-  local n l out="" sl
+  local n l out=""
   while read -r n; do
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] && id "ag-$n" >/dev/null 2>&1 || continue
-    read -r _ sl <<< "$(limit_of "$n")"; [ "$sl" -gt 0 ] || continue
     l=$(port_line "$n"); [ -n "$l" ] || continue
     out="$out$n $(echo "$l" | cut -d' ' -f3) $(( $(echo "$l" | cut -d' ' -f3) + 10000 ))"$'
 '
@@ -868,7 +918,9 @@ harness_orphans(){
 # environ (no ptrace right), so it is read as the process's own user then
 harness_port(){
   local pid=$1 env who
-  env=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null) || env=""
+  # the shell prints the redirect's own error (Permission denied: root has no ptrace right on another user's process) before a
+  # trailing 2>/dev/null applies, so the read runs inside a group whose stderr is closed
+  env=$({ tr '\0' '\n' < "/proc/$pid/environ"; } 2>/dev/null) || env=""
   [ -n "$env" ] || { who=$(pid_user "$pid"); [ -n "$who" ] && env=$(as_user "$who" cat "/proc/$pid/environ" 2>/dev/null </dev/null | tr '\0' '\n'); }
   printf '%s\n' "$env" | sed -n 's#^BU_CDP_\(WS\|URL\)=[a-z]*://[^/]*:\([0-9][0-9]*\).*#\2#p' | head -1
 }
@@ -1145,5 +1197,5 @@ case "${1:-watch}" in
   reset) ok_name "${2:-}" && echo "$2" | own_add "$RESET" && take_resets ;;
   janitor) janitor ;;
   stop) ok_name "${2:-}" && echo "$2" | own_add "$REQ.stop" && take_stops ;;
-  watch) last=""; n=0; while true; do take_resets; take_stops; take_mem; take_wakes; proxy_up; [ $((n % 12)) -eq 0 ] && [ -f "$REQ" ] && { janitor; sleep_idle; setup_wake; local_fw; }; [ $((n % 720)) -eq 0 ] && [ -f "$REQ" ] && trim_logs; [ $((n % 60)) -eq 0 ] && [ -f "$REQ" ] && { uploads_fix; orphan_sweep; }; [ $((n % 6)) -eq 0 ] && { date +%s | own_put "$ALIVE"; }; self_update && exec "$0" watch; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
+  watch) last=""; n=0; while true; do take_resets; take_stops; take_mem; take_wakes; proxy_up; [ $((n % 12)) -eq 0 ] && [ -f "$REQ" ] && { janitor; sleep_idle; setup_wake; local_fw; fixer_step; }; [ $((n % 720)) -eq 0 ] && [ -f "$REQ" ] && trim_logs; [ $((n % 60)) -eq 0 ] && [ -f "$REQ" ] && { uploads_fix; orphan_sweep; }; [ $((n % 6)) -eq 0 ] && { date +%s | own_put "$ALIVE"; }; self_update && exec "$0" watch; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
 esac

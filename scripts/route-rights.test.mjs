@@ -5,8 +5,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {src as sourceOf} from './lib/source.mjs';
 
-const src=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8');
+const src=sourceOf('app/server.mjs');
 // the text of the handler that starts at a route test, up to the next route test at the same level
 const handler=(route)=>{const i=src.indexOf("p==='"+route+"'");assert.ok(i>=0,'route not found: '+route);return src.slice(i,i+900)};
 

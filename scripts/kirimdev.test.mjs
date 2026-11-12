@@ -495,3 +495,13 @@ test('finished sends leave the state after 48 hours; left-over run files are rem
 test('a turn that waited more than two hours goes to a person instead of a late answer (audit M7)',async()=>{const t=await make({mode:'live'});
  await t.post(meta('628777','halo',undefined,'cnv_Q'));t.later(3*3600e3);await t.settle();
  assert.equal(t.asked.length,0);assert.equal(t.sent.length,0);assert.equal(t.posts.length,1);assert.match(t.posts[0][3],/waited 180 minutes/)});
+
+// 13 Nov 2026: Release chat on the page. The page lists a held chat by a reference, never the customer's number; a release by reference ends the hold.
+test('a held chat is released from the page by its reference: the number is not on the page, a wrong reference changes nothing, the agent answers again',async()=>{
+ const t=await make({agentSays:q=>/NOTE: you handed|Do not hand off again/.test(q)?'Siap kak':'HANDOFF: wants a person',extra:{humanWaitMin:5,humanWaitText:'Sebentar ya kak'}});
+ await t.post(meta('628123','mau ngomong sama orang'));await t.settle();
+ const h=(await t.k.status())[0].holds;assert.equal(h.length,1);assert.match(h[0].ref,/^[0-9a-f]{12}$/);assert.equal(JSON.stringify(h).includes('628123'),false,'the customer\'s number is not in what the page gets');
+ assert.equal(await t.k.releaseRef('cove-support','0'.repeat(12),'an admin'),false);assert.equal((await t.k.status())[0].holds.length,1);
+ assert.equal(await t.k.releaseRef('someone-else',h[0].ref,'an admin'),false,'only the line\'s own chats');
+ assert.equal(await t.k.releaseRef('cove-support',h[0].ref,'an admin'),true);assert.deepEqual((await t.k._state()).holds,{});
+ assert.equal(await t.k.releaseRef('cove-support',h[0].ref,'an admin'),false,'again: already released')});

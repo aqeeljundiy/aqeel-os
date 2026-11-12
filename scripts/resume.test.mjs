@@ -175,10 +175,11 @@ test('the engine patch and the settings that switch it on are in place',()=>{con
  const patch=rd('../engine/patches/2026-11-12-channel-resume-continue.patch');
  for(const m of ['HERMES_RESUME_CONTINUE','gateway_resume_continue','+++ b/gateway/run.py','+++ b/gateway/run_turn_runner.py','+++ b/hermes_cli/config_defaults.py','do NOT ask'.replace('do NOT ask','do NOT say the session was restored')])assert.ok(patch.includes(m)||patch.includes(m.replace('do NOT say','Do NOT say')),m);
  const ad=rd('../app/agent-defaults.mjs');assert.ok(ad.includes("'agent.gateway_resume_continue'")&&ad.includes("'agent.gateway_auto_continue_freshness'"));
- assert.match(rd('../app/server.mjs'),/resumeSecs:\(\)=>resumeMaxMs\(installSettings\(\)\)\/1000/)});
+ assert.match(src('app/server.mjs'),/resumeSecs:\(\)=>resumeMaxMs\(installSettings\(\)\)\/1000/)});
 
 /* ---------- background tasks (the engine's "background delegation"): journaled while they run, handed back by the engine, else told once (12 Nov 2026) ---------- */
 import {delegPlan,delegNote} from '../app/resume.mjs';
+import {src} from './lib/source.mjs';
 const dg=(over={})=>({kind:'deleg',agent:'donna',deleg:'deleg_1',title:'Research the competitor pricing pages',session:'s1',key:'agent:main:telegram:group:9',since:T0-5*60e3,...over});
 const cut={status:'unknown',state:'unknown',delivery:'pending',error:'Delegation owner exited before recording a terminal result; outcome unknown.',appChat:true,newer:false,ownerLive:false};
 
@@ -215,7 +216,7 @@ test('a task in a web chat while a reply runs there, or while the provider is do
  mode='ok';c.t+=10*60e3;await a.r.run();await a.r.run();assert.equal(sent,1);assert.equal(a.r.pending(),0)});
 
 test('background tasks are wired: read from the engine’s ledger on the tick, before aqeelOS restarts the engine, and counted on Health',()=>{
- const rd=f=>readFileSync(new URL(f,import.meta.url),'utf8'),s=rd('../app/server.mjs'),e=rd('../app/resume-engine.mjs');
+ const rd=f=>readFileSync(new URL(f,import.meta.url),'utf8'),s=src('app/server.mjs'),e=rd('../app/resume-engine.mjs');
  assert.ok(s.includes("resume.sync(dl,'deleg')")&&s.includes("probeDeleg:e=>resumeEng.probeDeleg(e)")&&s.includes('await beforeEngineStop({syncDelegs'),'tick, probe and the moment before an own restart (behaviour: route-handlers.test.mjs)');
  assert.ok(e.includes('from async_delegations')&&e.includes('delegation_id')&&e.includes('mode=ro'),'read-only, the engine’s own ledger');
  assert.equal(healthLine({at:T0,chats:0,schedules:0,delegs:2,helpers:0,failed:[],waiting:0},{tz:'Asia/Jakarta',now:T0+6e4}),'Restarted at 00:10: 2 background tasks continued.')});

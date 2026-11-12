@@ -3214,3 +3214,25 @@ label.cf-gh{display:flex;align-items:flex-start;gap:12px;margin:0;padding:8px 0;
 .cn-bar .cn-apps{margin-left:auto;color:var(--ink-2);flex:none}.cn-bar .cn-apps:hover{color:var(--ink)}
 #apGrid>.cn-more{margin:16px auto 0;display:flex}
 @media (prefers-reduced-motion:reduce){.tile.ap-card,.tsr-dot{animation:none}}
+
+/* Channels › Kirimdev › Approvals, prices and held chats (kirimdev-settings-page.js, 13 Nov 2026) */
+.kms-block{padding:10px 0 0}.kms-block i{display:block;font-style:normal;font-size:12px;font-weight:600;letter-spacing:.2px;text-transform:none;color:var(--ink-2);margin-bottom:2px}
+.kms-block>span{display:block}.kms-block>.ghost{margin:6px 0 0 -10px;min-height:34px}
+.kms-hint{color:var(--ink-2)!important}.kms-hold{display:flex;align-items:center;justify-content:space-between;gap:8px 14px;flex-wrap:wrap;padding:6px 0}
+.kms-hold>span{flex:1 1 280px;min-width:0}
+.kms-wide{width:min(720px,calc(100vw - 24px))!important;max-width:none!important}
+.kms-h{margin:20px 0 6px;font-size:14px;font-weight:600;letter-spacing:-.1px}
+.kms-rows{display:flex;flex-direction:column;gap:8px;margin:6px 0 8px}
+.kms-r{display:flex;gap:8px;align-items:center;transition:opacity var(--t-med) var(--ease),transform var(--t-med) var(--ease)}
+.kms-r .kms-in{min-width:0;flex:1 1 110px}.kms-r .kms-in.w{flex:3 1 200px}.kms-r .kms-in.c{flex:1 1 96px;text-transform:uppercase}
+.kms-r.kms-new{animation:rise var(--t-med) var(--ease) both}.kms-r.kms-gone{opacity:0;transform:translateX(8px)}
+.kms-miss{margin:6px 0 4px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--soft-2,var(--soft))}
+.kms-m{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 0}.kms-m span{min-width:0;overflow-wrap:anywhere;font-size:13px}
+.kms-person{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:10px 12px;margin:0 0 8px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface,transparent);color:inherit;cursor:pointer;
+ transition:border-color var(--t-med) var(--ease),background-color var(--t-med) var(--ease)}
+.kms-person .txt{min-width:0}.kms-person .txt b{display:block;font-size:14px;font-weight:600}.kms-person .txt span{display:block;font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.kms-box{width:22px;height:22px;flex:none;border-radius:7px;border:1.5px solid var(--border);display:grid;place-items:center;color:transparent;transition:background-color var(--t-med) var(--ease),border-color var(--t-med) var(--ease),color var(--t-med) var(--ease)}
+.kms-person.on{border-color:var(--accent,var(--ink-2))}.kms-person.on .kms-box{background:var(--accent,var(--ink));border-color:var(--accent,var(--ink));color:var(--on-accent,#fff)}
+.kms-person:focus-visible{outline:2px solid var(--accent,var(--ink-2));outline-offset:2px}
+@media (max-width:760px){.kms-line .km-id{flex-basis:100%}.kms-r{flex-wrap:wrap}.kms-r .kms-in.w{flex-basis:100%}}
+@media (prefers-reduced-motion:reduce){.kms-r,.kms-person,.kms-box{transition:none}.kms-r.kms-new{animation:none}}

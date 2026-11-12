@@ -43,6 +43,7 @@ test('a deploy waits only for what cannot be continued afterwards',()=>{
 /* ---------- a restart in the window: gentle for a bounded time, then --interrupt (12 Nov 2026) ---------- */
 import {restartGraceMs,windowRestartStep,restartWaitPolls,RESTART_POLL_MS} from '../app/maintenance.mjs';
 import {readFileSync,writeFileSync} from 'node:fs';
+import {src} from './lib/source.mjs';
 test('the gentle time of a window restart: 10 minutes unless the install says otherwise, 0 means none, never more than an hour',()=>{
  assert.equal(restartGraceMs({}),600e3);assert.equal(restartGraceMs({restartGraceMinutes:3}),180e3);assert.equal(restartGraceMs({restartGraceMinutes:0}),0);
  assert.equal(restartGraceMs({restartGraceMinutes:90}),600e3);assert.equal(restartGraceMs({restartGraceMinutes:'x'}),600e3);assert.equal(restartGraceMs({restartGraceMinutes:-1}),600e3);
@@ -53,7 +54,7 @@ test('idle: restart at once; busy: wait until the gentle time is over, then rest
  assert.deepEqual(windowRestartStep({busy:true,waited:grace,grace}),{go:true,interrupt:true});
  assert.deepEqual(windowRestartStep({busy:true,waited:0,grace:0}),{go:true,interrupt:true},'0 minutes: no waiting')});
 test('server: the window restart waits gently (agents, background tasks) for the install’s time and then stops the engine with --yes (= --interrupt)',()=>{
- const s=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8'),g=readFileSync(new URL('../app/gateway-stop.mjs',import.meta.url),'utf8');
+ const s=src('app/server.mjs'),g=readFileSync(new URL('../app/gateway-stop.mjs',import.meta.url),'utf8');
  assert.ok(s.includes("restart:why=>restartGateway(why,{wait:true,waitMax:restartWaitPolls(restartGraceMs(installSettings()))})"),'the window restart is the gentle one with the install’s bound');
  assert.ok(s.includes("resume.openOf('deleg')>0"),'a running background task is waited for');
  assert.ok(g.includes("'hermes -p default gateway stop'+(yes?' --yes':'')"),'the stop that follows interrupts');

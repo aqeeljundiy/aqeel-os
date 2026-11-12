@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';import {mkdtempSync,mkdirSync,writeFileSync,readFileSync} from 'node:fs';import {tmpdir} from 'node:os';import path from 'node:path';
+import {src as sourceOf} from './lib/source.mjs';
 // restart loop: a deleted agent whose folder lingers is not an agent, so agent defaults never retry (and restart) for it
 const H=mkdtempSync(path.join(tmpdir(),'ad-'));process.env.HERMES_HOME=H;
 for(const a of ['live','gone']){mkdirSync(path.join(H,'profiles',a),{recursive:true});writeFileSync(path.join(H,'profiles',a,'config.yaml'),'model: {}\n')}
@@ -19,7 +20,7 @@ assert.equal(holdActive({until:'garbage'},now),false);
 // writes never count toward a restart, in the new-agent tick, the 10-minute pass, the plugin install and the tool lists
 assert.ok(/if\(!await isTest\(a\)\.catch\(\(\)=>false\)\)n\+=k;seen\.add/.test(src),'tick skips test agents for restarts');
 assert.ok(src.includes("if(!await isTest(a).catch(()=>false))n+=k}return n}"),'all() skips test agents for restarts');
-const srv=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8');
+const srv=sourceOf('app/server.mjs');
 assert.ok(srv.includes('createAgentDefaults({DATA,isTest:a=>isTestAgent(a),'),'server passes the test-agent list');
 assert.ok(/agentLive\.install\(\)\.then\(async c0=>\{const c=\[\];for\(const a of c0\)if\(!await isTestAgent/.test(srv),'plugin install ignores test agents');
 assert.ok(/async function toolSigs\(\)\{const out=\{\};for\(const a of await agentLive\.homes\(\)\)\{if\(await isTestAgent\(a\)/.test(srv),'tool lists ignore test agents');

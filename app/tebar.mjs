@@ -13,7 +13,7 @@
 //    post target or account; post.published and account.connected take it away again;
 //  - comment.created, message.received and the others picked: a notice in the bell of the agent's owner.
 // Text in an event (a comment, a DM) is someone else's words: shown as data, never run as instructions.
-import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
+import {readStore,saveStore} from './store.mjs';
 import {createHmac,timingSafeEqual,randomUUID} from 'node:crypto';
 import path from 'node:path';
 
@@ -73,8 +73,9 @@ export function describe(ev,who='The agent'){const d=ev?.data||{},type=String(ev
 
 export function createTebar({DATA,publicUrl=()=>'',problem=async()=>{},solved=async()=>{},notice=async()=>{},onEvent=async()=>{},nameOf=a=>a,log=m=>console.log(m),now=()=>Date.now()}){
  const CONF=path.join(DATA,'tebar.json'),SEC=path.join(DATA,'tebar-secrets.json');
- const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
- const put=async(f,v,mode=0o600)=>{await mkdir(DATA,{recursive:true});const t=f+'.'+process.pid+'.'+randomUUID().slice(0,8)+'.tmp';await writeFile(t,JSON.stringify(v,null,1),{mode});await rename(t,f)};
+ // through app/store.mjs: a tebar file that cannot be read is not an empty one (the next save would drop every hook or secret)
+ const readJson=(f,d)=>readStore(f,d);
+ const put=(f,v,mode=0o600)=>saveStore(f,v,{mode});
  let chain=Promise.resolve();const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
  let conf=null;const load=async()=>{if(!conf){conf=await readJson(CONF,{});conf.hooks||={};conf.seen||=[]}return conf};
  const save=()=>queue(async()=>{await load();conf.seen=conf.seen.slice(-2000);await put(CONF,conf,0o644)});

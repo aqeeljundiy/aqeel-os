@@ -4,8 +4,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {src as sourceOf} from './lib/source.mjs';
 
-const src=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8');
+const src=sourceOf('app/server.mjs');
 test('every tool added to the notify tool list is added only on a tools/list answer',()=>{
  const at=[...src.matchAll(/out\.body\.result\.tools\.push\(/g)].map(m=>m.index);assert.ok(at.length>=3,'found the pushes');
  // the push must be the statement of an if that checks for a tools list, on its own line (nothing between them)

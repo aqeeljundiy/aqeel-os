@@ -73,9 +73,11 @@ export function pruneTests(text,exists,goneBefore=new Set()){const gone=new Set(
 // OPS-19 (12 Nov 2026): sleep after 15 idle minutes (was 30); screen_mode lean (X server + one tiny window manager, the default)
 // or desktop (the old XFCE desktop), per install and per agent in hermes-ui-data/agent-limits.json
 export const LIMIT_DEFAULTS={memory_cap_gb:4,sleep_minutes:15,screen_mode:'lean'};
-export function limitLines(agents,cfg={},keep=()=>false){const d={...LIMIT_DEFAULTS,...(cfg?.default||{})};
- return agents.filter(a=>NAME.test(a)).map(a=>{const o=cfg?.agents?.[a]||{},k=keep(a);
-  const gb=Number(o.memory_cap_gb??(k?Math.max(8,Number(d.memory_cap_gb)||0):d.memory_cap_gb)),min=k?0:Number(o.sleep_minutes??d.sleep_minutes);
+// keep(a): its AdsPower runs on the engine's screen (never sleeps, 8 GB). own(a): it has its own AdsPower on a screen of its own user (8 GB;
+// it is kept awake by the root script, which sees the AdsPower process). An explicit memory_cap_gb in the file still wins.
+export function limitLines(agents,cfg={},keep=()=>false,own=()=>false){const d={...LIMIT_DEFAULTS,...(cfg?.default||{})};
+ return agents.filter(a=>NAME.test(a)).map(a=>{const o=cfg?.agents?.[a]||{},k=keep(a),big=k||own(a);
+  const gb=Number(o.memory_cap_gb??(big?Math.max(8,Number(d.memory_cap_gb)||0):d.memory_cap_gb)),min=k?0:Number(o.sleep_minutes??d.sleep_minutes);
   const mode=String(o.screen_mode??d.screen_mode)==='desktop'?'desktop':'lean';
   return a+' '+Math.max(0,Math.round((gb||0)*1024))+' '+Math.max(0,Math.round(min||0))+' '+mode}).join('\n')+(agents.length?'\n':'')}
 
@@ -93,7 +95,7 @@ export function screensLine(j,events,now=Date.now()){
 const NAME=/^[a-z0-9][a-z0-9_-]{0,63}$/;
 // the agents mid-reply, from live reply keys "<agent>|<chat>": one valid name per line
 export const busyText=keys=>[...new Set([...keys].map(k=>String(k).split('|')[0]).filter(a=>NAME.test(a)))].sort().map(a=>a+'\n').join('');
-export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',keepOn=()=>false,keepKnown=()=>true,WAKE='/var/lib/aqeelos/wake',busyKeys=()=>[],engineBusy=async()=>[]}){
+export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',keepOn=()=>false,hasOwnAds=()=>false,keepKnown=()=>true,WAKE='/var/lib/aqeelos/wake',busyKeys=()=>[],engineBusy=async()=>[]}){
  const STATE=path.join(DATA,'box-ops.json'),ISSUES=path.join(HOME,'.aqeelos-agent-issues.jsonl'),JAN=path.join(HOME,'.aqeelos-janitor.json');
  let st=null;const load=async()=>{if(!st)st=await readStore(STATE,{},{replace:true})||{};st.filed||={};return st};
  const save=async()=>{await writeStore(STATE,JSON.stringify(st))};
@@ -157,7 +159,7 @@ export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',ke
  // rule 2: limits for the root script (rewritten only when they change)
  async function writeLimits(){if(!keepKnown())return null;const agents=(await readFile(path.join(HOME,'.aqeelos-agent-users'),'utf8').catch(()=>'')).split('\n').map(x=>x.trim()).filter(Boolean);
   const cfg=JSON.parse(await readFile(path.join(DATA,'agent-limits.json'),'utf8').catch(()=>'{}')||'{}');
-  const text=limitLines(agents,cfg,a=>{try{return !!keepOn(a)}catch{return false}}),f=path.join(HOME,'.aqeelos-agent-limits');
+  const text=limitLines(agents,cfg,a=>{try{return !!keepOn(a)}catch{return false}},a=>{try{return !!hasOwnAds(a)}catch{return false}}),f=path.join(HOME,'.aqeelos-agent-limits');
   if(text!==await readFile(f,'utf8').catch(()=>null)){await writeFile(f+'.tmp',text);await rename(f+'.tmp',f)}return text}
  const wake=async a=>{if(!NAME.test(a))return false;const f=path.join(WAKE,a+'.wake');await writeFile(f,'').catch(()=>{});return true};
  const stopAll=async a=>{if(!NAME.test(a))return false;await writeFile(path.join(HOME,'.aqeelos-agent-users.stop'),a+'\n',{flag:'a'});return true};

@@ -2,6 +2,7 @@
 // Answer "Needs you" items from a terminal on the box (local owner channel, app/local-owner.mjs).
 //   node scripts/aq-needs.mjs                                   list items with numbered choices
 //   node scripts/aq-needs.mjs answer <id> <choice> [--value N] [--text "..."]
+//   node scripts/aq-needs.mjs issue <issue id> resort|close "<reason>"   sort a wrongly sorted Health issue again, or close it
 import {readFile} from 'node:fs/promises';import path from 'node:path';import {fileURLToPath} from 'node:url';
 const env=process.env,root=path.dirname(fileURLToPath(import.meta.url));
 const DATA=path.resolve(env.UI_DATA_DIR||path.join(root,'..','..','hermes-ui-data')),PORT=Number(env.UI_PORT)||4400;
@@ -17,4 +18,6 @@ if(!cmd){const {items}=await call('GET','/local/needs');if(!items.length)console
 else if(cmd==='answer'){if(!id||!choice)die('Usage: answer <id> <choice> [--value N] [--text "..."]');const o={id,choice};
  for(let i=0;i<rest.length;i++){if(rest[i]==='--value'){const v=rest[++i];o.value=v!==''&&!isNaN(v)?Number(v):v}else if(rest[i]==='--text')o.text=rest[++i]}
  const r=await call('POST','/local/answer',o);console.log('Done: '+JSON.stringify(r))}
-else die('Usage: aq-needs.mjs | aq-needs.mjs answer <id> <choice> [--value N] [--text "..."]');
+else if(cmd==='issue'){const reason=rest.join(' ').trim();if(!/^i[0-9a-f]{8}$/.test(id||'')||!['resort','close'].includes(choice)||!reason)die('Usage: issue <issue id, like i7d96eb8c> resort|close "<reason>"');
+ const r=await call('POST','/local/issue',{id,action:choice,reason});console.log('Done: '+JSON.stringify(r))}
+else die('Usage: aq-needs.mjs | aq-needs.mjs answer <id> <choice> [--value N] [--text "..."] | aq-needs.mjs issue <id> resort|close "<reason>"');
