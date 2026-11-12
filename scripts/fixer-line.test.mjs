@@ -12,7 +12,8 @@ const POL={owner:{name:'Owner'},teams:[],fixer:{on:true,agent:'default',cap:20,m
 function fake(){const runs=[];return {runs,launch:async o=>{const p=await readFile(path.join(o.dir,'prompt.txt'),'utf8');const kind=/proof run/.test(p.split('\n')[0])?'proof':'fix';runs.push({kind,...o});return 1}}}
 async function setup(x={}){const d=await mkdtemp(path.join(tmpdir(),'fl-'));await writeFile(path.join(d,'team-policy.json'),JSON.stringify(x.policy||POL));
  let clock=x.at||Date.UTC(2026,10,11,8,0,0);const f=fake(),told=[];
- const I=createIssues({DATA:d,bin:'x',fixerHome:d,log:()=>{},launch:f.launch,alive:async()=>true,now:()=>clock,tz:()=>'UTC',engineOk:x.engineOk||(()=>true),sortRun:x.sortRun||null,
+ const I=createIssues({DATA:d,bin:'x',fixerHome:d,log:()=>{},launch:f.launch,alive:async()=>true,now:()=>clock,tz:()=>'UTC',engineOk:x.engineOk||(()=>true),sortRun:x.sortRun||null,defer:()=>{},   // defer: the tests call sortNext() themselves (the real timer raced them under load, audit M2)
+ 
   tellOwner:async m=>told.push(m),reply:async()=>false,toTeam:async()=>false,busy:async()=>0,apply:async()=>({ok:true})});
  const file=async o=>{clock+=1000;return I.file(o)};return {I,f,told,file,db:()=>I._db(),step:ms=>{clock+=ms},now:()=>clock}}
 
