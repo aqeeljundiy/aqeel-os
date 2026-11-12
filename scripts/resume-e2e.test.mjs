@@ -12,7 +12,7 @@ import {FakeEngine,NOTE_START} from './lib/fake-engine.mjs';
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const WARP=60,R0=Date.now();
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const until=async(what,fn,ms=20000)=>{const t=Date.now();for(;;){let v;try{v=await fn()}catch{}if(v)return v;if(Date.now()-t>ms)throw new Error('timed out waiting for: '+what+'\n'+tail());await sleep(40)}};
+const until=async(what,fn,ms=Number(process.env.E2E_WAIT_MS)||60000)=>{const t=Date.now();for(;;){let v;try{v=await fn()}catch{}if(v)return v;if(Date.now()-t>ms)throw new Error('timed out waiting for: '+what+'\n'+tail());await sleep(40)}};
 const portFree=()=>new Promise(r=>{const s=createServer();s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>r(p))})});
 
 let tmp,home,hh,data,logf,engine,port,base,appLog='',proc=null,cookie='',stub,fakePy;const kids=[];

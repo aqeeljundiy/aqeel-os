@@ -51,7 +51,7 @@ export const DEPLOY_TMP=/^(aq-deploy-[\w-]+\.(log|sh)|box-pack-[\w-]+\.sh)$/;
 // simulation, its tests' folders, restore scratch, the graph relay's and the page looks' scratch), nothing an agent or a person
 // made. Removed when 3 days old (TMP_DAYS); aq-stage, the deploy checks' test copy, only while no check holds its lock.
 export const TMP_DAYS=3;
-export const TMP_OWN=/^(aq-deploy-[\w-]+(\.(log|sh))?|box-pack-[\w-]+\.sh|hui-check-[\w-]+\.tgz|(hui|code)-\d[\d-]*\.tgz|aq-commits-[\w-]+|aq-engsim([.-][\w-]+)*|aq-boxops-\w+|aq-users-\w+|aq-bklocal-\w+|aq-restore-\w+|aq-look-\w+|aqeelos-agy-\w+|aqeelos-restore-\d+(\.enc)?|aqeelos-\d{4}-\d\d-\d\d-\d\d-\d\d\.tar\.gz\.enc(\.err|\.skipped|\.oerr|\.tcode)?)$/;
+export const TMP_OWN=/^(aq-deploy-[\w-]+(\.(log|sh))?|box-pack-[\w-]+\.sh|hui-check-[\w-]+\.tgz|(hui|code)-\d[\d-]*\.tgz|aq-commits-[\w-]+|aq-engsim([.-][\w-]+)*|aq-boxops-\w+|aq-users-\w+|aq-bklocal-\w+|aq-restore-\w+|aq-look-\w+|aqeelos-agy-\w+|aqeelos-restore-\d+(\.enc)?|aqeelos-(media-)?\d{4}-\d\d-\d\d-\d\d-\d\d(-[0-9a-f]{4})?(-\d+)?\.tar\.gz\.enc(\.err|\.skipped|\.oerr|\.tcode|\.excl|\.list|\.perr|\.idx)?)$/;
 // which of /tmp's entries to remove: {name,mtimeMs}
 export function tmpExpired(entries,now=Date.now(),{checking=false,days=TMP_DAYS}={}){
  return entries.filter(e=>(TMP_OWN.test(e.name)||e.name==='aq-stage'&&!checking)&&now-e.mtimeMs>days*864e5).map(e=>e.name)}
