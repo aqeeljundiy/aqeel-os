@@ -164,7 +164,9 @@ const issuesDb=()=>{try{return JSON.parse(readFileSync(path.join(data,'issues.js
 const liveRun=()=>Object.values(issuesDb().runs||{}).find(r=>!r.done&&r.pid);
 const alive=p=>{try{process.kill(p,0);return true}catch{return false}};
 test('fixer run: its process outlives the app: after a kill it is looked at, never started a second time, and taken over once when it ends',async()=>{
- const r1=await until('a fixer run is going',()=>liveRun()&&journal().entries.some(e=>e.kind==='fixer'&&e.run===liveRun().id&&e.state==='open'),30000);
+ // journaled: open, or already cut by an earlier test's kill and looked at again while it lives (it once became "open" again only because the
+ // 15-minute limit, 15 real seconds at the test's clock, dropped the entry and the next look journaled it anew)
+ const r1=await until('a fixer run is going',()=>liveRun()&&journal().entries.some(e=>e.kind==='fixer'&&e.run===liveRun().id&&(e.state==='open'||e.state==='cut')),30000);
  const run=liveRun(),before=launches().length;assert.ok(alive(run.pid));
  await killApp();await startApp();await settle(1500);
  assert.equal(launches().length,before,'no second fixer was started while the first one lives');assert.ok(alive(run.pid));assert.ok(!issuesDb().runs[run.id].done,'its run is still open');
