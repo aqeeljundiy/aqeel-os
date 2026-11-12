@@ -2,6 +2,7 @@
 // "My browser" this module registers that browser with the engine (its browser-extension control) and relays the
 // agent's browser actions to it. Chats without that choice keep the AI box's own browser. If the browser goes
 // offline mid-task, the agent is told so instead of being moved to another browser without asking.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,readdir,stat} from 'node:fs/promises';
 import {randomBytes,createHash} from 'node:crypto';
 import path from 'node:path';
@@ -35,8 +36,8 @@ async function zipDir(dir,prefix,extra=[]){const files=[];const bn=globalThis.AQ
 
 export function createLocalBrowser({DATA,GATE,API_KEY,EXT_DIR,NAMES={},PUBLIC_URL=''}){
  const FILE=path.join(DATA,'local-browsers.json');let db=null;
- const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.tokens||={};return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1),{mode:0o600});await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(db)return db;db=await readStore(FILE);db.tokens||={};return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1),{mode:0o600})};
  const conns=new Map();     // person → their browser's connection
  const lanes=new Map();     // chat session → {ws (to the engine), user, agent}
  const pending=new Map();   // command id → lane

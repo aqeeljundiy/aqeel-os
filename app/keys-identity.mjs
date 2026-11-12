@@ -4,6 +4,7 @@
 // 4 characters, and what uses it (skills, scripts, schedules, instructions, the engine, aqeelOS), from a grep of its name.
 // DATA/keys-identity.json keeps names, accounts, scopes and checks only. The secret itself is never written, logged or
 // sent anywhere but the service it belongs to.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,stat} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
@@ -65,8 +66,8 @@ export function whereLabel(file,{HERMES_HOME,root,HOME=homedir()}){const rel=(b)
 export function createKeysIdentity({DATA,HERMES_HOME,root,listAgents,live=()=>true}){
  const FILE=path.join(DATA,'keys-identity.json');let db=null,busy=false;const HOME=homedir();
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
- const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.items??={};return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(db,null,1),{mode:0o600});await rename(t,FILE)};
+ const load=async()=>{if(db)return db;db=await readStore(FILE);db.items??={};return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1),{mode:0o600})};
  // the keys as they are now: one entry per name and value (the same key on several agents is one entry)
  async function current(){const out=new Map();for(const a of await listAgents()){const env=await readFile(path.join(home(a),'.env'),'utf8').catch(()=>'');
    for(const l of env.split('\n')){const m=/^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)=(.*)$/.exec(l);if(!m||KEY_SKIP.test(m[1])||!KEY_SECRET.test(m[1]))continue;const v=m[2].trim().replace(/^["']|["']$/g,'');if(!v)continue;

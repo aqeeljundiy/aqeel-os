@@ -3,6 +3,7 @@
 // key (no password ever typed into the app), and the app uses that key to reach the person's agents (abilities,
 // channels, automations) and to fetch updates. Downloads are built here from the app's source on the box
 // (~/apps/aqeel-code, filled from this repo's code/ folder by scripts/deploy.sh), with this install's address inside, plus a small installer for Windows and for Mac.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,readdir,stat,rename} from 'node:fs/promises';
 import {repoSlug,DEFAULT_REPO} from './fixer-git.mjs';
 import {randomBytes,createHash} from 'node:crypto';
@@ -25,9 +26,9 @@ async function walk(dir,base=''){const out=[];for(const f of await readdir(dir).
 const UPDATE_REPO=repoSlug(process.env.AQ_REPO||DEFAULT_REPO);
 export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  const FILE=path.join(DATA,'code-devices.json');let db=null;
- const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.devices||={};return db};
+ const load=async()=>{if(db)return db;db=await readStore(FILE);db.devices||={};return db};
  // one write at a time with its own temp name: two quick saves shared one .tmp and the second rename failed (ENOENT, 25 Oct)
- let saving=Promise.resolve();const save=()=>saving=saving.catch(()=>{}).then(async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.'+Date.now()+'.tmp';await writeFile(t,JSON.stringify(db,null,1),{mode:0o600});await rename(t,FILE)});
+ let saving=Promise.resolve();const save=()=>saving=saving.catch(()=>{}).then(async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1),{mode:0o600})});
  const hash=t=>createHash('sha256').update(String(t)).digest('hex');
  // a new key for one person's computer; only its hash is kept here
  async function pair(user,name,{box=false}={}){await load();const token='aqc_'+randomBytes(24).toString('base64url');db.devices[hash(token)]={user,name:String(name||'Computer').slice(0,60),created:Date.now(),last:0,...(box?{box:true}:{})};await save();return token}
@@ -71,7 +72,7 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
   else files.push(['aqeelOS Code/Install aqeelOS Code.command',await tpl('install.command'),true],['aqeelOS Code/Uninstall aqeelOS Code.command',await tpl('uninstall.command'),true]);
   return zip(files.map(f=>f.length===3?f:[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}
  const UFILE=path.join(DATA,'code-usage.json');let ub=null;const day=()=>new Date().toISOString().slice(0,10);
- const uload=async()=>{if(!ub){try{ub=JSON.parse(await readFile(UFILE,'utf8'))}catch{ub={}}}if(ub.day!==day())ub={day:day(),u:{}};return ub};
+ const uload=async()=>{if(!ub){ub=await readStore(UFILE)}if(ub.day!==day())ub={day:day(),u:{}};return ub};
  async function usedToday(uid){await uload();return ub.u[uid]||0}
  async function addUsage(uid,tokens){await uload();ub.u[uid]=(ub.u[uid]||0)+Math.max(0,Number(tokens)||0);await writeFile(UFILE,JSON.stringify(ub)).catch(()=>{})}
  // the guarded browser on a person's own computer: the most recently connected computer of these people (never the AI box's copy)

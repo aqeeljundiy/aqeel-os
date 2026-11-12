@@ -1,6 +1,7 @@
 // Shared channels: one agent owns (and receives on) a WhatsApp/Telegram connection; agents you allow can SEND
 // through it. A message is relayed by the owner agent with a one-off "no agent" job: a tiny script prints the
 // text, the engine delivers it to the chosen chat, then the job and script are removed. No AI runs, no tokens.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,rm,readdir} from 'node:fs/promises';
 import {randomBytes,createHmac} from 'node:crypto';
 import path from 'node:path';
@@ -10,8 +11,8 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
  // the owner's own chat on the main agent's channel (its home channel), for alerts "to you"
  const homeChat=async p=>{const t=await readFile(path.join(HERMES_HOME,'.env'),'utf8').catch(()=>'');return ((new RegExp('^'+p.toUpperCase()+'_HOME_CHANNEL=["\']?([^"\'\\n]+)','m')).exec(t)||[])[1]||null};
  const FILE=path.join(DATA,'channel-shares.json');let db=null;
- const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.shares||={};db.jobs||={};db.seen||={};return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(db)return db;db=await readStore(FILE);db.shares||={};db.jobs||={};db.seen||={};return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const api=(p,o={})=>fetch(DASH+'/api'+p,{signal:AbortSignal.timeout(o.timeout||60000),...o,headers:{'x-hermes-session-token':TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||('HTTP '+r.status));return j});
  const q=a=>'?profile='+encodeURIComponent(a);const sleep=ms=>new Promise(r=>setTimeout(r,ms));

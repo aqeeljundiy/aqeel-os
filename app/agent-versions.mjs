@@ -248,7 +248,8 @@ export function createAgentVersions({guard=()=>null,DATA,HERMES_HOME,DASH,DASH_T
   // a ping that could not tell (the engine was restarting) is not a "did not answer": try again later, no fail counted
   // the same when the AI provider could not answer (rate limit, account used up, no model reachable): that says nothing about
   // the change, so nothing is undone and no issue is filed; it is asked again after the account's reset time, if known
-  const lim=ok?null:providerUnavailable(why,{now:now()});if(lim){limits?.note(why,{now:now()});unsure=true}
+  const lim=ok?null:providerUnavailable(why,{now:now(),strict:true});   // strict: an answer that only talks about a 429 or a limit is not one (audit M3)
+  if(lim){limits?.note(why,{now:now()});unsure=true}
   if(unsure){await lock(a,async()=>{const d1=await load(a);if(d1.watch){d1.watch.due=lim?retryAt(lim,{now:now(),fallback:10*60e3}):now()+4*60e3;
    if(lim&&!d1.events.slice(-1).some(e=>e.kind==='unavailable'&&now()-e.at<HOUR))d1.events.push({kind:'unavailable',at:now(),text:'the AI provider is not available ('+lim.kind+'), so nothing was checked: '+clip(lim.why,160)});await save(a)}});continue}
   await lock(a,async()=>{const d2=await load(a);if(!d2.watch)return;

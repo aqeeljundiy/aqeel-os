@@ -11,6 +11,7 @@
 //     mcp_servers.<name>.tools.exclude (the engine registers only the rest), applied the way Pause does it (removed
 //     through the dashboard, written back); skills and plugins are On or Off.
 // The parts that only decide are exported and tested in scripts/connections.test.mjs.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,rm} from 'node:fs/promises';
 import path from 'node:path';
 import {providerOf,toolNeed,serviceName,displayName,PROVIDERS,CAN,SIGNIN_AGAIN} from './connected-accounts.mjs';
@@ -103,8 +104,8 @@ export function mayChange(p,row,what,agent){if(p?.admin)return true;if(!p||!row)
 /* ---------- the store: each app's level per agent, and its own tools setting from before ---------- */
 export function createConnections({DATA,access,accounts,listAgents,listCopies=async()=>[],names=a=>a,engine,sharing,ads=null,code=null,signins=async()=>[],recheck=null}){
  const FILE=path.join(DATA,'connections.json');let db=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.levels||={};db.orig||={}}return db};
- let saving=Promise.resolve();const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)}).catch(e=>console.warn('connections: saving',e.message));
+ const load=async()=>{if(!db){db=await readStore(FILE);db.levels||={};db.orig||={}}return db};
+ let saving=Promise.resolve();const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))}).catch(e=>console.warn('connections: saving',e.message));
  // shown at once, refreshed behind (1 Nov 2026: gathering every app, login, skill and key took ~10 s, the page waited):
  // the last list per viewer is answered straight away and a newer one is gathered in the background; the owner's list is
  // kept on disk too, so it is instant after a restart. ?fresh=1 (a change) still waits for a new one; ?check=1 (Check now)

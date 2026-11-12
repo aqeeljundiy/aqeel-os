@@ -274,3 +274,39 @@ test('a change is reviewed for what it changes: a rename or a prompt fix of an e
   assert.equal(await x.G.engineCall('bot',{action:'update',job_id:'s1',schedule:'0 * * * *'}),null);assert.match(await x.G.engineCall('bot',{action:'update',job_id:'s1',prompt:MEETING}),/check_script/);
   // an echo whose prompt is saved again is converted on the spot
   const r=await x.sched({action:'edit',id:'e1',prompt:RECAP_A,schedule:'every 1h'});assert.ok(!r.isError,r.text);assert.match(r.text,/aqeelOS made it a script-only schedule/);assert.equal(x.jobs().find(j=>j.id==='e1').no_agent,true)}finally{x.close()}});
+
+// Audit H6 (12 Nov 2026): prompts that need the AI were called "echo" (and agent-care made such schedules script-only by itself), because
+// "[SILENT]" alone counted as passing the output on and the judgement test was a short verb list.
+test('H6: a prompt that does anything with what the command prints keeps the AI; "[SILENT]" alone is not an echo',()=>{
+ const NEEDS_AI=[
+  // the audit's three reproductions
+  'Run this command: python3 inbox/poll.py\nAnswer each customer question it prints in their language. Reply [SILENT] if there is none.',
+  'Run this command: python3 leads/new.py\nCreate a Notion task for every lead it prints. Reply [SILENT] if it prints nothing.',
+  'Run this command: python3 metrics/today.py\nWrite a short morning update from what it prints and reply with it. [SILENT] if it prints nothing.',
+  // the same idea in other words
+  'Run exactly this terminal command: python3 a.py\nIf it prints nothing, your entire final response must be exactly: [SILENT]',
+  'Run exactly this terminal command: python3 a.py\nReply [SILENT].',
+  'Run exactly this terminal command: python3 a.py\nReply with its output unchanged. Also add today\'s date at the top.',
+  'Run exactly this terminal command: python3 a.py\nReply with its output unchanged, in Indonesian.'.replace('unchanged, in Indonesian','translated to Indonesian'),
+  'Run exactly this terminal command: python3 a.py\nFor each order it prints, update the sheet. Then reply with the output unchanged.',
+  'Run exactly this terminal command: python3 a.py\nReply with only the lines that matter to the owner.',
+  'Run exactly this terminal command: python3 a.py\nPick the three most urgent lines and reply with only those lines.',
+  'Run exactly this terminal command: python3 a.py\nIf it prints an error, message the owner. Otherwise reply [SILENT] exactly.',
+  // the shapes of the live schedules that need the model (both servers, 12 Nov 2026; names and details taken out)
+  'It is 4:00 AM. Your job: wake the owner up on WhatsApp.\n\nSend up to 5 wake-up messages using the send_to_person tool. Make them short, punchy and escalating.',
+  'Send the owner a short WhatsApp reminder (plain, no headers, no job IDs, no footer): ask whether the last invoices of the three clients have been paid.',
+  'COMMENT + DM RUN for the brand account. NEVER skip a run. Read the decisions file (newest wins). Run: python3 tools/find_threads.py\nComment on the hottest thread it prints, then DM the lead.',
+  'OWN POST RUN for the brand account. Read the decisions file and the knowledge file first.\n\nEvery run posts a mini-thread of 3 connected posts.',
+  'Add the paid WhatsApp orders to the sales recap sheet.','Copy the seller\'s own paid orders into his workspace.',
+  THREADS,INVOICE,TODO,CHECKIN,RESUME,MEETING];
+ for(const p of NEEDS_AI){assert.equal(echoOf(p),null,p);assert.notEqual(classify({prompt:p,schedule:'every 5m'}).kind,'echo',p);assert.equal(scriptOnlyCommand(p),null,p)}});
+
+test('H6: the canonical echo prompts are still echoes, with every wording the live ones use',()=>{
+ for(const p of [RECAP_A,RECAP_B,WATCHDOG,
+  'Run exactly this terminal command and nothing else: python3 /w/bot/scripts/unreplied_check.py\nIf it prints nothing, your entire final response must be exactly: [SILENT]\nIf it prints text, your final response must be exactly that text, unchanged. Never send WhatsApp messages, never write to Kirimdev.',
+  'Run exactly this terminal command: python3 /w/bot/test_chat_watchdog.py\nIf it prints nothing, your entire final response must be exactly: [SILENT]\nIf it prints text, your final response must be that text exactly, unchanged. Do nothing else: never send WhatsApp messages.',
+  'Recap tick. In the terminal run exactly: python3 -I /w/bot/sales-recap/run.py\nIf it prints nothing, your whole final answer must be exactly: [SILENT]\nIf it prints lines, your final answer is those lines verbatim, nothing added. Do not run anything else, do not change files, do not message customers.',
+  'Run exactly this terminal command and nothing else: bash /x/y.sh\nReply with its output unchanged, or [SILENT] if empty.','Execute this command: `node tools/feed.mjs`\nYour final answer is its output verbatim.','In your terminal, run exactly: ./check.sh --all\nReply with only what it prints, unchanged.'])
+  assert.ok(echoOf(p)?.cmd,p);
+ // a limit that names an action is still a limit ("do not summarise", "never post")
+ assert.ok(echoOf('Run exactly this command: python3 a.py\nReply with its output verbatim. Do not summarise, translate or explain it. Never post it anywhere.'))});

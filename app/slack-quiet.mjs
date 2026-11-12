@@ -3,6 +3,7 @@
 // ITS workspace whose name starts with that prefix, and answers normally everywhere else, other workspaces included.
 // Kept in DATA/slack-quiet.json as {v:2, teams:{<team id>:{prefix,name}}, was:<the old prefix for every workspace>}.
 // The engine is told through each agent's SLACK_IGNORED_CHANNELS (channel ids, unique to a workspace).
+import {writeStore} from './store.mjs';
 import {readFile,writeFile,rename,copyFile} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -26,7 +27,7 @@ export function plan({have,channels,pre,oldPre}){const by=new Map(channels.map(c
 
 export function createSlackQuiet({DATA,teamsNow,legacy=async()=>'',log=console.log}){
  const F=path.join(DATA,'slack-quiet.json');let db=null,backedUp=false;
- const save=async()=>{await writeFile(F+'.tmp',JSON.stringify(db,null,1));await rename(F+'.tmp',F)};
+ const save=async()=>{await writeStore(F,JSON.stringify(db,null,1))};
  async function load(){if(db)return db;let j=null;try{j=JSON.parse(await readFile(F,'utf8'))}catch{}
   if(j?.v===2){db={teams:{},...j};return db}
   if(j&&!backedUp){backedUp=true;await copyFile(F,F+'.bak-'+Date.now()).catch(()=>{})}else if(!j){const l=await legacy().catch(()=>'');if(l)j={prefix:l}}   // no file yet: agents that kept ext- quiet before count as that choice

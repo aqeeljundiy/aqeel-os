@@ -41,7 +41,8 @@ jobs:
         run: if [ -n "$PW" ]; then printf '%s' "$PW" > "$RUNNER_TEMP/pw.json"; echo "AQEELOS_PRIVATE_WORDS=$RUNNER_TEMP/pw.json" >> "$GITHUB_ENV"; fi
       - run: node scripts/check-globals.mjs
       # the runner context only exists inside a step: at job level it made the whole workflow invalid (every run failed with no job)
-      - run: node --test --test-concurrency=2 scripts/*.test.mjs
+      # --test-timeout: one test that never ends (a server left open, a timer) fails after 2 minutes instead of hanging the run (audit H11)
+      - run: node --test --test-concurrency=2 --test-timeout=120000 scripts/*.test.mjs
         env:
           TMPDIR: ${{ runner.temp }}
       # the flicker check in a real browser (12 Nov 2026): headless Chrome on the runner, this copy of the app on an empty data

@@ -8,6 +8,7 @@
 // that job's finish (and "ok":true only when it ended well): {"event":"schedule.finished","after":"<stage 1 job>","ok":true,"job":"<stage 2 job>"}.
 // "event" may be one name or a list; "platforms" is optional (the event's own platform field). Several events inside
 // minGapSec become one run: the first starts at once, the rest one run when the gap is over.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -22,10 +23,12 @@ export const watchedJobs=rules=>Object.fromEntries(Object.entries(rules||{}).map
 
 export function createEventRuns({DATA,trigger,now=()=>Date.now(),log=m=>console.log(m),setTimer=(fn,ms)=>setTimeout(fn,ms)}){
  const FILE=path.join(DATA,'event-runs.json');let db=null;const last=new Map(),pending=new Map();
- const load=async()=>{try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.rules||={};db.runs||={};return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{db=await readStore(FILE);db.rules||={};db.runs||={};return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const go=async(agent,r,type)=>{const k=agent+'/'+r.job;last.set(k,now());pending.delete(k);
-  try{await trigger(agent,r.job);const row=(db.runs[k]||={n:0});row.n++;row.at=now();row.by=type;await save().catch(()=>{});log('event run: '+agent+' job '+r.job+' started by '+type)}
+  // the file is read again before the count is written: a start that waited out its gap must not save an old copy over a rule that
+  // events-wire.mjs wrote meanwhile (audit M20)
+  try{await trigger(agent,r.job);await load();const row=(db.runs[k]||={n:0});row.n++;row.at=now();row.by=type;await save().catch(()=>{});log('event run: '+agent+' job '+r.job+' started by '+type)}
   catch(e){log('event run: '+agent+' job '+r.job+' not started: '+e.message)}};
  // an event arrived: start every matching schedule (or queue one trailing start inside the gap). Returns the job ids touched.
  async function fire(agent,ev){if(!AGENT.test(String(agent||'')))return [];await load();const out=[];

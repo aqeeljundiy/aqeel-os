@@ -10,6 +10,7 @@
 // revoke counts on the very next call. Every change is written to the audit list (who, what, when; never a value).
 // Off unless switched on (setting `enabled` in DATA/sharing.json, or SHARING_LEVELS=1): with it off nothing changes.
 // Nothing here knows any user, agent or path: the caller passes DATA and the list of agents.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,stat} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -32,9 +33,9 @@ export function createSharing({DATA,listAgents=async()=>[],now=()=>Date.now(),en
  const FILE=path.join(DATA,'sharing.json');let db=null,mtime=0,chain=Promise.resolve();
  // read again when the file changed on disk (another process, or a person editing it), so a revoke is never stale
  async function load(){const st=await stat(FILE).catch(()=>null);if(db&&(!st||st.mtimeMs===mtime))return db;
-  let d={};try{d=JSON.parse(await readFile(FILE,'utf8'))}catch{}d.resources||={};d.audit||=[];db=d;mtime=st?.mtimeMs||0;return db}
+  let d=await readStore(FILE);d.resources||={};d.audit||=[];db=d;mtime=st?.mtimeMs||0;return db}
  async function save(){await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.tmp';db.audit=db.audit.slice(-5000);
-  await writeFile(t,JSON.stringify(db,null,1),{mode:0o600});await rename(t,FILE);mtime=(await stat(FILE)).mtimeMs}
+  await writeStore(FILE,JSON.stringify(db,null,1),{mode:0o600});mtime=(await stat(FILE)).mtimeMs}
  const serial=f=>{const r=chain.then(f,f);chain=r.catch(()=>{});return r};
  const log=(e)=>{db.audit.push({at:now(),...e})};
  async function enabled(){const d=await load();return env.SHARING_LEVELS==='1'||d.enabled===true}

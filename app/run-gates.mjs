@@ -42,6 +42,7 @@
 // Rate: a job that sends N messages an hour gains nothing from running more often than once an hour. aqeelOS does not
 // change a schedule silently: it records a proposal (proposals in DATA/run-gates.json, shown by view()). A proposal
 // the owner approved is applied once; a later hand change of that schedule is left alone.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,stat,readdir,copyFile,chmod,open} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -153,8 +154,8 @@ export function createRunGates({limitsText=null,strict=async()=>({}),HERMES_HOME
  const FILE=path.join(DATA,'run-gates.json'),OFF=path.join(HERMES_HOME,'.aqeelos-run-gates-off');
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  let db=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.jobs||={};db.proposals||={};db.rules||={}}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.jobs||={};db.proposals||={};db.rules||={}}return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  async function homes(){const out=['default'];for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}).catch(()=>[]))
   if(d.isDirectory()&&!d.name.startsWith('.')&&/^[a-z0-9][a-z0-9_-]{0,80}$/.test(d.name))out.push(d.name);return out}
  const readJobs=async a=>{try{return JSON.parse(await readFile(path.join(home(a),'cron','jobs.json'),'utf8'))}catch{return null}};

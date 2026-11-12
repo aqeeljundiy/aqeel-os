@@ -3,6 +3,7 @@
 // and Automations › n8n opens the agent's n8n without signing in: aqeelOS hands out a one-minute ticket, a small
 // page that aqeelOS serves on n8n's own address (<N8N_URL>/aqeelos-login) signs in as the agent's user with
 // the browser's own n8n id, and n8n opens signed in. Passwords stay in aqeelOS's data; nobody types them.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {randomBytes,randomUUID} from 'node:crypto';
 import path from 'node:path';
@@ -10,8 +11,8 @@ import {swr,limiter} from './swr.mjs';
 
 export function createN8n({BASE='http://localhost:5678',EMAIL_DOMAIN=process.env.N8N_AGENT_EMAIL_DOMAIN||'agents.localhost',DATA,setKey,restart,names,readConfig,removeMcp}){
  const FILE=path.join(DATA,'n8n.json');let db=null;
- const load=async()=>{if(db)return db;try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.base||=BASE;db.users||={};return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE,JSON.stringify(db,null,1),{mode:0o600})};
+ const load=async()=>{if(db)return db;db=await readStore(FILE);db.base||=BASE;db.users||={};return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1),{mode:0o600})};
  const SERVER_BID='aqeelos-'+randomUUID();     // the browser id aqeelOS itself uses when it talks to n8n
  // one REST call; cookie and browser id go along, a new sign-in cookie comes back
  async function rest(p,{method='GET',body,cookie='',bid=SERVER_BID}={}){await load();

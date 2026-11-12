@@ -76,3 +76,9 @@ test('the skills copy runs once, then only when a skill folder or the policy mov
  await d.tick();assert.equal(gave>0,true);const g1=gave;await d.tick();await d.tick();assert.equal(gave,g1,'nothing moved: no copy');assert.deepEqual(notes.slice(1),['skip','skip']);
  mkdirSync(path.join(home,'skills','cat','two'));writeFileSync(path.join(home,'skills','cat','two','SKILL.md'),'y');await d.tick();assert.ok(gave>g1,'a skill added: copied at once');
  const g2=gave;await d.tick({force:true});assert.ok(gave>g2,'forced (the sweep)')});
+
+// Audit M24: a task that never ends stopped every reconciler task until the app restarted
+test('M24: a task that hangs is left behind after its limit; the other task runs, and later passes still run',async()=>{const {r,log}=make({taskMs:60});let b=0;
+ r.add('hangs',{run:()=>new Promise(()=>{})});r.add('works',{run:async()=>{b++}});
+ const t=Date.now();await r.pass();assert.ok(Date.now()-t<5000);assert.equal(b,1,'the second task ran in the same pass');assert.ok(log.some(m=>/hangs: still running after/.test(m)),log.join('|'));
+ r.trigger('works');await r.pass();assert.equal(b,2,'a later pass is a new pass')});

@@ -12,6 +12,7 @@
 // Limits: 2 at once per agent, 25 minutes each, a daily cap (40 by default, set per agent). The cap, or 3 failed runs
 // in a row, pause the agent's self-runs and the owner is told on Telegram. Every run and every refusal is in the audit
 // (Automations › Runs itself), and the owner gets a daily summary. Everything here is a setting on that page.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,rm,realpath,lstat} from 'node:fs/promises';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
@@ -62,9 +63,9 @@ export function createSelfRuns({DATA,now=()=>Date.now(),day=t=>new Date(t).toISO
  launch=async()=>{throw Error('no runner')},alive=async()=>false,kill=async()=>{},readExit=async()=>null,readOut=async()=>'',
  notify=async()=>{},tellOwner=async()=>{},bell=async()=>{},random=n=>randomBytes(n)}){
  const FILE=path.join(DATA,'self-runs.json'),DIR=path.join(DATA,'self-runs');let db=null,loading=null,chain=Promise.resolve();
- const load=()=>db?Promise.resolve(db):loading||=(async()=>{let d={};try{d=JSON.parse(await readFile(FILE,'utf8'))}catch{}
+ const load=()=>db?Promise.resolve(db):loading||=(async()=>{let d=await readStore(FILE);
   d.settings||={};d.trusted||=[];d.codes||=[];d.runs||={};d.paused||={};d.fails||={};d.audit||=[];d.summary||={};db=d;return d})();
- const write=async()=>{await mkdir(DATA,{recursive:true});const tmp=FILE+'.'+process.pid+'.'+random(4).toString('hex')+'.tmp';await writeFile(tmp,JSON.stringify(db,null,1),{mode:0o600});await rename(tmp,FILE)};
+ const write=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1),{mode:0o600})};
  const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
  const audit=(e)=>{db.audit.unshift({at:now(),...e});db.audit.length=Math.min(db.audit.length,500)};
  const settingsOf=a=>({on:true,cap:DEFAULT_CAP,cron:true,chat:true,...(db.settings[a]||{})});

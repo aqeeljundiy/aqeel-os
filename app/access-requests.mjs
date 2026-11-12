@@ -3,6 +3,7 @@
 // uses that agent, asks for something another agent owns) or "give" (an agent offers something it has to another
 // agent). Either way an admin decides under Bottlenecks; "Allow" shares it through Access (the same as the switch
 // under "Who can use"), "Decline" closes the request. Nothing is shared until an admin allows it.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
@@ -10,8 +11,8 @@ import {randomBytes} from 'node:crypto';
 const KINDS={mcp:'app',google:'Google account',plugin:'plugin',key:'key'};
 export function createAccessRequests({DATA,access,names,listAgents}){
  const FILE=path.join(DATA,'access-requests.json');let db=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.items||=[]}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.items||=[]}return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  // what the other agents have that this agent does not (names only)
  async function others(agent){const out=[];for(const kind of Object.keys(KINDS)){let l;try{l=await access.list(kind)}catch{continue}
   for(const it of l.items)if(!it.bot&&!it.own&&!it.users.some(u=>u.id===agent))out.push({kind,what:KINDS[kind],id:it.id,label:it.label,detail:kind==='key'?'':String(it.detail||'').slice(0,120),owner:it.owner,ownerName:it.ownerName})}

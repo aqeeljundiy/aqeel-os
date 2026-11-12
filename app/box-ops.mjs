@@ -23,6 +23,7 @@
 //    scratch) goes after 3 days, checked every 6 hours. The root script (scripts/agent-users.sh) gives each agent's user the
 //    folder and stops leftover scratch servers.
 // The parts that only decide are exported and tested in scripts/box-ops.test.mjs.
+import {writeStore,readStore} from './store.mjs';
 import {readFile,writeFile,readdir,stat,lstat,rm,open,rename,chmod,mkdir} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
@@ -94,8 +95,8 @@ const NAME=/^[a-z0-9][a-z0-9_-]{0,63}$/;
 export const busyText=keys=>[...new Set([...keys].map(k=>String(k).split('|')[0]).filter(a=>NAME.test(a)))].sort().map(a=>a+'\n').join('');
 export function createBoxOps({HOME,DATA,HERMES_HOME,fileIssue=null,TMP='/tmp',keepOn=()=>false,keepKnown=()=>true,WAKE='/var/lib/aqeelos/wake',busyKeys=()=>[],engineBusy=async()=>[]}){
  const STATE=path.join(DATA,'box-ops.json'),ISSUES=path.join(HOME,'.aqeelos-agent-issues.jsonl'),JAN=path.join(HOME,'.aqeelos-janitor.json');
- let st=null;const load=async()=>{if(!st)st=JSON.parse(await readFile(STATE,'utf8').catch(()=>'{}'))||{};st.filed||={};return st};
- const save=async()=>{await writeFile(STATE+'.tmp',JSON.stringify(st));await rename(STATE+'.tmp',STATE)};
+ let st=null;const load=async()=>{if(!st)st=await readStore(STATE,{},{replace:true})||{};st.filed||={};return st};
+ const save=async()=>{await writeStore(STATE,JSON.stringify(st))};
 
  // rule 3: each new line is one issue (the same agent and kind again within a day is the same issue)
  async function intake(){await load();const text=await readFile(ISSUES,'utf8').catch(()=>null);if(text==null)return 0;

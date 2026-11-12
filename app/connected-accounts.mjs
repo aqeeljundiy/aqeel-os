@@ -18,6 +18,7 @@
 // 1 Nov 2026 (Abilities › Connections): a login's name is always the service and who it is ("Google · a@example.com",
 // "Slack · Pine & Co"), never what an agent called it (register_account's label is kept as a note), and what
 // it may do is per agent: canBy[agent] (Read, Read & draft, Full) over the login's own can.
+import {writeStore} from './store.mjs';
 import {canOfLevel} from './sharing.mjs';
 import {readFile,writeFile,mkdir,rename,readdir,stat,lstat,realpath,unlink} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
@@ -460,7 +461,7 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
   for(const x of Object.values(db.accounts)){if(x.labelBy==='agent'&&x.label)x.agentLabel||=x.label;delete x.label;delete x.labelBy;
    // the engine's "sign-in needed" was stored as the state until 11 Nov 2026 and stayed up to 30 min after a new sign-in: checked again
    if(x.state==='signed-out'&&x.why===SIGNIN_AGAIN){x.state='connected';x.why='';x.checkedAt=0}}}return db};
- let saving=Promise.resolve();const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1),{mode:0o600});await rename(FILE+'.tmp',FILE)}).catch(e=>console.warn('accounts: saving',e.message));
+ let saving=Promise.resolve();const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1),{mode:0o600})}).catch(e=>console.warn('accounts: saving',e.message));
  const tail=createTail(()=>db.offsets,3e6);
  const servers=async a=>{const c=await readConfig(a).catch(()=>null);const m=c?.mcp_servers;return m&&typeof m==='object'?m:{}};
  const q=a=>'?profile='+encodeURIComponent(a);
@@ -609,7 +610,7 @@ export function createConnectedAccounts({DATA,HERMES_HOME,WORK=path.join(homedir
    const per=Object.entries(x.canBy||{}).filter(([,c])=>c.length<CAN.length);
    if(await shareOn()){const deny=[];for(const a of new Set([...(x.agents||[]).map(a=>String(a).split('--')[0]),...Object.keys(x.canBy||{})])){const c=await canNow(x,a);if(!c.length){deny.push(a);continue}if(c.length<CAN.length)per.push([a,c])}if(deny.length)e.deny=deny}
    if(per.length)e.agents=Object.fromEntries(per);if(e.can||e.agents||e.deny)g[x.identity]=e}
-  const f=path.join(HERMES_HOME,'aqeelos-accounts.json');const cur=await readJson(f)||{};if(JSON.stringify(cur.google||{})===JSON.stringify(g))return;cur.google=g;await writeFile(f+'.tmp',JSON.stringify(cur,null,1));await rename(f+'.tmp',f)}
+  const f=path.join(HERMES_HOME,'aqeelos-accounts.json');const cur=await readJson(f)||{};if(JSON.stringify(cur.google||{})===JSON.stringify(g))return;cur.google=g;await writeStore(f,JSON.stringify(cur,null,1))}
  async function toolsOf(a,name){try{const j=JSON.parse(await readFile(path.join(homeOf(a),'cache','mcp_schema_cache.json'),'utf8'));const l=(j?.[name]?.tools||[]).map(t=>t?.name).filter(Boolean);if(l.length)return l}catch{}
   const r=await dash('POST','/api/mcp/servers/'+encodeURIComponent(name)+'/test'+q(a),{}).catch(()=>null);return (r?.j?.tools||[]).map(t=>typeof t==='string'?t:t?.name).filter(Boolean)}
  // one app on one agent with only the tools these allowed actions leave (orig: where its own tools setting from before

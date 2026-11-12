@@ -8,6 +8,7 @@
 //   - script errors its replies held back (the plugin's output guard), until the agent has been told once.
 // A reply holding a traceback is never sent (the plugin cuts it out); the error is kept here per agent, shown in my_health
 // and, for a new error, in the agent's next message, so the agent fixes its own script instead of spamming a chat.
+import {writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,readdir,rename} from 'node:fs/promises';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
@@ -39,7 +40,7 @@ export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,p
  // ---- held script errors ----
  const heldFile=path.join(DATA,'agent-live','held.json');let held=null;
  const loadHeld=async()=>held||(held=JSON.parse(await readFile(heldFile,'utf8').catch(()=>'{}')||'{}'));
- const saveHeld=async()=>{await mkdir(path.dirname(heldFile),{recursive:true});const t=heldFile+'.tmp';await writeFile(t,JSON.stringify(held),{mode:0o600});await rename(t,heldFile)};
+ const saveHeld=async()=>{await mkdir(path.dirname(heldFile),{recursive:true});await writeStore(heldFile,JSON.stringify(held),{mode:0o600})};
  async function hold(agent0,{error,platform='',session=''}){const agent=String(agent0).split('--')[0];const h=await loadHeld();const l=h[agent]||(h[agent]=[]);const sig=errorSig(error);let e=l.find(x=>x.sig===sig);
   if(e){e.count++;e.last=now();e.error=clip(error,3000);e.platform=platform||e.platform;if(now()-(e.toldAt||0)>6*3600e3)e.told=false}
   else{e={sig,first:now(),last:now(),count:1,platform,error:clip(error,3000),told:false};l.unshift(e);l.splice(20)}
@@ -55,7 +56,7 @@ export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,p
  // in my_health until its scan no longer finds it.
  const noteFile=path.join(DATA,'agent-live','notices.json');let notes=null;
  const loadNotes=async()=>notes||(notes=JSON.parse(await readFile(noteFile,'utf8').catch(()=>'{}')||'{}'));
- const saveNotes=async()=>{await mkdir(path.dirname(noteFile),{recursive:true});const t=noteFile+'.tmp';await writeFile(t,JSON.stringify(notes),{mode:0o600});await rename(t,noteFile)};
+ const saveNotes=async()=>{await mkdir(path.dirname(noteFile),{recursive:true});await writeStore(noteFile,JSON.stringify(notes),{mode:0o600})};
  async function setNotices(agent,kind,list){const n=await loadNotes();const mine=n[agent]||(n[agent]={});const old=mine[kind]||{};const next={};
   for(const x of list||[]){const o=old[x.key];next[x.key]={text:clip(x.text,600),at:o?.text===x.text?o.at:now(),told:o?.text===x.text?!!o.told:false}}
   const added=Object.keys(next).filter(k=>!old[k]),gone=Object.keys(old).filter(k=>!next[k]);

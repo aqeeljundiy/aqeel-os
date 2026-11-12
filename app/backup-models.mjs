@@ -19,6 +19,7 @@
 //   - one message when a switch starts and one when it ends (the bell's list once agents moved, else Bottlenecks; and WhatsApp); a line on System › Health › Tools and schedules. In the app these are "fallback models" (1 Nov 2026), so "backup" means data backups only.
 // The engine's own words for "every model failed" and the note under a reply a backup gave are in
 // scripts/apply-skill-patches.mjs (13). The parts that only decide are exported and tested in scripts/backup-models.test.mjs.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,stat,open} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
@@ -89,8 +90,8 @@ const FIRST=1e6;   // the first look at a log reads its last 1 MB
 export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readConfig,setKey,modelOk=()=>true,tell=async()=>{},nameOf=a=>a,clock=ms=>new Date(ms).toISOString().slice(11,16),probe=async()=>false,ready=async()=>{},R=RULES}){
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const FILE=path.join(DATA,'backup-models.json');let db=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}for(const k of ['offsets','p','wrote','lists','told'])db[k]||={};db.history||=[]}return db};
- let saving=Promise.resolve();const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});const t=FILE+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(db,null,1));await rename(t,FILE)}).catch(e=>console.warn('backup models: saving',e.message));
+ const load=async()=>{if(!db){db=await readStore(FILE);for(const k of ['offsets','p','wrote','lists','told'])db[k]||={};db.history||=[]}return db};
+ let saving=Promise.resolve();const save=()=>saving=saving.then(async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))}).catch(e=>console.warn('backup models: saving',e.message));
  // a provider in an outage: its priority entries are no one's backup and no one's way back up (auto-switch)
  const providerOf=k=>k.startsWith('claude:')?PLUGIN:k.slice(2);
  const held=k=>!!db?.p?.[providerOf(k)]?.on;

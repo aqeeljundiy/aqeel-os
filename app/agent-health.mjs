@@ -15,6 +15,7 @@
 //     ~/.hermes/logs/aqeelos-dropped.jsonl, see scripts/engine-fixes-patch.mjs aqeelos:turn-retry-once).
 // Other features report their own checks with problem()/ok(): Kirimdev a handoff that was not confirmed delivered,
 // Threads a comment that is not visible after posting.
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,readdir,readlink,open,stat} from 'node:fs/promises';
 import {cpus} from 'node:os';
 import {execFile} from 'node:child_process';
@@ -113,8 +114,8 @@ export function overview(agents,items,drops,nameOf=a=>a){const rows=agents.map(a
 
 export function createAgentHealth({postingLine=async()=>null,DATA,HERMES_HOME,bottlenecks,items,listAgents,nameOf,botToken,engineUp,python,tellOwner=null,link,quiet=()=>null,fixFirst=null,fileIssue=null,healthGone=null,customerTools=null,kirimdevAgents=async()=>[],memInfo=readMem,ps=readPs,fetchJson=(u,o)=>fetch(u,{...o,signal:AbortSignal.timeout(15000)}).then(r=>r.json())}){
  const FILE=path.join(DATA,'agent-health.json');let st=null;
- const load=async()=>{if(!st){try{st=JSON.parse(await readFile(FILE,'utf8'))}catch{st={}}st.told||={};st.seen||={};st.groups||={}}return st};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(st,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(!st){st=await readStore(FILE);st.told||={};st.seen||={};st.groups||={}}return st};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(st,null,1))};
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  // features report their own checks: kind is a word for the icon (handoff, comment, run…), topic names the problem
  // within the agent so ok(agent,topic) can take it away once it works

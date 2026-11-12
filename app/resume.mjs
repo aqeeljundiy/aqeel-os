@@ -24,6 +24,7 @@
 // second try), nothing older than the limit (2 h unless the install says otherwise), three interruptions of the same
 // thing and it stops, a provider that does not answer is tried again later instead of dropped.
 // The rules are pure and tested (scripts/resume.test.mjs); the engine side is resume-engine.mjs; server.mjs wires both.
+import {storeHooks} from './store.mjs';
 import {readFileSync,writeFileSync,mkdirSync,renameSync,unlinkSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
@@ -79,13 +80,16 @@ export function chatPlan(e,p,now,{maxAge=7200e3,tz=''}={}){
  return {do:'send',caution:!!caution,started,note:noteFor({why:e.why,at:e.cutAt||now,tz,started,caution,text:p.stored?'':e.text||''})}}
 // p: {missing, status, error, delivered, ownerLive, newer, enabled, posted}
 export const CUT_ERR=/interrupt|restart|shutdown|shut down|cancel|terminat|killed|sigterm|sigkill|owner.*(gone|dead)|process.*(gone|dead|exited)/i;
+// The engine's own word for a cut is short and comes first ("interrupted", "Scheduler restarted while…"). The same column often holds the
+// agent's own last text for a run that failed by itself; a long sentence that merely contains "restart" or "cancel" is not a cut (audit M12).
+export const cutError=err=>{const t=String(err||'').trim();return t.length<=120&&CUT_ERR.test(t)};
 export function runPlan(e,p,now,{maxAge=7200e3}={}){
  const old=tooOld(e,now,maxAge);
  if(!p)return old?{do:'giveup',why:ageWhy(maxAge)}:{do:'wait',why:'the engine’s record of the run could not be read'};
  if(p.status==='completed')return {do:'skip',why:'it finished'};
  if(p.newer)return {do:'skip',why:'it ran again since'};
  if((p.status==='running'||p.status==='claimed')&&p.ownerLive)return {do:'wait',why:'it is still running'};
- if(p.status==='failed'&&!CUT_ERR.test(String(p.error||'')))return {do:'skip',why:'it failed by itself'};
+ if(p.status==='failed'&&!cutError(p.error))return {do:'skip',why:'it failed by itself'};
  if(old)return {do:'giveup',why:ageWhy(maxAge)};
  if((e.n||0)>=MAX_TIMES)return {do:'giveup',why:'interrupted '+MAX_TIMES+' times while continuing'};
  if(p.missing&&!p.jobKnown)return {do:'giveup',why:'the schedule no longer exists'};
@@ -103,7 +107,7 @@ export function delegPlan(e,p,now,{maxAge=7200e3,tz=''}={}){
  if(/^(running|stalling|finalizing)$/.test(p.state||'')){if(p.ownerLive)return {do:'wait',why:'it is still running'};return old?{do:'giveup',why:ageWhy(maxAge)}:{do:'wait',why:'the engine has not closed it yet'}}
  if(p.status==='completed')return {do:'skip',why:'it finished'};
  if(p.newer)return {do:'skip',why:'it was started again since'};
- if(!(p.status==='unknown'||p.status==='interrupted'||CUT_ERR.test(String(p.error||''))))return {do:'skip',why:'it failed by itself'};
+ if(!(p.status==='unknown'||p.status==='interrupted'||cutError(p.error)))return {do:'skip',why:'it failed by itself'};
  if(p.delivery==='delivered')return {do:'done'};   // the engine handed the (interrupted) result back to the chat: the agent knows
  if(old)return {do:'giveup',why:ageWhy(maxAge)};
  if(p.delivery==='pending'&&now-(e.cutAt||now)<DELEG_HANDBACK_MS)return {do:'wait',why:'the engine is handing it back to the chat'};
@@ -128,13 +132,13 @@ export function healthLine(last,{tz='',now=Date.now()}={}){if(!last||!last.at||n
 
 /* ---------- the journal and the pass ---------- */
 const BACKOFF=[60e3,120e3,300e3,600e3];
-export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=true,maxAge=()=>7200e3,tz=()=>'',stagger=4000,sleep=ms=>new Promise(r=>setTimeout(r,ms)),
+export function createResume({DATA,actMs=180e3,now=()=>Date.now(),log=m=>console.log(m),on=true,maxAge=()=>7200e3,tz=()=>'',stagger=4000,sleep=ms=>new Promise(r=>setTimeout(r,ms)),
  // ready(): the app and the engine answer. probe*/act*: see the plans above. Each act answers {ok} | {retry,why} | {fail,why}
  ready=async()=>true,probeChat=async()=>null,sendChat=async()=>({fail:true,why:'not wired'}),probeRun=async()=>null,triggerRun=async()=>({fail:true,why:'not wired'}),
  probeChannel=async()=>null,probeDeleg=async()=>null,probeFixer=async()=>null,kickFixer=async()=>({ok:true}),nameOf=a=>a}={}){
  const FILE=path.join(DATA,'resume','journal.json'),NOTE=path.join(DATA,'resume','planned.json'),PROC=randomBytes(6).toString('hex');
  let j=null;
- const load=()=>{if(j)return j;try{j=JSON.parse(readFileSync(FILE,'utf8'))}catch{j=null}if(!j||typeof j!=='object'||!Array.isArray(j.entries))j={v:1,entries:[],done:[],last:null};j.done||=[];return j};
+ const load=()=>{if(j)return j;try{j=JSON.parse(readFileSync(FILE,'utf8'))}catch(e){j=null;if(e.code!=='ENOENT'){const keep=FILE+'.corrupt-'+now();try{renameSync(FILE,keep)}catch{}log('resume: the journal could not be read ('+e.message+'); it is kept as '+path.basename(keep)+' and a new one starts');try{storeHooks.bad?.(FILE,'kept as '+path.basename(keep)+': '+e.message)}catch{}}}if(!j||typeof j!=='object'||!Array.isArray(j.entries))j={v:1,entries:[],done:[],last:null};j.done||=[];return j};
  // written at once and whole (a small file): a crash a moment later still finds it
  const save=()=>{try{mkdirSync(path.dirname(FILE),{recursive:true});j.saved=now();const t=FILE+'.'+process.pid+'.tmp';writeFileSync(t,JSON.stringify(j));renameSync(t,FILE)}catch(e){log('resume: journal not saved: '+e.message)}};
  const find=id=>load().entries.find(e=>e.id===id);
@@ -180,6 +184,9 @@ export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=t
   let note=null;try{note=JSON.parse(readFileSync(NOTE,'utf8'));unlinkSync(NOTE)}catch{}
   const why=note&&at-Number(note.at||0)<30*60e3&&note.why==='update'?'update':plan?plan.why:'restart';
   for(const e of j.entries){if(e.kind==='fixer'&&e.state==='open'){e.state='cut';e.cutAt=when;e.cut0||=when;e.why=why;e.quiet=true}   // its process outlives the app: looked at again, continued only if it is gone
+   // a schedule, background task, channel or fixer entry the last app was continuing when it ended: back to waiting, like a chat (audit M1:
+   // only chats were reset, the others stayed "resuming" for ever and Health kept saying one is still waiting)
+   if(e.kind!=='chat'&&e.state==='resuming'&&e.proc!==PROC)e.state='cut';
    if(e.kind!=='chat'||e.proc===PROC)continue;
    if(e.state==='open'){e.state='cut';e.cutAt=when;e.cut0||=when;e.why=why;n++}
    else if(e.state==='resuming'){e.state='cut';n++}   // the app ended while continuing it: what happened is read from the engine first
@@ -206,7 +213,13 @@ export function createResume({DATA,now=()=>Date.now(),log=m=>console.log(m),on=t
    // claimed on disk before anything is sent: a second pass, or the app starting again right now, never sends it twice
    if(e.kind==='deleg')e.text=plan.note;   // what the chat's own journal entry would send again if the reply to the note is cut too
    e.state='resuming';e.n=(e.n||0)+1;e.claimed=now();save();let r;
-   try{r=await (plan.do==='send'?sendChat(e,plan.note,plan):plan.do==='trigger'?triggerRun(e):kickFixer(e))}catch(er){r={retry:true,why:String(er.message||er).slice(0,160)}}
+   // Bounded (audit H10, 12 Nov 2026): an engine that took the message and then stayed silent kept this promise open for ever, and with it
+   // every later pass (run() hands out the pass that is running), so nothing was continued for any agent until the app restarted. After
+   // actMs the entry goes back to waiting (its probe reads the engine first, so it is not sent twice) and the pass goes on with the rest.
+   {const ac=new AbortController();let timer;
+    const limit=new Promise(res=>{timer=setTimeout(()=>{ac.abort();res({retry:true,why:'no answer within '+Math.round(actMs/60e3)+' minutes'})},actMs)});
+    try{r=await Promise.race([Promise.resolve().then(()=>plan.do==='send'?sendChat(e,plan.note,plan,ac.signal):plan.do==='trigger'?triggerRun(e,ac.signal):kickFixer(e,ac.signal)),limit])}catch(er){r={retry:true,why:String(er.message||er).slice(0,160)}}
+    finally{clearTimeout(timer)}}
    if(!j.entries.includes(e))continue;
    if(r?.ok){finish(e,'resumed');save()}
    else if(r?.skip){finish(e,'skipped',r.why||'');save()}

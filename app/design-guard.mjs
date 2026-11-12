@@ -16,6 +16,7 @@
 //     response_silent), a schedule with 12 or more runs in 7 days of which 80% or more said nothing is one Health item per agent, with the
 //     better design and a button that applies it where that is mechanical (convert).
 //  5. "Why this trigger" is kept per schedule (DATA/design-guard.json) and shown on its card (triggers).
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,stat,chmod,realpath,open} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
@@ -80,13 +81,38 @@ export function filterOf(text){const t=String(text||'');
  const keep=quoted(new RegExp('\\b(?:if any line contains|(?:keep|reply with|pass on|send)\\s+only\\s+(?:the\\s+)?lines?\\s+(?:containing|that contain|with)|only\\s+(?:the\\s+)?lines?\\s+(?:containing|that contain|with))\\s+('+QLIST+')','i').exec(t)?.[1]);
  const prefix=/\b(?:rewritten|written|prefixed|formatted) (?:as|with):?\s*['"]([^'"<\n]{1,40})/i.exec(t)?.[1]||'';
  return keep.length||drop.length||prefix?{keep:keep.map(esc).join('|'),drop:drop.map(esc).join('|'),prefix}:null}
-// {cmd, filter} when a prompt's whole job is to run one command and pass on what it prints (a fixed line filter is not judgement), else null
+/* {cmd, filter} when a prompt's ENTIRE job is to run one command and pass on what it prints (a fixed line filter is not judgement), else null.
+   Audit H6 (12 Nov 2026): "[SILENT]" alone counted as "passes the output on" and the judgement test was a short verb list, so "Run this
+   command: python3 inbox/poll.py / Answer each customer question it prints in their language. Reply [SILENT] if there is none." was called
+   an echo and agent-care made the schedule script-only by itself: the answers stopped. Now every sentence after the command must be one of
+   the few things an echo prompt says, at least one of them must say the output is passed on as it is, and anything else keeps the model:
+     pass-on  "reply with its output unchanged", "your final response is exactly what it printed", "verbatim"
+     silent   "if it prints nothing, reply [SILENT]"
+     limits   "do not …", "never …", "nothing else", "no commentary"
+     filter   the fixed line rules filterOf reads */
+const SAYS_PASS=/\bverbatim\b|\bunchanged\b|\bword for word\b|\bas[- ]is\b|\bexactly (?:as|what) (?:it |the (?:script|command|program) )?(?:is |was )?(?:print(?:s|ed)|written|shown|output|returned)\b|\b(?:output|stdout|what it print(?:s|ed)|the (?:printed )?text|th[oe]se lines?)\b[^.\n]{0,60}\b(?:exactly|only|and nothing else)\b|\b(?:exactly|only)\b[^.\n]{0,40}\b(?:(?:its|the) output|stdout|what it print(?:s|ed)|that text|th[oe]se lines?)\b/i;
+const SAYS_SILENT=/\[SILENT\]/;
+const EMPTYISH=/\b(?:nothing|empty|no output|no lines?|none|blank|otherwise|else)\b/i;
+const LIMIT=/^\s*(?:never|do not|don't|no|nothing else|and nothing else|do nothing else|without)\b/i;
+// words that mean the model has work of its own. Read after the limits ("do not summarise") and the filter rule are taken out.
+const WORK=/\b(?:then|also|afterwards?|next|summari[sz]e|translate|decide|analy[sz]e|draft|explain|compare|choose|research|investigate|answer|respond to|reply to|create|write|compose|generate|make|add|update|edit|change|fix|repair|book|schedule|notify|remind|alert|tell|ask|email|e-mail|message|dm|call|post|publish|send (?:it|a|an|the|them|him|her|each|every)|save|store|record|log (?:it|them|each)|file|upload|open|check|review|read|look|search|find|pick|select|sort|rank|score|classify|label|tag|extract|convert|calculate|count|for each|for every|each (?:one|line|customer|lead|order|person|item|message|question)|every (?:one|line|customer|lead|order|person|item|message|question)|in (?:their|his|her|the customer'?s?) language|matters?|urgent|important|relevant|interesting|useful|most|best|worth)\b/i;
+const FILTER_PHRASE=new RegExp('\\b(?:skip|ignore|drop|leave out)\\s+(?:the\\s+|any\\s+)?lines?\\s+(?:containing|that contain|with)\\s+'+QLIST+'|\\b(?:if any line contains|(?:keep|reply with|pass on|send)\\s+only\\s+(?:the\\s+)?lines?\\s+(?:containing|that contain|with)|only\\s+(?:the\\s+)?lines?\\s+(?:containing|that contain|with))\\s+'+QLIST+'|\\b(?:rewritten|written|prefixed|formatted) (?:as|with):?\\s*[\'"][^\'"\\n]{1,60}[\'"]','gi');
+const sentences=t=>String(t).split(/(?<=[.!?])\s+|\n+/).map(x=>x.trim()).filter(x=>/[A-Za-z]/.test(x));
+// one sentence of the rest: 'pass' | 'silent' | 'limit' | 'filter' | 'intro' (says what the command prints) | null (the model has work to do)
+function sentenceKind(x){x=x.replace(/\([^()\n]{0,160}\)/g,' ');   // an aside in brackets is not an instruction of its own
+ // a sentence that opens with a limit is a limit to its end ("Do not summarise, translate or explain it."), unless it turns into an instruction
+ if(LIMIT.test(x)&&!/(?:but|unless|except|instead|then|and then|until|before you)/i.test(x))return 'limit';
+ const bare=x.replace(FILTER_PHRASE,' ').replace(NEGATED,' '),hadFilter=bare!==x.replace(NEGATED,' ');
+ if(WORK.test(bare.replace(/\breply with\b|\breply\b(?=[^.\n]{0,12}\[SILENT\])|\brespond with\b|\bfinal (?:response|answer|reply)\b/gi,' ')))return null;
+ if(SAYS_PASS.test(x))return 'pass';if(SAYS_SILENT.test(x))return EMPTYISH.test(x)||/\bexactly\b/i.test(x)?'silent':null;
+ if(hadFilter)return 'filter';if(LIMIT.test(x)||!/[A-Za-z]{3}/.test(bare))return 'limit';
+ if(/^\s*it (?:prints|outputs|returns|writes)\b/i.test(x))return 'intro';return null}
 export function echoOf(prompt){const p=String(prompt||''),m=HEAD.exec(p);if(!m||m.index>160)return null;
  const before=p.slice(0,m.index).trim();if(before&&(!/[.!:]$/.test(before)||before.length>100||/\b(check|read|open|look|search|find|load|query|fetch|compare)\b/i.test(before)))return null;
  const cmd=m[1].replace(/^`+|`+\.?$/g,'').trim();if(!cmd||cmd.length>500||!COMMANDISH.test(cmd))return null;
- const rest=p.slice(m.index+m[0].length);if(!PASS_ON.test(rest))return null;
- // anything beyond running it and passing its output on (sending, deciding, editing) needs the model
- if(JUDGEMENT.test(rest.replace(NEGATED,' ')))return null;return {cmd,filter:filterOf(rest)}}
+ const rest=p.slice(m.index+m[0].length),kinds=sentences(rest).map(sentenceKind);
+ // every sentence is one an echo prompt says, and at least one says the output goes on as it is ("[SILENT]" alone is not that)
+ if(!kinds.length||kinds.includes(null)||!kinds.includes('pass'))return null;return {cmd,filter:filterOf(rest)}}
 // the command of "STEP 0: run `X`. If it prints nothing, reply [SILENT] and stop", when the prompt goes on with real work after it
 const STEP0=/\b(?:step\s*0|step zero|first(?: of all)?|before anything else|before you start)\b[^\n`]{0,60}?\brun\b[^\n`]{0,40}?`([^`\n]{3,300})`[\s\S]{0,20}?\bif it (?:prints|returns|outputs|shows) nothing\b[^\n]{0,100}?(?:\[SILENT\]|\bstop\b)/i;
 export function step0Of(prompt){const p=String(prompt||''),m=STEP0.exec(p.slice(0,900));if(!m||!COMMANDISH.test(m[1].trim()))return null;
@@ -161,8 +187,8 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const key=(a,id)=>a+'/'+id;
  let db=null,cache=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.triggers||={};db.kept||={}}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.triggers||={};db.kept||={}}return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const exists=f=>stat(f).then(()=>true,()=>false);
  const put=async(a,name,body)=>{const f=path.join(home(a),'scripts',name);await mkdir(path.dirname(f),{recursive:true});await writeFile(f,body,{mode:0o700});await chmod(f,0o700).catch(()=>{});return name};
  const own=async a=>{const o=await Promise.resolve(ownOf(a)).catch(()=>null)||{};return {user:/^ag-[\w-]+$/.test(String(o.user||''))?o.user:'',cwd:String(o.cwd||path.join(WORK,base(a)))}};
@@ -176,7 +202,7 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
  const setTrigger=async(a,id,t)=>{await load();db.triggers[key(a,id)]={...t,why:clip(t.why||'',300),at:now()};await save()};
  // ---- event hooks (DATA/event-hooks.json, the file event-hooks.mjs reads) ----
  const readHooks=async()=>{let d={};try{d=JSON.parse(await readFile(HOOKS,'utf8'))}catch{}return {d,hooks:d&&typeof d.hooks==='object'&&!Array.isArray(d.hooks)?d.hooks:d}};
- const writeHooks=async({d,hooks})=>{await mkdir(DATA,{recursive:true});await writeFile(HOOKS+'.tmp',JSON.stringify(d.hooks===hooks?d:hooks,null,1),{mode:0o600});await rename(HOOKS+'.tmp',HOOKS)};
+ const writeHooks=async({d,hooks})=>{await mkdir(DATA,{recursive:true});await writeStore(HOOKS,JSON.stringify(d.hooks===hooks?d:hooks,null,1),{mode:0o600})};
  async function hooksOf(a){const {hooks}=await readHooks();return (Array.isArray(hooks[a])?hooks[a]:[]).map(cleanHook).filter(Boolean)}
  async function putHook(a,h){const c=cleanHook(h);if(!c)throw Error('That event hook is not valid.');const x=await readHooks();
   x.hooks[a]=[...(Array.isArray(x.hooks[a])?x.hooks[a]:[]).filter(o=>o.id!==c.id),{id:c.id,on:c.on,run:c.run,...(c.deliver?{deliver:c.deliver}:{}),minGapSec:c.gap,...(c.keep?{keep:c.keep}:{}),...(c.prefix?{prefix:c.prefix}:{}),by:'agent'}];await writeHooks(x);return c}

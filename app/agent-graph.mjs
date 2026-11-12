@@ -25,6 +25,7 @@
 // and code is still mapped. Without agy or its sign-in, the same: code only.
 // Until a person turns the rest on (DATA/agent-graph/enabled.json, setEnabled), only a pilot agent is mapped, because each
 // agent with a map adds a tool process (~1 to 1.5 GB for all agents on Elkiya).
+import {writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,readdir,lstat,stat,copyFile,rm} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
@@ -102,7 +103,7 @@ export function createAgentGraph({HERMES_HOME,DATA,home0=homedir(),readConfig,se
  const D=path.join(DATA,'agent-graph'),STATE=path.join(D,'state.json'),propFile=a=>path.join(D,'proposals',a+'.json');
  const has=p=>stat(p).then(()=>true,()=>false);
  const exec=run||((cmd,args,o={})=>new Promise((res,rej)=>execFile(cmd,args,o,(e,out,er)=>e?rej(new Error(String(er||e.message).trim().split('\n').slice(-3).join(' '))):res(String(out)))));
- const wjson=async(f,v)=>{await mkdir(path.dirname(f),{recursive:true});const t=f+'.'+process.pid+'.tmp';await writeFile(t,JSON.stringify(v,null,1));await rename(t,f)};
+ const wjson=async(f,v)=>{await mkdir(path.dirname(f),{recursive:true});await writeStore(f,JSON.stringify(v,null,1))};
  const rjson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
  let st=null,running=false,backendAt=0,backendIs=null;
  const startRelay=relay||(o=>createRelay({home:home0,env,log}).start(o));

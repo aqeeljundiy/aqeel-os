@@ -9,6 +9,7 @@
 // recorded in one place and every losing version is removed: Run rules (posting-limits) and the schedule prompts for
 // timing and limits, the agent's decisions file for the rest (the agent is told once and removes the losers).
 // This file imports nothing from the app, so it can be copied to a server and run read-only: node rule-conflicts.mjs
+import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,readdir,stat,copyFile} from 'node:fs/promises';
 import {createHash,randomBytes} from 'node:crypto';
 import path from 'node:path';
@@ -111,8 +112,8 @@ export function slowerCron(schedule,value){const cad=cadenceMin(schedule),a=minu
 
 export function createConflicts({DATA,HERMES_HOME,names=a=>a,lock=async(f,fn)=>fn(),setRules=async()=>{},now=()=>Date.now(),log=m=>console.log(m),dayOf=t=>new Date(t).toISOString().slice(0,10).replace(/-/g,'')}){
  const FILE=path.join(DATA,'conflicts.json');let db=null;
- const load=async()=>{if(!db){try{db=JSON.parse(await readFile(FILE,'utf8'))}catch{db={}}db.items||=[]}return db};
- const save=async()=>{await mkdir(DATA,{recursive:true});await writeFile(FILE+'.tmp',JSON.stringify(db,null,1));await rename(FILE+'.tmp',FILE)};
+ const load=async()=>{if(!db){db=await readStore(FILE);db.items||=[]}return db};
+ const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
 
  // look again at every schedule and Run rule: new conflicts open, ones that no longer exist close

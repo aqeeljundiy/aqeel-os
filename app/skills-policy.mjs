@@ -1,6 +1,7 @@
 // Which skills reach which agents (decided 24 Oct 2026). Every skill the main agent has goes to every agent, except the
 // ones listed here: those go only to the agents named (the main agent and its extra numbers always keep everything).
 // Skills are instructions only; the owner's signed-in accounts are never handed out by any of this.
+import {writeStore} from './store.mjs';
 import {mkdir,rename,access,readdir,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 
@@ -28,7 +29,7 @@ export async function setRule(key,agents,owner){key=String(key||'').trim();if(!/
  const own=owner&&/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(baseOf(owner))?baseOf(owner):'';
  if(Array.isArray(agents)){j.restricted[key]=[...new Set(['default',...(own?[own]:[]),...agents.map(baseOf).filter(a=>/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(a))])].sort();if(own&&own!=='default')j.owners[key]=own}
  if(!Object.keys(j.owners).length)delete j.owners;
- await mkdir(path.dirname(f),{recursive:true});await writeFile(f+'.tmp',JSON.stringify(j,null,1));await rename(f+'.tmp',f);polAt=0;polM=-1;return policy()}
+ await mkdir(path.dirname(f),{recursive:true});await writeStore(f,JSON.stringify(j,null,1));polAt=0;polM=-1;return policy()}
 export const rules=()=>({restricted:{...policy().restricted},removed:[...policy().removed],owners:{...ownersOf()}});
 function ownersOf(){try{const j=JSON.parse(readFileSync(policyFile(),'utf8'));return j.owners&&typeof j.owners==='object'?j.owners:{}}catch{return {}}}
 export const ownerOf=key=>{const o=ownersOf();return o[key]||Object.entries(o).find(([k])=>nameOf(k)===nameOf(key))?.[1]||''};

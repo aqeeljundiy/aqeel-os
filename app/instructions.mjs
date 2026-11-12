@@ -9,6 +9,7 @@
 //   - contradictions are flagged: "override" sections stacked on each other, and (checked by the engine's small helper
 //     model, quotes verified against the text) one rule with two values across the instructions and memory.
 // The history with its reasons is each agent's decisions log: one place, visible in Agents › Edit agent › History.
+import {writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,rename,readdir,stat} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {createHash,randomBytes} from 'node:crypto';
@@ -39,7 +40,7 @@ export function createInstructions({DATA,HERMES_HOME,DASH,DASH_TOKEN,python,root
  const lock=(a,fn)=>{const p=(locks.get(a)||Promise.resolve()).then(fn,fn);locks.set(a,p.catch(()=>{}));return p};
  async function load(a){if(!ok(a))throw Error('Unknown agent.');if(dbs.has(a))return dbs.get(a);let db;try{db=JSON.parse(await readFile(path.join(dir(a),'index.json'),'utf8'))}catch{db={}}
   db.versions||=[];db.proposals||=[];db.flags||=null;dbs.set(a,db);return db}
- async function save(a){const db=dbs.get(a);await mkdir(dir(a),{recursive:true});const f=path.join(dir(a),'index.json');await writeFile(f+'.tmp',JSON.stringify(db,null,1));await rename(f+'.tmp',f)}
+ async function save(a){const db=dbs.get(a);await mkdir(dir(a),{recursive:true});const f=path.join(dir(a),'index.json');await writeStore(f,JSON.stringify(db,null,1))}
  const readSoul=a=>readFile(soulFile(a),'utf8').catch(()=>null);
  async function addVersion(a,content,meta){const db=await load(a);const h=sha(content),last=db.versions[db.versions.length-1];if(last&&last.hash===h)return last;
   const v=(last?.v||0)+1;await mkdir(dir(a),{recursive:true});await writeFile(path.join(dir(a),'v'+v+'.md'),content);

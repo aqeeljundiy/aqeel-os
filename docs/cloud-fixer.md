@@ -128,7 +128,7 @@ You decide what is wrong by reading the code and reproducing the problem yoursel
    Follow the existing dense code style and plain short UI text.
 3. Add a NEW test file in scripts/ (scripts/<name>.test.mjs) that fails without your fix and passes with it. Do not edit or
    delete an existing test, the test runner or anything the checks use.
-4. Run `node --test scripts/*.test.mjs`. Everything must pass.
+4. Run `node --test --test-timeout=120000 scripts/*.test.mjs`. Everything must pass.
 5. Push a branch named claude/<issue id> and open a pull request titled "<issue id>: <short plain title>". In the body: the
    problem, the cause, the fix, the test, and the output of the test run. Turn on auto-merge for the pull request: GitHub
    merges it by itself only when the checks defined on main pass, which they do only for a small change inside app/, new
