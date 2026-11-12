@@ -16,7 +16,7 @@ import {allowed as skillAllowed,setRule as setSkillRule,rules as skillRules} fro
 import {createAgentDefaults} from './agent-defaults.mjs';
 import {createWhy} from './why.mjs';
 import {createChatHistory} from './chat-history.mjs';
-import {createIssues,engineSortRun,personOf} from './issues.mjs';
+import {createIssues,engineSortRun,personOf} from './issues.mjs';import {createFixerRunUsage} from './fixer-usage.mjs';
 import {createLimitState} from './provider-limits.mjs';
 import {createAgentMemory} from './agent-memory.mjs';
 import {createTeamSettings} from './team-settings.mjs';
@@ -1809,18 +1809,7 @@ async function issueApply(kind,why){if(kind==='ui'){if(!underKeeper()){console.w
  await restartGateway(why,{waitMax:120});for(let k=0;k<24&&!await gatewayPid();k++)await new Promise(r=>setTimeout(r,5000));
  return await gatewayPid()?{ok:true}:{ok:false,why:'the engine did not come back yet'}}
 const issueEnvFiles=async()=>[path.join(HERMES_HOME,'.env'),...(await readdir(path.join(HERMES_HOME,'profiles')).catch(()=>[])).map(a=>path.join(HERMES_HOME,'profiles',a,'.env'))];
-// what one fixer run used (11 Nov 2026, the owner: see what the fixer costs): the engine's own record of that run's session
-// (state.db of the run's agent), found by its time and the issue id in its prompt. Read only; null when not found.
-const RUN_USAGE_PY=`import sqlite3,sys,json
-db,a,b,iss=sys.argv[1],float(sys.argv[2]),float(sys.argv[3]),sys.argv[4]
-c=sqlite3.connect('file:'+db+'?mode=ro',uri=True)
-q="select s.model,s.input_tokens,s.output_tokens,s.cache_read_tokens,s.cache_write_tokens,s.estimated_cost_usd from sessions s where s.source='tool' and s.started_at between ? and ? and exists(select 1 from messages m where m.session_id=s.id and m.role='user' and m.content like ?) order by s.started_at desc limit 1"
-print(json.dumps(c.execute(q,(a,b,'%ISSUE '+iss+'%')).fetchone()))`;
-async function fixerRunUsage(r){if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(String(r.agent||''))||!/^[\w-]{1,40}$/.test(String(r.issue||'')))return null;
- const db=r.agent==='default'?path.join(HERMES_HOME,'state.db'):path.join(HERMES_HOME,'profiles',r.agent,'state.db');
- const out=await new Promise(res=>execFile('python3',['-I','-c',RUN_USAGE_PY,db,String(r.at/1000-15),String((r.done||Date.now())/1000+15),String(r.issue)],{timeout:20000},(e,so)=>res(e?'':String(so))));
- let v=null;try{v=JSON.parse(out.trim()||'null')}catch{}
- return v?{model:v[0]||null,input:v[1]||0,output:v[2]||0,cacheRead:v[3]||0,cacheWrite:v[4]||0,cost:Math.round((Number(v[5])||0)*1e5)/1e5}:null}
+const fixerRunUsage=createFixerRunUsage({HERMES_HOME});   // what one fixer run used (fixer-usage.mjs)
 // the one "Needs you" item that asks for the GitHub token: made once, taken away when the token is there (issues.mjs noteToken)
 // the AI provider is not available (rate limit, every account used up): one shared state; nothing needing a model starts until it ends (provider-limits.mjs)
 const providerLimits=createLimitState({DATA});

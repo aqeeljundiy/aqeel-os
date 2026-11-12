@@ -106,6 +106,25 @@ export function runCounts(runs,issue,day){const c={proofDay:0,proofTotal:0,fixDa
 // null, 'day' (wait for tomorrow) or 'total' (a person must look)
 export function capHit(runs,issue,kind,pol,day){const c=runCounts(runs,issue,day),m=runCaps(pol),p=kind==='proof';
  return c[p?'proofTotal':'fixTotal']>=m[p?'proofTotal':'fixTotal']?'total':c[p?'proofDay':'fixDay']>=m[p?'proofDay':'fixDay']?'day':null}
+// Money caps and turn limits (12 Nov 2026, the owner's top complaint: token burn; Elkiya logged about $1.72 per fix run, 64% of the
+// spend on the 8 escalated third tries). Team policy fixer.maxCostPerIssue (default $3: no new fix run for an issue that has used it up),
+// fixer.maxCostPerDay (default $10: no new fix run that day, urgent agents aside), fixer.maxTurns {fix, proof, escalate} (the engine stops a
+// run after that many tool-calling turns), fixer.escalateMaxSpent (default $2: the stronger model on the last try only if the earlier
+// tries cost no more than that and at least one of them got as far as a result).
+export const COST_CAPS={issue:3,day:10,escalateSpent:2},TURNS={fix:30,proof:16,escalate:30};
+export const costCaps=pol=>{const f=pol?.fixer||{},n=(v,d)=>Number.isFinite(Number(v))&&Number(v)>0?Number(v):d;
+ return {issue:n(f.maxCostPerIssue,COST_CAPS.issue),day:n(f.maxCostPerDay,COST_CAPS.day),escalateSpent:n(f.escalateMaxSpent,COST_CAPS.escalateSpent)}};
+export const turnLimit=(pol,kind,esc=false)=>{const t=pol?.fixer?.maxTurns||{},v=Number(esc?t.escalate||t.fix:t[kind]);return Number.isFinite(v)&&v>=3?Math.min(200,Math.floor(v)):esc?TURNS.escalate:TURNS[kind]||TURNS.fix};
+// what an issue's runs cost so far (a run that never reached the model costs nothing), minus what a person's Try again wiped
+export const runCost=(runs,issue)=>{let c=0;for(const r of Object.values(runs||{}))if(r.issue===issue.id&&!r.notStarted)c+=Number(r.usage?.cost)||0;return Math.max(0,c-(Number(issue.runBase?.cost)||0))};
+export const costToday=(runs,day)=>{let c=0;for(const r of Object.values(runs||{}))if(r.day===day&&!r.notStarted)c+=Number(r.usage?.cost)||0;return c};
+// MODEL-3b: "something changed" means the evidence changed, not that the same problem was reported again. The fingerprint is of the words of the
+// problem and its evidence with the parts that change on every report left out (times, dates, ids, counters): the same words, the same fingerprint.
+export function fingerprint(o){const t=String(o?.missing??'')+'\n'+String(o?.evidence??'');
+ const w=[...new Set(t.toLowerCase().replace(/\d{4}-\d{2}-\d{2}[t ]?[\d:.]*z?/g,' ').replace(/\b[0-9a-f]{6,}\b/g,' ').replace(/[0-9]+/g,' ').match(/[a-z]{3,}/g)||[])].sort();
+ return evHash(w.join(' '))}
+// how long a problem that came back counts as the same one: policy fixer.comeBackHours (default 72)
+export const cameBackMs=pol=>{const h=Number(pol?.fixer?.comeBackHours);return (Number.isFinite(h)&&h>0?h:72)*36e5};
 // a run whose only result is that the AI provider was not available (rate limit, account used up, no model reachable) says nothing
 // about the problem: inconclusive, not a try, tried again after the reset time. A result a model wrote is only taken for it when it
 // uses the provider's own wording (a report ABOUT rate limits is a real result).
@@ -129,9 +148,11 @@ const DELIVERY_PROOF='A picture (QRIS, product photo) that does not reach the ph
 const KIRIM_TEST='on a real agent, a real reply it delivered after the change (~/apps/hermes-ui-data/kirimdev-state.json "ours", the log lines "kirimdev <agent>"); none yet means not proven yet. Only on a test agent you may write as a tester: never ask a person to write from a tester phone, run node ~/apps/hermes-ui/scripts/kirimdev-test-message.mjs <agent> "<text>" (optionally --tester <name>). It posts the same signed webhook Kirimdev posts when a customer writes, as one of the line\'s testers, to this box; the agent then answers that tester for real through Kirimdev. Check the reply was sent (~/apps/hermes-ui-data/kirimdev-state.json "ours", and the log lines "kirimdev <agent>"). Only testers, never a customer number; the script refuses a real agent';
 // the code-change rule when the fixer has its own git work dir (fixer-git.mjs)
 export const gitRule=(i,g)=>'- aqeelOS\'s own code is NEVER changed in the live folders (~/apps/hermes-ui, ~/.hermes/hermes-agent), urgent or not: the next deploy would put the old file back and nobody would have reviewed it. Your own git checkout for this issue is '+g.dir+' (branch '+g.branch+', cut from main). Change the app code (app/, scripts/, engine/, assets/) there and nowhere else. Do not commit or push: aqeelOS commits the branch and opens the pull request. Run the tests there (node --test scripts/<name>.test.mjs). Then prove it on the test copy: bash '+g.dir+'/scripts/fixer-testcopy.sh '+g.dir+' starts the checkout as the private test copy on port 4402 (its own password and data, never the live app); rerun the original check against http://127.0.0.1:4402 and paste what you saw in "proof". Use status "patch" and name the changed files in "summary". '+(i.urgent?'This issue is URGENT: say so in "summary"; it still goes through the pull request. ':'')+'The engine source ~/.hermes/hermes-agent is never changed in place either: copy the file to ~/apps/hermes-ui-data/fixer-work/'+i.id+'/<its full path without the leading slash>, change and check the copy, and list it in "patches" as {"file":"<live path>","copy":"<copy path>"}; aqeelOS makes it an engine/patches file in the same pull request. The change goes live only when a person merges the pull request and the next deploy runs; aqeelOS then checks the problem again. If the same fix is already waiting as a branch or pull request (System › Health › Fixes waiting for review), say so with status "no_change".';
+// a run is cut off by the engine after `turns` tool-calling turns, with no result: the prompt says so, so it wraps up in time and reads little
+export const turnLine=n=>n?'- You have at most '+n+' tool-calling turns; after that the run is cut off with no result and the try is lost. Be done by turn '+Math.max(2,n-6)+': stop looking and write the RESULT line. Read only the lines you need (grep -n, sed -n, head), never a whole file or the whole issues.json, and put several checks into one command.':null;
 // CR-7 (13 Nov 2026): the prompt of a confined run. Its terminal is the fixer's own Linux user: one checkout, no keys, no network but the
 // app's signed routes. It fixes code only; repairs that need the owner's files are a person's or the full fixer's.
-export function confinedPrompt(i,{rules='',attempt=1,tries=TRIES,git,url}={}){
+export function confinedPrompt(i,{rules='',attempt=1,tries=TRIES,git,url,turns=0}={}){
  const past=(i.history||[]).filter(h=>h.kind==='fix').map((h,n)=>'Try '+(n+1)+': '+(h.summary||'-')+(h.outcome?' -> '+h.outcome:'')+(h.proof?' (proof run: '+clip(h.proof,400)+')':'')).join('\n');
  const route=(r,b)=>'  curl -s -X POST '+url+'/'+r+" -H 'content-type: application/json' -d '"+(b||'{}')+"'";
  return [
@@ -156,12 +177,13 @@ export function confinedPrompt(i,{rules='',attempt=1,tries=TRIES,git,url}={}){
  '- Only change what this issue needs. Run the tests for what you changed with the tests route, then prove it on the test copy (testcopy, then probe) and paste what you saw in "proof".',
  '- If the fix needs a repair that only the owner\'s files allow (an agent\'s settings, a sign-in, a key, a restart), do not try it: use status "needs_human" and write in "need" what the person must do.',
  '- If you find nothing to change, use status "no_change".',
+ turnLine(turns),
  rules?'- '+rules:null,
  '','End with exactly one line (JSON on one line):',
  'RESULT: {"status":"patch|no_change|needs_human|failed","apply":"none","changes":[],"patches":[],"check":"how to rerun the original check against the test copy","summary":"one or two plain sentences, and the files you changed","proof":"what you ran and saw","need":"only for needs_human or failed: what a person must do"}'].filter(x=>x!==null).join('\n')}
 // with a cloud fixer the server writes no code at all: it diagnoses, and does the repairs that need none
 export const cloudRule=i=>'- You do NOT write or change aqeelOS\'s own code (~/apps/hermes-ui app/, scripts/, engine/, the engine source ~/.hermes/hermes-agent), not even a copy or a patch: a Claude Code routine in the cloud writes code fixes and opens the pull request. You diagnose, and you do the repairs that need no code: reconnect a tool, rerun a schedule, fix a permission, restart a stuck part the safe way (see apply). If the fix needs a code change, change nothing and end with status "code": put the root cause and the files you suspect in "summary", and how to prove it in "check".';
-export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10).replace(/-/g,''),attempt=1,tries=TRIES,git=null,cloud=false}={}){
+export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10).replace(/-/g,''),attempt=1,tries=TRIES,git=null,cloud=false,turns=0}={}){
  // who wrote the words: only an issue an admin typed on System › Health is a person's own text; everything else (an agent's report,
  // Health's findings, earlier runs' notes, which were written after reading that text) goes in the untrusted block, and a
  // "proposed fix" is never passed on unless an admin typed it
@@ -195,11 +217,12 @@ export function fixerPrompt(i,{rules='',day=new Date().toISOString().slice(0,10)
  '- If you find nothing to change (it already works), use status "no_change": a proof run still has to show it works.',
  '- A skill that points to a file that is not there (Health kind skill): find the file and put it back in every skill folder listed. Look in this order: the *.bak* copies next to it, other agents\' copies of the same skill (~/.hermes/profiles/*/skills and ~/.hermes/skills), ~/.hermes/backups and ~/apps/hermes-ui-data backups, the skill\'s git history if it has one. Only if it is nowhere, change the SKILL.md so it no longer needs the file (remove or replace that step); never invent the file\'s content. The check: every file each SKILL.md points to exists (node ~/apps/hermes-ui/scripts/skill-check.mjs <skill folder> lists what is still missing; nothing listed means proven).',
  '- needs_human only when a person must physically act and no tool or key on this box can do it: money, a new key or login only a person has, someone adding a bot to a Telegram group, or a decision only the owner can make. Never to ask for approval or an OK: nobody approves fixes, you decide. Never to have someone send a WhatsApp message from a tester phone: you can do that yourself (see above). Put in "need" exactly what they must do, in one or two plain sentences. When what is needed is a CHOICE between approaches (not an action), do not describe it in "need": add "question" with one plain question and 2 to 4 options, each {"label":"2-4 words","effect":"one line: what happens if chosen","recommended":true on the one you advise}; the owner taps one and you are run again with the answer. With needs_human also give "steps": what the person must do, as facts aqeelOS turns into buttons (it checks each one, so name things exactly as they are called here and never invent one): a list of {"what","id","agent","alt"}. what is "ai-account" (sign in again to an AI account on Models: id is the exact name of the account, or its provider), "google" (connect a Google account for an agent: agent is the id of the agent), "app" (sign in to a connected app: id is the exact name of the app, agent the id of the agent), "remove-app" (remove a connected app entry from an agent: id its exact name, agent the id of the agent), "key" (add or change a key under System › Keys: id is the name of the key) or "screen" (sign in on the browser screen of the agent: agent). One entry per thing to do, in order; "alt":true on one that is an alternative to the others. Leave steps empty when none of these fits.',
+ turnLine(turns),
  rules?'- '+rules:null,
  '','End with exactly one line (JSON on one line):',
  'RESULT: {"status":"changed|patch|no_change|needs_human|failed","apply":"none|engine|ui","changes":[{"file":"/abs/path","backup":"/abs/path.bak-…"}],"patches":[{"file":"/live/path","copy":"/copy/path"}],"check":"how to rerun the original check","summary":"one or two plain sentences","proof":"what you ran and saw","need":"only for needs_human or failed: what a person must do","steps":[{"what":"ai-account|google|app|remove-app|key|screen","id":"","agent":"","alt":false}],"question":{"question":"only for a choice","options":[{"label":"","effect":"","recommended":true}]}}'].filter(x=>x!==null).join('\n')}
 
-export function proofPrompt(i,fix,{reloaded=null,recheck=false,deployed=false}={}){return [
+export function proofPrompt(i,fix,{reloaded=null,recheck=false,deployed=false,turns=0}={}){return [
  'You are the aqeelOS fixer\'s proof run: a headless run on this server. Nobody is chatting with you. Do NOT change any file. Only prove whether ONE problem is gone.',
  '','ISSUE '+i.id+' (agent '+i.agent+(i.source==='health'?', found by the Health check':'')+')',
  ...reportBlock(i,{evidence:'Evidence when it was filed'}),
@@ -211,6 +234,7 @@ export function proofPrompt(i,fix,{reloaded=null,recheck=false,deployed=false}={
  '- Rerun the ORIGINAL failing check end to end, for real, now. A unit test or reading a file is not proof. For a Kirimdev reply problem: '+KIRIM_TEST+'. For a Health problem, Health (~/apps/hermes-ui-data/bottlenecks.json) must no longer list it after its check ran again.',
  '- Never spend money, never delete anything, never message customers, never restart anything. '+NO_LIVE_TEST+'.',
  '- '+DELIVERY_PROOF,
+ turnLine(turns),
  '- proven only if you saw it work after the change. Otherwise not_proven. Fill "need" only if a person must physically act (money, a key or login only they have, adding a bot, a decision only the owner can make); never an approval, and never a message from a tester phone.',
  '','End with exactly one line (JSON on one line):',
  'RESULT: {"status":"proven|not_proven","proof":"the commands you ran and what you saw, with times","need":""}'].filter(x=>x!==null).join('\n')}
@@ -220,7 +244,8 @@ export function proofPrompt(i,fix,{reloaded=null,recheck=false,deployed=false}={
 // the fixer agent's own model. aqeelOS names no model itself (any provider's names go here).
 const MODEL_OK=/^[\w.:\/\[\]@-]{1,100}$/,EFFORT_OK=/^(minimal|low|medium|high|xhigh|max)$/;
 // kind 'sort' (sorting a new issue, one short call) falls back to the proof run's model, at low effort
-export function fixerModel(pol,kind,attempt){const m=pol?.fixer?.models||{},e=pol?.fixer?.effort||{};const esc=kind==='fix'&&attempt>=TRIES&&m.escalate;
+// ctx.escalate false (the caller found the earlier tries too costly or without a result): the fix model runs the last try too
+export function fixerModel(pol,kind,attempt,ctx={}){const m=pol?.fixer?.models||{},e=pol?.fixer?.effort||{};const esc=kind==='fix'&&attempt>=TRIES&&m.escalate&&ctx.escalate!==false;
  const model=String((esc?m.escalate:kind==='sort'?m.sort||m.proof:m[kind])||''),effort=String((esc?e.escalate||e.fix:kind==='sort'?e.sort||'low':e[kind])||'');
  return {model:MODEL_OK.test(model)?model:'',effort:EFFORT_OK.test(effort)?effort:''}}
 
@@ -305,7 +330,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
  const policy=async()=>{try{return JSON.parse(await readFile(POL,'utf8'))}catch{return {teams:[],fixer:{on:true}}}};
- const view=i=>({...i,agentName:nameOf(i.agent),sig:undefined});
+ // spent: what this issue's runs cost so far (the engine's own record of each run, estimates), shown wherever the issue is listed
+ const spentOf=id=>{let runs=0,cost=0;for(const r of Object.values(db?.runs||{}))if(r.issue===id&&r.done&&!r.notStarted){runs++;cost+=Number(r.usage?.cost)||0}return {runs,cost:Math.round(cost*100)/100}};
+ const view=i=>({...i,agentName:nameOf(i.agent),sig:undefined,spent:spentOf(i.id)});
  // the one message for a person: whoever asked, else the agent's team contact, else the owner. Test agents and a
  // restart hold (alert-quiet.mjs): logged only.
  async function tell(i,text){const pol=await policy(),w=whoToTell(pol,i);const q=quiet(i.agent||null);
@@ -318,22 +345,31 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   const key=o.healthKey?'health|'+o.healthKey:o.agent+'|'+m.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().slice(0,100);
   let i=db.items.find(x=>x.key===key&&(OPEN.includes(x.state)||['needs_human','stopped','open','deploy','cloud','cloud_wait'].includes(x.state)));
   // filed again while it waited for a person: they may have done it, so the fixer tries again
-  if(i){i.count++;i.updated=now();const newEv=i.cloud&&o.evidence&&evHash(clip(o.evidence,2000))!==i.cloud.ev;if(o.evidence)i.evidence=clip(o.evidence,2000);
+  if(i){i.count++;i.updated=now();const newEv=i.cloud&&o.evidence&&evHash(clip(o.evidence,2000))!==i.cloud.ev;
+   // MODEL-3b: an issue that waits for a person is run again only when its evidence changed (fingerprint), not because it was reported again
+   const same=i.state==='needs_human'&&fingerprint({missing:i.missing,evidence:o.evidence||i.evidence})===fingerprint(i);if(o.evidence)i.evidence=clip(o.evidence,2000);
    // sent to the cloud fixer once; again only on new evidence (after a merged fix: at once; else at most every 6 hours)
-   if(i.state==='cloud'&&newEv&&(i.cloud.merged||now()-(i.cloud.sentAt||0)>6*3600e3)){await cloudAgain(i,i.cloud.merged?'':'new evidence came in');await save();return {issue:view(i),again:true}}if((i.state==='needs_human'||i.state==='open'&&pol.fixer?.on!==false)&&!i.noRetry&&!i.capped){i.state='queued';i.tries=0}await save();return {issue:view(i),again:true}}
+   if(i.state==='cloud'&&newEv&&(i.cloud.merged||now()-(i.cloud.sentAt||0)>6*3600e3)){await cloudAgain(i,i.cloud.merged?'':'new evidence came in');await save();return {issue:view(i),again:true}}if(same&&!i.noRetry&&!i.capped){i.heldSame=(i.heldSame||0)+1;await save();return {issue:view(i),again:true,held:'same evidence'}}
+   if((i.state==='needs_human'||i.state==='open'&&pol.fixer?.on!==false)&&!i.noRetry&&!i.capped){i.state='queued';i.tries=0}await save();return {issue:view(i),again:true}}
   // filed again after the sorter merged it into another issue that is still open: that one counts it, no new sorting
   {const g=db.items.find(x=>x.key===key&&x.mergedInto),to=g&&db.items.find(x=>x.id===g.mergedInto);
    if(to&&[...OPEN,'needs_human','open','deploy','stuck'].includes(to.state)){to.count=(to.count||1)+1;to.updated=now();await save();return {issue:view(to),again:true,merged:true}}}
   // HEALTH-9: the same problem for the same agent in other words joins the open one (the sorter also merges across agents)
   if(!o.healthKey){const d=db.items.find(x=>x.agent===o.agent&&[...OPEN,'queued','needs_human','open','deploy','cloud','cloud_wait'].includes(x.state)&&similar(x.missing,m)>=0.8);
    if(d){merge(d,{agent:o.agent,missing:m,evidence:o.evidence,at:now()});await save();log('issue merged into '+d.id+' (same problem)');return {issue:view(d),again:true,merged:true}}}
+  // MODEL-3b: the same problem again after it got stuck, or came back after a proven fix, within the window: with the same evidence (fingerprint) no new
+  // run is spent. A stuck one just counts the report. A fixed one is filed as "needs a person" with a note; Try again (or changed evidence) runs it.
+  const win=cameBackMs(pol),prev=db.items.filter(x=>x.key===key&&['stuck','fixed'].includes(x.state)&&now()-(x.state==='fixed'?x.fixed||x.updated||0:x.updated||0)<win).sort((a,b)=>(b.updated||0)-(a.updated||0))[0];
+  const cameBack=prev&&fingerprint({missing:m,evidence:o.evidence})===fingerprint(prev)?prev:null;
+  if(cameBack&&cameBack.state==='stuck'){cameBack.count=(cameBack.count||1)+1;cameBack.heldSame=(cameBack.heldSame||0)+1;cameBack.reportedAt=now();await save();log('issue '+cameBack.id+' reported again with the same evidence: no new run');return {issue:view(cameBack),again:true,held:'same evidence'}}
   const by=o.origin||{},p=personOf(pol,by.platform,by.uid);
   i={id:'i'+randomBytes(4).toString('hex'),key,agent:o.agent,source:o.source||(p?'person':'agent'),what:clip(o.what,400),missing:m,evidence:clip(o.evidence,2000),proposed_fix:clip(o.proposed_fix,1000),
-   affects:[].concat(o.affects||[]).map(x=>clip(x,64)).filter(Boolean),needs:[].concat(o.needs||[]).map(String),created:now(),updated:now(),count:1,
+   affects:[].concat(o.affects||[]).map(x=>clip(x,64)).filter(Boolean),needs:[].concat(o.needs||[]).map(String),created:now(),updated:now(),count:1,fp:fingerprint({missing:m,evidence:o.evidence}),
    by:{platform:by.platform||null,uid:by.uid||null,chat:by.chat||null,thread:by.thread||null},byName:p?.name||by.who||null,tries:0,history:[],...(o.typed===true?{typed:true}:{}),...(o.healthKey?{healthKey:String(o.healthKey)}:{}),...(o.report?{report:String(o.report)}:{}),...(o.urgent||urgentFor(pol,o)?{urgent:true}:{})};
   i.decision=decide(pol,i,by).why;i.state=pol.fixer?.on===false?'open':'queued';if(i.state==='open')i.decision='the fixer is switched off in the team policy';
   // o.hold: only a person can do this (a live code change to take into git); the fixer never tries it (12 Nov 2026)
   if(o.hold){i.state='needs_human';i.noRetry=true;i.need=clip(o.hold,500);i.decision='needs a person: '+clip(o.hold,200)}
+  else if(cameBack){i.state='needs_human';i.cameBack={of:cameBack.id,at:now(),fixed:cameBack.fixed||null};i.need='This came back after it was fixed and proven ('+cameBack.id+'), with the same evidence as then. aqeelOS does not run the fixer again on the same evidence: look at whether the fix was deployed or reverted, then press Try again, or close it. New evidence starts a run by itself.';i.decision='came back after a proven fix, same evidence';i.history.push({kind:'held',at:now(),status:'needs_human',summary:'Came back after the fix of '+cameBack.id+' with the same evidence; no run spent.'})}
   // MODEL-3: one short call sorts it before it joins the line (duplicate, person-only, or the fixer's); urgent ones go at once
   if(i.state==='queued'&&!i.urgent&&sortRun)i.sorting=now();
   db.items.unshift(i);cap();await save();log('issue '+i.id+' filed by '+(i.source==='health'?'Health':i.agent)+': '+i.state);
@@ -435,13 +471,13 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  async function fixerView(){const pol=await policy(),t=now(),cap=pol.fixer?.cap||20,used=fixRunsToday();
   const cur=Object.values(db.runs).find(r=>!r.done),ci=cur&&db.items.find(i=>i.id===cur.issue);
   const ap=db.items.find(i=>i.state==='applying'||i.state==='rollback'||i.state==='reloaded-back');
-  const card=i=>({id:i.id,state:i.state,agent:i.agent,agentName:nameOf(i.agent),title:i.title||null,missing:i.missing,urgent:!!i.urgent,tries:i.tries||0,count:i.count||1,
+  const card=i=>({id:i.id,state:i.state,agent:i.agent,agentName:nameOf(i.agent),title:i.title||null,missing:i.missing,urgent:!!i.urgent,tries:i.tries||0,count:i.count||1,spent:spentOf(i.id),
    why:i.state==='verify'?'proof':i.urgent?'urgent':'line',...(i.notBefore>t?{notBefore:i.notBefore}:{}),...(i.rank!=null?{moved:true}:{}),...(i.skipUntil>t?{skipUntil:i.skipUntil}:{})});
   const step=s=>s==='fixing'?'fix':['applying','rollback','reloaded-back'].includes(s)?'reload':'prove';
   const now_=ci?{...card(ci),kind:cur.kind||'fix',step:cur.kind==='proof'?'prove':'fix',model:cur.model||null,effort:cur.effort||null,at:cur.at,minutes:cur.kind==='proof'?Math.min(30,pol.fixer?.proof_minutes||15):Math.min(40,pol.fixer?.minutes||25)}:null;
   const wait=ap?{...card(ap),step:step(ap.state),kind:ap.applyKind||'engine',since:ap.waitingSince||ap.updated,back:ap.state!=='applying',quiet:engineOk(),
    model:db.runs[ap.run]?.model||null,effort:db.runs[ap.run]?.effort||null}:null;
-  return {cloud:await cloudStatus().catch(()=>null),on:pol.fixer?.on!==false,paused:db.pause||null,provider:limits?.hold?.()||null,now:now_,wait,cap:{used,cap,resetAt:nextDay(t,tz())},quiet:{from:1,to:5},
+  return {cloud:await cloudStatus().catch(()=>null),on:pol.fixer?.on!==false,paused:db.pause||null,provider:limits?.hold?.()||null,now:now_,wait,cap:{used,cap,resetAt:nextDay(t,tz()),cost:Math.round(costToday(db.runs,today())*100)/100,costLimit:costCaps(pol).day},quiet:{from:1,to:5},
    line:lineOf(db.items,t).map(card),skipped:db.items.filter(i=>i.skipUntil>t&&['queued','verify'].includes(i.state)).map(card),
    sorting:db.items.filter(i=>i.sorting).length,stuck:db.items.filter(i=>i.state==='stuck'&&!i.need).map(card)}}
  // move one place up or down in the line; the two swap their places
@@ -481,10 +517,13 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(limits?.hold?.())return;   // the AI provider is not available: nothing that needs a model starts until its reset time
   // the line in its order (proof runs, urgent, the rest, or as a person moved them); the daily limit holds back fixes
   // that are not urgent, never proof runs
-  const capped=fixRunsToday()>=(pol.fixer?.cap||20);
+  // the money caps: a fix run is not started for an issue that has used up its share, nor (urgent agents aside) once the day's spend is over its limit
+  const cc=costCaps(pol),spentDay=costToday(db.runs,today()),capped=fixRunsToday()>=(pol.fixer?.cap||20)||spentDay>=cc.day;
+  if(spentDay>=cc.day&&db.costDayNoted!==today()){db.costDayNoted=today();await save();log('issues: the fixer used $'+spentDay.toFixed(2)+' today (limit $'+cc.day+'): no new fix run today except urgent agents')}
   for(const i of lineOf(db.items,now())){if(i.notBefore>now())continue;
    const kind=i.state==='verify'?'proof':'fix',cp=capHit(db.runs,i,kind,pol,today());
    if(cp==='total'){await capOut(i,pol);continue}if(cp==='day'){i.notBefore=nextDay(now(),tz());await save();continue}
+   if(kind==='fix'&&runCost(db.runs,i)>=cc.issue){await capOut(i,pol,'cost');continue}
    if(kind==='proof')return await start(i,pol,'proof');
    if(!i.urgent&&(held||capped))continue;return await start(i,pol,'fix')}}finally{running=null}}
  // ---- the cloud fixer: sent once, again only on new evidence or Try again; the nightly batch sends what waits; a fix that did not hold is sent again, up to CLOUD_MAX
@@ -515,11 +554,12 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  async function cloudStatus(){if(!cloud)return null;const on=await cloud.ready().catch(()=>false),c=db.items.filter(x=>x.cloud);
   return {on,sent:c.filter(x=>x.cloud.sends>0).length,merged:c.filter(x=>x.cloud.merged||x.cloud.prs?.length).length,waiting:c.filter(x=>x.state==='cloud_wait').length,using:on?(await cloud.pick().catch(()=>null))?.best?.label||null:null}}
  // an issue at its total cap becomes one "needs a person" item, once (it is not queued again by new reports; Try again gives a fresh count)
- async function capOut(i,pol){if(i.capped)return;const c=runCounts(db.runs,i,today()),m=runCaps(pol);
-  i.capped={at:now(),proofs:c.proofTotal,fixes:c.fixTotal};i.state='needs_human';i.updated=now();i.notBefore=0;
-  i.need='aqeelOS ran this '+c.fixTotal+' time'+(c.fixTotal===1?'':'s')+' as a fix and '+c.proofTotal+' time'+(c.proofTotal===1?'':'s')+' as a proof (the limit is '+m.fixTotal+' and '+m.proofTotal+' per problem) and it is still not solved. It stops here so it does not use up the AI accounts; a person must look at it. Try again starts a fresh count.';
-  i.history.push({kind:'cap',at:now(),status:'needs_human',summary:'Stopped at the limit of runs for one problem ('+c.fixTotal+' fix, '+c.proofTotal+' proof)'});await save();
-  const to=await tell(i,nameOf(i.agent)+': aqeelOS stopped trying to fix this by itself\n\nProblem: '+i.missing+'\nWhat is needed from you: '+i.need);i.told=to;await save();log('issues: '+i.id+' at its run limit ('+c.fixTotal+' fix, '+c.proofTotal+' proof); needs a person, told '+to)}
+ async function capOut(i,pol,why='runs'){if(i.capped)return;const c=runCounts(db.runs,i,today()),m=runCaps(pol),spent=runCost(db.runs,i);
+  i.capped={at:now(),proofs:c.proofTotal,fixes:c.fixTotal,...(why==='cost'?{cost:Math.round(spent*100)/100}:{})};i.state='needs_human';i.updated=now();i.notBefore=0;
+  i.need=why==='cost'?'aqeelOS spent about $'+spent.toFixed(2)+' of AI usage on this problem in '+c.fixTotal+' fix run'+(c.fixTotal===1?'':'s')+' (the limit is $'+costCaps(pol).issue+' per problem) and it is still not solved. It stops here so it does not use up the AI accounts; a person must look at it. Try again starts a fresh count.'
+   :'aqeelOS ran this '+c.fixTotal+' time'+(c.fixTotal===1?'':'s')+' as a fix and '+c.proofTotal+' time'+(c.proofTotal===1?'':'s')+' as a proof (the limit is '+m.fixTotal+' and '+m.proofTotal+' per problem) and it is still not solved. It stops here so it does not use up the AI accounts; a person must look at it. Try again starts a fresh count.';
+  i.history.push({kind:'cap',at:now(),status:'needs_human',summary:why==='cost'?'Stopped at the spending limit for one problem ($'+spent.toFixed(2)+')':'Stopped at the limit of runs for one problem ('+c.fixTotal+' fix, '+c.proofTotal+' proof)'});await save();
+  const to=await tell(i,nameOf(i.agent)+': aqeelOS stopped trying to fix this by itself\n\nProblem: '+i.missing+'\nWhat is needed from you: '+i.need);i.told=to;await save();log('issues: '+i.id+' at its '+(why==='cost'?'spending limit ($'+spent.toFixed(2)+')':'run limit ('+c.fixTotal+' fix, '+c.proofTotal+' proof)')+'; needs a person, told '+to)}
  async function start(i,pol,kind){const n=kind==='fix'?i.tries+1:i.tries,id=i.id+'-'+n+(kind==='proof'?'p':''),dir=path.join(DIR,id);await mkdir(dir,{recursive:true,mode:0o700});
   const last=i.history.filter(h=>h.kind==='fix').at(-1);
   const cl=kind==='fix'&&!!await cloud?.ready().catch(()=>false);let gw=null,cf=null;
@@ -532,12 +572,15 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(git&&kind==='fix'&&!cl){gw=await git.prepare(i.id).catch(e=>({ok:false,why:e.message}));if(!gw.ok){log('issues: '+i.id+' no git work dir ('+gw.why+'); the older patch-file way');gw=null}}
   if(cf&&!gw){i.notBefore=now()+10*60e3;await save();log('issues: '+i.id+' waits: no git work dir for the confined fixer');return}
   if(cf){const pa=await sandbox.prepareDir(gw.dir);if(!pa.ok){i.notBefore=now()+10*60e3;await save();log('issues: '+i.id+' waits: '+pa.why);return}cf={...cf,launch:sandbox.launch({workDir:gw.dir,issue:i.id,run:id,variant:cf.variant})}}
-  await writeFile(path.join(dir,'prompt.txt'),kind==='fix'?(cf?confinedPrompt(i,{rules:pol.fixer?.rules||'',attempt:n,git:gw,url:cf.launch.url}):fixerPrompt(i,{rules:pol.fixer?.rules||'',attempt:n,git:gw,cloud:cl})):proofPrompt(i,last,{reloaded:i.applied||null,recheck:!!i.recheck,deployed:i.recheck==='deploy'}),{mode:0o600});
+  // the stronger model of the last try only when the earlier tries were cheap and at least one got as far as a result (12 Nov 2026: 8 escalated tries cost $37 of $58 and one of them was proven)
+  const spent=runCost(db.runs,i),escOk=spent<=costCaps(pol).escalateSpent&&i.history.some(h=>h.kind==='fix'&&h.status&&h.status!=='failed'),
+   mdl=fixerModel(pol,kind,n,{escalate:escOk}),turns=turnLimit(pol,kind,kind==='fix'&&n>=TRIES&&escOk&&!!pol.fixer?.models?.escalate);
+  await writeFile(path.join(dir,'prompt.txt'),kind==='fix'?(cf?confinedPrompt(i,{rules:pol.fixer?.rules||'',attempt:n,git:gw,url:cf.launch.url,turns}):fixerPrompt(i,{rules:pol.fixer?.rules||'',attempt:n,git:gw,cloud:cl,turns})):proofPrompt(i,last,{reloaded:i.applied||null,recheck:!!i.recheck,deployed:i.recheck==='deploy',turns}),{mode:0o600});
   if(kind==='fix'&&watch)await watch.snapshot(dir).catch(e=>log('issues: watch snapshot: '+e.message));
   if(kind==='fix'){i.tries=n;i.state='fixing'}else i.state='verifying';i.run=id;i.updated=now();
-  const mdl=fixerModel(pol,kind,n);const r={id,issue:i.id,kind,day:today(),at:now(),agent:pol.fixer?.agent||'default',...(mdl.model?{model:mdl.model}:{}),...(mdl.effort?{effort:mdl.effort}:{})};if(gw)r.git={dir:gw.dir,branch:gw.branch};if(cf)r.confined=cf.variant?.name||'env';db.runs[id]=r;await save();
+  i.fp=fingerprint(i);const r={id,issue:i.id,kind,day:today(),at:now(),agent:pol.fixer?.agent||'default',turns,fp:i.fp,...(mdl.model?{model:mdl.model}:{}),...(mdl.effort?{effort:mdl.effort}:{})};if(gw)r.git={dir:gw.dir,branch:gw.branch};if(cf)r.confined=cf.variant?.name||'env';db.runs[id]=r;await save();
   const minutes=kind==='fix'?Math.min(40,pol.fixer?.minutes||25):Math.min(30,pol.fixer?.proof_minutes||15);
-  try{r.pid=await (launch||spawnRun)({dir,agent:r.agent,minutes,model:mdl.model,effort:mdl.effort,confine:cf?cf.launch:null})}catch(e){r.done=now();r.exit=-1;r.notStarted=true;if(kind==='fix')i.tries--;i.state=kind==='fix'?'queued':'verify';await save();log('issues: fixer could not start: '+e.message);return}
+  try{r.pid=await (launch||spawnRun)({dir,agent:r.agent,minutes,model:mdl.model,effort:mdl.effort,turns,lean:pol.fixer?.ignoreRules!==false,confine:cf?cf.launch:null})}catch(e){r.done=now();r.exit=-1;r.notStarted=true;if(kind==='fix')i.tries--;i.state=kind==='fix'?'queued':'verify';await save();log('issues: fixer could not start: '+e.message);return}
   await save();log('issues: '+kind+' run started for '+i.id+' ('+id+')')}
  // CR-7: the confinement check. The confined engine is asked for `id -un`; only aq-fixer counts, so a run is never confined on a guess
  // (the engine may take its terminal from the profile's own settings). The first launch variant that passes is kept for this engine.
@@ -555,9 +598,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // the Health item "the fixer runs with full rights": once, until it is confined again
  async function noteFull(why){if(db.fullAsked)return;db.fullAsked=now();await save();await needFull(why||'The fixer runs with full rights.').catch(e=>log('issues: full-rights note: '+e.message))}
  async function clearFull(){if(!db.fullAsked)return;db.fullAsked=0;await save();await fullOk().catch(()=>{})}
- async function spawnRun({dir,agent,minutes,model='',effort='',confine=null}){const out=await open(path.join(dir,'out.txt'),'w',0o600);
-  try{const script='timeout -k 20 '+minutes*60+' "$1" -p "$2" chat --query-file "$3/prompt.txt" -Q --source tool ${4:+-m "$4"} ${5:+--reasoning "$5"} "${@:6}" </dev/null; printf %s "$?" > "$3/exit"';
-   const p=spawn('bash',['-c',script,'aqeelos-fixer',bin,agent,dir,model||'',effort||'',...(confine?.args||[])],{detached:true,cwd:fixerHome,env:{...(confine?.env||{}),HOME:fixerHome,USER:process.env.USER||'claude',PATH:path.join(fixerHome,'.local','bin')+':/usr/local/bin:/usr/bin:/bin',LANG:'C.UTF-8',TERM:'dumb',AQEELOS_FIXER:'1'},stdio:['ignore',out.fd,out.fd]});
+ async function spawnRun({dir,agent,minutes,model='',effort='',turns=0,lean=false,confine=null}){const out=await open(path.join(dir,'out.txt'),'w',0o600);
+  try{const script='timeout -k 20 '+minutes*60+' "$1" -p "$2" chat --query-file "$3/prompt.txt" -Q --source tool ${4:+-m "$4"} ${5:+--reasoning "$5"} ${6:+--max-turns "$6"} ${7:+--ignore-rules} "${@:8}" </dev/null; printf %s "$?" > "$3/exit"';
+   const p=spawn('bash',['-c',script,'aqeelos-fixer',bin,agent,dir,model||'',effort||'',turns?String(Math.floor(turns)):'',lean?'1':'',...(confine?.args||[])],{detached:true,cwd:fixerHome,env:{...(confine?.env||{}),HOME:fixerHome,USER:process.env.USER||'claude',PATH:path.join(fixerHome,'.local','bin')+':/usr/local/bin:/usr/bin:/bin',LANG:'C.UTF-8',TERM:'dumb',AQEELOS_FIXER:'1'},stdio:['ignore',out.fd,out.fd]});
    await new Promise((res,rej)=>{p.once('spawn',res);p.once('error',rej)});p.unref();return p.pid}finally{await out.close().catch(()=>{})}}
  const exists=f=>stat(f).then(()=>true,()=>false);
  // the code side of the hard rules, after a fix run: every changed file has a backup that exists, no listed file was
@@ -624,7 +667,10 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   for(const c of fr.changes||[]){const at=codeRoot(c.file);if(!at||!c.backup||live.includes(c.file))continue;if(at.root.prefix===''){if(await exists(c.file))await put(c.file,c.file)}else await engDiff(c.file,c.backup,at)}
   const codeLive=live.length>0,mine=await git.dirty(i.id).catch(()=>false);
   if(!codeLive&&!mine&&fr.status!=='patch')return 'other';
-  const back=await rollBack(fr.changes);
+  // the run lists the files it changed with their backups, the checkout's own files included: those are the fix itself and must stay for the commit
+  // (12 Nov 2026: every git try on Elkiya listed them, they were put back before the commit, "no code change in the checkout", 8 runs and $27 thrown away)
+  const inCheckout=f=>{const r=path.relative(path.resolve(g.dir),path.resolve(String(f||'')));return !!r&&!r.startsWith('..')&&!path.isAbsolute(r)};
+  const back=await rollBack((fr.changes||[]).filter(c=>!inCheckout(c.file)));
   const day=new Date(now()).toISOString().slice(0,10),title='Fixer: '+clip(i.title||i.missing,90).replace(/\n/g,' ');
   const fin=await git.finish(i.id,{message:title+'\n\nIssue '+i.id+' ('+nameOf(i.agent)+'). '+clip(fr.summary,600)+'\n\nOpened by the aqeelOS fixer.',
    engine:eng.length?[{name:day+'-fixer-'+i.id+'.patch',text:'# aqeelOS fixer, issue '+i.id+': '+clip(fr.summary,200).replace(/\n/g,' ')+'\n'+eng.join('')}]:[]}).catch(e=>({ok:false,why:e.message}));
@@ -727,7 +773,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   i.applied=kind;i.waitingSince=null;if(back)return await afterTry(i);i.state='verify';await save();log('issues: '+i.id+' reloaded ('+kind+')')}
  // "Try again" on Health (after a person did what was needed, or for a stuck one): a fresh set of tries
  const retry=id=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i||OPEN.includes(i.state))return i?view(i):null;
-  if(i.cloud&&['cloud','cloud_wait','needs_human'].includes(i.state)){i.cloud.sends=0;await cloudAgain(i,'a person pressed Try again',true);return view(i)}i.state='queued';i.tries=0;i.notBefore=0;i.noRetry=i.closeAfter=false;i.unavail=0;if(i.capped){delete i.capped;i.runBase={...runCounts(db.runs,{id:i.id},today()),day:today()}}i.updated=now();await save();return view(i)});
+  if(i.cloud&&['cloud','cloud_wait','needs_human'].includes(i.state)){i.cloud.sends=0;await cloudAgain(i,'a person pressed Try again',true);return view(i)}i.state='queued';i.tries=0;i.notBefore=0;i.noRetry=i.closeAfter=false;i.unavail=0;if(i.capped){delete i.capped;i.runBase={...runCounts(db.runs,{id:i.id},today()),cost:runCost(db.runs,{id:i.id}),day:today()}}i.updated=now();await save();return view(i)});
  // Protected files after a fix run. Unlisted changes to files only a person writes: put back, the try fails. Listed changes to any
  // protected file on a report nobody typed or approved: put back, and the owner is asked once (one tap lets the next try make them).
  async function heldBack(i,fr,h,dir,r){const ch=await watch.changed(dir).catch(()=>[]),listed=new Set((fr.changes||[]).map(c=>path.resolve(String(c.file||'')))),pol=await policy();
