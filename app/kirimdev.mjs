@@ -496,8 +496,18 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   await resumeWaits();await drainOutbox();await unanswered();checks().catch(e=>log('kirimdev delivery check: '+e.message))}finally{ticking=false}}
  // ---- delivery checks (see PROBE above). One at a time, in the background so handoffs never wait for one. Asked for by a
  // file in DATA/delivery-checks (scripts/delivery-check.mjs: the fixer's proof, a person), and once a day for every line.
- let probing=null;const CHK=path.join(DATA,'delivery-checks');
- async function checks(){if(probing)return;
+ let probing=null,orphansDone=false;const CHK=path.join(DATA,'delivery-checks');
+ // A check that was waiting when aqeelOS restarted has no answer and never gets one: its request is gone and the wait was in memory
+ // (Elkiya, 12 Nov 2026: the checks of 03:00 and 03:38 UTC logged "waiting" and no result; the app restarted at 03:01 and 03:40, deploys).
+ // The first look after a start answers each of them "no answer, run it again" (inconclusive: scripts/delivery-check.mjs exits 3, never
+ // "did not arrive"), and files left by a check nobody waits for any more go after a day.
+ async function orphans(){
+  for(const f of await readdir(CHK).catch(()=>[])){const s=await stat(path.join(CHK,f)).catch(()=>null);if(s&&now()-s.mtimeMs>24*3600e3)await unlink(path.join(CHK,f)).catch(()=>{})}
+  const all=await readdir(CHK).catch(()=>[]);
+  for(const f of all){const m=/^([\w-]+)\.steps\.log$/.exec(f);if(!m||all.includes(m[1]+'.result.json')||all.includes(m[1]+'.req.json'))continue;
+   await put(path.join(CHK,m[1]+'.result.json'),{at:now(),picture:false,inconclusive:true,why:'aqeelOS restarted while this check was waiting, so it has no answer. Nothing is known about the picture or PDF: run the check again.'},0o644).catch(()=>{});
+   log('kirimdev: delivery check '+m[1]+' was cut by a restart: answered "run it again"')}}
+ async function checks(){if(probing)return;if(!orphansDone){orphansDone=true;await orphans().catch(e=>log('kirimdev delivery check: '+e.message))}
   const reqs=(await import('node:fs/promises').then(f=>f.readdir(CHK)).catch(()=>[])).filter(f=>/^[\w-]+\.req\.json$/.test(f)).sort();
   let job=null;for(const f of reqs){const r=await readJson(path.join(CHK,f),null);await unlink(path.join(CHK,f)).catch(()=>{});if(r?.agent){job={...r,file:f.replace(/\.req\.json$/,'')};break}}
   if(!job){const L=await lines().catch(()=>({}));const a=Object.keys(L).find(a=>now()-(st.probes?.[a]?.at||0)>24*3600e3&&now()-(st.probeTried?.[a]||0)>24*3600e3);

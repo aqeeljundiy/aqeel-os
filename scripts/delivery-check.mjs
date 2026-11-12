@@ -5,7 +5,8 @@
 // fixer can prove a picture fix by itself instead of asking a person to look at a phone.
 //   node scripts/delivery-check.mjs <agent> [--link https://…] | --document [--timeout <seconds>]
 // Prints every step as it happens, then the result as JSON. Exit 0 only when the picture (or, with --document, the PDF sent
-// through the app's own one-purpose file link) arrived; 1 when it did not (the "why" says why); 3 when the app never answered.
+// through the app's own one-purpose file link) arrived; 1 when it did not (the "why" says why); 3 when the app never answered, or restarted
+// while the check was waiting (nothing is known then: run it again).
 // It always ends by itself within --timeout (default 330 s: a check takes up to about 5 minutes), and if something outside
 // stops it first (timeout, Ctrl-C) it still says where it was. 12 Nov 2026: a bare `timeout 200` killed it in silence.
 import {mkdir,writeFile,readFile,unlink,access} from 'node:fs/promises';
@@ -31,6 +32,7 @@ let shown=0,pickedUp=false;
 for(;;){
  const t=await readFile(res,'utf8').catch(()=>null);
  if(t){const r=JSON.parse(t);const lines=(await readFile(stepsF,'utf8').catch(()=>'')).split('\n').filter(Boolean);for(const l of lines.slice(shown))say(l);await cleanup();
+  if(r.inconclusive){say('No answer: '+(r.why||'the check was cut short')+'.');console.log(JSON.stringify({agent,...r},null,1));process.exit(3)}   // the app restarted during the wait (kirimdev.mjs orphans)
   say(r.picture||r.document?'Arrived.':'Did not arrive: '+(r.why||'no reason given')+'.');console.log(JSON.stringify(r,null,1));process.exit(r.picture||r.document?0:1)}
  const lines=(await readFile(stepsF,'utf8').catch(()=>'')).split('\n').filter(Boolean);
  for(const l of lines.slice(shown)){say(l);lastStep=l.replace(/^[\d:]+ /,'')}shown=lines.length;
