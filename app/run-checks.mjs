@@ -143,9 +143,11 @@ export async function runCommand({cmd,as=null,timeoutSec=20,exec=null}={}){const
  let r;
  if(as){   // as: {user,key,dir}: ssh to the agent's own user, cd into its folder, a timeout inside as well
   const within=t.every(x=>!x.startsWith('/')&&!x.includes('..'));if(!within)return {ok:false,out:'',why:'an agent command stays inside its folder'};
-  if(!/^ag-[\w-]+$/.test(String(as.user||'')))return {ok:false,out:'',why:'this agent has no own user'};
   const x=/^(python3?|bash|sh|node)$/.test(t[0])?t:[/\.py$/.test(t[0])?'python3':/\.mjs$|\.js$/.test(t[0])?'node':/\.sh$/.test(t[0])?'bash':'./'+t[0],...(/\.(py|mjs|js|sh)$/.test(t[0])?t:t.slice(1))];
-  r=await exec_(exec,run,'ssh',['-i',as.key,'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=accept-new','-o','ConnectTimeout=10',as.user+'@127.0.0.1',"cd '"+as.dir+"' && timeout -k 3 "+Math.max(1,timeoutSec-3)+' '+x.join(' ')],timeoutSec)}
+  // as.local (the main agent, a trusted one): it runs as this user already, so here, in its folder, with the same timeout and no shell (13 Nov 2026)
+  if(as.local===true&&!as.user){if(!path.isAbsolute(String(as.dir||'')))return {ok:false,out:'',why:'no folder'};r=await run(x[0],x.slice(1),{cwd:as.dir,timeout:timeoutSec*1000,encoding:'utf8',maxBuffer:2e6})}
+  else if(!/^ag-[\w-]+$/.test(String(as.user||'')))return {ok:false,out:'',why:'this agent has no own user'};
+  else r=await exec_(exec,run,'ssh',['-i',as.key,'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=accept-new','-o','ConnectTimeout=10',as.user+'@127.0.0.1',"cd '"+as.dir+"' && timeout -k 3 "+Math.max(1,timeoutSec-3)+' '+x.join(' ')],timeoutSec)}
  else r=await exec_(exec,run,t[0],t.slice(1),timeoutSec);
  return r.ok?{ok:true,out:String(r.out||'')}:{ok:false,out:'',why:r.code===124?'it took longer than '+timeoutSec+' s':'it failed ('+String(r.err||'').trim().split('\n').pop().slice(0,120)+')'}}
 const exec_=(_,run,f,a,sec)=>run(f,a,{timeout:sec*1000,encoding:'utf8',maxBuffer:2e6});

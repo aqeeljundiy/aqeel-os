@@ -23,6 +23,11 @@ export const GAP=60,TIMEOUT=300,LOCK_WAIT=300,DEDUPE_MS=24*3600e3,LOCK_FILE='.aq
 const clip=(s,n)=>{s=String(s??'');return s.length>n?s.slice(0,n-1)+'…':s};
 const sha=s=>createHash('sha1').update(s).digest('hex').slice(0,16);
 const base=a=>String(a).split('--')[0];
+// the main agent and the agents the owner marked trusted (DATA/agent-trust.json, agent-defaults.mjs) run as the box user already, with no
+// ag- user of their own: what aqeelOS runs for them (a hook, a check, a script-only schedule) runs here, in their folder (13 Nov 2026,
+// Donna AI's check script was refused). Everyone else keeps their own user.
+export async function isTrusted(DATA,a){if(base(a)==='default')return true;try{return [].concat(JSON.parse(await readFile(path.join(DATA,'agent-trust.json'),'utf8')).trusted||[]).includes(base(a))}catch{return false}}
+const runHere=(dir,remote,ms)=>import('node:child_process').then(({execFile})=>new Promise(res=>execFile('bash',['-c',"cd '"+dir+"' && "+remote],{timeout:ms,encoding:'utf8',maxBuffer:4e6},(e,out,err)=>res({ok:!e,out:out||'',err:err||(e?e.message:''),code:e?(e.killed?124:typeof e.code==='number'?e.code:1):0}))));
 
 // the command words of a hook's run, or null: only plain words, a path stays inside the folder (no leading /, no ..)
 export function commandOf(run){const t=String(run||'').trim().split(/\s+/).filter(Boolean);
@@ -61,7 +66,7 @@ export const fallbackScript=({agent,id,port,sig})=>['#!/bin/bash','# Written by 
 export function safePattern(p){const s=String(p||'');if(!s||s.length>120)return null;
  if(/\\[1-9]/.test(s)||/\)\s*(?:[+*]|\{)/.test(s)||/(?:[+*]|\{\d+,?\d*\})\s*(?:[+*]|\{)/.test(s))return null;   // a repeated group, a back-reference, a repeat of a repeat
  try{return new RegExp(s)}catch{return null}}
-export function createEventHooks({DATA,WORK,runAs,deliver,problem=async()=>{},solved=async()=>{},enabled=()=>true,now=()=>Date.now(),log=m=>console.log(m),setTimer=(fn,ms)=>{const t=setTimeout(fn,ms);t.unref?.();return t}}){
+export function createEventHooks({DATA,WORK,runAs,runLocal=runHere,deliver,problem=async()=>{},solved=async()=>{},enabled=()=>true,now=()=>Date.now(),log=m=>console.log(m),setTimer=(fn,ms)=>{const t=setTimeout(fn,ms);t.unref?.();return t}}){
  const CFG=path.join(DATA,'event-hooks.json'),ST=path.join(DATA,'event-hooks-state.json');let cache={at:0,v:{}},st=null;const last=new Map(),pending=new Map(),chains=new Map();
  const config=async()=>{if(now()-cache.at>30e3){let v={};try{v=JSON.parse(await readFile(CFG,'utf8'))}catch{}if(v&&typeof v.hooks==='object'&&!Array.isArray(v.hooks))v=v.hooks;
    cache={at:now(),v:Object.fromEntries(Object.entries(v||{}).filter(([a,l])=>AGENT.test(a)&&Array.isArray(l)).map(([a,l])=>[a,l.map(cleanHook).filter(Boolean)]))}}return cache.v};
@@ -77,7 +82,8 @@ export function createEventHooks({DATA,WORK,runAs,deliver,problem=async()=>{},so
  async function execute(agent,h,type){const k=agent+'/'+h.id;last.set(k,now());pending.delete(k);const s=await load(),row=(s.runs[k]||={n:0,fails:0});let err=null,sent=0;
   try{
    if(h.feed)await writeFeed({DATA,WORK,agent,dir:h.feed});
-   const r=await runAs(agent,remoteCommand(h.run,{timeoutSec:h.timeoutSec}),(h.timeoutSec+LOCK_WAIT+60)*1000);
+   const cmd=remoteCommand(h.run,{timeoutSec:h.timeoutSec}),ms=(h.timeoutSec+LOCK_WAIT+60)*1000;let r=await runAs(agent,cmd,ms);
+   if(!r.ok&&/no own user/.test(r.err||'')&&!/'/.test(WORK)&&await isTrusted(DATA,agent))r=await runLocal(path.join(WORK,base(agent)),cmd,ms);
    if(!r.ok)throw Error(failText(r,h));
    const {text,lines}=shape(r.out,h,s,k),all=[s.held[k],text].filter(Boolean).join('\n');   // a delivery that failed last time goes out first
    if(all){if(!h.deliver)throw Error('the hook has no deliver target');

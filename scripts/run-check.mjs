@@ -10,7 +10,7 @@
 //                                                   go for --retries more calls, so a run that failed is tried again
 //   --cmd "<command>" [--cmd-once]                 a command run here (as this user) that prints when there is work; nothing printed = no work; --cmd-once: the same
 //                                                   output as at the last go is not work again (a blocker already reported)
-//   --agent-cmd "<command>" [--cmd-once]           the same, run as the agent's own user inside its folder (ssh, like a script-only schedule)
+//   --agent-cmd "<command>" [--cmd-once]           the same, run as the agent's own user inside its folder (ssh, like a script-only schedule; the main agent and trusted ones: here, in their folder)
 //   --max-idle MIN                                  a safety run when no check said go for MIN minutes (needs --data and --job)
 //   --posting [--kinds comment,dm]                  the posting limits must allow a post now (needs --data); --kinds: the kinds this schedule posts
 // Work checks (--dms, --comments, --new-since): anything above zero is something to do. --posting is a permission, not work.
@@ -18,6 +18,7 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {homedir} from 'node:os';
 import {cdpPortOf,unreadDms,unansweredComments,postingAllowed,newSince,idleSafety,loadState,saveState,combine,commandWork} from '../app/run-checks.mjs';
+import {isTrusted} from '../app/event-hooks.mjs';
 
 const args=process.argv.slice(2),flag=n=>args.includes('--'+n),opt=n=>{const i=args.indexOf('--'+n);return i>=0?args[i+1]:undefined};
 const all=n=>args.flatMap((a,i)=>a==='--'+n&&args[i+1]?[args[i+1]]:[]);
@@ -31,7 +32,10 @@ try{
   work.push(await unansweredComments({key,accountId:opt('account'),platform:opt('platform')}))}
  {const once=flag('cmd-once'),HH=path.basename(path.dirname(home))==='profiles'?path.dirname(path.dirname(home)):home;let st=state.cmd?state:{...state};
   for(const [kind,list] of [['cmd',all('cmd')],['agent-cmd',all('agent-cmd')]])for(const cmd of list){
-   let as=null;if(kind==='agent-cmd'){const u=/^\s*ssh_user:\s*['"]?(ag-[\w-]+)/m.exec(await readFile(path.join(home,'config.yaml'),'utf8').catch(()=>''))?.[1];as={user:u,key:path.join(HH,'agent-ssh','id_ed25519'),dir:path.join(WORK,agent.split('--')[0])}}
+   let as=null;if(kind==='agent-cmd'){const u=/^\s*ssh_user:\s*['"]?(ag-[\w-]+)/m.exec(await readFile(path.join(home,'config.yaml'),'utf8').catch(()=>''))?.[1],b=agent.split('--')[0];
+    // the main agent and the ones in agent-trust.json run as this user already: their command runs here, in their folder (13 Nov 2026)
+    const local=!u&&(b==='default'||!!DATA&&await isTrusted(DATA,b));
+    as={user:u,local,key:path.join(HH,'agent-ssh','id_ed25519'),dir:path.join(WORK,b)}}
    const w=await commandWork({label:kind+':'+cmd,cmd,as,once,state:st,timeoutSec:+opt('cmd-timeout')||20});work.push(w);st={...st,cmd:w.next};state=st}}
  const sources=all('new-since');let ns=null;
  if(sources.length){ns=await newSince({sources,state:state.ns||{},retries:opt('retries')==null?3:+opt('retries'),maxIdleMin:maxIdle});work.push(ns)}
