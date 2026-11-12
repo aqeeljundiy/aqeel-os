@@ -1312,6 +1312,9 @@ button.agent-go:hover{background:none;transform:none}
 .agent-card:has(.agent-go:focus-visible){border-color:var(--blue-2)}
 /* on a touch screen a text link gets a finger-sized hit area without moving anything (audit 12 Nov 2026: Show all, Check now, Show key were 16 to 20 px tall) */
 @media (pointer:coarse){.link-btn,.hf-link,.hc-all,.cn-checked .link{padding-block:10px;margin-block:-10px}}
+/* number fields look like every other field: no browser spinner arrows (Models, Teams and Settings had them) */
+input[type=number]{appearance:textfield;-moz-appearance:textfield}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .agent-gear svg{transition:transform .5s var(--ease)}.agent-gear:hover svg{transform:rotate(60deg)}
 
 .kind-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;margin-right:4px;vertical-align:1px;background:var(--soft);color:var(--ink-2)}
