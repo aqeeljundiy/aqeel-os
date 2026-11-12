@@ -22,7 +22,7 @@
 //     else as ?agent=&profile= and in the body).
 //  5. Every proxied route (/gapi, /hapi) is also checked against what the stub engine received: whatever a member sends, the engine only ever sees
 //     agent A (guards app/proxy-agent.mjs); an anonymous call reaches no engine at all.
-import test from 'node:test';import assert from 'node:assert/strict';
+import {src as sourceOf} from './lib/source.mjs';import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';import {tmpdir} from 'node:os';import path from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createServer,request as httpRequest,Agent} from 'node:http';import {spawn} from 'node:child_process';import {randomBytes} from 'node:crypto';
 
@@ -186,7 +186,7 @@ function request(row,method,role){
 
 
 test('the matrix: every route, every kind of person',{timeout:240000},async t=>{
- const sources=[];for(const f of SOURCES)sources.push([f,await readFile(path.join(ROOT,'app',f),'utf8')]);
+ const sources=[];for(const f of SOURCES)sources.push([f,sourceOf('app/'+f)]);
  const {rows:parsed,counts}=parseRoutes(sources);
  const rows=new Map();   // "METHOD path" -> {kind,path,method,slot,src}
  for(const r of parsed)for(const m of r.methods)rows.set(m+' '+r.path,{kind:r.kind,path:r.path,method:m,slot:r.slot,src:r.src});
