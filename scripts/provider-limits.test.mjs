@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {providerUnavailable,resetOf,retryAt,nextClock,createLimitState} from '../app/provider-limits.mjs';
 import {createIssues,runCaps,runCounts,capHit,runUnavailable,RUN_CAPS} from '../app/issues.mjs';
+import {fakeFixerSandbox} from './lib/fake-fixer-sandbox.mjs';
 import {createAgentVersions} from '../app/agent-versions.mjs';
 import {exhaustion,entryReset} from '../app/accounts.mjs';
 import {providerPause,summary} from './live-test.mjs';
@@ -54,7 +55,7 @@ test('the shared hold: set by a limit text, ends at the reset, survives a restar
 // ---- the fixer ----
 async function fixer(o={}){const DATA=await mkdtemp(path.join(tmpdir(),'plf-'));let t=T;const told=[],started=[];const limits=createLimitState({now:()=>t});
  await writeFile(path.join(DATA,'team-policy.json'),JSON.stringify({teams:[],owner:{name:'Owner'},fixer:{on:true,agent:'default',...(o.fixer||{})}}));
- const fx=createIssues({DATA,home:DATA,bin:'x',fixerHome:DATA,now:()=>t,limits,tellOwner:async x=>{told.push(x)},ready:async()=>true,log:()=>{},tz:()=>'UTC',
+ const fx=createIssues({sandbox:fakeFixerSandbox(),DATA,home:DATA,bin:'x',fixerHome:DATA,now:()=>t,limits,tellOwner:async x=>{told.push(x)},ready:async()=>true,log:()=>{},tz:()=>'UTC',
   launch:async({dir})=>{started.push(dir);return 999999},alive:async()=>false,checks:o.checks||{}});
  return {fx,DATA,told,started,limits,tick:ms=>{t+=ms},now:()=>t}}
 const finish=async(DATA,run,out,exit=0)=>{const d=path.join(DATA,'issues',run);await mkdir(d,{recursive:true});await writeFile(path.join(d,'out.txt'),out);await writeFile(path.join(d,'exit'),String(exit))};
