@@ -80,13 +80,16 @@ export function chatPlan(e,p,now,{maxAge=7200e3,tz=''}={}){
  return {do:'send',caution:!!caution,started,note:noteFor({why:e.why,at:e.cutAt||now,tz,started,caution,text:p.stored?'':e.text||''})}}
 // p: {missing, status, error, delivered, ownerLive, newer, enabled, posted}
 export const CUT_ERR=/interrupt|restart|shutdown|shut down|cancel|terminat|killed|sigterm|sigkill|owner.*(gone|dead)|process.*(gone|dead|exited)/i;
+// The engine's own word for a cut is short and comes first ("interrupted", "Scheduler restarted while…"). The same column often holds the
+// agent's own last text for a run that failed by itself; a long sentence that merely contains "restart" or "cancel" is not a cut (audit M12).
+export const cutError=err=>{const t=String(err||'').trim();return t.length<=120&&CUT_ERR.test(t)};
 export function runPlan(e,p,now,{maxAge=7200e3}={}){
  const old=tooOld(e,now,maxAge);
  if(!p)return old?{do:'giveup',why:ageWhy(maxAge)}:{do:'wait',why:'the engine’s record of the run could not be read'};
  if(p.status==='completed')return {do:'skip',why:'it finished'};
  if(p.newer)return {do:'skip',why:'it ran again since'};
  if((p.status==='running'||p.status==='claimed')&&p.ownerLive)return {do:'wait',why:'it is still running'};
- if(p.status==='failed'&&!CUT_ERR.test(String(p.error||'')))return {do:'skip',why:'it failed by itself'};
+ if(p.status==='failed'&&!cutError(p.error))return {do:'skip',why:'it failed by itself'};
  if(old)return {do:'giveup',why:ageWhy(maxAge)};
  if((e.n||0)>=MAX_TIMES)return {do:'giveup',why:'interrupted '+MAX_TIMES+' times while continuing'};
  if(p.missing&&!p.jobKnown)return {do:'giveup',why:'the schedule no longer exists'};
@@ -104,7 +107,7 @@ export function delegPlan(e,p,now,{maxAge=7200e3,tz=''}={}){
  if(/^(running|stalling|finalizing)$/.test(p.state||'')){if(p.ownerLive)return {do:'wait',why:'it is still running'};return old?{do:'giveup',why:ageWhy(maxAge)}:{do:'wait',why:'the engine has not closed it yet'}}
  if(p.status==='completed')return {do:'skip',why:'it finished'};
  if(p.newer)return {do:'skip',why:'it was started again since'};
- if(!(p.status==='unknown'||p.status==='interrupted'||CUT_ERR.test(String(p.error||''))))return {do:'skip',why:'it failed by itself'};
+ if(!(p.status==='unknown'||p.status==='interrupted'||cutError(p.error)))return {do:'skip',why:'it failed by itself'};
  if(p.delivery==='delivered')return {do:'done'};   // the engine handed the (interrupted) result back to the chat: the agent knows
  if(old)return {do:'giveup',why:ageWhy(maxAge)};
  if(p.delivery==='pending'&&now-(e.cutAt||now)<DELEG_HANDBACK_MS)return {do:'wait',why:'the engine is handing it back to the chat'};

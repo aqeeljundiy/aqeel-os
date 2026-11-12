@@ -242,3 +242,10 @@ for(const kind of ['schedule','deleg','channel','fixer'])test('M1: a '+kind+' en
  // five starts later it is not still "resuming": the pass can act on it
  for(let i=0;i<5;i++){c.t+=60e3;app(D,c).r.boot()}
  const after=JSON.parse(readFileSync(path.join(D,'resume','journal.json'),'utf8')).entries.find(x=>x.id==='x1');assert.ok(!after||after.state!=='resuming','still resuming after five starts')});
+
+// Audit M12: the engine's error column often holds the agent's own last words; "restart" or "cancel" inside them is not a cut
+test('M12: a schedule that failed by itself is not run again because its error text mentions a restart',()=>{const e={cutAt:T0},now=T0+60e3,p=x=>({status:'failed',ownerLive:false,newer:false,enabled:true,jobKnown:true,...x});
+ assert.equal(runPlan(e,p({error:'The unreplied check script crashed, so I could not finish. I tried to restart it twice and then cancelled the run; please look at the traceback in the log.'}),now).do,'skip');
+ assert.equal(runPlan(e,p({error:'I could not reach the sheet. If this keeps happening the owner may want to restart the Google connection, which was killed last week by a password change, and then run me again by hand.'}),now).do,'skip');
+ // the engine's own short words still count
+ for(const error of ['interrupted','Scheduler restarted while the job was running','owner process gone','cancelled','Killed (SIGKILL)'])assert.notEqual(runPlan(e,p({error}),now).do,'skip',error)});
