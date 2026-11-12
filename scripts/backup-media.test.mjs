@@ -9,12 +9,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readdirSync,existsSync,rmSync,utimesSync,chmodSync,statSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
-import {randomBytes} from 'node:crypto';
+import {randomBytes,createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createBackups,EXCLUDE_ALL,excluded,LEFTOVER} from '../app/backup.mjs';
-import {EXCLUDE_MORE,excludeTester,scan,eligible,plan,forgetMissing,buildManifest,manifestPacks,prunable,dropNights,chunkBySize,parseSkips,reasonFor,passwdUids,mergeSkipped,summarizeSkipped,restoreMedia,emptyIndex,MEDIA_NAME,PACK_MIN,PACK_QUIET,PACK_GRACE,PACK_MAX,sha256File} from '../app/backup-media.mjs';
+import {isVenv,plainName,sqliteHead,md5File,EXCLUDE_MORE,excludeTester,scan,eligible,plan,forgetMissing,buildManifest,manifestPacks,prunable,dropNights,chunkBySize,parseSkips,reasonFor,passwdUids,mergeSkipped,summarizeSkipped,restoreMedia,emptyIndex,MEDIA_NAME,PACK_MIN,PACK_QUIET,PACK_GRACE,PACK_MAX,sha256File} from '../app/backup-media.mjs';
 
 const TOOLS=(()=>{const r=spawnSync('bash',['-c','tar --version && openssl version && gzip --version'],{stdio:'ignore'});return r.status===0})();
 const NEED={skip:!TOOLS&&'needs bash, tar, gzip and openssl'};
@@ -272,3 +272,78 @@ test('the restore test opens the newest night: manifest there, every pack in Dri
  await assert.rejects(()=>b.mk().test(),/Missing from Google Drive: the media pack aqeelos-media-/)}finally{b.done()}});
 
 test('sha-256 of a file, as the index records it',async()=>{const T=mkdtempSync(path.join(tmpdir(),'aq-sha-'));try{writeFileSync(T+'/f','abc');assert.equal(await sha256File(T+'/f'),'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')}finally{rmSync(T,{recursive:true,force:true})}});
+
+/* ---------- the independent check of 13 Nov 2026 (a real round trip on Elkiya): what it found, pinned */
+test('tar says "Warning: Cannot open" with --ignore-failed-read: the path is still read right, so an unreadable file is never recorded as packed',()=>{
+ const p=parseSkips('tar: workspaces/agent/secret.txt: Warning: Cannot open: Permission denied\ntar: workspaces/a/gone.bin: Warning: Cannot stat: No such file or directory\ntar: workspaces/a/d: Cannot savedir: Permission denied');
+ assert.deepEqual(p.map(x=>x.path),['workspaces/agent/secret.txt','workspaces/a/d']);assert.equal(p[0].why,'Permission denied')});
+
+test('a project folder with a pyvenv.cfg in it (python -m venv .) is not a virtual environment: it is backed up whole',async()=>{const T=mkdtempSync(path.join(tmpdir(),'aq-venv-'));try{
+ assert.equal(isVenv(['pyvenv.cfg','bin','lib','lib64','include','.gitignore','CACHEDIR.TAG','share']),true);assert.equal(isVenv(['pyvenv.cfg','bin','lib','app.py']),false);assert.equal(isVenv(['bin','lib']),false);
+ put(T+'/workspaces/a/proj/pyvenv.cfg','version = 3.12\n');put(T+'/workspaces/a/proj/app.py','print(1)');put(T+'/workspaces/a/proj/lib/python3.12/site-packages/x.py','x');put(T+'/workspaces/a/proj/bin/python','x');put(T+'/workspaces/a/proj/notes/plan.md','mine');
+ put(T+'/workspaces/a/real/pyvenv.cfg','version = 3.12\n');put(T+'/workspaces/a/real/lib/python3.12/site-packages/x.py','x');put(T+'/workspaces/a/real/bin/python','x');
+ const r=await scan({root:T,include:['workspaces'],excl:excludeTester(EXCLUDE_ALL)});
+ assert.deepEqual(r.venvs.map(v=>v.path),['workspaces/a/real']);assert.ok(r.files.some(f=>f.rel==='workspaces/a/proj/app.py')&&r.files.some(f=>f.rel==='workspaces/a/proj/notes/plan.md')&&r.files.some(f=>f.rel==='workspaces/a/proj/lib/python3.12/site-packages/x.py'));
+ assert.ok(!r.files.some(f=>f.rel.startsWith('workspaces/a/real/')))}finally{rmSync(T,{recursive:true,force:true})}});
+
+test('a name that ends or starts with white space is never excluded by name (tar trims its exclude lines), and a replaced file with the old size and time is packed again',()=>{
+ assert.equal(plainName('workspaces/a/clip.mp4 '),false);assert.equal(plainName(' workspaces/a/clip.mp4'),false);assert.equal(plainName('workspaces/a/my clip é.mp4'),true);
+ assert.equal(eligible(F('workspaces/a/clip.mp4 ',5e6),{now:NOW}),false);
+ const ix=emptyIndex();ix.packs.p1={id:'1',size:9,at:1};const f={...F('a.png',300000),ino:77};ix.files['a.png']={size:f.size,mtime:f.mtime,ino:77,sha:'s',pack:'p1'};
+ assert.equal(plan([f],ix,{now:NOW}).reused.length,1);assert.equal(plan([{...f,ino:78}],ix,{now:NOW}).fresh.length,1,'another inode: another file');
+ delete ix.files['a.png'].ino;assert.equal(plan([{...f,ino:78}],ix,{now:NOW}).reused.length,1,'an index from before inodes were recorded still counts')});
+
+test('a pack Drive holds with another checksum is forgotten like a missing one',()=>{
+ const ix=emptyIndex();ix.packs={good:{id:'a',size:5,md5:'m1',at:1},bad:{id:'b',size:5,md5:'m2',at:1},old:{id:'c',size:5,at:1}};ix.files={x:{pack:'good'},y:{pack:'bad'},z:{pack:'old'}};
+ assert.deepEqual(forgetMissing(ix,{good:{size:5,md5:'m1'},bad:{size:5,md5:'other'},old:{size:5,md5:'whatever'}}),['bad']);assert.deepEqual(Object.keys(ix.files),['x','z'])});
+
+// Drive's own md5 of every file, as the real one gives it (the fake above does not)
+const withMd5=(b,{lie=()=>false}={})=>async(u,o={})=>{const r=await b.g.fetchImpl(u,o);if(!r.ok||!/json/.test(r.headers.get('content-type')||''))return r;const j=await r.json();
+ const add=x=>{const f=b.g.files.get(x.id);if(f)x.md5Checksum=lie(f)?'0'.repeat(32):createHash('md5').update(f.data).digest('hex');return x};
+ if(Array.isArray(j.files))j.files.forEach(add);else if(j.id)add(j);return new Response(JSON.stringify(j),{status:r.status,headers:{'content-type':'application/json'}})};
+
+test('a database under any name (a browser\'s Cookies) is never packed: it stays in the archive with its journal',NEED,async()=>{const b=box();try{
+ const db=b.HOME+'/workspaces/agent/.browser/Default/Cookies';put(db,Buffer.concat([Buffer.from('SQLite format 3\0'),randomBytes(300e3)]));old(db);media(b.HOME,'workspaces/agent/reels/a.png',300e3);
+ assert.equal(await sqliteHead(db),true);assert.equal(await sqliteHead(b.HOME+'/workspaces/agent/reels/a.png'),false);assert.equal(await sqliteHead(b.HOME+'/nothing'),false);
+ const last=await b.mk().run('by hand');assert.equal(last.media.files,1,'the picture only');
+ const members=membersOf(diskFile(b,b.g.inFolder('aqeelOS backups')[0]),keyOf(b));assert.ok(members.includes('workspaces/agent/.browser/Default/Cookies'));assert.ok(!members.includes('workspaces/agent/reels/a.png'))}finally{b.done()}});
+
+test('an upload Drive holds damaged fails the night and goes to the bin; a pack damaged later is found the next night, packed again and said',NEED,async()=>{const b=box();try{
+ const a=media(b.HOME,'workspaces/agent/reels/a.png',300e3);
+ // the pack arrives damaged: nothing is recorded, no archive is made
+ await assert.rejects(()=>b.mk({fetchImpl:withMd5(b,{lie:f=>MEDIA_NAME.test(f.name)})}).run('by hand'),/damaged/);
+ assert.equal(b.g.inFolder('aqeelOS backups media').length,0,'in the Drive bin');assert.equal(b.g.inFolder('aqeelOS backups').length,0);assert.deepEqual(readdirSync(b.TMP),[]);
+ // a good night
+ const n1=await b.mk({fetchImpl:withMd5(b)}).run('by hand');assert.equal(n1.media.newFiles,1);const pack=b.g.inFolder('aqeelOS backups media')[0];assert.equal(b.index().packs[pack.name].md5,createHash('md5').update(pack.data).digest('hex'));
+ assert.equal(await md5File(diskFile(b,pack)),b.index().packs[pack.name].md5);
+ // the pack rots in Drive (same size): the next night notices at backup time, packs the file again and says an earlier night lost it
+ pack.data=Buffer.from(pack.data);pack.data[100]^=0xff;
+ const told=[],n2=await b.mk({fetchImpl:withMd5(b),notify:t=>told.push(t)}).run('by hand');assert.equal(n2.media.newFiles,1);assert.equal(n2.media.lostPacks,1);assert.equal(told.length,1);assert.match(told[0],/missing or damaged/);
+ const night2=b.g.inFolder('aqeelOS backups').sort((x,y)=>y.at-x.at)[0],dir=b.T+'/n2',key=keyOf(b);decryptTo(diskFile(b,night2),key,dir);const mf=JSON.parse(readFileSync(dir+'/backup-manifest.json','utf8'));
+ assert.ok(!manifestPacks(mf).includes(pack.name),'tonight names the new pack');const byName=Object.fromEntries(b.g.inFolder('aqeelOS backups media').map(p=>[p.name,p]));
+ const r=await restoreMedia({manifest:mf,dir,key,getPack:async n=>diskFile(b,byName[n])});assert.equal(r.restored,1);assert.deepEqual(readFileSync(dir+'/workspaces/agent/reels/a.png'),readFileSync(a))}finally{b.done()}});
+
+test('restoring: a file the manifest names that its pack does not hold is reported as missing, the others come back; a damaged pack is an error',POSIX,async()=>{const b=box();try{
+ const a=media(b.HOME,'workspaces/agent/reels/a.png',300e3);media(b.HOME,'workspaces/agent/reels/with space é.png',200e3);await b.mk().run('by hand');
+ const night=b.g.inFolder('aqeelOS backups')[0],pack=b.g.inFolder('aqeelOS backups media')[0],key=keyOf(b),dir=b.T+'/r';decryptTo(diskFile(b,night),key,dir);const mf=JSON.parse(readFileSync(dir+'/backup-manifest.json','utf8'));
+ mf.packs[pack.name].push(['workspaces/agent/reels/never-packed.png',5,1,'00',0o644]);
+ const r=await restoreMedia({manifest:mf,dir,key,getPack:async()=>diskFile(b,pack)});assert.equal(r.restored,2);assert.deepEqual(r.missing,['workspaces/agent/reels/never-packed.png']);
+ assert.deepEqual(readFileSync(dir+'/workspaces/agent/reels/a.png'),readFileSync(a));assert.ok(existsSync(dir+'/workspaces/agent/reels/with space é.png'));
+ // content that is not what the manifest says
+ mf.packs[pack.name].pop();mf.packs[pack.name][0][3]='f'.repeat(64);const r2=await restoreMedia({manifest:mf,dir,key,getPack:async()=>diskFile(b,pack)});assert.equal(r2.bad.length,1);
+ // half a pack
+ const half=b.T+'/half.enc';writeFileSync(half,pack.data.subarray(0,pack.data.length>>1));await assert.rejects(()=>restoreMedia({manifest:mf,dir:b.T+'/r3',key,getPack:async()=>half}),/could not be opened/);
+ // by hand the same is one plain line and exit 1, not a stack trace
+ const pk=b.T+'/pk';mkdirSync(pk);writeFileSync(pk+'/'+pack.name,pack.data.subarray(0,pack.data.length>>1));writeFileSync(b.T+'/key.txt',key);writeFileSync(b.T+'/mf.json',JSON.stringify(mf));
+ const cli=spawnSync(process.execPath,[fileURLToPath(new URL('./restore-media.mjs',import.meta.url)),b.T+'/mf.json',pk,b.T+'/r4','--key-file',b.T+'/key.txt'],{encoding:'utf8'});
+ assert.equal(cli.status,1);assert.match(cli.stderr,/could not be opened/);assert.match(cli.stderr,/Download it again/);assert.doesNotMatch(cli.stderr,/at restoreMedia|node:internal/)}finally{b.done()}});
+
+test('only what tar itself lists as put in a pack is recorded as packed: a file tar leaves out without saying why stays in the archive',{skip:(!TOOLS||process.platform==='win32')&&'needs tools and a shell script on the PATH'},async()=>{const b=box();const PATH0=process.env.PATH;try{
+ media(b.HOME,'workspaces/agent/reels/a.png',300e3);media(b.HOME,'workspaces/agent/reels/b é.png',300e3);
+ // a tar that silently drops a.png from a pack's file list (and is the real tar otherwise)
+ const bin=b.T+'/bin';mkdirSync(bin);const real=String(spawnSync('bash',['-c','command -v tar']).stdout).trim();
+ writeFileSync(bin+'/tar','#!/bin/bash\nfor a in "$@"; do case "$a" in *.list) tr "\\0" "\\n" <"$a" | grep -v "a\\.png" | tr "\\n" "\\0" >"$a.2"; mv "$a.2" "$a";; esac; done\nexec '+real+' "$@"\n');chmodSync(bin+'/tar',0o755);process.env.PATH=bin+':'+PATH0;
+ const last=await b.mk().run('by hand');process.env.PATH=PATH0;
+ assert.equal(last.media.files,1,'b only');assert.deepEqual(Object.keys(b.index().files),['workspaces/agent/reels/b é.png']);
+ const members=membersOf(diskFile(b,b.g.inFolder('aqeelOS backups')[0]),keyOf(b));assert.ok(members.includes('workspaces/agent/reels/a.png'),'a is in the archive, not lost');assert.ok(!members.some(m=>/reels\/b /.test(m)),'b is in its pack');
+ assert.ok(LEFTOVER.test('aqeelos-media-2026-11-13-03-04-3fa9.tar.gz.enc.idx'));assert.deepEqual(readdirSync(b.TMP),[])}finally{process.env.PATH=PATH0;b.done()}});

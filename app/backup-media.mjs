@@ -14,7 +14,7 @@
 //    scripts/restore-media.mjs, by hand.
 // 3. Files that cannot be read (they belong to a deleted agent's Linux user, or are private) are skipped with a reason and written to one
 //    list, DATA/backup-skipped.json. Each night only files that are new on the list are said; the Backups card shows the list.
-import {readdir,lstat,readFile,access,constants,mkdir,writeFile,rm} from 'node:fs/promises';
+import {readdir,lstat,readFile,access,constants,mkdir,writeFile,rm,open} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {spawn} from 'node:child_process';
@@ -38,18 +38,24 @@ export const EXCLUDE_MORE=[
  'component_crx_cache','CertificateRevocation','Safe Browsing','DawnWebGPUCache','DawnGraphiteCache','BrowserMetrics','BrowserMetrics-spare.pma','OptGuideOnDeviceModel','optimization_guide_model_store','Crashpad'];
 const DBFILE=/\.(db|sqlite3?)(-wal|-shm|-journal)?$|\.(pid|lock|sock)$/;
 const GLOB=/[*?[\]\\\n]/;   // a name with these is never offloaded or excluded by name: tar would read it as a pattern
-export const plainName=p=>!GLOB.test(p);
+// (nor one where a path part starts or ends with white space: tar cuts trailing white space off a line of its exclude file, so the line would
+// name another file, which would then be in neither the archive nor a pack)
+export const plainName=p=>!GLOB.test(p)&&!/^\s|\s$/.test(p);
 const SPECIAL=new Set('.+?^${}()|[]\\'.split(''));
 const esc=s=>[...s].map(c=>SPECIAL.has(c)?'\\'+c:c).join('');
 // a test for one relative path against tar --exclude patterns
 export function excludeTester(patterns){const res=patterns.map(e=>new RegExp('(^|/)'+esc(e).split('*').join('.*')+'$'));return rel=>res.some(r=>r.test(rel))}
 
 /* One walk over what a backup holds. Folders the patterns exclude are not entered. A folder with a pyvenv.cfg is a Python virtual
-   environment: it is not entered either, and is returned in venvs with its configuration and package list. */
+   environment: it is not entered either, and is returned in venvs with its configuration and package list. Only a folder that holds
+   nothing but what python -m venv, virtualenv or uv put there counts (isVenv): a project folder somebody ran "python -m venv ." in has
+   a pyvenv.cfg too, and that one is backed up whole like any folder. */
+const VENV_OWN=new Set(['pyvenv.cfg','bin','include','lib','lib64','share','etc','man','.gitignore','.lock','CACHEDIR.TAG','.Python']);
+export const isVenv=names=>names.includes('pyvenv.cfg')&&names.every(n=>VENV_OWN.has(n));
 export async function scan({root,include,excl}){const files=[],venvs=[];
- const put=(rel,s)=>files.push({rel,size:s.size,mtime:Math.floor(s.mtimeMs),mode:s.mode&0o7777,uid:s.uid});
+ const put=(rel,s)=>files.push({rel,size:s.size,mtime:Math.floor(s.mtimeMs),mode:s.mode&0o7777,uid:s.uid,ino:s.ino});
  async function walk(rel){let names;try{names=await readdir(path.join(root,rel))}catch{return}
-  if(rel&&names.includes('pyvenv.cfg')){venvs.push(await venvInfo(root,rel));return}
+  if(rel&&isVenv(names)){venvs.push(await venvInfo(root,rel));return}
   const kept=names.map(n=>rel?rel+'/'+n:n).filter(r=>!excl(r));
   const st=await Promise.all(kept.map(r=>lstat(path.join(root,r)).catch(()=>null)));
   for(let i=0;i<kept.length;i++){const s=st[i];if(!s)continue;if(s.isDirectory())await walk(kept[i]);else if(s.isFile())put(kept[i],s)}}
@@ -71,13 +77,16 @@ export const emptyIndex=()=>({v:1,files:{},packs:{},nights:{}});
    It is rebuilt from nothing when lost (the next night packs everything once more); what it does not know, it never bins (see prunable). */
 export const readIndex=file=>readStore(file,emptyIndex);
 export const saveIndex=(file,ix)=>writeStore(file,JSON.stringify(ix),{mode:0o600});
-// planned from the walk: files already in a pack (same path, size, mtime, and the pack still exists) and files that need packing
+// planned from the walk: files already in a pack (same path, size, mtime and inode, and the pack still exists) and files that need packing.
+// The inode: a file replaced by another of the same size with its old time kept (cp -p, rsync -t, an unpacked archive) is a new file
 export function plan(files,index,o){const reused=[],fresh=[];
  for(const f of files){if(!eligible(f,o))continue;const e=index.files[f.rel];
-  if(e&&e.size===f.size&&e.mtime===f.mtime&&index.packs[e.pack])reused.push({...f,sha:e.sha,pack:e.pack});else fresh.push(f)}
+  if(e&&e.size===f.size&&e.mtime===f.mtime&&(e.ino==null||f.ino==null||e.ino===f.ino)&&index.packs[e.pack])reused.push({...f,sha:e.sha,pack:e.pack});else fresh.push(f)}
  return {reused,fresh}}
 // the index after the packs that Drive no longer holds (or holds with another size) are forgotten: their files are packed again
-export function forgetMissing(index,have){const gone=[];for(const [n,p] of Object.entries(index.packs))if(have[n]==null||(p.size&&have[n]!==p.size))gone.push(n);
+// have: {name: size} or {name: {size, md5}} (Drive's own checksum of what it holds, compared with the one taken when the pack was made)
+export function forgetMissing(index,have){const gone=[];for(const [n,p] of Object.entries(index.packs)){const h=have[n],size=h==null?null:typeof h==='object'?h.size:h,md5=h&&typeof h==='object'?h.md5:null;
+  if(size==null||(p.size&&size!==p.size)||(p.md5&&md5&&md5!==p.md5))gone.push(n)}
  for(const n of gone)delete index.packs[n];for(const [rel,e] of Object.entries(index.files))if(!index.packs[e.pack])delete index.files[rel];return gone}
 // the manifest a night's archive carries: every file kept in a pack, grouped by the pack that holds it, and the virtual environments to make again
 export function buildManifest({name,at,entries,venvs,skipped=0}){const packs={};for(const e of entries)(packs[e.pack]||=[]).push([e.rel,e.size,e.mtime,e.sha,e.mode]);
@@ -92,6 +101,10 @@ export function prunable(index,kept,now){
  return Object.entries(index.packs).filter(([n,p])=>!used.has(n)&&now-(p.at||0)>PACK_GRACE).map(([n])=>n)}
 export function dropNights(index,kept){for(const n of Object.keys(index.nights))if(!kept.includes(n))delete index.nights[n]}
 
+// a SQLite database whatever its name (Chromium's Cookies, History, Login Data have no extension): it stays in the nightly archive next to its
+// -wal and -journal, never in a pack made at another moment
+export async function sqliteHead(file){let fh;try{fh=await open(file,'r');const b=Buffer.alloc(16),{bytesRead}=await fh.read(b,0,16,0);return bytesRead===16&&b.toString('latin1')==='SQLite format 3\0'}catch{return false}finally{await fh?.close().catch(()=>{})}}
+export const md5File=file=>new Promise((res,rej)=>{const h=createHash('md5');createReadStream(file).on('data',d=>h.update(d)).on('error',rej).on('end',()=>res(h.digest('hex')))});
 export const sha256File=file=>new Promise((res,rej)=>{const h=createHash('sha256');createReadStream(file).on('data',d=>h.update(d)).on('error',rej).on('end',()=>res(h.digest('hex')))});
 // the files of a fresh list that are still what they were (size and mtime) after they were read: a changed one is left to the nightly archive
 export async function stillSame(root,list){const ok=[],changed=[];
@@ -100,8 +113,9 @@ export async function stillSame(root,list){const ok=[],changed=[];
 export const readable=async(root,f)=>access(path.join(root,f.rel),constants.R_OK).then(()=>true,()=>false);
 
 /* ---------- skipped files */
-// tar's complaints about files it could not read: "tar: <path>: Cannot open: Permission denied" (and stat, read, savedir, opendir)
-export function parseSkips(text){const out=[];for(const l of String(text||'').split('\n')){const m=/^tar: (.+?): Cannot (?:open|read|savedir|opendir|stat)(?:: (.*))?$/.exec(l.trim());if(!m)continue;
+// tar's complaints about files it could not read: "tar: <path>: Cannot open: Permission denied" (and stat, read, savedir, opendir).
+// With --ignore-failed-read GNU tar says "tar: <path>: Warning: Cannot open: ..." (seen on Linux, 13 Nov 2026: the path came out as "<path>: Warning")
+export function parseSkips(text){const out=[];for(const l of String(text||'').split('\n')){const m=/^tar: (.+?): (?:Warning: )?Cannot (?:open|read|savedir|opendir|stat)(?:: (.*))?$/.exec(l.trim());if(!m)continue;
   if(/No such file/.test(m[2]||''))continue;   // gone before it was read: a file that vanished is not a skipped one
   out.push({path:m[1].replace(/^\.\//,''),why:m[2]||''})}return out}
 const TRASH_PLACES=['apps/hermes-ui-data/agent-trash/','workspaces/.removed/'];
@@ -119,7 +133,11 @@ export const summarizeSkipped=list=>{const a=Object.entries(list?.files||{}),by=
  return {count:a.length,since:list?.since||0,reasons:Object.entries(by).map(([reason,o])=>({reason,n:o.n,example:o.example})).sort((x,y)=>y.n-x.n)}};
 
 /* ---------- restoring the packs of a night */
-const run=(cmd,env)=>new Promise((res,rej)=>{const p=spawn('bash',['-c',cmd],{env:{...process.env,...env},stdio:['ignore','ignore','pipe']});let e='';p.stderr.on('data',d=>e+=d);p.on('close',c=>c===0?res():rej(Error(e.trim().split('\n').slice(-2).join(' ')||'exit '+c)))});
+const run=(cmd,env)=>new Promise((res,rej)=>{const p=spawn('bash',['-c',cmd],{env:{...process.env,...env},stdio:['ignore','ignore','pipe']});let e='';p.stderr.on('data',d=>{if(e.length<5e6)e+=d});
+ // a file the manifest names that its pack does not hold makes tar exit 2 with only "Not found in archive": that is not a pack that cannot be
+ // opened; the check after it reports the file as missing
+ p.on('close',c=>{const l=e.trim().split('\n').filter(Boolean);c===0||c===2&&l.length>1&&l.every(x=>NOTIN.test(x))?res():rej(Error(l.slice(-2).join(' ')||'exit '+c))})});
+const NOTIN=/: Not found in archive$|Exiting with failure status due to previous errors$/;
 const sq=s=>"'"+String(s).replace(/'/g,"'\\''")+"'";
 /* Puts the files a manifest names back under dir. getPack(name) gives the path of that pack's encrypted file on this box (downloaded by
    the caller), key opens it. only(rel) picks files. Each file is checked (size, then sha-256) once it is out; the result says what was

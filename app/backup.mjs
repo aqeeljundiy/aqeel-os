@@ -16,7 +16,7 @@ import {randomBytes} from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {localParts} from './tz.mjs';
-import {EXCLUDE_MORE,MANIFEST,MEDIA_PREFIX,scan,excludeTester,plan,forgetMissing,buildManifest,manifestPacks,prunable,dropNights,readIndex,saveIndex,sha256File,stillSame,readable,parseSkips,reasonFor,passwdUids,mergeSkipped,summarizeSkipped,restoreMedia,plainName,chunkBySize,PACK_MAX} from './backup-media.mjs';
+import {EXCLUDE_MORE,MANIFEST,MEDIA_PREFIX,scan,excludeTester,plan,forgetMissing,buildManifest,manifestPacks,prunable,dropNights,readIndex,saveIndex,sha256File,stillSame,readable,parseSkips,reasonFor,passwdUids,mergeSkipped,summarizeSkipped,restoreMedia,plainName,chunkBySize,PACK_MAX,sqliteHead,md5File} from './backup-media.mjs';
 
 export const DEFAULTS={account:'',hour:3,keep:14,folder:'aqeelOS backups'};
 const INCLUDE=['.hermes','apps/hermes-ui-data','apps/hermes-ui.env','workspaces','people','.claude','.claude-accounts'];
@@ -148,7 +148,7 @@ export async function memFree(root='/sys/fs/cgroup',meminfo='/proc/meminfo'){
 
 // what a backup cut off by an app restart left in /tmp (its finally never ran): the archive and its .err/.skipped notes.
 // Called when the app starts, before any backup can run (11 Nov 2026: 186 GB of them on Elkiya).
-export const LEFTOVER=/^aqeelos-(media-)?\d{4}-\d\d-\d\d-\d\d-\d\d(-[0-9a-f]{4})?(-\d+)?\.tar\.gz\.enc(\.err|\.skipped|\.oerr|\.tcode|\.excl|\.list|\.perr)?$/;
+export const LEFTOVER=/^aqeelos-(media-)?\d{4}-\d\d-\d\d-\d\d-\d\d(-[0-9a-f]{4})?(-\d+)?\.tar\.gz\.enc(\.err|\.skipped|\.oerr|\.tcode|\.excl|\.list|\.perr|\.idx)?$/;
 /* No Google account (P&P never had one, so no backup was ever made there): the nightly backup stays on the box itself, in
    LOCALDIR, encrypted the same way. The newest LOCAL_KEEP are kept, none older than LOCAL_DAYS, all of them together under
    LOCAL_MAX bytes; the newest is never removed. A newest good backup (Drive or local) older than STALE_H hours is one
@@ -205,8 +205,8 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
  // the media packs live in their own Drive folder next to the nightly one, so nothing that lists the backups ever sees them
  const mediaFolder=g=>folder(g,settings().folder+' media');
  // every pack in that folder: {name: {id, size}}
- async function listPacks(g,fid){const out={};let tok='';do{const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&fields=nextPageToken,files(id,name,size)&pageSize=1000'+(tok?'&pageToken='+tok:''));
-   for(const f of l.files||[])out[f.name]={id:f.id,size:Number(f.size)||0};tok=l.nextPageToken||''}while(tok);return out}
+ async function listPacks(g,fid){const out={};let tok='';do{const l=await drive(g,'drive/v3/files?q='+encodeURIComponent("'"+fid+"' in parents and trashed=false")+'&fields=nextPageToken,files(id,name,size,md5Checksum)&pageSize=1000'+(tok?'&pageToken='+tok:''));
+   for(const f of l.files||[])out[f.name]={id:f.id,size:Number(f.size)||0,md5:f.md5Checksum||''};tok=l.nextPageToken||''}while(tok);return out}
  const sh=(cmd,envx,ctl)=>new Promise((res,rej)=>{const p=spawn('bash',['-c',cmd],{cwd:HOME,env:{...process.env,...envx},stdio:['ignore','ignore','pipe'],detached:!!ctl});if(ctl)ctl.child=p;let err='';p.stderr.on('data',d=>err+=d);p.on('close',c=>c===0?res():rej(Error(err.trim().split('\n').slice(-2).join(' ')||'exit '+c)))});
  const q=sq;
  // the upload in 64 MB pieces on Google's resumable session: one dropped connection no longer loses a multi-GB upload
@@ -235,11 +235,14 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
  async function guarded(dir,body){const ctl={};let full=null,wd=null,over=false;
   const watch=async()=>{if(over||full)return;const f=(await disk(dir).catch(()=>null))?.free;if(f!=null&&f<LOWFREE){full='The disk filled up while packing: only '+gb(f)+' was left in '+dir+', so the backup was stopped and its half file removed.';try{process.kill(-ctl.child.pid,'SIGKILL')}catch{}}if(!over&&!full){wd=setTimeout(watch,WATCH);wd.unref?.()}};wd=setTimeout(watch,WATCH);wd.unref?.();
   try{return await body(ctl)}catch(e){throw full?Error(full):e}finally{over=true;clearTimeout(wd)}}
- // one file to Drive on a resumable session, its size checked afterwards
+ // one file to Drive on a resumable session; afterwards its size and Drive's own checksum (md5) of what it holds are compared with the file here,
+ // so a pack or an archive that arrived damaged fails this night instead of a restore months later. Returns Drive's file with that md5.
  async function upload(g,fid,name,file,size,props,onProgress){
-  const start=await drive(g,'upload/drive/v3/files?uploadType=resumable&fields=id,name,size',{method:'POST',raw:true,headers:{'content-type':'application/json; charset=UTF-8','x-upload-content-type':'application/octet-stream','x-upload-content-length':String(size)},body:JSON.stringify({name,parents:[fid],...(props?{appProperties:props}:{})})});
+  const start=await drive(g,'upload/drive/v3/files?uploadType=resumable&fields=id,name,size,md5Checksum',{method:'POST',raw:true,headers:{'content-type':'application/json; charset=UTF-8','x-upload-content-type':'application/octet-stream','x-upload-content-length':String(size)},body:JSON.stringify({name,parents:[fid],...(props?{appProperties:props}:{})})});
   const f=await sendFile(start.headers.get('location'),file,size,onProgress);
-  if(f?.size!=null&&Number(f.size)!==size)throw Error('Google Drive holds '+f.size+' bytes of '+name+', but '+size+' were sent.');return f}
+  if(f?.size!=null&&Number(f.size)!==size)throw Error('Google Drive holds '+f.size+' bytes of '+name+', but '+size+' were sent.');
+  const md5=await md5File(file);if(f?.md5Checksum&&f.md5Checksum!==md5){await drive(g,'drive/v3/files/'+f.id,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({trashed:true})}).catch(()=>{});throw Error('Google Drive holds '+name+' damaged (its checksum is not the one of the file that was sent), so it was put in the Drive bin.')}
+  return {...f,md5}}
  // the skipped files: written once to DATA/backup-skipped.json with a reason; only files new on the list are said
  async function recordSkipped(found,at){const SK=path.join(DATA,'backup-skipped.json'),prev=await readStore(SK,{});
   const users=passwdUids(await readFile('/etc/passwd','utf8').catch(()=>'')),by=new Map();
@@ -251,32 +254,35 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
     read, is not recorded: it stays in the nightly archive (or is skipped there). Returns the entries the manifest will carry. */
  async function mediaPacks({g,files,name,onPhase,parts}){
   const IX=path.join(DATA,'backup-media.json'),ix=await readIndex(IX),mf=await mediaFolder(g),have=await listPacks(g,mf);
-  forgetMissing(ix,Object.fromEntries(Object.entries(have).map(([n,p])=>[n,p.size])));for(const [n,p] of Object.entries(ix.packs))p.id=have[n].id;
-  const {reused,fresh:want}=plan(files,ix,{now:Date.now(),never:MUST}),fresh=[];for(const f of want)if(await readable(HOME,f))fresh.push(f);
+  const named=new Set(Object.values(ix.nights).flat()),lost=forgetMissing(ix,have).filter(n=>named.has(n));for(const [n,p] of Object.entries(ix.packs))p.id=have[n].id;
+  const {reused,fresh:want}=plan(files,ix,{now:Date.now(),never:MUST}),fresh=[];for(const f of want)if(await readable(HOME,f)&&!await sqliteHead(path.join(HOME,f.rel)))fresh.push(f);   // a database under any name stays in the archive
   const packed=[];let packBytes=0;// the agents' files and everything else go in different packs, so restoring the agents fetches only the first kind
   const chunks=[fresh.filter(f=>f.rel.startsWith('.hermes/')),fresh.filter(f=>!f.rel.startsWith('.hermes/'))].flatMap(a=>chunkBySize(a)),all=name.replace(/^aqeelos-/,MEDIA_PREFIX).replace('.tar.gz.enc','-'+randomBytes(2).toString('hex')+'.tar.gz.enc');
   for(const [i,chunk] of chunks.entries()){const total=chunk.reduce((n,f)=>n+f.size,0),at={part:i+1,parts:chunks.length};
    const free=(await disk(TMP)).free,need=total*1.05+1e9;if(free<need)throw Error('Not enough free disk space for a media pack: it needs about '+gb(need)+' in '+TMP+', and there is '+gb(free)+'.');
    let t=Date.now(),doneB=0;onPhase('reading media',{...at,done:0,total});const todo=[...chunk];
    await Promise.all(Array.from({length:4},async()=>{for(let f;f=todo.shift();){try{f.sha=await sha256File(path.join(HOME,f.rel))}catch{f.sha=null}doneB+=f.size;onPhase('reading media',{...at,done:doneB,total})}}));
-   const hashed=chunk.filter(f=>f.sha),packName=chunks.length>1?all.replace('.tar.gz.enc','-'+(i+1)+'.tar.gz.enc'):all,pp=path.join(TMP,packName),list=pp+'.list',perr=pp+'.perr',oerr=pp+'.oerr';parts.read=(parts.read||0)+Math.round((Date.now()-t)/1000);t=Date.now();
+   const hashed=chunk.filter(f=>f.sha),packName=chunks.length>1?all.replace('.tar.gz.enc','-'+(i+1)+'.tar.gz.enc'):all,pp=path.join(TMP,packName),list=pp+'.list',perr=pp+'.perr',oerr=pp+'.oerr',idx=pp+'.idx';parts.read=(parts.read||0)+Math.round((Date.now()-t)/1000);t=Date.now();
    try{await writeFile(list,hashed.map(f=>f.rel).join('\0')+'\0');
     // how far the pack is: the size of its file so far (a timeout chain, not a new timer loop)
     let ticking=true,tick=null;const poll=()=>{tick=setTimeout(()=>stat(pp).then(s=>onPhase('packing media',{...at,done:Math.min(s.size,total),total})).catch(()=>{}).finally(()=>{if(ticking)poll()}),5000);tick.unref?.()};poll();onPhase('packing media',{...at,done:0,total});
-    try{await guarded(TMP,async ctl=>sh('tar --null -T '+q(list)+' --hard-dereference --ignore-failed-read -cf - 2>'+q(perr)+' | gzip -1 | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:AQ_BK -out '+q(pp)+' 2>'+q(oerr)+'; ps=("${PIPESTATUS[@]}"); '
+    try{await guarded(TMP,async ctl=>sh('tar --null -T '+q(list)+' --hard-dereference --ignore-failed-read -v --index-file='+q(idx)+' --quoting-style=literal -cf - 2>'+q(perr)+' | gzip -1 | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:AQ_BK -out '+q(pp)+' 2>'+q(oerr)+'; ps=("${PIPESTATUS[@]}"); '
      +'[ "${ps[2]}" = 0 ] || { echo "encrypting the media pack failed (openssl exit ${ps[2]}): $(tail -c 300 '+q(oerr)+' | tr "\\n" " ")" >&2; exit 1; }; [ "${ps[1]}" = 0 ] || { echo "gzip stopped (exit ${ps[1]})" >&2; exit 1; }; '
      +'[ "${ps[0]}" -le 1 ] || { tail -2 '+q(perr)+' >&2; echo "tar stopped (exit ${ps[0]})" >&2; exit "${ps[0]}"; }',{AQ_BK:await key()},ctl))}finally{ticking=false;clearTimeout(tick)}
     parts.pack=(parts.pack||0)+Math.round((Date.now()-t)/1000);t=Date.now();
-    const unread=new Set(parseSkips(await readFile(perr,'utf8').catch(()=>'')).map(s=>s.path)),{ok}=await stillSame(HOME,hashed),got=ok.filter(f=>!unread.has(f.rel)).map(f=>({...f,pack:packName}));
+    const unread=new Set(parseSkips(await readFile(perr,'utf8').catch(()=>'')).map(s=>s.path)),{ok}=await stillSame(HOME,hashed),
+     // only a file tar itself says it put in the pack (its member list, --index-file) is recorded as being there: whatever tar left out, for a reason
+     // this code knows or not, stays in the nightly archive
+     inPack=new Set((await readFile(idx,'utf8').catch(()=>'')).split('\n')),got=ok.filter(f=>inPack.has(f.rel)&&!unread.has(f.rel)).map(f=>({...f,pack:packName}));
     if(got.length){const size=(await stat(pp)).size;onPhase('uploading media',{...at,done:0,total:size});
      const gm=await google().catch(()=>g),file=await upload(gm,mf,packName,pp,size,null,(done,tot,bps)=>onPhase('uploading media',{...at,done,total:tot,bps}));
      // recorded the moment it is in Drive: a night that fails later does not pack these again
-     ix.packs[packName]={id:file.id,size,at:Date.now()};for(const e of got)ix.files[e.rel]={size:e.size,mtime:e.mtime,sha:e.sha,pack:packName};await saveIndex(IX,ix);
+     ix.packs[packName]={id:file.id,size,md5:file.md5,at:Date.now()};for(const e of got)ix.files[e.rel]={size:e.size,mtime:e.mtime,ino:e.ino,sha:e.sha,pack:packName};await saveIndex(IX,ix);
      packed.push(...got);packBytes+=size;parts.uploadMedia=(parts.uploadMedia||0)+Math.round((Date.now()-t)/1000)}}
-   finally{for(const x of ['','.list','.perr','.oerr'])await rm(pp+x,{force:true}).catch(()=>{})}}
-  const entries=[...reused,...packed];ix.files={};for(const e of entries)ix.files[e.rel]={size:e.size,mtime:e.mtime,sha:e.sha,pack:e.pack};await saveIndex(IX,ix);
+   finally{for(const x of ['','.list','.perr','.oerr','.idx'])await rm(pp+x,{force:true}).catch(()=>{})}}
+  const entries=[...reused,...packed];ix.files={};for(const e of entries)ix.files[e.rel]={size:e.size,mtime:e.mtime,ino:e.ino,sha:e.sha,pack:e.pack};await saveIndex(IX,ix);
   const sum=a=>a.reduce((n,e)=>n+e.size,0);
-  return {ix,IX,entries,stats:{files:entries.length,bytes:sum(entries),newFiles:packed.length,newBytes:sum(packed),packBytes,hermesBytes:sum(entries.filter(e=>e.rel.startsWith('.hermes/')))}}}
+  return {ix,IX,entries,lost,stats:{...(lost.length?{lostPacks:lost.length}:{}),files:entries.length,bytes:sum(entries),newFiles:packed.length,newBytes:sum(packed),packBytes,hermesBytes:sum(entries.filter(e=>e.rel.startsWith('.hermes/')))}}}
  async function pack(why,at,name,onPhase=()=>{}){const tmp=path.join(TMP,name);let work=tmp;const parts={};
   try{let g0=null,gwhy='';try{g0=await google()}catch(e){if(e.code!=='NOGOOGLE')throw e;if(!/Connect Google first/.test(e.message))gwhy=e.message}   // a Google account that cannot be used is said on the result, the backup still happens   // no Google: the backup stays on this box (LOCALDIR)
    const local=!g0,dest=path.join(LOCALDIR,name);
@@ -308,7 +314,7 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
    parts.archive=Math.round((Date.now()-t)/1000);
    const sk=await recordSkipped(parseSkips((await readFile(work+'.err','utf8').catch(()=>'')).slice(0,5e6)),at).catch(e=>{console.warn('backup: skipped list',e.message);return {count:0,fresh:0}});
    const skipped=sk.count,size=(await stat(work)).size;if(size<MIN)throw Error('The backup came out too small ('+size+' bytes).');
-   const mb=media?.stats,mnote=mb?(mb.newFiles?', '+gb(mb.packBytes)+' of new media in a pack':'')+(mb.files?' ('+mb.files.toLocaleString('en')+' files, '+gb(mb.bytes)+' of media kept in packs)':''):'',snote=sk.fresh?', '+sk.fresh+' new unreadable file(s) skipped ('+skipped+' in the skipped list)':'';
+   const mb=media?.stats,mnote=mb?(mb.newFiles?', '+gb(mb.packBytes)+' of new media in a pack':'')+(mb.files?' ('+mb.files.toLocaleString('en')+' files, '+gb(mb.bytes)+' of media kept in packs)':'')+(media.lost.length?', '+media.lost.length+' media pack(s) of earlier nights were missing or damaged in Google Drive ('+media.lost[0]+'): their files were packed again for tonight, but an earlier night that named them cannot bring those files back':''):'',snote=sk.fresh?', '+sk.fresh+' new unreadable file(s) skipped ('+skipped+' in the skipped list)':'';
    const base={at,ok:true,name,size,why,secs:Math.round((Date.now()-at)/1000),skipped,skippedNew:sk.fresh,parts,...(mb?{media:mb,mediaHermes:mb.hermesBytes,uploaded:size+mb.packBytes}:{}),venvs:venvs.length};
    if(local){await rename(work,dest);const pruned=await pruneLocalDir();
     return {last:{...base,local:true,...(gwhy?{googleWhy:gwhy}:{})},
@@ -329,7 +335,10 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
    await pruneLocalDir().catch(()=>{});return {last:{...base,id:file.id,account:g.account},note:name+' ('+Math.round(size/1e6)+' MB) uploaded to Google Drive'+mnote+snote}}
   finally{await rm(work,{force:true}).catch(()=>{});for(const x of ['.skipped','.err','.oerr','.tcode','.excl'])await rm(work+x,{force:true}).catch(()=>{});await rm(tmp,{force:true}).catch(()=>{})}}
  const nameOf=at=>'aqeelos-'+new Date(at+7*3600e3).toISOString().slice(0,16).replace(/[:T]/g,'-')+'.tar.gz.enc';
- const good=async r=>{state.last=r.last;state.lastOkAt=r.last.at;state.lastSize=r.last.size;state.made=true;delete state.staleTold;await save();console.log('backup: '+r.note);solved();return state.last};
+ const good=async r=>{state.last=r.last;state.lastOkAt=r.last.at;state.lastSize=r.last.size;state.made=true;delete state.staleTold;await save();console.log('backup: '+r.note);solved();
+  // a pack an earlier night needs was gone or damaged in Drive: tonight is whole (its files were packed again), the earlier nights are not, so a person is told
+  if(r.last.media?.lostPacks)notify('Media packs of earlier backups were missing or damaged in Google Drive',r.last.media.lostPacks+' media pack(s) that earlier nights name were not in the Drive folder "'+settings().folder+' media" as they were uploaded. Their files were packed again, so the newest backup is complete; an earlier night restores without the big files that were in them. Nobody should delete files in that folder by hand.');
+  return state.last};
  // a failed scheduled backup is tried again within the hour, 3 times a morning; only the third failure is told (a
  // dropped upload is usually gone an hour later). A manual one shows its result on Health, so it never goes to Bottlenecks.
  // No Google account is not a failure to tell about: the card says "Connect Google first"

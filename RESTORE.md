@@ -21,6 +21,15 @@ Elkiya's nightly archive had grown from 9 to 28.6 GB (41 GB of files, mostly ree
 - **A night restores completely.** One night = its archive + the packs its manifest names. A pack stays in Drive while any kept
   night names it; one that no kept night names goes to the Drive bin after a day (never deleted; if the index is lost, nothing
   is binned until every kept night is known again, and the files are packed once more).
+- **A damaged or missing pack is found at backup time, not at restore time** (checked on Elkiya with a real round trip, 13 Nov
+  2026). After every upload the size and Google Drive's own checksum (md5) are compared with the file that was sent; a file
+  that arrived damaged goes to the Drive bin and the night fails. Every night the packs in Drive are listed, and one that is
+  gone, has another size or another checksum is packed again and said on the result (an earlier night that named it cannot
+  bring those files back). Only files tar itself lists as written into a pack are recorded as being there. A file is taken as
+  unchanged when its path, size, time and inode are the same. A SQLite database is never packed, whatever its name (a browser's
+  `Cookies`, `History`): it stays in the nightly archive next to its `-wal` and `-journal`. A folder with a `pyvenv.cfg` is
+  only left out when it holds nothing but a virtual environment (`bin`, `lib`, `include`, `share` ...): a project somebody ran
+  `python -m venv .` in is backed up whole.
 - **Left out because it can be made again:** AdsPower's downloaded browser kernels (`.config/adspower_global/cwd_global/chrome_*`,
   about 1 GB in each of 9 workspaces), aqeelOS's own AdsPower install (`workspaces/.aqeelos-adspower`), Chromium's component,
   certificate and safe-browsing lists and GPU caches, and Python virtual environments (a folder with a `pyvenv.cfg`). A virtual

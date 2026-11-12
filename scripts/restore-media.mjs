@@ -14,7 +14,9 @@ if(!mfile||!packs||!to||!keyFile){console.error('usage: node scripts/restore-med
 const manifest=JSON.parse(await readFile(mfile,'utf8')),key=(await readFile(keyFile,'utf8')).trim();
 const need=manifestPacks(manifest).filter(n=>manifest.packs[n].some(e=>!only||e[0].startsWith(only))),gone=need.filter(n=>!existsSync(path.join(packs,n)));
 if(gone.length){console.error('These packs are not in '+packs+' yet (download them from Google Drive, folder "aqeelOS backups media"):\n  '+gone.join('\n  '));process.exit(1)}
-const r=await restoreMedia({manifest,dir:to,key,only:rel=>!only||rel.startsWith(only),getPack:async n=>path.join(packs,n),onPack:(n,w)=>console.log(n+': '+w.length+' files')});
+// a pack that is damaged or only half downloaded: said in one line (which pack, and what to do), not as a stack trace
+const r=await restoreMedia({manifest,dir:to,key,only:rel=>!only||rel.startsWith(only),getPack:async n=>path.join(packs,n),onPack:(n,w)=>console.log(n+': '+w.length+' files')})
+ .catch(e=>{console.error(e.message+'. The pack is damaged, not whole, or the key is not the one it was made with. Download it again from Google Drive (folder "aqeelOS backups media") and run this again; the packs before it were restored.');process.exit(1)});
 console.log(r.restored+' files restored ('+(r.bytes/1e9).toFixed(2)+' GB) from '+r.packs+' pack(s).'+(r.missing.length?' Missing from their pack: '+r.missing.length:'')+(r.bad.length?' Not matching the manifest: '+r.bad.length:''));
 for(const f of [...r.missing,...r.bad].slice(0,20))console.log('  '+f);
 process.exit(r.missing.length||r.bad.length?1:0);
