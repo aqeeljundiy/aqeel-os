@@ -28,7 +28,8 @@ const run=(c,a,{cwd,timeout=60000,env}={})=>new Promise(res=>execFile(c,a,{cwd,t
 const clip=(s,n)=>{s=String(s??'');return s.length>n?s.slice(0,n)+'…':s};
 const HOUR=3600e3;
 // own settings an agent may change itself (same list as my_settings)
-export const OWN_SETTING=/^(stt|tts)\.[a-z0-9_.]+$|^timezone$|^display\.[a-z0-9_.]+$/;
+import {ownSettingProblem,ownSettingKey} from './agent-settings.mjs';   // the exact settings an agent may change, with plain values (audit CR-3)
+export const OWN_SETTING={test:k=>ownSettingKey(k)};
 // redaction for logs an agent reads back: keys, tokens, bearer headers, long opaque strings (phone numbers stay readable: agents need their customers' numbers)
 export function redactLog(t){return String(t)
  .replace(/\b(sk|xox[abpr]|ghp|gho|ya29|AIza|rk|pk)[-_A-Za-z0-9.]{8,}/g,'(hidden)')
@@ -120,10 +121,13 @@ export function createAgentVersions({guard=()=>null,DATA,HERMES_HOME,DASH,DASH_T
    out.push(await record(a,{kind:'skill',target:k,what:l.slice(0,6).join('; ')+(l.length>6?' +'+(l.length-6):''),why:sync?'aqeelOS skill sync':dup?'copy of a shared skill (no change in what it sees)':(why||''),by:sync?'aqeelOS (skill sync)':dup?'aqeelOS (shared skill copy)':(by||nameOf(a)),undoable:!sys,before:{commit:before,files:mine.map(x=>x[1])},after:{commit:after}}))}return out}
 
  // ---- undo ----
- async function undo(a,id,{by='owner'}={}){const d=await load(a);const x=d.items.find(i=>i.id===String(id));if(!x)throw Error('No change '+id+'. my_changes lists yours.');
+ async function undo(a,id,{by='owner',agent=false}={}){const d=await load(a);const x=d.items.find(i=>i.id===String(id));if(!x)throw Error('No change '+id+'. my_changes lists yours.');
   if(x.state!=='done')throw Error('Change '+id+' was already undone.');if(x.undoable===false)throw Error('Change '+id+' cannot be undone.');
   if(x.kind==='instructions'){if(!instructions)throw Error('Instructions history is not available.');await instructions.restore(a,x.before.v,by+' (undo)')}
-  else if(x.kind==='setting'||x.kind==='settings'){const bv=x.kind==='settings'?x.before:x.before?.value;const r=await setKey(a,x.target,bv==null?'':bv);/* 'settings' = older cross-agent entries (raw before) */if(!r.ok)throw Error('Could not set '+x.target+' back: '+clip(r.out||r.err,200))}
+  else if(x.kind==='setting'||x.kind==='settings'){const bv=x.kind==='settings'?x.before:x.before?.value;
+   // an agent's undo writes a setting too: the same list holds (an older version may hold a command or a whole group)
+   if(agent&&ownSettingProblem(x.target,bv))throw Error('Change '+id+' sets '+x.target+' back to something only a person may set. Ask an admin to undo it in Edit agent › History.');
+   const r=await setKey(a,x.target,bv==null?'':bv);/* 'settings' = older cross-agent entries (raw before) */if(!r.ok)throw Error('Could not set '+x.target+' back: '+clip(r.out||r.err,200))}
   else if(x.kind==='schedule'){await scheduleRestore(a,x)}
   else if(x.kind==='skill'){const files=x.before.files||[];for(const f of files){const has=(await git(a,['cat-file','-e',x.before.commit+':'+f])).ok;
     if(has){const r=await git(a,['checkout',x.before.commit,'--',f]);if(!r.ok)throw Error('Could not bring back '+f)}else await rm(path.join(skillsDir(a),f),{force:true})}
@@ -168,7 +172,7 @@ export function createAgentVersions({guard=()=>null,DATA,HERMES_HOME,DASH,DASH_T
   return {isError:true,text:'action is list, create, edit, pause, resume, run_now or remove.'}}
 
  // ---- settings ----
- async function mySetting(a,key,value,{by,why}={}){if(!OWN_SETTING.test(key))return {isError:true,outside:true,text:'Not one of your own settings.'};const c=await readConfig(a).catch(()=>null);const before=pick(c,key)??null;
+ async function mySetting(a,key,value,{by,why}={}){{const no=ownSettingProblem(key,value);if(no)return {isError:true,outside:true,text:key+': '+no}}const c=await readConfig(a).catch(()=>null);const before=pick(c,key)??null;
   const r=await setKey(a,key,value===null?'':value).catch(e=>({ok:false,out:e.message}));if(!r.ok)return {isError:true,text:'Could not change it: '+clip(r.out||r.err,300)};
   await record(a,{kind:'setting',target:key,what:key+': '+JSON.stringify(before)+' → '+JSON.stringify(value),why,by,before:{value:before},after:{value}});return {text:'Saved '+key+' = '+JSON.stringify(value)+'. It is a version (undo_my_change).'}}
 
@@ -307,7 +311,7 @@ export function createAgentVersions({guard=()=>null,DATA,HERMES_HOME,DASH,DASH_T
  async function changes(a,{limit=30}={}){const d=await load(a);let inst=[];
   if(instructions){try{const h=await instructions.history(a);inst=(h.versions||[]).slice(0,10).map(v=>({id:'i'+v.v,kind:'instructions',target:'SOUL',what:'version '+v.v+' ('+(v.added??'?')+' added, '+(v.removed??'?')+' removed)',why:v.why||'',by:v.by||'',at:v.at,state:'done',undoable:v.v>1}))}catch{}}
   const all=[...d.items.map(view),...inst].sort((x,y)=>y.at-x.at||(+String(y.id).replace(/\D/g,''))-(+String(x.id).replace(/\D/g,''))).slice(0,limit);return {items:all,watch:d.watch,events:d.events.slice(-10).reverse()}}
- async function undoAny(a,id,{by}={}){if(/^i\d+$/.test(String(id))){const v=+String(id).slice(1);if(!instructions||v<2)throw Error('That instructions version has nothing before it.');await instructions.restore(a,v-1,by||'undo');return {kind:'instructions',v:v-1}}return undo(a,id,{by})}
+ async function undoAny(a,id,{by,agent=false}={}){if(/^i\d+$/.test(String(id))){const v=+String(id).slice(1);if(!instructions||v<2)throw Error('That instructions version has nothing before it.');await instructions.restore(a,v-1,by||'undo');return {kind:'instructions',v:v-1}}return undo(a,id,{by,agent})}
 
  current=record; // module-level hook for agent-access.mjs (recordAgentChange)
  return {myJobs,updateJob:(a,id,up)=>api('/cron/jobs/'+encodeURIComponent(id)+q(a),{method:'PUT',body:JSON.stringify({updates:up})}),arm,record,undo:undoAny,changes,mySchedules,mySetting,myRuns,myLogs,myHealth,myDeliveries,createWebhook,hookGate,testSend,capabilities,skillsSnap,watchTick,skillsTick,load,falseRollbacks,restoreFalseRollbacks,restoreAllFalseRollbacks,

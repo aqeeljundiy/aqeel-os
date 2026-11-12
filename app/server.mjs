@@ -43,7 +43,7 @@ import {holdWrites,withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent
 import {createSchedules} from './schedules.mjs';
 import {createScreens} from './screens.mjs';
 import {createAgentAdspower} from './agent-adspower.mjs';
-import {createUsers,UNSAFE_TOOLSETS} from './users.mjs';import * as proxyAgent from './proxy-agent.mjs';
+import {createUsers,UNSAFE_TOOLSETS} from './users.mjs';import * as proxyAgent from './proxy-agent.mjs';import {ownSettingProblem,ownSettingOk,ownSettingKey,OWN_SETTINGS_HELP} from './agent-settings.mjs';
 import {createStarters} from './starters.mjs';
 import {createMail} from './mail.mjs';
 import {createUsage} from './usage.mjs';
@@ -342,7 +342,8 @@ const loops=rec.loops;
 const defGate=createAgentGate({homeOf:homeOfAg,reads:['cfg','top'],extra:()=>statSig([path.join(DATA,'install.json'),path.join(DATA,'users.json'),path.join(DATA,'skills-policy.json')])});
 // every agent's defaults from aqeelOS itself (tools, screen and browser, skills, its own Linux user): at start and for new agents
 // the settings an agent may change for itself (my_settings): only everyday ones, never what it can reach
-const OWN_SETTINGS=/^(stt|tts)\.[a-z0-9_.]+$|^timezone$|^display\.[a-z0-9_.]+$/;
+// the settings an agent may change on itself: an exact list with plain values (agent-settings.mjs; audit CR-3)
+const OWN_SETTINGS={test:k=>ownSettingKey(k)};
 const whyOf=createWhy({DATA,HERMES_HOME,python:enginePython});
 // locked agents (owner without "unsafe", or the admin's safe lock) keep terminal, files and code off through the defaults too
 // F: only agents of admins may run as the box's main user; the lead of an admin does (aqeelOS itself is theirs), and goes
@@ -2513,12 +2514,12 @@ const server=createServer(async(req,res)=>{
    // itself starts the "does it still answer" check; my_settings is versioned (undo) before it takes effect
    {const base=mn[1].split('--')[0],nm=msg.params?.name,A=msg.params?.arguments||{};
     if(signed&&base!=='default'&&msg.method==='tools/call'&&nm==='change_instructions')versions.arm(base).catch(()=>{});
-    if(signed&&base!=='default'&&msg.method==='tools/call'&&nm==='my_settings'&&A.value!==undefined&&OWN_SETTINGS.test(String(A.key||'').trim())){const r=await versions.mySetting(base,String(A.key).trim(),A.value,{by:NAMES[base]||base,why:A.why});
+    if(signed&&base!=='default'&&msg.method==='tools/call'&&nm==='my_settings'&&A.value!==undefined&&ownSettingOk(String(A.key||'').trim(),A.value)){const r=await versions.mySetting(base,String(A.key).trim(),A.value,{by:NAMES[base]||base,why:A.why});
      if(!r.isError){console.log('own settings: '+base+' set '+A.key+' (versioned)');restartLater(base+' changed its own '+A.key);versions.arm(base).catch(()=>{})}
      return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.isError?r.text:r.text+' It takes effect from your next message (aqeelOS reloads the agents once no reply is running).'}],...(r.isError?{isError:true}:{})}})}
     if(signed&&msg.method==='tools/call'&&VERSION_TOOLS.some(x=>x.name===nm)){const who=NAMES[base]||base;let r;   // the main agent too (7 Nov 2026): every agent can see and fix its own problems
      try{if(nm==='my_changes'){const c=await versions.changes(base,{limit:A.limit||30});r={text:(c.items.length?c.items.map(x=>'- '+x.id+' '+x.kind+(x.state==='undone'?' [undone]':'')+': '+x.what+(x.why?' — '+x.why:'')+' · '+x.by+' · '+new Date(x.at).toISOString().slice(0,16)).join('\n'):'No changes yet.')+(c.watch?'\n\naqeelOS is checking that you still answer after your latest change.':'')}}
-      else if(nm==='undo_my_change'){const x=await versions.undo(base,String(A.id||''),{by:who});r={text:'Undone: '+(x.what||('instructions back to version '+x.v))+'. That is a version too.'};versions.arm(base).catch(()=>{})}
+      else if(nm==='undo_my_change'){const x=await versions.undo(base,String(A.id||''),{by:who,agent:true});r={text:'Undone: '+(x.what||('instructions back to version '+x.v))+'. That is a version too.'};versions.arm(base).catch(()=>{})}
       else if(nm==='my_logs')r=await versions.myLogs(base,A);
       else if(nm==='my_runs')r=await versions.myRuns(base,A);
       else if(nm==='my_health')r=await versions.myHealth(base);
@@ -2669,8 +2670,9 @@ const server=createServer(async(req,res)=>{
     catch(er){return reply('Could not turn it off: '+er.message,true)}}
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='my_settings'){const base=mn[1].split('--')[0],a=msg.params?.arguments||{},key=String(a.key||'').trim();
     const reply=(text,isError)=>send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text}],...(isError?{isError:true}:{})}});
-    if(!OWN_SETTINGS.test(key))return reply('Only these can be changed this way: stt.* (voice notes, e.g. stt.language: "" = detect each time, "id", "en"), tts.* (your voice), timezone and display.*. Anything else goes through report_bottleneck.',true);
+    if(!OWN_SETTINGS.test(key))return reply('Only these can be changed this way: '+OWN_SETTINGS_HELP,true);
     if(a.value===undefined){const c=await readConfig(base).catch(()=>null);return reply(key+' = '+JSON.stringify(pick(c,key)??null))}
+    {const no=ownSettingProblem(key,a.value);if(no)return reply(key+': '+no,true)}
     const r=await setKey(base,key,a.value===null?'':a.value).catch(e=>({ok:false,out:e.message}));if(!r.ok)return reply('Could not change it: '+String(r.out||'').trim().slice(-300),true);
     console.log('own settings: '+base+' set '+key);restartLater(base+' changed its own '+key);
     return reply('Saved '+key+' = '+JSON.stringify(a.value)+'. It takes effect from your next message (aqeelOS reloads the agents once no reply is running).')}
