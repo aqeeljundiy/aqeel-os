@@ -37,7 +37,7 @@ PAGES.activity=async(p,el)=>{const gone=pageTok(el);setActions('');
   if(e.target.closest('.act-raw.open'))return;const r=e.target.closest('[data-go]');if(r)go(r.dataset.go)})};
 
 // Settings › Notifications: the optional evening line in the bell (off by default)
-{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el);await settings(p,el,r);if(gone()||S.me?.admin===false||el.querySelector('#notifBox'))return;
- let v;try{v=await UI('/ui/notify-settings')}catch{return}if(gone()||!el.isConnected)return;
+{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el),pre=S.me?.admin===false?null:UI('/ui/notify-settings');pre?.catch(()=>{});await settings(p,el,r);if(gone()||!pre||el.querySelector('#notifBox'))return;   // asked with the page (install-page.js, 12 Nov 2026)
+ let v;try{v=await pre}catch{return}if(gone()||!el.isConnected)return;
  const c=document.createElement('div');c.id='notifBox';c.className='panel card';c.style.marginBottom='16px';c.innerHTML=`<div class="tm-row"><div class="txt"><b>Evening summary</b><p>One line in the bell at 19:00, like “12 things fixed themselves today, nothing needs you”.</p></div>${toggle(v.daily,'Evening summary','id="notifDaily"')}</div>`;
  el.append(c);c.querySelector('#notifDaily').onchange=async e=>{const on=e.target.checked;try{await put(UI,'/ui/notify-settings',{daily:on});toast(on?'The evening summary is on.':'The evening summary is off.')}catch(er){e.target.checked=!on;fail(er)}}}}

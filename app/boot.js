@@ -146,15 +146,15 @@ const Metrics={c:{},
   const cur=!c.decided?'':!c.enabled?'off':c.send?'send':'local',btn=(k,l,en,sd)=>`<button class="${cur===k?'primary':''}" data-mt="${en?1:0}${sd?1:0}" ${c.managed?'disabled':''} aria-pressed="${cur===k}">${l}</button>`;
   b.innerHTML=`<p style="margin:0 0 10px;font-size:13.5px">${esc(this.say(c))}</p>${c.reask&&!c.managed?'<p class="hint" style="margin:0 0 10px">Asking once more: an older version could save “No thanks” before you saw this question.</p>':''}<div style="display:flex;gap:8px;flex-wrap:wrap">${btn('send','Share',1,1)}${btn('local','Keep on this box',1,0)}${btn('off','No thanks',0,0)}</div>`;
   b.querySelectorAll('[data-mt]').forEach(x=>x.onclick=()=>this.save(x.dataset.mt[0]==='1',x.dataset.mt[1]==='1',box))},
- async mount(el){if(S.me?.admin===false||el.querySelector('#metricsBox'))return;const col=el.querySelector('[data-act="cfg-defaults"]')?.closest('.panel')?.parentElement;
+ async mount(el,pre){if(S.me?.admin===false||el.querySelector('#metricsBox'))return;const col=el.querySelector('[data-act="cfg-defaults"]')?.closest('.panel')?.parentElement;
   // "All agents" shows a list instead of the form: the card goes under it, for the agent you chat with
   if(col)col.insertAdjacentHTML('beforeend',this.card());else{el.insertAdjacentHTML('beforeend',`<div style="margin-top:16px">${this.card()}</div>`)}
   const box=el.querySelector('#metricsBox'),ag=this.who();if(this.c[ag])this.paint(box,this.c[ag]);
-  try{const c=await H('/shared-metrics/consent');this.c[ag]=c;if(box.isConnected)this.paint(box,c)}catch(e){if(e?.stale)return;if(box.isConnected&&!this.c[ag])this.paint(box,null)}},
+  try{const c=await (pre||H('/shared-metrics/consent'));this.c[ag]=c;if(box.isConnected)this.paint(box,c)}catch(e){if(e?.stale)return;if(box.isConnected&&!this.c[ag])this.paint(box,null)}},
  async ask(){const k='hui-metricsAsked:'+this.who();try{if(sessionStorage.getItem(k))return;sessionStorage.setItem(k,'1')}catch{}
   const c=await H('/shared-metrics/consent',{keep:true}).catch(()=>null);if(!c||c.managed||(c.decided&&!c.reask))return;this.c[this.who()]=c;
   Notices.show({icon:'chart',kind:'blue',key:'metrics-ask',life:600000,title:c.reask?'Usage stats: asking once more':'Share anonymous usage stats?',text:c.reask?'An older version could save “No thanks” before you saw this question. To share, choose on System › Settings.':'Only counts, never what you write or your files. You choose per agent.',actions:[c.reask?{label:'No thanks',run:()=>this.save(false,false)}:{label:'Choose',go:'/system/settings'}]})}};
-{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el);await settings(p,el,r);if(gone())return;Metrics.mount(el)}}
+{const settings=PAGES.settings;PAGES.settings=async(p,el,r)=>{const gone=pageTok(el),pre=S.me?.admin===false?null:H('/shared-metrics/consent');pre?.catch(()=>{});await settings(p,el,r);if(gone())return;Metrics.mount(el,pre)}}   // asked with the page (install-page.js, 12 Nov 2026)
 boot();
 
 // F26 rows you can reach with Tab (schedules, inbox items, file tiles, agent cards) open with Enter or Space too

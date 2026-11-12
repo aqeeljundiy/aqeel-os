@@ -226,7 +226,8 @@ test('Stage: a page whose reads keep answering is shown whole; one whose reads w
   const env=new Function('S','performance','setTimeout','clearTimeout','$','MutationObserver',grab('core.js','const Stage={')+'\n'+grab('core.js','const Swr={')+'\nreturn {Stage,Swr}')(S,clock.performance,clock.setTimeout,clock.clearTimeout,()=>null,MO);
   const shown=[],pg={isConnected:true,firstChild:{}},v={},st={pg,kind:'page',reveal:()=>shown.push(now)};
   // reads: each answers at its time (ms after opening); the page function itself ends at once
-  const open=async reads=>{env.Stage.hold(v,st,()=>{for(const ms of reads)env.Swr.fly(new Promise(r=>clock.setTimeout(r,ms)))});await flush()};
+  // wait: the page function waits for its read that answers at that time (the others it fills without waiting)
+  const open=async(reads,wait)=>{env.Stage.hold(v,st,()=>{let w;for(const ms of reads){const p=env.Swr.fly(new Promise(r=>clock.setTimeout(r,ms)));if(ms===wait)w=p}return w});await flush()};
   return {clock,open,shown,pg,draw(){pg.firstChild={};seen.at(-1)()}}};
  // answers every second until 3.4 s (Settings for all agents on a busy box): whole at 3.4 s, not half drawn at 2.2 s
  let x=mk();await x.open([900,1800,2700,3400]);await x.clock.adv(2300);assert.deepEqual(x.shown,[],'still being answered at 2.2 s: not shown half drawn');await x.clock.adv(1200);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=3400&&x.shown[0]<3500,'shown when whole, at '+x.shown[0]);
@@ -241,6 +242,9 @@ test('Stage: a page whose reads keep answering is shown whole; one whose reads w
  x=mk();x.pg.firstChild=null;await x.open([30000]);await x.clock.adv(5900);assert.deepEqual(x.shown,[]);await x.clock.adv(200);assert.equal(x.shown.length,1,'6 s at most');
  // answers trickle in for ever: never past 6 s
  x=mk();await x.open(Array.from({length:12},(_,i)=>(i+1)*1500));await x.clock.adv(5900);assert.deepEqual(x.shown,[]);await x.clock.adv(200);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=6000&&x.shown[0]<6100,'at '+x.shown[0]);
+ // the page function still waits for a read after a quick one (Models: its accounts, 3.1 s): not shown at 2.5 s without what it draws after that read
+ x=mk();await x.open([300,3100],3100);await x.clock.adv(2800);assert.deepEqual(x.shown,[],'the page function has not drawn its last part yet');await x.clock.adv(400);assert.equal(x.shown.length,1);assert.ok(x.shown[0]>=3100&&x.shown[0]<3200,'whole at '+x.shown[0]);
+ x=mk();await x.open([300,25000],25000);await x.clock.adv(5900);assert.deepEqual(x.shown,[]);await x.clock.adv(200);assert.equal(x.shown.length,1,'a page function that never ends: 6 s at most');
  // a quick page is shown the moment it is whole
  x=mk();await x.open([300]);await x.clock.adv(350);assert.equal(x.shown.length,1)});
 
@@ -256,3 +260,20 @@ test('a part that lands late keeps the space it took last time (Keep): Usage\'s 
  assert.doesNotMatch(grab('core.js','const Keep={'),/\bstore\./,'kept in this browser only: what goes through store follows the person to every device');assert.equal(/^(hui-|draft:|cronSeen:|chAlert:|cronFail:)/.test('ph-here'),false);
  const s=src('schedules.js');assert.ok(s.includes("const kk='usage.spend:'+(S.viewAll?'all':S.viewAgent||'own');{const h=Keep.hold(kk,panel)"),'per view: all agents is taller than one');assert.ok(s.includes('Keep.note(kk,panel)'));
  assert.match(s,/<div class="skel" style="height:280px"><\/div>';/,'before it is known: as tall as it usually is where the page is slow, not 120 px')});
+test('Settings and Models: the parts added round the page ask with the page, not one after another once it has drawn',()=>{
+ // 12 Nov 2026 (local sweep, engine answering in 0.2 to 5 s): Settings' wrappers each asked only after the page under them had finished, so their
+ // reads ran in a row, past Stage.hard, and This install, the cloud fixer and the evening summary landed on a page already shown (369 px jump)
+ const before=(f,head,read)=>{const s=grab(f,head),i=s.indexOf(read),j=s.search(/await (settings|base)\(p,el/);assert.ok(i>=0&&j>i,f+': '+read+' starts before the page under it is awaited')};
+ before('install-page.js',"{const settings=PAGES.settings;","Install.load()");
+ before('install-page.js',"{const base=PAGES.models;","Install.load()");
+ before('all-agents-more.js',"{const settings=PAGES.settings;","H(prof('/env',who0))");
+ before('cloud-fixer-page.js',"{const settings=PAGES.settings;","CloudFixer.load()");
+ before('activity-page.js',"{const settings=PAGES.settings;","UI('/ui/notify-settings')");
+ before('boot.js',"{const settings=PAGES.settings;","H('/shared-metrics/consent')");
+ before('people.js',"{const base=PAGES.models;PAGES.models=async(p,el)=>{const gone=pageTok(el),pre","H('/config')");
+ assert.match(grab('cloud-fixer-page.js','async function cfMount('),/await \(pre\|\|CloudFixer\.load\(\)\)/);
+ assert.match(grab('people.js','async function moaPanel('),/await \(pre\|\|H\('\/config'\)\)/);
+ assert.match(src('boot.js'),/await \(pre\|\|H\('\/shared-metrics\/consent'\)\)/);
+ // Memory for all agents: the memory service is asked with the page, and each agent's two files at once
+ const m=grab('all-agents-more.js',' async memory(p,el){');assert.ok(m.indexOf("prov=Promise.all([H('/memory')")>=0&&m.indexOf("prov=Promise.all([H('/memory')")<m.indexOf('await viewAgents()'));
+ assert.match(m,/const \[m,hub\]=await prov;/);assert.match(m,/await Promise\.all\(\[read\(home\(a\)\+'MEMORY\.md'\),read\(home\(a\)\+'USER\.md'\)\]\)/)});

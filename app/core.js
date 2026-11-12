@@ -426,6 +426,9 @@ function runPage(P,r,pg){const nav=S._nav;let gone=pageRun(pg);return Promise.re
 // ring or the page's own grey placeholders are all there is to show either way. None waits past `hard`. max was 6 s flat for a day: Health then sat
 // behind the ring for the full 6 s on every visit because of one read that took 15 to 29 s (its cost of the week, since made fast where it was slow)
 // and still landed late: a longer ring hides a slow read, it does not fix it. Now that page is shown 2.2 s after its last other part.
+// The silence counts only once the page function has ended: while it still waits for a read, what it draws after that read is not on the page at all, and
+// showing the page without it moves everything when it comes (Models at 2.5 s, then its Claude sign-in card and the cloud fixer landed above and inside
+// the tabs 0.6 s later and moved them 264 px: local sweep, 12 Nov 2026). Such a page keeps the ring until it has drawn, 6 s at most; slow pages are named by the sweep.
 const Stage={ms:450,max:2200,hard:6000,
  drop(v){const st=v._stage;if(st){clearTimeout(st.t);clearTimeout(st.t2);st.mo?.disconnect();v._stage=null;st.fin?.()}for(const x of v.querySelectorAll('.staged'))x.remove()},
  // st: {pg (the content being drawn, out of sight), kind, early (optional: show the heading and the ring), reveal (show pg)}
@@ -440,11 +443,11 @@ const Stage={ms:450,max:2200,hard:6000,
   // (what was drawn last: a part drawn from a last-known answer or a shared read moves the page on without an answer of its own)
   const t0=performance.now();let drew=t0;const mo=typeof MutationObserver==='undefined'?null:new MutationObserver(()=>{drew=performance.now()});mo?.observe(st.pg,{childList:true,subtree:true});st.mo=mo;
   const late=()=>{if(st.kind==='pg'&&!st.pg.firstChild)return;if(v._stage!==st)return;const t=performance.now();
-   const some=Swr.last>t0&&st.pg.firstChild,left=Math.min(some?this.max-(t-Math.max(Swr.last,drew)):150,this.hard-(t-t0));
+   const some=ran&&Swr.last>t0&&st.pg.firstChild,left=Math.min(some?this.max-(t-Math.max(Swr.last,drew)):150,this.hard-(t-t0));
    if(left>0&&S._nav===tok&&Swr.flying&&Swr.flyNav===tok){st.t2=setTimeout(late,left+5);return}   // still coming together, or nothing answered yet (only the ring to show)
    done()};   // the drawing goes on in view; fin comes when it ends
   st.t2=setTimeout(late,this.max);
-  let p;try{p=run(st.pg)}catch{}Promise.resolve(p).catch(()=>{}).finally(()=>setTimeout(quiet,0))},
+  let p,ran=false;try{p=run(st.pg)}catch{}Promise.resolve(p).catch(()=>{}).finally(()=>{ran=true;setTimeout(quiet,0)})},
  // another page: the whole page (its heading too) is staged; what is on screen (a page, the chat, Help) stays meanwhile
  open(v,headHtml,run,enter){this.drop(v);
   for(const o of v.querySelectorAll('#pg'))o._rt=(o._rt||0)+1;   // drawings still on their way to the old page stop
