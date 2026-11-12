@@ -1,5 +1,5 @@
 # The one test check. The job is named "tests": branch protection on main requires that check, so GitHub auto-merge waits for it.
-# Green on main today (933 pass, 0 fail, 2 skipped by the tests themselves, run on Linux); red means a real regression.
+# Green on main today (about 1,400 tests in scripts/, 89 in code/, run on Linux; a handful skip themselves); red means a real regression.
 # TZ and TMPDIR match the live install: the tests assume the install's time zone and keep their scratch outside /tmp.
 name: tests
 on:
@@ -19,6 +19,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # Pre-merge check (12 Nov 2026, maintainability audit action 1): no conflict marker in any tracked text file, every JS, shell, JSON, YAML and Python
+      # file parses, a regex that lost its backslashes, a file over 1 MB or a scratch file added by accident. It also runs in fixer-gate.yml (main's copy),
+      # scripts/hooks/pre-push and scripts/deploy.sh. --base compares with what the push or pull request started from (the diff rule for lost backslashes).
+      - name: Pre-merge check
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/premerge-check.mjs ${BASE:+--base "$BASE"}
       # Secret scan (12 Nov 2026): gitleaks, the pinned release binary (checksum checked), settings in .gitleaks.toml (known test fixtures allowed by path and value).
       # It reads the whole tree and every commit this push or pull request adds; any new finding fails the job. A real credential is rotated, not allowed.
       - name: Secret scan (gitleaks)
@@ -51,3 +58,17 @@ jobs:
       - run: node scripts/flicker-ci.mjs
         env:
           TMPDIR: ${{ runner.temp }}
+      # code by aqeel (code/): its own tests, never run before 12 Nov 2026. The npm "test" script misses bridge.test.mjs, so the files are listed by name here.
+      - name: code/ tests
+        working-directory: code
+        run: |
+          npm ci --no-audit --no-fund
+          node --test --test-concurrency=2 --test-timeout=120000 test.mjs *.test.mjs desktop/*.test.mjs
+        env:
+          TMPDIR: ${{ runner.temp }}
+      # Python tests that run on a bare runner. NOT run here, on purpose: scripts/engine-fixes.test.py and scripts/kirim-signature.test.py import the
+      # installed engine (~/.hermes/hermes-agent, "No module named hermes_bootstrap" here), and the plugin suite in
+      # engine/claude-subscription-directsdk-experimental/tests needs the same engine (11 failed, 63 errors on a Linux box without its modules).
+      # They run on a box: scripts/live-test.sh (engine-fixes) and by hand. Moving them here needs a pinned engine checkout (audit action 13).
+      - name: Python tests
+        run: python3 -I scripts/group-context.test.py
