@@ -19,7 +19,7 @@ those files, change this page in the same commit. Rules for working in this repo
 
 | Part | What it is | Where |
 |---|---|---|
-| **The app** | One Node 22 process, no dependencies, no build step. Serves the UI, signs people in, owns every rule about who may do what, keeps state in JSON files, proxies the engine. | `app/server.mjs` (4,085 lines, 638 KB) + 160 modules `app/*.mjs` |
+| **The app** | One Node 22 process, no dependencies, no build step. Serves the UI, signs people in, owns every rule about who may do what, keeps state in JSON files, proxies the engine. | `app/server.mjs` (3,356 lines, 498 KB) + 174 modules `app/*.mjs` |
 | **The UI** | Plain browser scripts that share one global scope (no modules, no bundler), one CSS file. Page order is the order of `<script>` tags. | `app/index.html`, `app/*.js` (67), `app/app.css`; clash check `scripts/check-globals.mjs` |
 | **The engine** | Hermes Agent (third party): runs the agents' chats, tools, schedules, channels (Telegram, WhatsApp, Slack, web). aqeelOS talks to its dashboard with the session token (`x-hermes-session-token`) and to its gateway with `API_SERVER_KEY`. The engine's keys come from `~/.hermes/.env` (`app/install.mjs: engineKeys`). | outside; `engine/` holds our plugins and `engine/patches/*.patch` applied by `scripts/apply-skill-patches.mjs` |
 | **Agents** | A profile folder under `~/.hermes/profiles/<agent>` (the main agent is `~/.hermes` itself, `default`). On the box each agent's processes run as Linux user `ag-<agent>`. | home path: `homeOf(agent)` in `app/agentops.mjs` |
@@ -39,7 +39,7 @@ All in `app/` unless noted. Names are file names without `.mjs`.
 
 | Area | Modules |
 |---|---|
-| **Wiring and shared base** | `server` (composition root: imports every module, wires them with `createX({DATA,HERMES_HOME,…})`, the request handler, loops) · `store` (JSON state) · `agentops` (home paths, config, locks, `hermes` CLI) · `install` / `install-routes` (address, time zone, live or test) · `tz` · `swr` (last-known answers for slow reads) · `reconcile` (the loops that were expensive) · `busy` (what may run during a restore) |
+| **Wiring and shared base** | `server` (composition root: imports every module, wires them with `createX({DATA,HERMES_HOME,…})`, the request handler, loops) · the route modules it hands requests to (section 3: `signin-routes` `notify-tools-routes` `code-device-routes` `channels-routes` `health-routes` `connected-routes`) · `store` (JSON state) · `agentops` (home paths, config, locks, `hermes` CLI) · `install` / `install-routes` (address, time zone, live or test) · `tz` · `swr` (last-known answers for slow reads) · `reconcile` (the loops that were expensive) · `busy` (what may run during a restore) |
 | **People and rights** | `users` (people, roles, `isAdmin`, `can`, shares) · `account-auth` · `sharing` · `agent-access` (one agent looking after another, levels) · `proxy-agent` (what a member may do through `/hapi`) · `design-guard` · `untrusted` · `secret-links` · `client-ip` · `access` `access-requests` · `local-owner` |
 | **Agents** | `agent-defaults` `agent-settings` `agent-versions` (undo) `agent-care` `agent-live` `agent-health` `agent-keys` `agent-memory` `agent-name` `agent-optins` `agent-graph` `agent-adspower` `agent-ops`; `instructions` (text written into agents) · `builtin-skills` `skills-policy` `skill-check` |
 | **Work agents do** | `schedules` `schedule-finish` `run-gates` `run-checks` `posting-limits` `event-hooks` `event-runs` `self-runs` `self-runs-box` `resume` `resume-engine` `relay-keys` (the per-agent signatures) `need-action` `questions` `escalations` |
@@ -62,6 +62,19 @@ Everything is in the function passed to `createServer` in `app/server.mjs` (sear
 5. About 230 `/ui/*` routes, each doing its own check inline: `users.isAdmin(u)` (about 177 times) or `ownsAgent(u,a)`, then `send(res,403,…)`. Only a few areas are delegated to modules with `handle(req,res,…)`: `plugins`, `help`, `install`, `connect`, `screens`, `agentAds`, `codeOnline`, `codeBridge`.
 6. `/hapi/*` → `hermesCall`: the engine's dashboard API behind a filter (`proxyAgent.decide`) that decides, per person and per agent, what a member may call. `/gapi/*` is the gateway API. The browser never holds an engine credential.
 7. `/app/*` static files, then the UI shell. `server.on('upgrade')` proxies WebSockets (screen, terminal); `process.on('uncaughtException')` logs and continues (deliberate: a restart cuts live customer turns).
+
+Some of those blocks have moved out of the dispatcher into route modules (BACKLOG AUD-16), each answering **true** when it handled the request, at the same place in the order and with the same checks as before:
+
+| Module | What it answers | Where the dispatcher calls it |
+|---|---|---|
+| `signin-routes` | `/auth/login` `/auth/code` `/auth/invite` `/auth/accept` | with the other `/auth/` routes |
+| `notify-tools-routes` | `/mcp/notify/<agent>/<sig>`: the tools an agent calls from its own box (65 KB) | in the pre-auth block, loopback and signed |
+| `code-device-routes` | `/ui/code/*` called by the Code desktop app with its `Bearer aqc_` key | just before the `/ui/` gate |
+| `channels-routes` | `/ui/channels/*`: link, pause, WhatsApp pairing, approving a person on a channel | inside the `/ui/` gate |
+| `health-routes` | `/ui/health/*`, `/ui/teams`, `/ui/alerts`, `/ui/cloud-fixer`: issues, fixer line, cost and memory views | inside the `/ui/` gate |
+| `connected-routes` | `/ui/kirimdev`, `/ui/team-group`, `/ui/secret-links`, `/ui/automations`, `/ui/backups`, `/ui/engine-updates`, `/ui/self-runs`, `/ui/tebar`, `/ui/slack`, `/ui/microsoft`, `/ui/google`, `/ui/mcp/server` | inside the `/ui/` gate |
+
+**How to add a route** (or move a block out of `server.mjs`): look in the table above for the module that owns the area and add it there, with its own rights check and a line in the rights matrix test (section 8). A new area gets its own `app/<feature>-routes.mjs` shaped like `signin-routes.mjs`: `export function createXRoutes({deps…}){return async function handle(req,res,p,url[,u]){… return false}}`, where every dependency is named in the one deps object (nothing is reached through a global), a handled request ends in `return send(…),true` and `return false` means "not mine, carry on". In `server.mjs` add one import (after the last `import`), one `const xRoutes=createXRoutes({…})` line before `createServer`, and replace the block by `if(await xRoutes(req,res,p,url[,u]))return;` at the same place. A dependency that `server.mjs` reassigns later (a `let`) must be passed as an accessor, never by value. Then add the file to `SOURCES` in `scripts/route-rights-matrix.test.mjs` and to `SPLIT` in `scripts/lib/source.mjs`, so the rights matrix and the source-text tests still read it. A move changes nothing else: the route matrix table must come out identical, and `node scripts/lib/debt.mjs --lower` records the smaller `server.mjs`.
 
 A new route that reads or changes anything needs an explicit rights check in its own block, and a line in the rights matrix test (section 8).
 
@@ -109,7 +122,7 @@ Only a commit on GitHub `main` goes live (`OPERATIONS.md` rule 5).
 
 Not run in CI, on purpose (documented in `.github/workflows/tests.yml`): `scripts/engine-fixes.test.py`, `scripts/kirim-signature.test.py` and the plugin suite in `engine/claude-subscription-directsdk-experimental/tests` import the installed engine and cannot run on a bare runner (they run on a box). Source-text tests read app code through `scripts/lib/source.mjs` (`src('app/server.mjs')`), so splitting `server.mjs` later does not break them. **Run tests on Linux** (the box, CI, or a container): on Windows about 78 fail for platform reasons (no bash, symlinks, `C:\` paths), which hides real failures.
 
-Before a change to `server.mjs` splits it: land the guards first (this page's gates), move code verbatim one area at a time into `app/routes/<area>.mjs` with `handle(req,res,u,url,ctx)` returning true when it answered (as `plugins.handle` does), keep the top-level dispatcher order and the `/ui/` gate where they are, and review with `git diff --color-moved=dimmed-zebra`.
+Before a change to `server.mjs` splits it: land the guards first (this page's gates), move code verbatim one area at a time into `app/<feature>-routes.mjs` (the pattern in section 3, six areas done), keep the top-level dispatcher order and the `/ui/` gate where they are, and review with `git diff --color-moved=dimmed-zebra`.
 
 ## 8. To change X, touch these files, run these tests
 
@@ -117,7 +130,7 @@ Run the named tests with `node --test scripts/<name>.test.mjs`, then the full su
 
 | # | To change… | Touch | Run |
 |---|---|---|---|
-| 1 | Add or change a `/ui/*` route | its block in `app/server.mjs` (with its rights check) or the module that owns the area; the UI page that calls it; the rights matrix | `route-rights-matrix`, `route-rights`, `route-handlers`, `sec-high`, `sec-medium`, `debt` |
+| 1 | Add or change a `/ui/*` route | its block in `app/server.mjs` or the route module that owns the area (section 3), with its rights check; the UI page that calls it; the rights matrix | `route-rights-matrix`, `route-rights`, `route-handlers`, `sec-high`, `sec-medium`, `debt` |
 | 2 | Who may do what (roles, sharing, agent levels) | `users`, `sharing`, `agent-access`, `proxy-agent` (`/hapi` filter); owner approval needed (`.github/fixer-gate.json` "never") | `users`, `sharing`, `agent-access`, `proxy-agent`, `agents-equal`, `route-rights-matrix` |
 | 3 | A tool an agent can call | `/mcp/notify` or `SR_TOOLS` block in `server.mjs`; `agent-ops` for Kirimdev; the text telling agents about it | `notify-tools`, `self-runs`, `agent-ops`, `instructions` |
 | 4 | What agents are told | `writeAgentContext` in `server.mjs`, `instructions`, `agent-defaults`; engine plugins in `engine/` | `instructions`, `agent-name`, `agent-defaults-idempotent`, `agents-equal` |

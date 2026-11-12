@@ -7,11 +7,11 @@ import {randomBytes,createHmac} from 'node:crypto';
 import path from 'node:path';
 import {LIVE_APP} from './agentops.mjs';
 
-export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links,platformsOf,nameOf,ownerName,ownerAgent=()=>false}){
+export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links,platformsOf,nameOf,ownerName,ownerAgent=()=>false,retryMs=2*60e3}){
  // the owner's own chat on the main agent's channel (its home channel), for alerts "to you"
  const homeChat=async p=>{const t=await readFile(path.join(HERMES_HOME,'.env'),'utf8').catch(()=>'');return ((new RegExp('^'+p.toUpperCase()+'_HOME_CHANNEL=["\']?([^"\'\\n]+)','m')).exec(t)||[])[1]||null};
  const FILE=path.join(DATA,'channel-shares.json');let db=null;
- const load=async()=>{if(db)return db;db=await readStore(FILE);db.shares||={};db.jobs||={};db.seen||={};return db};
+ const load=async()=>{if(db)return db;db=await readStore(FILE);db.shares||={};db.jobs||={};db.seen||={};db.sending||={};db.fails||={};return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const api=(p,o={})=>fetch(DASH+'/api'+p,{signal:AbortSignal.timeout(o.timeout||60000),...o,headers:{'x-hermes-session-token':TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||('HTTP '+r.status));return j});
@@ -73,19 +73,29 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
  async function setJobRelay(agent,jobId,target){await load();const k=agent+'|'+jobId;if(target){db.jobs[k]={...target,since:db.jobs[k]?.since||new Date().toISOString()}}else{delete db.jobs[k];delete db.seen[k]}await save()}
  const ts=v=>v==null?0:typeof v==='number'?(v<1e12?v*1000:v):(Date.parse(v)||0);
  async function jobRelays(){await load();return db.jobs}
+ // A result is marked as seen only once it went out (before, it was marked first: a channel that was down for a minute, or a restart in the middle of the send, lost the report for ever).
+ // A refusal (the provider was down, the engine said "not delivered") is tried again after 2, 4, 6... minutes, five times at most and for two hours at most. A send that was cut off by a
+ // restart, or that was not confirmed in time, may have arrived: it is not repeated (a customer must never get a message twice).
+ const NO_RETRY=/did not confirm|may not send|Nobody to send|Unknown channel|Nothing to send|only send to people approved/i,MAX_FAILS=5,RETRY_FOR=2*3600e3;
  async function tick(){await load();for(const [k,t] of Object.entries(db.jobs)){const [agent,jobId]=k.split('|');try{
    if(!(await listAgents()).includes(agent)){delete db.jobs[k];delete db.seen[k];await save();continue}
    const l=await api('/cron/jobs'+q(agent));const j=(Array.isArray(l)?l:l.jobs||[]).find(x=>x.id===jobId);if(!j){delete db.jobs[k];await save();continue}
    if(!j.last_run_at||ts(j.last_run_at)<=ts(db.seen[k]||t.since))continue;
    // the run is finished only once it has a status and its answer is saved; until then try again next tick (give up after 15 min)
-   const late=Date.now()-ts(j.last_run_at)>15*60e3;const done=async()=>{db.seen[k]=j.last_run_at;await save()};
+   const late=Date.now()-ts(j.last_run_at)>15*60e3;const done=async()=>{db.seen[k]=j.last_run_at;delete db.sending[k];delete db.fails[k];await save()};
+   if(db.sending[k]===String(j.last_run_at)){await done();console.warn('relay',k,': a send was cut off by a restart; it may have arrived, so it is not sent again');continue}
+   if((db.fails[k]?.next||0)>Date.now())continue;
    if(!j.last_status){if(late)await done();continue}
    const runs=await api('/cron/jobs/'+jobId+'/runs'+q(agent)).catch(()=>({runs:[]}));const run=(runs.runs||[])[0];
    const m=run?await api('/sessions/'+encodeURIComponent(run.id||run.session_id)+'/messages'+q(agent)+'&limit=6&order=latest').catch(()=>({})):{};
    const last=(m.messages||m||[]).find?.(x=>x.role==='assistant'&&typeof x.content==='string'&&x.content.trim());
    const text=last?.content||(j.last_status!=='ok'?'did not run: '+(j.last_error||j.last_status):'');
    if(!text){if(late)await done();continue}
-   await done();await sendAs(agent,t.owner,t.platform,(j.name?j.name+': ':'')+text,null,{toYou:t.owner==='default'});console.log('relay sent',k,'to',t.owner+'|'+t.platform)}catch(e){console.warn('relay tick',k,e.message)}}}
+   db.sending[k]=String(j.last_run_at);await save();
+   try{await sendAs(agent,t.owner,t.platform,(j.name?j.name+': ':'')+text,null,{toYou:t.owner==='default'})}
+   catch(e){delete db.sending[k];const n=(db.fails[k]?.n||0)+1;
+    if(NO_RETRY.test(e.message)||n>=MAX_FAILS||Date.now()-ts(j.last_run_at)>RETRY_FOR){await done();console.warn('relay',k,'not delivered, not tried again:',e.message)}else{db.fails[k]={n,next:Date.now()+retryMs*n};await save();console.warn('relay',k,'not delivered, tried again later ('+n+'):',e.message)}continue}
+   await done();console.log('relay sent',k,'to',t.owner+'|'+t.platform)}catch(e){console.warn('relay tick',k,e.message)}}}
  let ticking=false;if(LIVE_APP)setInterval(()=>{if(ticking)return;ticking=true;tick().catch(()=>{}).finally(()=>{ticking=false})},45000).unref();
  // a relay cut off halfway (the app restarted mid-send) would leave its one-off job behind, set to fire again next 1 January
  async function sweep(){for(const a of [...await listAgents(),...(await links.list().catch(()=>[])).map(l=>l.name)]){
@@ -109,5 +119,5 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
    if(!c)return reply({content:[{type:'text',text:'No channel matches. Available IDs: '+(ch.map(c=>c.id).join(', ')||'none')}],isError:true});
    try{await sendAs(agent,c.owner,c.platform,a.text,null,{toYou:!!c.toYou});return reply({content:[{type:'text',text:'Sent on '+c.name+' ('+c.id+').'}]})}catch(e){return reply({content:[{type:'text',text:e.message.startsWith('Not ')?e.message:'Not sent: '+e.message}],isError:true})}}
   return {status:200,body:{jsonrpc:'2.0',id:msg.id,error:{code:-32601,message:'Method not found'}}}}
- return {sending:()=>sending,recipients,send,sendAs,shares,setShare,moveOwner,setJobRelay,jobRelays,mcp,sig,channelsFor};
+ return {tick,sending:()=>sending,recipients,send,sendAs,shares,setShare,moveOwner,setJobRelay,jobRelays,mcp,sig,channelsFor};
 }

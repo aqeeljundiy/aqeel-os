@@ -15,9 +15,9 @@ const SRC=readFileSync(path.join(HERE,'agent-users.sh'),'utf8');
 // Functions that may name a path in an agent's folder next to a write:
 //  - run as the agent, never as root: chrome_loop, lean_wm_files (passed to the agent's shell with declare -f);
 //  - the helpers that hand a step to another user: as_user, ag_*, own_*, wake_*, trim_*;
-//  - root, on the folder's own name only (it sits in the owner's folder, which no agent can write): ws_top, lock_home;
+//  - root, on the folder's own name only (it sits in the owner's folder, which no agent can write): ws_top, ws_back, lock_home;
 //  - root's one walk, refused while the agent has a process: hand_tree.
-const APPROVED=new Set(['chrome_loop','lean_wm_files','as_user','ag_mark','ag_put','ag_rm','ag_dir','ag_read','own_put','own_add','own_clear','wake_put','wake_touch','trim_lines','trim_bytes','ws_top','lock_home','hand_tree']);
+const APPROVED=new Set(['chrome_loop','lean_wm_files','as_user','ag_mark','ag_put','ag_rm','ag_dir','ag_read','own_put','own_add','own_clear','wake_put','wake_touch','trim_lines','trim_bytes','ws_top','ws_back','lock_home','hand_tree']);
 const HELPER=/^(as_user|ag_mark|ag_put|ag_rm|ag_dir|ag_read|own_put|own_add|own_clear|wake_put|wake_touch|trim_lines|trim_bytes|screen_mode|launcher_alive)\b/;
 // a path inside an agent's folder, a file in the owner's home, a file in the proxy's folder
 const WS=/\$sd\b|\$ws\b|\$\{?HOMEC\}?"?\/workspaces|\.screen\b|\.browser\b|\$prof\b/;

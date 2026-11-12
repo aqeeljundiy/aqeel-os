@@ -107,7 +107,7 @@ async function printHtml(html,kind,{width=1920,height=1080}={}){const dir=await 
  catch(e){throw e.code==='ENOENT'?Error('The export did not produce a file.'):e}finally{setTimeout(()=>rm(dir,{recursive:true,force:true}).catch(()=>{}),3000)}}
 export async function printUrl(url,kind,{width=1440,height=900}={}){const dir=await mkdtemp(path.join(os.tmpdir(),'cba-page-'));const out=path.join(dir,kind==='pdf'?'out.pdf':'out.png');
  try{await chromeRun(kind==='pdf'?['--no-pdf-header-footer','--print-to-pdf='+out,url]:['--screenshot='+out,'--window-size='+width+','+height,url]);return await readFile(out)}finally{setTimeout(()=>rm(dir,{recursive:true,force:true}).catch(()=>{}),3000)}}
-const fontFace=async root=>`@font-face{font-family:'Plus Jakarta Sans';src:url('${pathToFileURL(path.join(root,'assets','plus-jakarta-sans.woff2')).href}') format('woff2');font-weight:200 800}`;
+const fontFace=async root=>`@font-face{font-family:'Plus Jakarta Sans';src:url('${pathToFileURL(path.join(root,'assets','plus-jakarta-sans.woff2')).href}') format('woff2');font-weight:200 800}@font-face{font-family:'Plus Jakarta Sans';src:url('${pathToFileURL(path.join(root,'assets','google-sans-flex-digits.woff2')).href}') format('woff2');font-weight:200 800;unicode-range:U+30-39}`;
 export async function deckFile(root,base,deck,ds,kind,only){const css=await readFile(path.join(root,'deck.css'),'utf8');const d=deck;
  const html=deckDocument(d,{css,ds,fontFaces:await fontFace(root),only,resolve:src=>isLocal(src)?pathToFileURL(path.join(base,src)).href:''});
  return printHtml(html,kind,{width:1920,height:Math.round(1920/ratioOf(d))})}
@@ -181,8 +181,8 @@ export async function officeText(buffer,ext){const X=await import('xlsx');const 
 // A share is a frozen copy: later edits do not change what people already received. Decks and documents
 // become plain web pages; HTML outputs are copied with their files.
 export async function shareSnapshot({root,base,output,ds=DEFAULT_DS,dir}){const {cp}=await import('node:fs/promises');await mkdir(dir,{recursive:true});
- await cp(base,dir,{recursive:true,filter:src=>!/[\/](store|output)\.json$/.test(src)});await cp(path.join(root,'assets','plus-jakarta-sans.woff2'),path.join(dir,'__font.woff2'));
- const face="@font-face{font-family:'Plus Jakarta Sans';src:url('__font.woff2') format('woff2');font-weight:200 800}";const title=String(output.title).replace(/[<>&"]/g,'');
+ await cp(base,dir,{recursive:true,filter:src=>!/[\/](store|output)\.json$/.test(src)});await cp(path.join(root,'assets','plus-jakarta-sans.woff2'),path.join(dir,'__font.woff2'));await cp(path.join(root,'assets','google-sans-flex-digits.woff2'),path.join(dir,'__digits.woff2'));
+ const face="@font-face{font-family:'Plus Jakarta Sans';src:url('__font.woff2') format('woff2');font-weight:200 800}@font-face{font-family:'Plus Jakarta Sans';src:url('__digits.woff2') format('woff2');font-weight:200 800;unicode-range:U+30-39}";const title=String(output.title).replace(/[<>&"]/g,'');
  if(output.kind==='deck'){const deck=JSON.parse(await readFile(path.join(base,output.entry),'utf8'));const css=await readFile(path.join(root,'deck.css'),'utf8');
   const html=deckDocument(deck,{css,ds,fontFaces:face,resolve:src=>isLocal(src)?src:''}).replace('<style>','<meta name="viewport" content="width=device-width,initial-scale=1"><style>').replace('@page{size:1920px 1080px;margin:0}html,body{margin:0;background:#fff}.page{width:1920px;height:1080px;page-break-after:always;break-after:page;display:flex}.page .slide{width:1920px;height:1080px;border-radius:0;box-shadow:none}',
    'html,body{margin:0;background:#e9ebf0}body{padding:24px 16px 48px;display:grid;gap:20px;justify-items:center}.page{width:min(1100px,100%)}.page .slide{box-shadow:0 18px 50px -24px rgba(11,12,16,.35)}');

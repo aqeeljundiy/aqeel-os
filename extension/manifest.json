@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "aqeelOS: use my browser",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "description": "Lets your aqeelOS agents work in this browser when you choose it, with a side chat next to the page. You always see what the agent is doing, and can stop it or take over.",
   "permissions": [
     "tabs",
@@ -37,7 +37,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["plus-jakarta-sans.woff2"],
+      "resources": ["plus-jakarta-sans.woff2", "google-sans-flex-digits.woff2"],
       "matches": ["<all_urls>"],
       "use_dynamic_url": true
     }

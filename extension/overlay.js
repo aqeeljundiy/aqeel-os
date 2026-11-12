@@ -4,6 +4,8 @@
 (()=>{if(window.__aq)return;
 // Plus Jakarta Sans from the extension, under its own name so the page's fonts are untouched (loaded as bytes, so the page's rules can't block it)
 try{fetch(chrome.runtime.getURL('plus-jakarta-sans.woff2')).then(r=>r.arrayBuffer()).then(b=>new FontFace('aqeelOS Jakarta',b,{weight:'200 800'}).load()).then(f=>document.fonts.add(f)).catch(()=>{})}catch{}
+// the digits 0-9 in Google Sans Flex, same family and weights, so only numbers change
+try{fetch(chrome.runtime.getURL('google-sans-flex-digits.woff2')).then(r=>r.arrayBuffer()).then(b=>new FontFace('aqeelOS Jakarta',b,{weight:'200 800',unicodeRange:'U+30-39'}).load()).then(f=>document.fonts.add(f)).catch(()=>{})}catch{}
 const host=document.createElement('aqeelos-layer');host.style.cssText='all:initial;position:fixed;inset:0;z-index:2147483647;pointer-events:none';
 const root=host.attachShadow({mode:'closed'});
 root.innerHTML=`<style>
