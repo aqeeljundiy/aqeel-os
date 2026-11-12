@@ -183,6 +183,9 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
  async function staleKey(a0){const a=String(a0).split('--')[0];try{return await staleKey1(a)}catch(e){log('posting guard key '+a+': '+e.message);return 'failed'}}
  async function staleKey1(a){await load();const r=await rulesOf(a);if(!r?.on||!live||now()-(staleAt.get(a)||0)<60e3)return 'ignored';staleAt.set(a,now());
   const res=await guardFile(a);if(res==='written'){log('posting: the guard key of '+a+' was out of date and is made again');return 'written'}
+  // the file already holds the key in use: the refused signature came from somewhere else (anything on this box can call the route with a made-up
+  // one, for any agent), so there is nothing to repair and nothing to tell the owner (review of 12 Nov 2026)
+  if(res==='same')return 'ignored';
   const k=(db.keyStale||={});if(now()-(k[a]||0)>6*3600e3){k[a]=now();await save().catch(()=>{});
    await event('guard-key',nameOf(a)+": the posting guard's key is out of date",'The posting guard in its workspace (.tools/posting-guard.json) is refused by aqeelOS and could not be made again ('+res+'). Nothing is posted until it is. aqeelOS re-issues it at its next start.',{topic:'posting-guard-key',agent:a}).catch(()=>{})}
   return 'raised'}

@@ -141,3 +141,9 @@ test('a file in one agent\'s workspace never comes back with ANOTHER agent\'s si
  for(const l of ['relay:','google-files:','self-runs:','code-bridge:'])assert.equal(all.includes(keys.sign(l,'cafe')),false,'the '+l+' signature of another agent was handed out');
  assert.ok(all.includes('/google-files/shop/'+keys.sign('google-files:','shop')),'its own signatures are still made again');
  assert.ok(all.includes('/posting-check/shop--queue/'+keys.sign('relay:','shop--queue')),'and those of its own sub-addresses')});
+
+test('a refused signature while the guard file already holds the key in use raises nothing (a made-up signature from anywhere is not a stale key)',async()=>{
+ const x=await box(),keys=createRelayKeys(x.D,UI),events=[];let t=Date.parse('2026-11-12T10:00:00+07:00');const pl=limits(x,keys,{events,t:()=>t});
+ await writeFile(path.join(x.W,'shop','.tools','posting_guard.py'),'# guard\n');await pl.set('shop',{rules:RULES});
+ assert.equal(JSON.parse(await readFile(path.join(x.W,'shop','.tools','posting-guard.json'),'utf8')).sig,keys.sign('relay:','shop'),'the file is right');
+ for(let i=0;i<3;i++){t+=61e3;assert.equal(await pl.staleKey('shop'),'ignored')}assert.deepEqual(events,[],'no Health item about a key that is not out of date')});
