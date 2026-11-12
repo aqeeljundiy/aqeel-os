@@ -63,8 +63,13 @@ async function updateBox(repo,latest){
  const log='/tmp/aq-deploy-'+id+'.log',end=Date.now()+75*60000;
  while(Date.now()<end){await sleep(15000);let t='';try{t=readFileSync(log,'utf8')}catch{}
   if(/^AQ-DEPLOY DONE/m.test(t))return record('updated','',cur,latest);
-  const m=/^AQ-DEPLOY FAILED (.*)$/m.exec(t);if(m){state.skip=latest;const tail=t.split('\n').filter(l=>/^(✗|↩)/.test(l)).slice(-2).join(' ');const kept=m[1]!=='go live'||/^↩/m.test(t);return record('failed','Stopped at "'+m[1]+'". '+tail+(kept?' The server kept its working version.':' See System › Health.'),cur,latest)}}
- state.skip=latest;record('failed','It did not finish within 75 minutes.',cur,latest)}
+  const m=/^AQ-DEPLOY FAILED (.*)$/m.exec(t);if(m){giveUp(latest,/^(busy|pack|unpack steps)$/.test(m[1]));const tail=t.split('\n').filter(l=>/^(✗|↩)/.test(l)).slice(-2).join(' ');const kept=m[1]!=='go live'||/^↩/m.test(t);return record('failed','Stopped at "'+m[1]+'". '+tail+(kept?' The server kept its working version.':' See System › Health.'),cur,latest)}}
+ giveUp(latest,true);record('failed','It did not finish within 75 minutes.',cur,latest)}
+// L5 (audit of 12 Nov 2026): a version used to be given up on after ANY failure, also "the server was busy", "could not
+// fetch it" or a deploy that ran out of time, so both servers sat on a skipped version. Those are tried again at the next
+// check, three times; a failed check or go-live gives the version up at once, as before.
+function giveUp(v,passing){if(!passing){state.skip=v;return}
+ state.tries=state.triesFor===v?(state.tries||0)+1:1;state.triesFor=v;if(state.tries>=3)state.skip=v}
 
 // the service restarts by itself (Restart=always), so ending its process is enough and needs no root
 function restartService(){if(process.env.AQ_UPDATE_RESTART){execFileSync('sh',['-c',process.env.AQ_UPDATE_RESTART]);return}

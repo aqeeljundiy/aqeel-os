@@ -161,3 +161,10 @@ test('card rows: nothing connected means every account is "none" and none is nex
 
 test('the routine prompt shown on the card is the one in docs/cloud-fixer.md',async()=>{
  const doc=await readFile(new URL('../docs/cloud-fixer.md',import.meta.url),'utf8');assert.ok(doc.includes(ROUTINE_PROMPT));assert.ok(ROUTINE_PROMPT.length>500)});
+
+// audit 12 Nov 2026, M1: people's details never leave the box with an issue
+test('an issue sent to the cloud keeps no phone number, e-mail address or customer text; times, money and ids stay',async()=>{const {maskPeople}=await import('../app/cloud-fixer.mjs');
+ const text=fireText({id:'i1',missing:'the agent keeps stopping on the chat with +6281234567890',agent:'cove-support',evidence:'Customer asked: alamat saya Jl. Kenanga 7, hp 0812-3456-7890\nmail ani@example.com at 2026-11-12 10:30, total Rp3.040.000, 1794038325123 ms, app/kirimdev.mjs:120'});
+ for(const p of ['6281234567890','0812-3456-7890','Kenanga','ani@example.com'])assert.ok(!text.includes(p),p);
+ for(const p of ['…7890','2026-11-12 10:30','Rp3.040.000','1794038325123','app/kirimdev.mjs:120','(customer text hidden)'])assert.ok(text.includes(p),p);
+ assert.equal(maskPeople('port 4400, 15 minutes'),'port 4400, 15 minutes')});

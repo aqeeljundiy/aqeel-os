@@ -34,7 +34,7 @@ test('after the new version is unpacked (no defaults in close-stage-due, no old 
  const r=b.run();assert.match(r.stdout,/rc=0/);assert.ok(!existsSync(path.join(b.D,'box-checks','close-stage-due.json')));
  const none=mkdtempSync(path.join(tmpdir(),'mig-'));const r2=spawnSync('bash',['-c',fn+'\naq_migrate_box_checks; echo rc=$?'],{env:{...process.env,HOME:none,AQ_LIVE:path.join(none,'nope'),AQ_MIG_DATA:path.join(none,'d')},encoding:'utf8'});assert.match(r2.stdout,/rc=0/)});
 
-test('box-live.sh runs the move before it unpacks the new files',()=>{const i=src.indexOf('aq_migrate_box_checks || true'),j=src.indexOf('tar -xzf $HT -C ~/apps/hermes-ui');assert.ok(i>0&&j>i)});
+test('box-live.sh runs the move before it unpacks the new files',()=>{const i=src.indexOf('aq_migrate_box_checks || true'),j=src.indexOf('\naq_stage_new "$HT"');assert.ok(i>0&&j>i)});
 
 test('close-stage-due reads its sheet from <data>/box-checks/close-stage-due.json and has no default id in the code',()=>{
  const code=readFileSync(new URL('./close-stage-due.mjs',import.meta.url),'utf8');assert.doesNotMatch(code,/\b1[A-Za-z0-9_-]{43}\b/);assert.match(code,/box-checks/);

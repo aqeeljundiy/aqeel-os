@@ -12,7 +12,27 @@
 export PATH=$HOME/.local/bin:$PATH
 if [ -f ~/.hermes/.env ]; then set -a; . ~/.hermes/.env; set +a; fi
 DATA=${UI_DATA_DIR:-$HOME/apps/hermes-ui-data}
-start(){ tmux has-session -t "=$1" 2>/dev/null || tmux new-session -d -s "$1" "cd ~; $2 2>&1 | tee -a /tmp/$1.log" || echo "! services.sh: could not start $1"; return 0; }
+# CR-5 (security audit of 12 Nov 2026): the sessions' logs were /tmp/<name>.log, readable by every user on the box, and the
+# gateway's holds the agents' tool-server addresses with their signatures. They are in ~/logs/aqeelos now (AQ_LOGS), a folder
+# only the box user can open, each file 600. A log over 20 MB keeps its last 2 MB (the rest stays once as <name>.log.1); that
+# is looked at each time this script runs (every deploy and box start). A session that is already running keeps writing where
+# it was started (its old /tmp file is closed to others here) until it next restarts.
+umask 077
+LOGS=${AQ_LOGS:-$HOME/logs/aqeelos}
+mkdir -p "$LOGS/.cmd" 2>/dev/null; chmod 700 "$HOME/logs" "$LOGS" "$LOGS/.cmd" 2>/dev/null
+for f in "$LOGS"/*.log; do [ -f "$f" ] && [ ! -L "$f" ] || continue
+ if [ "$(wc -c < "$f")" -gt 20971520 ]; then cp "$f" "$f.1" 2>/dev/null; tail -c 2097152 "$f" > "$f.tmp" && cat "$f.tmp" > "$f"; rm -f "$f.tmp"; fi; done
+for f in xvfb wm vnc novnc adspower-bridge gateway dashboard ui code nightly; do [ -f "/tmp/$f.log" ] && [ -O "/tmp/$f.log" ] && [ ! -L "/tmp/$f.log" ] && chmod 600 "/tmp/$f.log"; done
+# M16: a session that exists is left alone, so a changed command never reached a running one (the nightly session went on
+# running a retired script). Each session's command is kept in $LOGS/.cmd/<name>; a session that is safe to restart (nobody's
+# work runs in it) is started again when its command differs. The engine, the UI and the screen are never restarted here.
+RESTART_SAFE="nightly novnc vnc adspower-bridge"
+start(){ local n=$1 c=$2 log="$LOGS/$1.log" rec="$LOGS/.cmd/$1"
+ if tmux has-session -t "=$n" 2>/dev/null; then
+  case " $RESTART_SAFE " in *" $n "*) [ "$(cat "$rec" 2>/dev/null)" = "$c" ] && return 0; tmux kill-session -t "=$n" 2>/dev/null; echo "· services.sh: $n is started again (its command changed)" ;; *) return 0 ;; esac
+ fi
+ : >> "$log" 2>/dev/null; chmod 600 "$log" 2>/dev/null
+ if tmux new-session -d -s "$n" "umask 077; cd ~; $c 2>&1 | tee -a '$log'"; then printf '%s' "$c" > "$rec" 2>/dev/null; else echo "! services.sh: could not start $n"; fi; return 0; }
 # a value from a "name=value" file, without running it
 kv(){ grep -m1 "^$2=" "$1" 2>/dev/null | cut -d= -f2- | tr -d ' \r"'"'"; return 0; }
 # on / off / auto from services.conf

@@ -35,7 +35,8 @@ touch "$S/start"; sleep 1
 PUB=${PUBLIC_URL:-$(cd "$REPO" && node -e "import('./app/install.mjs').then(m=>console.log(m.publicUrl()))" 2>/dev/null)}
 steps(){ HOME=$S/$1 PUBLIC_URL=$PUB timeout 600 node "$REPO/scripts/apply-skill-patches.mjs" > "$S/$1.log" 2>&1; }
 steps update & a=$!; steps live; rl=$?; wait $a; ru=$?
-[ $ru = 0 ] && [ $rl = 0 ] || { echo "✗ engine update check: the patch steps failed:"; tail -5 "$S/update.log" "$S/live.log"; exit 2; }
+grep -h '^MISFIT ' "$S/update.log" "$S/live.log" 2>/dev/null | sort -u | sed 's/^/  ! /'
+{ [ $ru = 0 ] || [ $ru = 3 ]; } && { [ $rl = 0 ] || [ $rl = 3 ]; } || { echo "✗ engine update check: the patch steps failed:"; tail -5 "$S/update.log" "$S/live.log"; exit 2; }
 # the files to compare: every file the live engine changed, added or removed, and every file the steps wrote in either copy
 skip='(^|/)(__pycache__|node_modules|\.git)/|\.(pyc|orig|rej|bak[^/]*|aq\.tmp)$|\.aq-[0-9]+-'
 { cut -c4- "$S/status"; for d in "$U" "$L"; do (cd "$d" && find . -type f -newer "$S/start" ! -path './.git/*' | sed 's#^\./##'); done; } | grep -vE "$skip" | sort -u > "$S/files"
