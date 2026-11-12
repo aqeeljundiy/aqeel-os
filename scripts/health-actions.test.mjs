@@ -11,7 +11,7 @@ import {personNeed,memberCan} from '../app/bottlenecks.mjs';
 import {issueActs,itemActs,vagueLabel,findApp,cleanSteps,mcpCanSignIn,DOES,STEP_KINDS} from '../app/need-action.mjs';
 import {createQuestions,cleanQuestion} from '../app/questions.mjs';
 import {parseResult,parseSort} from '../app/issues.mjs';
-import {src} from './lib/source.mjs';
+import {src as sourceOf} from './lib/source.mjs';
 
 // ---- the client's actions(x), run on its own source with stubs
 const calls=[];const stub=(n,v)=>(...a)=>{calls.push([n,...a]);return v};
@@ -138,7 +138,7 @@ test('every action a need can produce has a handler, and the handler does someth
  for(const d of all)if(d!=='done')assert.ok(DOES.includes(d),'"'+d+'" is not a declared action');
  for(const d of DOES)assert.ok(handled.includes(d),'declared action "'+d+'" has no handler');assert.ok(DOES.every(d=>all.has(d)),'not produced here: '+DOES.filter(d=>!all.has(d)));
  // the handlers call what exists: the functions on the page, and routes the server has
- const srv=src('app/server.mjs')+readFileSync(new URL('../app/accounts.mjs',import.meta.url),'utf8');
+ const srv=sourceOf('app/server.mjs')+readFileSync(new URL('../app/accounts.mjs',import.meta.url),'utf8');
  for(const r of ['/ui/accounts/unlist','/ui/mcp/start-signin','/ui/health/issues/retry'])assert.ok(srv.includes("'"+r+"'"),r);
  const front=['core.js','pages.js','connect.js','google-connect.js','mcp-share.js','screen.js'].map(f=>readFileSync(new URL('../app/'+f,import.meta.url),'utf8')).join('\n');
  for(const fn of ['Pages.reconnect=','async reconnect(key,name)','const GC=','async open(opt={})','const Signins=','async go(x){','const openAgentScreen=','function confirmBox(','const del=','function go('])assert.ok(front.includes(fn),'missing on the page: '+fn);
@@ -198,5 +198,5 @@ test('the fixer asks a question in its RESULT, and a bad one is dropped instead 
  const ok=parseResult('x\nRESULT: '+JSON.stringify({status:'needs_human',need:'choose',question:Q}));assert.equal(ok.question.options.length,2);assert.equal(ok.question.options[0].recommended,true);
  const bad=parseResult('RESULT: '+JSON.stringify({status:'needs_human',need:'choose',question:{question:'x',options:[]}}));assert.equal(bad.question,null);assert.equal(bad.need,'choose')});
 test('the question tool and its answer route exist, and the fixer prompt tells it to ask',()=>{
- const srv=src('app/server.mjs'),iss=readFileSync(new URL('../app/issues.mjs',import.meta.url),'utf8');
+ const srv=sourceOf('app/server.mjs'),iss=readFileSync(new URL('../app/issues.mjs',import.meta.url),'utf8');
  for(const n of ['ask_owner','question_done','my_questions','/ui/questions/answer','questions.contextLines','questions.open'])assert.ok(srv.includes(n),n);assert.match(iss,/CHOICE between approaches/)});
