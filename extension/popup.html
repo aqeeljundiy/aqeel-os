@@ -1,6 +1,7 @@
 <!doctype html><meta charset="utf-8">
 <style>
 @font-face{font-family:'Plus Jakarta Sans';font-style:normal;font-weight:200 800;font-display:swap;src:url('plus-jakarta-sans.woff2') format('woff2')}
+@font-face{font-family:'Plus Jakarta Sans';font-style:normal;font-weight:200 800;font-display:swap;src:url('google-sans-flex-digits.woff2') format('woff2');unicode-range:U+30-39}
 @keyframes pin{from{opacity:0;transform:translateY(4px)}}
  body{animation:pin .25s ease;font:14px/1.45 "Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;padding:16px;width:300px;color:#111;background:#fff}
  .top{display:flex;align-items:center;gap:10px;margin:0 0 10px}.top img{width:32px;height:32px}
@@ -9,7 +10,7 @@
  .st{display:flex;align-items:center;gap:8px;font-weight:600;margin:0 0 4px}.dot{width:9px;height:9px;border-radius:50%;background:#bbb;flex:none}
  .on .dot{background:#2f7d32}.work .dot{background:#2563eb;animation:pulse 1.6s ease-in-out infinite}.need .dot{background:#d97706}.fail .dot{background:#dc2626}
  @keyframes pulse{50%{opacity:.35}}
- .doing{color:#555;font-size:12.5px;margin:0 0 12px;min-height:0}
+ .doing{font-variant-numeric:tabular-nums;color:#555;font-size:12.5px;margin:0 0 12px;min-height:0}
  .upd{display:none;background:#eff4ff;color:#1e3a8a;border-radius:12px;padding:9px 12px;font-size:12.5px;margin:0 0 12px}.upd a{color:#1d4ed8;font-weight:600}
  label{display:block;font-size:12px;font-weight:600;color:#444;margin:8px 0 4px}
  input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #ddd;border-radius:10px;font:inherit}
