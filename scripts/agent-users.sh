@@ -373,9 +373,11 @@ limit_of(){
   [[ "$a" =~ ^[0-9]{1,7}$ ]] || a=0; [[ "$b" =~ ^[0-9]{1,5}$ ]] || b=0
   echo "$((10#$a)) $((10#$b))"
 }
-# the port Chrome itself listens on: the agent's own port when its screen never sleeps (as before 11 Nov), else 10000
-# above it, behind the wake proxy on the agent's own port
-chrome_port(){ local cdp=$1 sleep=$2; [ "$sleep" -gt 0 ] && echo $((cdp+10000)) || echo "$cdp"; }
+# the port Chrome itself listens on: always 10000 above the agent's own port, behind the wake proxy, which listens on the
+# agent's own port for EVERY agent whatever its sleep setting (13 Nov 2026: sleep 0 used to take an agent out of the proxy while
+# its running Chrome kept the inner port, so 127.0.0.1:<port> stopped answering until Chrome restarted). Sleep 0 only means
+# the screen is never put to sleep. The second argument (sleep minutes) is kept so callers need not change; it no longer matters.
+chrome_port(){ local cdp=$1; echo $((cdp+10000)); }
 
 # OPS-19 (12 Nov 2026, the owner's decision): an agent's screen is an X server and one tiny window manager, nothing else
 # ("lean"), started when the agent's browser is first used or a person opens the view, and put to sleep after its sleep
@@ -768,13 +770,12 @@ screens(){
   while read -r n; do [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue; id "ag-$n" >/dev/null 2>&1 && screen_up "$n" "ag-$n"; done < "$REQ"
   wake_ports
 }
-# the agents whose screen may sleep, for the wake proxy: "<agent> <its port> <Chrome's port>"
+# every agent with a screen, for the wake proxy: "<agent> <its port> <Chrome's port>" (the sleep setting does not matter)
 wake_ports(){
   [ -d "$WAKE" ] || return 0
-  local n l out="" sl
+  local n l out=""
   while read -r n; do
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] && id "ag-$n" >/dev/null 2>&1 || continue
-    read -r _ sl <<< "$(limit_of "$n")"; [ "$sl" -gt 0 ] || continue
     l=$(port_line "$n"); [ -n "$l" ] || continue
     out="$out$n $(echo "$l" | cut -d' ' -f3) $(( $(echo "$l" | cut -d' ' -f3) + 10000 ))"$'
 '
@@ -868,7 +869,9 @@ harness_orphans(){
 # environ (no ptrace right), so it is read as the process's own user then
 harness_port(){
   local pid=$1 env who
-  env=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null) || env=""
+  # the shell prints the redirect's own error (Permission denied: root has no ptrace right on another user's process) before a
+  # trailing 2>/dev/null applies, so the read runs inside a group whose stderr is closed
+  env=$({ tr '\0' '\n' < "/proc/$pid/environ"; } 2>/dev/null) || env=""
   [ -n "$env" ] || { who=$(pid_user "$pid"); [ -n "$who" ] && env=$(as_user "$who" cat "/proc/$pid/environ" 2>/dev/null </dev/null | tr '\0' '\n'); }
   printf '%s\n' "$env" | sed -n 's#^BU_CDP_\(WS\|URL\)=[a-z]*://[^/]*:\([0-9][0-9]*\).*#\2#p' | head -1
 }

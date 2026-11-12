@@ -75,7 +75,26 @@ test('limits: no file or no line means no cap and no sleep (as before); a line s
  const d=tmp();assert.equal(sh('limit_of a1',d).out,'0 0');
  writeFileSync(d+'/.aqeelos-agent-limits','a1 4096 30\nb2 0 0\n');
  assert.equal(sh('limit_of a1',d).out,'4096 30');assert.equal(sh('limit_of b2',d).out,'0 0');assert.equal(sh('limit_of zz',d).out,'0 0');
- assert.equal(sh('chrome_port 9602 30',d).out,'19602');assert.equal(sh('chrome_port 9602 0',d).out,'9602')});
+ assert.equal(sh('chrome_port 9602 30',d).out,'19602');
+ // 13 Nov 2026: sleep 0 must not move Chrome off the inner port: the agent's own address stays behind the proxy
+ assert.equal(sh('chrome_port 9602 0',d).out,'19602')});
+
+test('port map for the wake proxy: every agent with a port line is listed, whatever its sleep setting (sleep 0 too)',()=>{
+ const d=tmp();mkdirSync(d+'/wake');
+ writeFileSync(d+'/.aqeelos-agent-users','a1\nb2\nc3\nno-port\n');
+ writeFileSync(d+'/.aqeelos-agent-ports','a1 40 9600\nb2 41 9601\nc3 42 9602\n');
+ writeFileSync(d+'/.aqeelos-agent-limits','a1 4096 30\nb2 8192 0\n');   // c3 has no line at all
+ const run=()=>{sh('id(){ return 0; }; WAKE='+d+'/wake; wake_ports',d);return readFileSync(d+'/wake/ports','utf8')};
+ let out=run().trim().split('\n');
+ assert.deepEqual(out,['a1 9600 19600','b2 9601 19601','c3 9602 19602']);
+ // the setting changes while Chrome runs: the map does not change, so 127.0.0.1:<port> keeps answering
+ writeFileSync(d+'/.aqeelos-agent-limits','a1 4096 0\nb2 8192 30\n');
+ assert.deepEqual(run().trim().split('\n'),out);
+ // and what Chrome is told to listen on matches the proxy's inner port for every setting
+ for(const sl of [0,1,30,43200])assert.equal(sh('chrome_port 9600 '+sl,d).out,'19600')});
+
+test('reading another user\'s environ prints no error line (the redirect error is silenced, not only the command\'s)',()=>{
+ const d=tmp();const r=sh('harness_port 1 >/dev/null; harness_port 999999 >/dev/null',d);assert.equal(r.err,'')});
 
 test('memory cap: 3 min over restarts Chrome, 3 more min files one issue, twice the cap stops the biggest at once',()=>{
  const d=tmp();const step=(mb,cap,now,since,acted)=>sh(`mem_step ${mb} ${cap} ${now} ${since} ${acted}`,d).out;
