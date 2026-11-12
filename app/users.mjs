@@ -464,7 +464,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   const tok=randomBytes(24).toString('base64url');db.resets.push({h:tokHash(tok),uid:x.id,exp:Date.now()+3600e3});await save();const bn=await brandName();
   // not waited for: a real account and a made-up name answer in the same time
   mail.deliver(x.email,'Reset your '+bn+' password',`Hi ${x.name},\n\nSomeone asked to reset your ${bn} password. Open this link to pick a new one:\n\n${link(tok)}\n\nIt works once, for one hour. If you didn't ask, you can ignore this email: your password stays as it is.\n\n${bn}`).catch(e=>console.warn('password reset mail:',e.message))}
- // a link that matches nothing counts toward one shared bucket (nobody's account yet); while it waits, even a right link answers "expired"
+ // a link that matches nothing counts per address (nobody's account yet); while that address waits, even a right link answers "expired"
  const badLink=()=>{limiter.fail('resettok:any');return null};
  async function resetInfo(tok){await load();sweep();if(limiter.wait('resettok:any'))return null;const r=db.resets.find(y=>safeEq(y.h,tokHash(tok)));const x=r&&byId(r.uid);return x&&!x.disabled?{name:x.name,username:x.username||''}:badLink()}
  async function finishReset(tok,pw){await load();sweep();const GONE={error:'This reset link has expired or was already used. Ask for a new one.'};if(limiter.wait('resettok:any'))return GONE;const r=db.resets.find(y=>safeEq(y.h,tokHash(tok)));const x=r&&byId(r.uid);if(!x||x.disabled){badLink();return GONE}

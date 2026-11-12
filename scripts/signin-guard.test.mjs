@@ -92,7 +92,7 @@ test('forgot password: asks are counted per account (a made-up name too); past 5
  assert.ok(w.guard.wait('reset:name:'+hashName('ghost@example.com'))>0,'and so is a made-up name');
  assert.equal(await ask('ghost@example.com'),undefined);assert.equal(w.locks.length,0,'asks never raise the failed-sign-in item')});
 
-test('reset links and invite codes that match nothing share one bucket; while it waits even a right one answers "expired"',async()=>{
+test('reset links and invite codes that match nothing are counted (per address, see the review tests below); while it waits even a right one answers "expired"',async()=>{
  const w=await world();
  const GONE='This reset link has expired or was already used. Ask for a new one.';
  for(let i=0;i<30;i++)assert.equal((await w.users.finishReset('wrong'+i,'newpassword1')).error,GONE);
@@ -100,7 +100,7 @@ test('reset links and invite codes that match nothing share one bucket; while it
  assert.equal(await w.users.resetInfo('anything'),null);
  const inv=()=>w.call('/auth/accept',REQ('203.0.113.1',null,{code:'nope',name:'Sam',password:'longpassword1',email:'sam@example.com'}));
  const first=await inv();assert.equal(first.status,400);for(let i=0;i<30;i++)await inv();
- assert.deepEqual(await inv(),first);assert.ok(w.guard.wait('invite:any')>0);
+ assert.deepEqual(await inv(),first);assert.ok(await withRequest(REQ('203.0.113.1'),()=>w.guard.wait('invite:any'))>0);
  const info=await w.call('/auth/invite',REQ('203.0.113.1',null,{},'GET'),new URL('http://x/auth/invite?code=nope'));assert.equal(info.status,404)});
 
 test('Health: one item per account when it starts waiting, with the count and the number of addresses, never a password; again only when the count doubles',async()=>{
@@ -134,3 +134,23 @@ test('enterRequest (what server.mjs calls per request): two requests in flight e
  await Promise.all([one('203.0.113.1','x'),one('203.0.113.14',null)]);
  assert.equal(w.guard.wait('pw:x',{signIn:true}),0,'the request whose cookie is for x is trusted, and its tries are not counted');
  assert.equal(w.guard.size(),1)});
+
+// Review of 12 Nov 2026.
+test('made-up invite and reset links from one address do not close them for everyone else (the owner can still reset; a new person can still join)',async()=>{
+ const w=await world();const from=(ip,f)=>withRequest(REQ(ip),f);
+ const GONE='This reset link has expired or was already used. Ask for a new one.';
+ for(let i=0;i<40;i++){assert.equal((await from('198.51.100.9',()=>w.users.finishReset('made-up-'+i,'newpassword1'))).error,GONE);await w.call('/auth/invite',REQ('198.51.100.9',null,{},'GET'),new URL('http://x/auth/invite?code=made-up-'+i))}
+ assert.ok(await from('198.51.100.9',()=>w.guard.wait('resettok:any'))>0,'the address that sent them waits');assert.ok(await from('198.51.100.9',()=>w.guard.wait('invite:any'))>0);
+ assert.equal(await from('203.0.113.20',()=>w.guard.wait('resettok:any')),0,'a reset link opened from another address is looked at');
+ assert.equal(await from('203.0.113.20',()=>w.guard.wait('invite:any')),0,'and so is an invite');
+ assert.ok(w.guard.size()<=4,'one entry per kind and address, not one per try: '+w.guard.size())});
+
+test('a browser with a valid session gets 5 tries of its own, not tries without end: a stolen session cannot guess the password through the sign-in route',async()=>{
+ const w=await world();const mine=pw=>w.login('203.0.113.30',pw,{dev:'owner'});
+ for(let i=0;i<5;i++)assert.equal((await mine('guess'+i)).status,401);
+ assert.equal((await mine('longpassword1')).status,401,'the sixth try from that browser waits, right password or not');
+ assert.equal(w.locks.length,1,'and the owner is told');
+ assert.equal((await w.login('203.0.113.31','longpassword1')).status,200,'nobody else was made to wait by it');
+ assert.equal((await mine('longpassword1')).status,200,'a right answer starts that browser over as well');
+ for(let i=0;i<5;i++)await w.login('203.0.113.32','x'+i);   // someone else guesses: the signed-in browser is not held up
+ assert.equal((await mine('longpassword1')).status,200)});
