@@ -177,6 +177,8 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   for(const [k,v] of Object.entries(st.ours))if(t-v>48*3600e3)delete st.ours[k];
   for(const [k,v] of Object.entries(st.paused))if(v<t)delete st.paused[k];
   for(const [k,v] of Object.entries(st.human))if(t-v>48*3600e3)delete st.human[k];
+  // sent and settled, cancelled, or older than a week: gone after 48 hours (audit M7: 1,840 entries, three quarters of the state file, walked every 30 s)
+  for(const [k,o] of Object.entries(st.outbox)){const age=t-(o.at||0),final=['delivered','read','failed'].includes(o.receipt?.status)||o.status==='cancelled';if(final&&age>48*3600e3||age>7*86400e3)delete st.outbox[k]}
   for(const [k,d] of Object.entries(st.drafts))if(d.status!=='waiting'&&t-(d.doneAt||d.at)>7*86400e3||t-d.at>3*86400e3)delete st.drafts[k];
   await put(ST,st)});
  const lines=async()=>(await readStore(CONF,{lines:{}})).lines||{};

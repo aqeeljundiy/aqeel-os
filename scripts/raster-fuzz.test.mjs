@@ -73,3 +73,13 @@ test('the first page never waits for the icons: tags are there before the set is
  const p=createPwa({brand:{iconSpec:async()=>spec()},make:async s=>{await gate;return buildIconsOff(s)}});
  const run=p.current();assert.match(p.headSync(),/manifest\.webmanifest/);open();await run;assert.match(p.headSync(),/\/pwa\/[0-9a-f]{10}\//)});
 }
+
+// Audit M21: a PNG whose header says small but whose data unpacks to far more, and one with too many pixels, are refused before any work
+if(isMainThread)test('M21: a PNG that unpacks to more than its size says, or has more than 16 million pixels, is refused',async()=>{const zlib=await import('node:zlib');const {encodePng}=await import('../app/png.mjs');
+ const small=encodePng(4,4,new Uint8Array(4*4*4).fill(200));
+ // the same header with a data chunk that inflates to 64 MB
+ const crc=(await import('node:zlib')).crc32,chunk=(type,data)=>{const b=Buffer.alloc(12+data.length);b.writeUInt32BE(data.length,0);b.write(type,4,'latin1');data.copy(b,8);b.writeUInt32BE(crc?crc(b.subarray(4,8+data.length)):0,8+data.length);return b};
+ const bomb=Buffer.concat([small.subarray(0,33),chunk('IDAT',zlib.deflateSync(Buffer.alloc(64*1024*1024))),chunk('IEND',Buffer.alloc(0))]);
+ const m0=process.memoryUsage().arrayBuffers;assert.throws(()=>decodePng(bomb),/damaged/);assert.ok(process.memoryUsage().arrayBuffers-m0<32*1024*1024,'the 64 MB were never unpacked');
+ const big=Buffer.from(small);big.writeUInt32BE(8000,16);big.writeUInt32BE(8000,20);assert.throws(()=>decodePng(big),/too large/);
+ assert.equal(decodePng(small).w,4)});

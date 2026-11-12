@@ -51,7 +51,7 @@ export function createLoops({now=()=>Date.now()}={}){
  const stats=()=>[...S.values()].map(r=>({...r,ms:Math.round(r.ms),avg:r.runs?Math.round(r.ms/r.runs):0,text:fmtMs(r.ms)})).sort((a,b)=>b.ms-a.ms||b.runs-a.runs);
  return {track,note,stats,row}}
 
-export function createReconciler({loops=createLoops(),now=()=>Date.now(),log=m=>console.log(m),sweep=SWEEP,check=CHECK,first=60e3,gap=1500,homes=async()=>[],homeOf=a=>a,fixedSig=async()=>'',setTimer=setTimeout,setTick=setInterval,sleep=ms=>new Promise(r=>setTimeout(r,ms))}={}){
+export function createReconciler({loops=createLoops(),now=()=>Date.now(),log=m=>console.log(m),sweep=SWEEP,check=CHECK,first=60e3,gap=1500,homes=async()=>[],homeOf=a=>a,fixedSig=async()=>'',taskMs=15*60e3,setTimer=setTimeout,setTick=setInterval,sleep=ms=>new Promise(r=>setTimeout(r,ms))}={}){
  const tasks=new Map();let timer=null,running=null,again=false,dirty=new Set(),allDirty=false,started=false;
  // add(name,{run, reads:['cfg'|'plugins'|'skills'], files:[paths], why, every}): run() is the old loop body, untouched
  function add(name,t){const every=t.every||sweep;tasks.set(name,{name,run:t.run,reads:t.reads||['cfg'],files:t.files||[],every,fp:null,at:0,retry:0});Object.assign(loops.row(name),{every,why:t.why||''});return api}
@@ -60,8 +60,10 @@ export function createReconciler({loops=createLoops(),now=()=>Date.now(),log=m=>
   const per=await Promise.all(hs.map(a=>homeSig(homeOf(a),{top:a!=='default',parts}).then(s=>[a,s]).catch(()=>[a,Object.fromEntries(parts.map(k=>[k,'?']))])));
   const w={list:hs.join(','),fixed:await fixedSig().catch(()=>'')};for(const k of parts)w[k]='';for(const [a,s] of per)for(const k of parts)w[k]+=a+'='+s[k]+';';return w}
  const sigOf=async(t,w)=>[w.list,w.fixed,...t.reads.map(k=>w[k]),await statSig(t.files)].join('#');
- async function exec(t,w,why){const t0=now();try{await t.run({why});loops.note(t.name,{ms:now()-t0});t.at=now();t.retry=0;t.fp=await sigOf(t,await world())}   // the fingerprint after the work: its own writes do not start it again
-  catch(e){loops.note(t.name,{ms:now()-t0,err:true});t.fp=null;t.retry=now()+10*60e3;log('reconcile '+t.name+': '+e.message)}}
+ // each task has a time limit (audit M24): one that hangs (a child process with no limit of its own) is treated like one that threw, and the
+ // pass goes on; before, go() handed the same never-ending pass to every later call and no task ran again until the app restarted
+ async function exec(t,w,why){const t0=now();let timer;try{await Promise.race([t.run({why}),new Promise((_,rej)=>{timer=setTimeout(()=>rej(Error('still running after '+Math.round(taskMs/60e3)+' minutes; left behind')),taskMs);timer.unref?.()})]);loops.note(t.name,{ms:now()-t0});t.at=now();t.retry=0;t.fp=await sigOf(t,await world())}   // the fingerprint after the work: its own writes do not start it again
+  catch(e){loops.note(t.name,{ms:now()-t0,err:true});t.fp=null;t.retry=now()+10*60e3;log('reconcile '+t.name+': '+e.message)}finally{clearTimeout(timer)}}
  // one pass: tasks whose inputs moved (or that were asked for, or whose safety sweep is due) run, one after the other
  async function pass(){const ask=dirty,askAll=allDirty;dirty=new Set();allDirty=false;   // taken now: a trigger during the pass is kept for the next one
   const w=await world(),ranAny=[];

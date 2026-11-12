@@ -249,8 +249,9 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
   const x=silentPosting({gates,entries:l,now:now(),stopped:stop,tools:await engineTools(a).catch(()=>null),answer:await lastAnswer(a).catch(()=>'')});
   if(x)await event('silent',x.text,x.detail,{topic,agent:a}).catch(()=>{});else await solved(a,topic).catch(()=>{})}
  async function tick(){if(busy)return;busy=true;try{await load();for(const a of Object.keys(db.agents)){const r=await rulesOf(a);if(!r?.on)continue;await expire(a,r).catch(x=>log('posting expire: '+x.message));await unrecordedItem(a).catch(x=>log('posting unrecorded: '+x.message));const l=await entries(a);await silence(a,r,l.filter(x=>x.status!=='pending')).catch(x=>log('posting silence: '+x.message));
-   const e=l.find(x=>x.status==='unchecked'&&now()-x.at>60e3)||l.find(x=>x.status==='visible'&&!x.rechecked&&now()-x.at>=r.recheckMin*60e3&&now()-x.at<6*3600e3);if(!e)continue;
-   const s=await check(a,r,e);if(s==='unchecked'){if(now()-e.at>3600e3){e.status='missing';e.missingAt=now();e.checkFailed=true;await alert(a,r,e,'now')}continue}
+   const e=l.find(x=>(x.status==='unchecked'&&now()-x.at>60e3)||(x.status==='checking'&&now()-x.at>120e3))||   // 'checking' for over 2 minutes: the app restarted during the look (audit M15)
+    l.find(x=>x.status==='visible'&&!x.rechecked&&now()-x.at>=r.recheckMin*60e3&&now()-x.at<6*3600e3);if(!e)continue;
+   const s=await check(a,r,e);if(s!=='unchecked'&&e.status==='checking')e.status='unchecked';if(s==='unchecked'){if(e.status==='checking')e.status='unchecked';if(now()-e.at>3600e3){e.status='missing';e.missingAt=now();e.checkFailed=true;await alert(a,r,e,'now')}continue}
    if(e.status==='visible')e.rechecked=now();e.checkedAt=now();
    if(s==='missing'){const was=e.status;e.status='missing';e.missingAt=now();await alert(a,r,e,was==='visible'?'later':'now')}else e.status='visible';await keep(a)}}
   catch(x){log('posting check: '+x.message)}finally{busy=false}}
