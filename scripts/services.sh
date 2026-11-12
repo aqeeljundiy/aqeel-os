@@ -42,7 +42,11 @@ hostok(){ local h=${1:-$2}; case "$h" in *[!a-z0-9.-]*|'') h=$2;; esac; echo "$h
 export DISPLAY=:99
 if command -v Xvfb >/dev/null; then
   pgrep -x Xvfb >/dev/null || rm -f /tmp/.X99-lock /tmp/.X11-unix/X99   # a hard stop leaves the lock behind
- start xvfb "Xvfb :99 -screen 0 1280x800x24 -nolisten tcp"
+ # AUD-15 (13 Nov 2026): started without -auth, :99 took any user on the box (every agent's own Linux user could watch it and
+ # type into it). It takes the key in the box user's ~/.Xauthority now, where every program of this user finds it by itself.
+ # Applies when :99 next starts (a box start): a running screen is never restarted here.
+ XA=""; if command -v xauth >/dev/null; then xauth -q -f "$HOME/.Xauthority" list ":99" 2>/dev/null | grep -q . || xauth -q -f "$HOME/.Xauthority" add ":99" . "$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')" 2>/dev/null; chmod 600 "$HOME/.Xauthority" 2>/dev/null; [ -s "$HOME/.Xauthority" ] && XA=" -auth $HOME/.Xauthority"; fi
+ start xvfb "Xvfb :99 -screen 0 1280x800x24 -nolisten tcp$XA"
  sleep 1
  start wm "fluxbox"
  start vnc "while true; do x11vnc -display :99 -localhost -forever -shared -nopw -quiet -rfbport 5900; sleep 2; done"

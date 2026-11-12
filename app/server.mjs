@@ -158,6 +158,7 @@ import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // 
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
 import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';import {createSchedulesRoutes} from './schedules-routes.mjs';import {createIdentitiesRoutes} from './identities-routes.mjs';import {createHooksRoutes} from './hooks-routes.mjs';import {createOAuthCallbackRoutes} from './oauth-callback-routes.mjs';import {createBoxRoutes} from './box-routes.mjs';   // the routes that used to sit in this file (one module each)
+import {createScreenLink,createScreenTickets} from './screen-link.mjs';   // the screen viewer's own connection, ticket per connection (AUD-15)
 
 delete Object.prototype.__proto__;   // a key named __proto__ from a request is an ordinary key: no lookup reaches Object.prototype (security audit, 12 Nov 2026)
 const here=path.dirname(fileURLToPath(import.meta.url));
@@ -2357,11 +2358,10 @@ async function hermesCall(req,res,u,url){
 
 
 /* ---------- live screens: the shared one (noVNC on 127.0.0.1:6080) and one per agent (screens.mjs) ---------- */
-const screens=createScreens({keepOn:a=>agentAds.keepOn(a),wake:a=>boxOps.wake(a)});
+const screenTickets=createScreenTickets({sign}),screens=createScreens({keepOn:a=>agentAds.keepOn(a),wake:a=>boxOps.wake(a),tickets:screenTickets});
 // every agent's own AdsPower on its own screen, as its own user, with its own port and sign-in (app/agent-adspower.mjs, 1 Nov 2026)
 const agentAds=createAgentAdspower({DATA,HERMES_HOME,screens,wanted:a=>optins.on('adspower',a),help:a=>a===HELP_AGENT,codeUser:a=>agentDefaults.codeUser(a),agentNames,readConfig,pick,withAgent,live:LIVE_APP,nameOf:a=>agentName(a),skip:async a=>a===HELP_AGENT||await isTestAgent(a),
  mcp:(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))})});
-const SCREEN=new URL(env.UI_SCREEN||'http://127.0.0.1:6080');
 const BUILD=String(Date.now());
 // home-screen app for every page (pwa.mjs): icons from the brand's real mark, the manifest, head tags and the service worker. No real mark = one question under Needs you
 const brandNeeds=async(set,s)=>{try{const ask={kind:'app',issue:'brand-logo'};if(set.needsLogo)await questions.file(ask,{question:'No logo found for '+s.name+': upload its mark',options:[{label:'Upload the mark',effect:'Opens Branding, where you choose its SVG or PNG file.',recommended:true,go:'/system/branding'},{label:'Use its first letter',effect:'The first letter on the colour tile instead. You can still upload the mark later.'}],allowOther:false});else await questions.retire(ask)}catch(e){console.warn('brand icon question:',e.message)}};
@@ -2372,11 +2372,7 @@ const pwa=createPwa({brand,build:()=>BUILD,onSet:(set,s,failed)=>{if(failed)retu
 pwa.current().catch(e=>console.warn('icons:',e.message));
 const sameOrigin=req=>{const o=req.headers.origin;if(!o)return true;try{return new URL(o).host===req.headers.host}catch{return false}};
 const plugins=createPluginHost({DASH,DASH_TOKEN,users,send,security,proxy,me,validCookie,sameOrigin});
-function screenHttp(req,res){
- const url=new URL(req.url,'http://x');const up=httpRequest({hostname:SCREEN.hostname,port:SCREEN.port,path:url.pathname.replace(/^\/screen/,'')||'/',method:'GET',headers:{host:SCREEN.host}},r=>{
-  res.writeHead(r.statusCode||502,{'content-type':r.headers['content-type']||'application/octet-stream','cache-control':'no-cache','x-content-type-options':'nosniff','x-frame-options':'SAMEORIGIN','content-security-policy':"frame-ancestors 'self'",'referrer-policy':'same-origin'});r.pipe(res)});
- up.on('error',()=>{if(!res.headersSent)send(res,502,'The screen is not running on the box.')});up.end();
-}
+const screenLink=createScreenLink({tickets:screenTickets,me,users,screens,validCookie,sameOrigin,screenUrl:new URL(env.UI_SCREEN||'http://127.0.0.1:6080'),security});
 // Spare browser window on the screen for manual use (aqeelOS's own browser opens itself when it browses).
 async function openBrowser(res,agent){
  const {spawn}=await import('node:child_process');const {existsSync,readdirSync}=await import('node:fs');
@@ -2450,7 +2446,7 @@ const server=createServer(async(req,res)=>{
   if(p==='/aqeelos-login'&&req.method==='GET'){res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer'});return res.end(n8n.page())}
   if(p==='/aqeelos-login/go'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
    try{const set=await n8n.go(b.t,b.b);res.writeHead(200,{'content-type':'application/json','cache-control':'no-store','set-cookie':set});return res.end('{"ok":true}')}catch(e){return send(res,400,{error:e.message})}}
-  if(p.startsWith('/screen/')){if(!validCookie(req))return send(res,401,'Sign in first.');return screenHttp(req,res)}
+  if(p.startsWith('/screen/')){if(!validCookie(req))return send(res,401,'Sign in first.');return screenLink.page(req,res)}
   if(p==='/ui/screen/browser'||p.startsWith('/ui/screens')){const u=await me(req);if(!u)return send(res,401,{error:'Sign in first.'});if(req.method!=='GET'&&req.headers['x-hui']!=='1')return send(res,403,{error:'Sign in first.'});
    const sm=/^\/ui\/screens\/([^/]+)/.exec(p);if(p==='/ui/screens'&&!users.isAdmin(u))return send(res,200,{screens:[]});
    const no=users.gate(u,p,req.method,url.searchParams,sm?decodeURIComponent(sm[1]):agentOf(p,url.searchParams));if(no)return send(res,no.status,{error:no.error});
@@ -2564,12 +2560,9 @@ server.on('upgrade',(req,sock,headBuf)=>{
   me(req).then(u=>{if(!u||!users.isAdmin(u)||users.gate(u,'/hapi/status','GET',new URLSearchParams({profile:ag}),ag)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}return engineConsole.upgrade(req,sock,headBuf,{agent:ag,user:u.name||u.id})}).catch(()=>sock.destroy());return}
  // a plugin's live connection (the Task board's event stream among them): see plugin-host.mjs
  if(p.startsWith('/hapi/plugins/')||p.startsWith('/ui/plugin-api/')){plugins.upgrade(req,sock,headBuf);return}
- if(p!=='/screen/websockify'||!validCookie(req)||!sameOrigin(req)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
- const agent=new URL(req.url,'http://x').searchParams.get('agent');
- me(req).then(u=>{if(!u||users.gate(u,'/ui/screens/'+(agent||'default'),'GET',new URLSearchParams(),agent||'default')){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
-  // screen=ads: the old shared :99 screen, no longer offered in the app (each agent has its own AdsPower); admins only
-  const ads=new URL(req.url,'http://x').searchParams.get('screen')==='ads';if(ads&&!users.isAdmin(u)){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
-  return screens.upgrade(req,sock,headBuf,ads?null:agent,users.isAdmin(u))}).catch(()=>sock.destroy());
+ // an agent's screen: signed in on this site, allowed to see that screen, and a ticket for this one connection (app/screen-link.mjs)
+ if(p==='/screen/websockify'){screenLink.upgrade(req,sock,headBuf).catch(()=>sock.destroy());return}
+ sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');
 });
 server.listen(PORT,HOST,()=>console.log(`aqeelOS on http://${HOST}:${PORT} → dashboard ${DASH.origin}, gateway ${GATE.origin}`));
 // Skills and Schedules show at once from the first visit: their slow engine answers are asked for once, one agent at a time

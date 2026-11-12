@@ -2,24 +2,24 @@
 // Hermes starts the first time the agent opens a browser and stops again after it sits idle.
 // Agents that browse through AdsPower (browser.cdp_url → the bridge on :9333) stay on the shared :99 screen.
 // This module reports each agent's screen, starts/stops it on request, keeps every agent's settings right,
-// and bridges the viewer's WebSocket to the right screen (websockify on its private Unix socket).
-import {spawn,execFile} from 'node:child_process';
+// and connects the viewer's WebSocket to the right screen's private Unix socket (app/screen-link.mjs).
+import {execFile} from 'node:child_process';
 import {readFile,readdir,mkdir,stat,utimes} from 'node:fs/promises';
 import {connect} from 'node:net';
 import {homedir} from 'node:os';
 import path from 'node:path';
-import {createServer} from 'node:net';
+import {acceptWs,pipeWs} from './screen-link.mjs';
 import {setKey,agentNames,LIVE_APP} from './agentops.mjs';
 
 const HOME=homedir();
 const HERMES_HOME=process.env.HERMES_HOME||path.join(HOME,'.hermes');
 const AGENT_SRC=path.join(HERMES_HOME,'hermes-agent');
 const WORKSPACES=path.join(HOME,'workspaces');
-const SHARED={port:6080};                 // noVNC for the :99 screen (AdsPower)
+const SHARED={host:'127.0.0.1',port:5900};   // x11vnc of the shared :99 screen (AdsPower), behind the box's local firewall
 const NAME=/^[a-z0-9][a-z0-9_-]{0,63}$/;
 const run=(cmd,args,env={},timeout=60000)=>new Promise(res=>execFile(cmd,args,{env:{...process.env,...env},timeout,maxBuffer:4e6,cwd:HOME},(err,stdout,stderr)=>res({ok:!err,out:String(stdout||''),err:String(stderr||err?.message||'')})));
 
-export function createScreens({keepOn=()=>false,wake=async()=>false}={}){   // keepOn(agent): something runs on its screen (its own AdsPower), so it is never stopped as idle
+export function createScreens({keepOn=()=>false,wake=async()=>false,tickets=null,recheckMs=60000}={}){   // keepOn(agent): something runs on its screen (its own AdsPower), so it is never stopped as idle
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const sockOf=a=>path.join(homeOf(a),'bot-desktop','rfb.sock');
  const agents=async()=>(await agentNames()).filter(n=>NAME.test(n));
@@ -70,37 +70,24 @@ export function createScreens({keepOn=()=>false,wake=async()=>false}={}){   // k
   if(!cwd||cwd==='.'||(cwd.startsWith(WORKSPACES+'/')&&cwd!==dir))await set('terminal.cwd',dir)}  // a clone keeps the source's folder otherwise
  const ensureAll=async()=>{for(const a of await agents())await ensure(a).catch(()=>{})};
 
- /* ---------- viewer bridge: one websockify per agent screen, stopped when nobody watches ---------- */
- const bridges=new Map();
- // a port nothing listens on (an old viewer left by an earlier app run could still hold one and show the wrong screen)
- const freePort=()=>new Promise((res,rej)=>{const srv=createServer();srv.once('error',rej);srv.listen(0,'127.0.0.1',()=>{const {port}=srv.address();srv.close(()=>res(port))})});
- const killAll=()=>{for(const b of bridges.values())try{b.proc.kill()}catch{}};
- for(const sig of ['SIGTERM','SIGINT'])process.once(sig,()=>{killAll();process.exit(0)});process.once('exit',killAll);   // a hang-up kills without this; the next start stops what it left
- async function bridge(a){
-  let b=bridges.get(a);if(b&&b.proc.exitCode===null)return b;
-  const port=await freePort();
-  const proc=spawn('websockify',[`127.0.0.1:${port}`,`--unix-target=${sockOf(a)}`],{stdio:'ignore'});proc.on('error',()=>{});
-  b={port,proc,viewers:0,timer:null};bridges.set(a,b);proc.on('exit',()=>{if(bridges.get(a)===b)bridges.delete(a)});
-  for(let i=0;i<30;i++){if(proc.exitCode!==null)break;if(await new Promise(res=>{const c=connect(port,'127.0.0.1');c.once('connect',()=>{c.destroy();res(true)});c.once('error',()=>res(false))}))break;await new Promise(r=>setTimeout(r,100))}
-  if(proc.exitCode!==null)throw new Error('The screen viewer could not start.');
-  return b}
- // Pipes an upgraded viewer socket to the right screen. Watching counts as using the screen, so it
- // is not stopped as idle while someone has it open.
+ /* ---------- the viewer's connection: the app itself, straight to the screen's private socket (app/screen-link.mjs, AUD-15) ---------- */
+ // 13 Nov 2026: no websockify any more. It listened on 127.0.0.1:<random port> with no password, so while anyone watched (and a
+ // minute after) every user on the box could open that agent's screen through it. Watching counts as using the screen, so it is
+ // not stopped as idle while someone has it open.
+ const watching=new Map();   // agent -> open viewers
  // an own-user agent's screen that sleeps (OPS-4, 11 Nov 2026) is woken and waited for (up to 30 s)
  async function woken(a){if(await alive(a))return true;if(!await ownUser(a)||!await wake(a))return false;for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,500));if(await alive(a))return true}return false}
- async function upgrade(req,sock,headBuf,agent,isAdmin=false){
-  let port=SHARED.port,b=null;
-  if(agent&&await valid(agent)&&!await shared(agent)&&await desktopsReady()){if(!await woken(agent)){sock.end('HTTP/1.1 503 Service Unavailable\r\n\r\n');return}b=await bridge(agent);port=b.port;b.viewers++;clearTimeout(b.timer)}
+ // still(): the viewer's rights, looked at again every minute (false closes the connection)
+ async function upgrade(req,sock,headBuf,agent,isAdmin=false,still=async()=>true){
+  let target=SHARED,own=false;
+  if(agent&&await valid(agent)&&!await shared(agent)&&await desktopsReady()){if(!await woken(agent)){sock.end('HTTP/1.1 503 Service Unavailable\r\n\r\n');return}target={path:sockOf(agent)};own=true}
   // the shared screen (AdsPower, and agents that use it) is for admins only, whichever agent was asked for
-  if(port===SHARED.port&&!isAdmin){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
+  if(!own&&!isAdmin){sock.end('HTTP/1.1 403 Forbidden\r\n\r\n');return}
+  if(sock.destroyed||!acceptWs(req,sock))return;
+  if(own)watching.set(agent,(watching.get(agent)||0)+1);
   const act=path.join(homeOf(agent||'default'),'bot-desktop','activity');
-  const touch=b?setInterval(()=>{const t=new Date();utimes(act,t,t).catch(()=>{})},60000):null;
-  const up=connect(port,'127.0.0.1',()=>{
-   const lines=['GET /websockify HTTP/1.1',`Host: 127.0.0.1:${port}`];for(const [k,v] of Object.entries(req.headers))if(!['host','cookie','origin'].includes(k))lines.push(`${k}: ${v}`);
-   up.write(lines.join('\r\n')+'\r\n\r\n');if(headBuf?.length)up.write(headBuf);sock.pipe(up);up.pipe(sock)});
-  let done=false;const end=()=>{if(done)return;done=true;sock.destroy();up.destroy();clearInterval(touch);
-   if(b){b.viewers--;if(b.viewers<=0)b.timer=setTimeout(()=>{if(b.viewers<=0)b.proc.kill()},60000)}};
-  up.on('error',end);sock.on('error',end);up.on('close',end);sock.on('close',end)}
+  const tick=setInterval(async()=>{if(own){const t=new Date();utimes(act,t,t).catch(()=>{})}if(!await still().catch(()=>false))end(1008)},recheckMs);
+  const end=pipeWs(sock,connect(target),headBuf,()=>{clearInterval(tick);if(own)watching.set(agent,Math.max(0,(watching.get(agent)||1)-1))})}
 
  // DISPLAY etc. of a running agent screen, so a spare browser window can open on it.
  async function displayEnv(a){const t=await readFile(path.join(homeOf(a),'bot-desktop','env'),'utf8').catch(()=>'');const e={};for(const l of t.split('\n')){const m=/^(?:export\s+)?([A-Z_]+)=['"]?(.*?)['"]?$/.exec(l.trim());if(m)e[m[1]]=m[2]}return e}
@@ -170,8 +157,10 @@ export function createScreens({keepOn=()=>false,wake=async()=>false}={}){   // k
  const readJson=req=>new Promise(ok=>{let d='';req.on('data',c=>{d+=c;if(d.length>40000)req.destroy()});req.on('end',()=>{try{ok(JSON.parse(d||'{}'))}catch{ok({})}});req.on('error',()=>ok({}))});
  async function handle(req,res,p,send){
   if(p==='/ui/screens'&&req.method==='GET'){await ensureAll();return send(res,200,{screens:await Promise.all((await agents()).map(status))})}
-  const m=/^\/ui\/screens\/([^/]+)(?:\/(start|stop|type))?$/.exec(p);if(!m)return send(res,404,{error:'Not found'});
+  const m=/^\/ui\/screens\/([^/]+)(?:\/(start|stop|type|ticket))?$/.exec(p);if(!m)return send(res,404,{error:'Not found'});
   const a=decodeURIComponent(m[1]);if(!await valid(a))return send(res,404,{error:'Unknown agent'});
+  // a ticket for one connection of the viewer to this screen, for this sign-in, for 30 s (app/screen-link.mjs)
+  if(m[2]==='ticket'){if(req.method!=='POST')return send(res,405,{error:'POST only'});const t=tickets?.issue(req,a,{ads:new URL(req.url,'http://x').searchParams.get('screen')==='ads'});return t?send(res,200,{ticket:t}):send(res,401,{error:'Sign in first.'})}
   ensure(a).catch(()=>{});
   if(!m[2]&&req.method==='GET')return send(res,200,await status(a));
   if(m[2]==='type'){if(req.method!=='POST')return send(res,405,{error:'POST only'});const b=await readJson(req);const text=String(b.text||'');if(!text||text.length>8000)return send(res,400,{error:'Nothing to type.'});
@@ -187,14 +176,15 @@ export function createScreens({keepOn=()=>false,wake=async()=>false}={}){   // k
  // bot_desktop.idle_stop_minutes is turned off. Hermes turns it back on the next time the agent browses.
  async function reap(){
   for(const a of await agents()){
-   if(!await alive(a)||await shared(a)||await ownUser(a)||(bridges.get(a)?.viewers>0)||keepOn(a))continue;
+   if(!await alive(a)||await shared(a)||await ownUser(a)||(watching.get(a)>0)||keepOn(a))continue;
    const mins=Number((/^bot_desktop:[\s\S]*?\n\s+idle_stop_minutes:\s*([\d.]+)/m.exec(await config(a))||[])[1]??15);if(!(mins>0))continue;
    let last=0;for(const f of ['activity','env'])try{last=Math.max(last,(await stat(path.join(homeOf(a),'bot-desktop',f))).mtimeMs)}catch{}
    // logged (11 Nov 2026: Donna's screen vanished between 08:58 and 13:04 with no trace of who stopped it)
    if(last&&Date.now()-last>mins*60000){console.log('screens: '+a+'’s screen idle for '+Math.round((Date.now()-last)/60000)+' min; stopping it');await runtime(a,'stop_if_idle()').catch(e=>console.warn('screens: stopping '+a+': '+e.message))}}}
  if(LIVE_APP){setInterval(()=>reap().catch(()=>{}),60000).unref();setTimeout(()=>ensureAll().catch(()=>{}),5000)}
- // viewers left running by an earlier run of the app (their parent is gone) are stopped
- if(LIVE_APP)run('bash',['-c',"ps -eo pid=,ppid=,args= | awk '$2==1 && /websockify 127.0.0.1:61[0-9][0-9] --unix-target=/ {print $1}' | xargs -r kill"],{},10000).catch(()=>{});
+ // viewer bridges an earlier version of the app left running are stopped: this one starts none (AUD-15), and any port of theirs
+ // still open is a screen without a password for every user on the box
+ if(LIVE_APP)run('bash',['-c',"ps -u \"$(id -u)\" -o pid=,args= | awk '/websockify 127[.]0[.]0[.]1:[0-9]+ --unix-target=/ {print $1}' | xargs -r kill"],{},10000).catch(()=>{});
  // turns an engine screen on (an agent's own AdsPower needs it); an own-user agent's screen is kept on by the box itself
  async function start(a){if(await shared(a)||await ownUser(a)||await alive(a))return status(a);const r=await runtime(a,'start()');if(r&&r.running===false)throw new Error(r.blocker||('Missing on the box: '+(r.missing||[]).join(', ')));return status(a)}
  return {handle,upgrade,status,displayEnv,homeOf,valid,shared,ensure,typeInto,start,alive};
