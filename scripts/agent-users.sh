@@ -46,6 +46,72 @@ SEEN=${AQ_SEEN:-/var/lib/aqeelos/janitor-seen}
 RESET=$REQ.reset
 # OPS-2/OPS-4: each agent's memory cap and sleep minutes, written by aqeelOS
 LIMITS=$HOMEC/.aqeelos-agent-limits
+# an optional root-owned list of sha256 sums: when it exists, the watcher installs an updated copy of this script only if
+# its sum is listed (see self_update)
+PIN=${AQ_PIN:-/etc/aqeelos/agent-users.sha256}
+
+# root runs commands only from folders that are root's own and that not everyone can write
+if [ "$EUID" = 0 ]; then
+  _p=""; IFS=: read -ra _dirs <<< "${PATH:-}"
+  for _d in "${_dirs[@]}"; do
+    case "$_d" in /*) [ "$(stat -Lc '%u' "$_d" 2>/dev/null)" = 0 ] && [ -z "$(find -L "$_d" -maxdepth 0 -perm -002 2>/dev/null)" ] && _p="$_p:$_d" ;; esac
+  done
+  PATH=${_p#:}; [ -n "$PATH" ] || PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  export PATH; unset _p _d _dirs
+fi
+
+# C1 (audit of 12 Nov 2026: an agent's user could become root). Root follows links. An agent owns its folder
+# (~/workspaces/<agent>) and everything in it, so it can put a link to any file where this script was about to touch, write,
+# chown or delete: root then did that to the link's target (/etc/cron.d, /etc/sudoers.d, this script). The rule since:
+#  - root does NOTHING by path inside an agent's folder. Every write, delete and read of a file's contents there runs as the
+#    agent's own user (as_user and the ag_* helpers below), so a planted link gives the agent only what it could already do;
+#  - the same for the files this script shares with aqeelOS in the owner's home (own_*) and with the wake proxy (wake_*):
+#    they are written as the user they belong to, never as root;
+#  - what root keeps for itself lives under /var/lib/aqeelos (root's own folders);
+#  - chown is always chown -h and never recursive. The one walk into an agent's folder is hand_tree, which refuses while
+#    any process of that agent's user runs;
+#  - a name, a number or a mode read from a file someone else can write is checked against a strict pattern before use.
+# scripts/root-script-safety.test.mjs fails when a line breaks this; scripts/root-script-links.sh tries the links for real.
+ok_name(){ [[ "${1:-}" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]]; }
+# as_user <user> <command...>: the command runs as that user. On a terminal it also gets a session of its own, so it cannot
+# type into root's. Not root (the tests): run as is, or through $AQ_AS when the test gives one.
+as_user(){
+  local u=$1; shift
+  if [ "$EUID" != 0 ]; then if [ -n "${AQ_AS:-}" ]; then "$AQ_AS" "$u" "$@"; else "$@"; fi; return; fi
+  if [ -t 0 ] || [ -t 1 ] || [ -t 2 ]; then setsid -w runuser -u "$u" -- "$@"; else runuser -u "$u" -- "$@"; fi
+}
+# In an agent's folder, as the agent ($1 = its user). A marker that root left there before this rule (not the agent's to
+# write) is replaced: the folder is the agent's, so it may remove and make names in it.
+ag_mark(){ local u=$1; shift; as_user "$u" sh -c 'for f; do : > "$f" || { rm -f -- "$f"; : > "$f"; }; done' sh "$@" 2>/dev/null </dev/null; }
+ag_put(){ as_user "$1" sh -c 'printf "%s\n" "$2" > "$1.tmp.$$" && mv -f -- "$1.tmp.$$" "$1"' sh "$2" "$3" 2>/dev/null </dev/null; }
+ag_rm(){ local u=$1; shift; as_user "$u" rm -f -- "$@" 2>/dev/null </dev/null; }
+ag_dir(){ as_user "$1" sh -c 'mkdir -p -- "$1" && chmod 2770 "$1"' sh "$2" 2>/dev/null </dev/null; }
+# the first 64 bytes of a small file there, letters, digits and . _ - only: read as the agent and within 2 s, so a link to a
+# file of root's reads nothing and a pipe put in its place cannot hold this script
+ag_read(){ as_user "$1" timeout 2 head -c 64 -- "$2" 2>/dev/null </dev/null | tr -cd 'A-Za-z0-9._-'; }
+# what runs on the screen in folder $2 of user $1: one of the three known words, else $3 (default desktop)
+screen_mode(){ local m; m=$(ag_read "$1" "$2/mode"); case "$m" in lean-fluxbox|lean-bare|desktop) echo "$m" ;; *) echo "${3:-desktop}" ;; esac; }
+# the user a process number ($1) belongs to
+pid_user(){ ps -o user:32= -p "$1" 2>/dev/null | tr -d ' '; }
+# Is the screen's launcher (the display, its number in .screen/launcher.pid) running? The number comes from a file the
+# agent can write: it must be a number, and the process must be one of this agent's own.
+launcher_alive(){
+  local u=$1 sd=$2 pid
+  [ -f "$sd/launcher.pid" ] || return 1
+  pid=$(ag_read "$u" "$sd/launcher.pid"); [[ "$pid" =~ ^[0-9]{1,9}$ ]] && [ "$pid" -gt 1 ] || return 1
+  if [ "$EUID" = 0 ]; then [ "$(pid_user "$pid")" = "$u" ]; else kill -0 "$pid" 2>/dev/null; fi
+}
+# keeps the end of a file, as the user it belongs to: trim_lines <user> <file> <over lines> <keep lines>, trim_bytes the same in bytes
+trim_lines(){ as_user "$1" sh -c '[ -f "$1" ] && [ "$(wc -l < "$1")" -gt "$2" ] && tail -n "$3" "$1" > "$1.tmp" && cat "$1.tmp" > "$1" && rm -f -- "$1.tmp"' sh "$2" "$3" "$4" 2>/dev/null </dev/null; }
+trim_bytes(){ as_user "$1" sh -c '[ -f "$1" ] && [ "$(stat -c %s "$1")" -gt "$2" ] && tail -c "$3" "$1" > "$1.tmp" && cat "$1.tmp" > "$1" && rm -f -- "$1.tmp"' sh "$2" "$3" "$4" 2>/dev/null </dev/null; }
+# The files shared with aqeelOS in the owner's home, written as the owner: own_put <file> (stdin becomes the file, through a
+# new file beside it), own_add <file> (stdin is appended), own_clear <file>
+own_put(){ as_user "$OWNER" sh -c 'umask 027; cat > "$1.tmp.$$" && mv -f -- "$1.tmp.$$" "$1"' sh "$1"; }
+own_add(){ as_user "$OWNER" sh -c 'umask 027; cat >> "$1"' sh "$1"; }
+own_clear(){ as_user "$OWNER" sh -c ': > "$1"' sh "$1" </dev/null; }
+# text for a JSON string: no control characters, backslashes or double quotes (a folder or a process name is the agent's to
+# choose, and a line break in one would have written a second, made-up line into the file aqeelOS reads)
+js(){ printf '%s' "${1:-}" | tr -d '\000-\037\\' | tr '"' "'"; }
 
 setup_box(){
   # the file permission tools (setfacl) and SSH logins for the agents' users
@@ -55,46 +121,96 @@ setup_box(){
   printf '%s\n' 'Match User ag-*' '  AuthorizedKeysFile /etc/ssh/agent-keys/%u' '  AllowTcpForwarding no' '  AllowStreamLocalForwarding no' '  X11Forwarding no' '  PermitTunnel no' '  AllowAgentForwarding no' '  PermitUserRC no' > /etc/ssh/sshd_config.d/zz-agents.conf
   # a Chrome every agent user may run (the engine's own copy lives in the closed part of the owner home)
   setup_wake || echo "agent users: could not set up the wake proxy"
-  if [ -n "$CHROME_SRC" ] && [ ! -x "$CHROME" ]; then mkdir -p /opt/aqeelos; rm -rf /opt/aqeelos/chrome; cp -a "$CHROME_SRC" /opt/aqeelos/chrome; chmod -R a+rX /opt/aqeelos; fi
+  x11_dir
+  if [ -n "$CHROME_SRC" ] && [ ! -x "$CHROME" ]; then mkdir -p /opt/aqeelos; rm -rf /opt/aqeelos/chrome; cp -a --no-preserve=ownership "$CHROME_SRC" /opt/aqeelos/chrome; chmod -R a+rX /opt/aqeelos; fi
 }
 
+# /tmp/.X11-unix (every display's socket) belonged to whichever agent started a display first, who could then remove or
+# swap the others'. It is root's: chown -h never follows a link, and once the name is root's nobody else can replace it
+# (/tmp is sticky), so the mode is set only on a folder that is root's by then.
+x11_dir(){
+  local d=/tmp/.X11-unix
+  chown -h root:root "$d" 2>/dev/null; [ -L "$d" ] && rm -f -- "$d"; [ -e "$d" ] || mkdir -m 1777 "$d" 2>/dev/null
+  [ "$(stat -c '%u %F' "$d" 2>/dev/null)" = "0 directory" ] && chmod 1777 "$d"
+  return 0
+}
+
+# Only names directly in the owner's home and in its workspaces folder (no agent can add or swap a name there), and never
+# through a link: chmod follows links, so a link in the home to a system folder had that folder closed to everyone.
 lock_home(){
   # the home: only the claude user (and its group) inside; agents only pass through to their own folder
   chmod 750 "$HOMEC"
-  # the agents allowed through are added again below (make_user); none left over from an earlier start
-  setfacl -b "$HOMEC" 2>/dev/null
-  for d in "$HOMEC"/* "$HOMEC"/.[!.]*; do [ -e "$d" ] || continue; [ "$d" = "$HOMEC/workspaces" ] && continue; chmod o-rwx "$d" 2>/dev/null; done
-  chmod 711 "$HOMEC/workspaces" 2>/dev/null
-  for d in "$HOMEC"/workspaces/*; do [ -d "$d" ] && chmod o-rwx "$d"; done
-  # the lists aqeelOS and this script share stay readable by aqeelOS only
-  for f in "$DONE" "$PORTS" "$UIDS"; do [ -f "$f" ] && chown "$OWNER:$OWNER" "$f" && chmod 640 "$f"; done
+  # Who may pass through the home: exactly the agents asked for, set in one step (M19: the list used to be emptied first and
+  # filled again one agent at a time, each after a walk through its whole folder, so every other agent was locked out of
+  # its home meanwhile). By user number: a user that is not made yet is named too. None left over from an earlier start.
+  local n uid acl="" d
+  while read -r n; do
+    ok_name "$n" || continue
+    uid=$(awk -v n="$n" '$1==n && $2 ~ /^[0-9]+$/ {print $2; exit}' "$UIDS" 2>/dev/null)
+    [ -n "$uid" ] && [ "$uid" -ge 2001 ] && acl="$acl,u:$uid:--x"
+  done < "$REQ"
+  setfacl -k "$HOMEC" 2>/dev/null
+  if [ -n "$acl" ]; then setfacl --set "u::rwx,g::r-x,o::---$acl" "$HOMEC" 2>/dev/null || setfacl -b "$HOMEC" 2>/dev/null; else setfacl -b "$HOMEC" 2>/dev/null; fi
+  for d in "$HOMEC"/* "$HOMEC"/.[!.]*; do [ -e "$d" ] || continue; [ -L "$d" ] && continue; [ "$d" = "$HOMEC/workspaces" ] && continue; chmod o-rwx "$d" 2>/dev/null; done
+  [ -L "$HOMEC/workspaces" ] || chmod 711 "$HOMEC/workspaces" 2>/dev/null
+  for d in "$HOMEC"/workspaces/*; do [ -d "$d" ] && [ ! -L "$d" ] && chmod o-rwx "$d"; done
+  return 0
 }
 
 # each agent keeps the same user number for good (kept in the home volume): files and access lists store numbers,
 # so a rebuild that made the users in another order would hand one agent's folder to another
 uid_of(){
   local n=$1 line uid
+  ok_name "$n" || return 1
   line=$(grep "^$n " "$UIDS" 2>/dev/null | head -1)
-  if [ -n "$line" ]; then echo "${line#* }"; return; fi
-  uid=$(( $(cut -d' ' -f2 "$UIDS" 2>/dev/null | sort -n | tail -1) + 1 )); [ "$uid" -lt 2001 ] && uid=2001
+  # the number comes from a file in the owner's home: only a plain number from 2001 up is ever a user number
+  if [ -n "$line" ]; then uid=${line#* }; [[ "$uid" =~ ^[0-9]{4,9}$ ]] && [ "$uid" -ge 2001 ] || return 1; echo "$uid"; return; fi
+  uid=$(( $(awk '$2 ~ /^[0-9]{1,9}$/ {print $2}' "$UIDS" 2>/dev/null | sort -n | tail -1) + 1 )); [ "$uid" -lt 2001 ] && uid=2001
   while getent passwd "$uid" >/dev/null || getent group "$uid" >/dev/null; do uid=$((uid+1)); done
-  echo "$n $uid" >> "$UIDS"; chown "$OWNER:$OWNER" "$UIDS"; chmod 640 "$UIDS"; echo "$uid"
+  echo "$n $uid" | own_add "$UIDS"; echo "$uid"
+}
+
+# The agent's folder itself. Its name sits in the owner's workspaces folder, where no agent can add or swap a name, so root
+# may make it and set its owner, mode and access list: never through a link, and only the folder, not what is in it.
+ws_top(){
+  local u=$1 ws=$2 acl="u:$OWNER:rwX,u:$1:rwX,g:$OWNER:rwX"
+  [ -L "$ws" ] && { echo "agent users: $ws is a link, not a folder: left alone" >&2; return 1; }
+  mkdir -p "$ws"; [ -d "$ws" ] && [ ! -L "$ws" ] || return 1
+  # not the agent's yet (a new agent, or one that ran as the owner until now): what is in it is handed over, once
+  [ "$(stat -c %u "$ws")" = "$(id -u "$u")" ] || hand_tree "$u:$OWNER" "$ws" "$u" "$acl"
+  chown -h "$u:$OWNER" "$ws"; chmod 2770 "$ws"
+  setfacl -b "$ws"; setfacl -m "$acl" -m "d:u:$OWNER:rwX,d:u:$u:rwX,d:g:$OWNER:rwX" "$ws"
+  # a file aqeelOS put there closed (mode 600) is opened to the agent by aqeelOS's own user, the file's owner
+  as_user "$OWNER" find "$ws" -xdev -user "$OWNER" ! -type l ! -perm -060 -exec chmod g+rwX {} + 2>/dev/null </dev/null
+  return 0
+}
+# The one walk root makes into an agent's folder: every name in it gets a new owner ($1, to the agent when it gets a user of
+# its own, back to the owner when the agent is removed), and with $4 the modes and access list of an agent's folder.
+# Refused while any process of the agent's user ($3, a name or a number) runs: with none, nothing can swap a name under
+# the walk. chown -h changes a link, never its target; a file with a second name elsewhere (a hard link) is left alone.
+hand_tree(){
+  local own=$1 ws=$2 u=$3 acl=${4:-}
+  [ -d "$ws" ] && [ ! -L "$ws" ] || return 1
+  pgrep -u "$u" >/dev/null 2>&1 && { echo "agent users: $ws not handed over: processes of $u still run" >&2; return 1; }
+  find "$ws" -xdev \( -type f -links +1 \) -o -exec chown -h -- "$own" {} +
+  [ -n "$acl" ] || return 0
+  find "$ws" -xdev -type d -exec chmod 2770 {} + 2>/dev/null
+  find "$ws" -xdev -type f -links 1 -exec chmod ug+rw,o-rwx {} + 2>/dev/null
+  setfacl -R -P -b "$ws"
+  setfacl -R -P -m "$acl" -m "d:u:$OWNER:rwX,d:u:${own%%:*}:rwX,d:g:$OWNER:rwX" "$ws"
 }
 
 make_user(){
   local n=$1 u="ag-$1" ws="$HOMEC/workspaces/$1" uid
-  u=${u:0:32}; uid=$(uid_of "$n")
+  ok_name "$n" || return 1
+  u=${u:0:32}; uid=$(uid_of "$n") || return 1; [ -n "$uid" ] || return 1
   if ! id "$u" >/dev/null 2>&1; then groupadd -g "$uid" "$u" && useradd -M -d "$ws" -s /bin/bash -u "$uid" -g "$uid" "$u" || return 1
   elif [ "$(id -u "$u")" != "$uid" ]; then groupmod -g "$uid" "$u"; usermod -u "$uid" -g "$uid" "$u" || return 1; fi
-  mkdir -p "$ws"
-  chown -R "$u:$OWNER" "$ws"
-  find "$ws" -type d -exec chmod 2770 {} + 2>/dev/null
-  find "$ws" -type f -exec chmod ug+rw,o-rwx {} + 2>/dev/null
   # it may pass through the home (not list it) to reach its folder; aqeelOS keeps full access to what it makes
   setfacl -m "u:$u:--x" "$HOMEC"
-  # the folder's access list is made again from nothing: only aqeelOS and this agent, never a user left over from before
-  setfacl -R -b "$ws"
-  setfacl -R -m "u:$OWNER:rwX,u:$u:rwX,g:$OWNER:rwX" -m "d:u:$OWNER:rwX,d:u:$u:rwX,d:g:$OWNER:rwX" "$ws"
+  # the folder's own access list is made again from nothing: only aqeelOS and this agent, never a user left over from before.
+  # C1: what is inside is the agent's, and root no longer walks it on every pass (ws_top, hand_tree)
+  ws_top "$u" "$ws" || return 1
   if [ -f "$PUB" ]; then install -m 644 "$PUB" "$KEYS/$u"; fi
   echo "$u"
 }
@@ -102,10 +218,15 @@ make_user(){
 # a display and a Chrome port that stay the same for each agent (kept in $PORTS)
 port_of(){
   local n=$1 line
+  ok_name "$n" || return 1
   line=$(grep "^$n " "$PORTS" 2>/dev/null | head -1)
-  if [ -z "$line" ]; then local i=0; while grep -q " $((40+i)) " "$PORTS" 2>/dev/null; do i=$((i+1)); done; line="$n $((40+i)) $((9600+i))"; echo "$line" >> "$PORTS"; chown "$OWNER:$OWNER" "$PORTS"; chmod 640 "$PORTS"; fi
+  if [ -z "$line" ]; then local i=0; while grep -q " $((40+i)) " "$PORTS" 2>/dev/null; do i=$((i+1)); done; line="$n $((40+i)) $((9600+i))"; echo "$line" | own_add "$PORTS"; fi
+  # the two numbers go into network rules, sums and the screen's command line: plain numbers or nothing
+  [[ "$line" =~ ^[a-z0-9_-]+\ [0-9]{1,5}\ [0-9]{1,5}$ ]] || return 1
   echo "$line"
 }
+# the same line when the agent has one (none is made)
+port_line(){ local l; l=$(grep "^$1 " "$PORTS" 2>/dev/null | head -1); [[ "$l" =~ ^[a-z0-9_-]+\ [0-9]{1,5}\ [0-9]{1,5}$ ]] && echo "$l"; }
 
 # Stops everything an earlier start of this agent's screen left running: the launcher shells (and the Chrome restart
 # loop they fork), the display, the desktop and its Chrome. Without this a screen whose socket went missing while its
@@ -135,10 +256,9 @@ desk_kill(){
 
 # A problem aqeelOS files as one issue (app/box-ops.mjs reads the file; same agent and key = same issue).
 report(){
-  local n=$1 key=$2 msg=$3 title=${4:-} t=""
-  [ -n "$title" ] && t=",\"title\":\"${title//\"/\'}\""
-  printf '{"at":%s,"agent":"%s","key":"%s","what":"%s"%s}\n' "$(date +%s)" "$n" "$key" "${msg//\"/\'}" "$t" >> "$ISSUES"
-  chown "$OWNER:$OWNER" "$ISSUES" 2>/dev/null; chmod 640 "$ISSUES" 2>/dev/null
+  local n=$1 key=$2 msg title=${4:-} t=""
+  msg=$(js "$3"); [ -n "$title" ] && t=",\"title\":\"$(js "$title")\""
+  printf '{"at":%s,"agent":"%s","key":"%s","what":"%s"%s}\n' "$(date +%s)" "$(js "$n")" "$(js "$key")" "$msg" "$t" | own_add "$ISSUES"
   echo "agent users: $n: $msg"
 }
 
@@ -167,10 +287,11 @@ take_resets(){
   local n
   while read -r n; do
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
-    rm -f -- "$RST/$n" "$RST/$n.stopped" "$RST/$n.wakefails" "$HOMEC/workspaces/$n/.screen/chrome.stopped" "$HOMEC/workspaces/$n/.screen/lean.failed" "$HOMEC/workspaces/$n/.screen/nosleep"
+    rm -f -- "$RST/$n" "$RST/$n.stopped" "$RST/$n.wakefails" "$RST/$n.chrome-reported"
+    ag_rm "ag-$n" "$HOMEC/workspaces/$n/.screen/chrome.stopped" "$HOMEC/workspaces/$n/.screen/lean.failed" "$HOMEC/workspaces/$n/.screen/nosleep"
     echo "agent users: $n: screen may start again"
   done < "$RESET"
-  : > "$RESET"
+  own_clear "$RESET"
 }
 
 # Chrome on an agent's screen, run by the screen's own launcher as the agent's user. It is started again when it exits,
@@ -213,9 +334,11 @@ chrome_exit_step(){
 # screen runs its own AdsPower never sleeps; defaults 4096 MB and 30 minutes). No line, or no file yet: both off (as
 # before 11 Nov), so a root script that updates before the app has written the file changes nothing. 0 turns either off.
 limit_of(){
-  local l; l=$(grep "^$1 " "$LIMITS" 2>/dev/null | head -1)
-  set -- $l
-  echo "${2:-0} ${3:-0}"
+  # the numbers are used in sums: anything that is not a plain number counts as 0 (off)
+  local l a b; l=$(grep "^$1 " "$LIMITS" 2>/dev/null | head -1)
+  read -r _ a b _ <<< "$l"
+  [[ "$a" =~ ^[0-9]{1,7}$ ]] || a=0; [[ "$b" =~ ^[0-9]{1,5}$ ]] || b=0
+  echo "$((10#$a)) $((10#$b))"
 }
 # the port Chrome itself listens on: the agent's own port when its screen never sleeps (as before 11 Nov), else 10000
 # above it, behind the wake proxy on the agent's own port
@@ -266,16 +389,20 @@ SCREEN_EVENTS=${AQ_SCREEN_EVENTS:-${AQ_WAKE:-/var/lib/aqeelos/wake}/events.jsonl
 now_ms(){ date +%s%3N; }
 # screen_event <agent> <sleep|wake|start|fallback|keep-awake> <ms> <true|false> <mode> [note]
 screen_event(){
-  local note=${6:-}
+  local note; note=$(js "${6:-}")
   mkdir -p "$(dirname "$SCREEN_EVENTS")" 2>/dev/null
-  printf '{"at":%s,"agent":"%s","event":"%s","ms":%s,"ok":%s,"mode":"%s","note":"%s"}\n' "$(date +%s)" "$1" "$2" "${3:-0}" "${4:-true}" "${5:-}" "${note//\"/\'}" >> "$SCREEN_EVENTS" 2>/dev/null
-  chmod 644 "$SCREEN_EVENTS" 2>/dev/null
+  # the log lives in the wake proxy's folder: written as the proxy's user, never as root
+  printf '{"at":%s,"agent":"%s","event":"%s","ms":%s,"ok":%s,"mode":"%s","note":"%s"}\n' "$(date +%s)" "$(js "$1")" "$(js "$2")" "${3:-0}" "${4:-true}" "$(js "${5:-}")" "$note" | as_user "$WAKE_USER" sh -c 'cat >> "$1"' sh "$SCREEN_EVENTS" 2>/dev/null
   return 0
 }
 # the window manager's files for a lean screen: no toolbar, no menu, no keys, no borders, every window maximised
+# Runs as the agent's user (screen_up passes it with declare -f), never as root. A folder root left there before 12 Nov
+# that the agent may not write is moved aside first.
 lean_wm_files(){
-  local sd=$1 d=$1/fluxbox
-  mkdir -p "$d" "$sd/fb"
+  local sd=$1 d=$1/fluxbox x
+  for x in "$d" "$sd/fb"; do [ -d "$x" ] && [ ! -w "$x" ] && mv -- "$x" "$x.old.$$"; done
+  mkdir -p "$d" "$sd/fb" "$d/bin" || return 1
+  rm -f -- "$d/init" "$d/style" "$d/keys" "$d/menu" "$d/apps" "$d/bin/fbsetbg"
   printf '%s\n' "session.screen0.toolbar.visible: false" "session.screen0.workspaces: 1" "session.screen0.focusModel: MouseFocus" "session.screen0.defaultDeco: NONE" "session.appsFile: $d/apps" "session.keyFile: $d/keys" "session.menuFile: $d/menu" "session.styleFile: $d/style" "session.screen0.rootCommand: true" > "$d/init"
   # no wallpaper: the default style asks fbsetbg for one, and with no setter installed it put an error box on every lean screen (P&P, 12 Nov)
   printf '%s
@@ -301,20 +428,21 @@ chrome_graceful(){
 # gracefully, then the rest of the screen. $3 = why, for the log.
 put_to_sleep(){
   local n=$1 u=$2 why=${3:-idle} ws="$HOMEC/workspaces/$1" disp t0 sd="$HOMEC/workspaces/$1/.screen"
-  disp=$(grep "^$n " "$PORTS" | head -1 | cut -d' ' -f2); t0=$(now_ms)
-  touch "$sd/asleep"; chown "$u:$OWNER" "$sd/asleep" 2>/dev/null
+  ok_name "$n" || return 1
+  disp=$(port_line "$n" | cut -d' ' -f2); t0=$(now_ms)
+  ag_mark "$u" "$sd/asleep"
   chrome_graceful "$u" "$ws"
   screen_kill "$u" "$disp" "$ws" >/dev/null
-  rm -f -- "$RST/$n" "$sd/waking"
-  screen_event "$n" sleep $(( $(now_ms) - t0 )) true "$(cat "$sd/mode" 2>/dev/null || echo desktop)" "$why"
+  rm -f -- "$RST/$n"; ag_rm "$u" "$sd/waking"
+  screen_event "$n" sleep $(( $(now_ms) - t0 )) true "$(screen_mode "$u" "$sd")" "$why"
   echo "screen for $n: asleep ($why)"
 }
 # Is the screen of agent $1 up with Chrome answering? (rfb socket, Chrome listening on its port, window manager running)
 screen_ready(){
-  local n=$1 u=$2 cport=$3 sd="$HOMEC/workspaces/$1/.screen"
+  local n=$1 u=$2 cport=$3 mode=${4:-} sd="$HOMEC/workspaces/$1/.screen"
   [ -S "$sd/rfb.sock" ] || return 1
   ss -Hltn "sport = :$cport" 2>/dev/null | grep -q . || return 1
-  case "$(cat "$sd/mode" 2>/dev/null)" in lean-fluxbox) pgrep -u "$u" -x fluxbox >/dev/null 2>&1 ;; *) return 0 ;; esac
+  case "${mode:-$(screen_mode "$u" "$sd")}" in lean-fluxbox) pgrep -u "$u" -x fluxbox >/dev/null 2>&1 ;; *) return 0 ;; esac
 }
 # Runs in the background after a screen is started: waits up to 60 s for it to be ready and writes the result to the log
 # with the time since $3 (ms: when the wake was asked). A lean start that does not come up is replaced once by the old desktop
@@ -322,32 +450,35 @@ screen_ready(){
 # files one issue (report). $4 = wake (counts) or start (box start: only the lean fallback applies).
 wake_verify(){
   local n=$1 u=$2 t0=$3 kind=${4:-wake} ws="$HOMEC/workspaces/$1" sd="$HOMEC/workspaces/$1/.screen" line disp cdp cport sl i ok=0 ms mode fails step
-  line=$(port_of "$n"); disp=$(echo "$line" | cut -d' ' -f2); cdp=$(echo "$line" | cut -d' ' -f3)
+  ok_name "$n" || return 1
+  line=$(port_of "$n") || return 1; disp=$(echo "$line" | cut -d' ' -f2); cdp=$(echo "$line" | cut -d' ' -f3)
   read -r _ sl <<< "$(limit_of "$n")"; cport=$(chrome_port "$cdp" "$sl")
-  for i in $(seq "${AQ_WAKE_TRIES:-120}"); do screen_ready "$n" "$u" "$cport" && { ok=1; break; }; sleep "${AQ_WAKE_TICK:-0.5}"; done
-  ms=$(( $(now_ms) - t0 )); mode=$(cat "$sd/mode" 2>/dev/null || echo desktop)
+  # what was started (screen_up wrote it before this began): read once, not on each of the 120 looks
+  mode=$(screen_mode "$u" "$sd")
+  for i in $(seq "${AQ_WAKE_TRIES:-120}"); do screen_ready "$n" "$u" "$cport" "$mode" && { ok=1; break; }; sleep "${AQ_WAKE_TICK:-0.5}"; done
+  ms=$(( $(now_ms) - t0 )); mode=$(screen_mode "$u" "$sd")
   if [ "$ok" = 1 ]; then
-    rm -f -- "$sd/waking" "$RST/$n.wakefails"
+    ag_rm "$u" "$sd/waking"; rm -f -- "$RST/$n.wakefails"
     screen_event "$n" "$kind" "$ms" true "$mode"; echo "screen for $n: $kind took $ms ms ($mode)"; return 0
   fi
   if [ "${mode#lean}" != "$mode" ] && [ ! -f "$sd/lean.failed" ]; then
-    touch "$sd/lean.failed"
+    ag_mark "$u" "$sd/lean.failed"
     screen_event "$n" fallback "$ms" false "$mode" "the lean screen did not come up in 60 s: starting the old desktop"
     echo "screen for $n: the lean screen did not come up: starting the old desktop"
-    rm -f -- "$RST/$n"; screen_kill "$u" "$disp" "$ws"; [ -f "$sd/waking" ] || echo "$t0" > "$sd/waking"
+    rm -f -- "$RST/$n"; screen_kill "$u" "$disp" "$ws"; [ -f "$sd/waking" ] || ag_put "$u" "$sd/waking" "$t0"
     AQ_NOVERIFY=1 screen_up "$n" "$u"; wake_verify "$n" "$u" "$t0" "$kind"; return $?
   fi
-  rm -f -- "$sd/waking"
+  ag_rm "$u" "$sd/waking"
   screen_event "$n" "$kind" "$ms" false "$mode" "Chrome did not answer within 60 s"
   echo "screen for $n: $kind failed after $ms ms ($mode)"
   [ "$kind" = wake ] || return 1
   fails=$(cat "$RST/$n.wakefails" 2>/dev/null || echo 0); step=$(wake_step 0 "$fails")
   mkdir -p "$RST"; echo $((fails+1)) > "$RST/$n.wakefails"
   if [ "$step" = retry ]; then
-    rm -f -- "$RST/$n"; screen_kill "$u" "$disp" "$ws"; t0=$(now_ms); echo "$t0" > "$sd/waking"
+    rm -f -- "$RST/$n"; screen_kill "$u" "$disp" "$ws"; t0=$(now_ms); ag_put "$u" "$sd/waking" "$t0"
     AQ_NOVERIFY=1 screen_up "$n" "$u"; wake_verify "$n" "$u" "$t0" wake; return $?
   fi
-  touch "$sd/nosleep"; screen_event "$n" keep-awake 0 true "$mode" "two wakes in a row failed: this screen stays on"
+  ag_mark "$u" "$sd/nosleep"; screen_event "$n" keep-awake 0 true "$mode" "two wakes in a row failed: this screen stays on"
   report "$n" "wake-failed" "its screen did not wake twice in a row, so it stays always on (no sleep) until reset. See $sd/chrome.log, xvnc.log and desktop.log; to let it sleep again: echo $n >> $RESET" "Agent screen would not wake"
   rm -f -- "$RST/$n"; screen_kill "$u" "$disp" "$ws"; AQ_NOVERIFY=1 screen_up "$n" "$u"
   return 1
@@ -359,9 +490,18 @@ wake_verify(){
 WAKE=${AQ_WAKE:-/var/lib/aqeelos/wake}
 PROXY=/usr/local/lib/aqeelos/wake-proxy.mjs
 PROXY_SRC=${AQEELOS_APP:-$HOMEC/apps/hermes-ui}/scripts/wake-proxy.mjs
+# $WAKE belongs to the proxy's user (and aqeelOS's group): what this script puts there is written as that user, so a link
+# placed there by the proxy or by aqeelOS is never followed by root
+WAKE_USER=aq-wake
+wake_put(){ as_user "$WAKE_USER" sh -c 'umask 027; cat > "$1.tmp" && mv -f -- "$1.tmp" "$1"' sh "$1"; }
+wake_touch(){ as_user "$WAKE_USER" touch -- "$1" 2>/dev/null </dev/null || as_user "$OWNER" touch -- "$1" 2>/dev/null </dev/null; }
 setup_wake(){
   id aq-wake >/dev/null 2>&1 || useradd -r -M -d /nonexistent -s /usr/sbin/nologin aq-wake || return 1
-  mkdir -p "$WAKE" "$(dirname "$PROXY")"; chown aq-wake:"$OWNER" "$WAKE"; chmod 2770 "$WAKE"
+  mkdir -p "$WAKE" "$(dirname "$PROXY")"; [ -L "$WAKE" ] && return 1; chown -h aq-wake:"$OWNER" "$WAKE"; chmod 2770 "$WAKE"
+  # the two logs root wrote there before 12 Nov become the proxy user's (a copy under a new name, made as that user)
+  local f; for f in "$SCREEN_EVENTS" "$WAKE/proxy.log"; do
+    [ "${f%/*}" = "$WAKE" ] && [ -f "$f" ] && [ "$(stat -c %U "$f" 2>/dev/null)" != "$WAKE_USER" ] && as_user "$WAKE_USER" sh -c 'cp -- "$1" "$1.new" && mv -f -- "$1.new" "$1"' sh "$f" 2>/dev/null </dev/null
+  done
   if [ -f "$PROXY_SRC" ] && ! cmp -s "$PROXY_SRC" "$PROXY"; then install -m 644 -o root -g root "$PROXY_SRC" "$PROXY"; pkill -TERM -u aq-wake 2>/dev/null; fi
   return 0
 }
@@ -371,7 +511,8 @@ proxy_up(){
   [ -f "$PROXY" ] || return 0
   pgrep -u aq-wake -f "wake-proxy\\.mjs" >/dev/null 2>&1 && return 0
   restart_gate wake-proxy || return 0
-  setsid runuser -u aq-wake -- node "$PROXY" "$WAKE" >>"$WAKE/proxy.log" 2>&1 < /dev/null &
+  # its log is opened by the proxy's own user, not by root
+  setsid runuser -u "$WAKE_USER" -- sh -c 'if ( : >>"$2/proxy.log" ) 2>/dev/null; then exec node "$1" "$2" >>"$2/proxy.log" 2>&1; else exec node "$1" "$2"; fi' sh "$PROXY" "$WAKE" < /dev/null > /dev/null 2>&1 &
   echo "wake proxy started"
 }
 # a screen idle for its sleep minutes (no DevTools use through the proxy, no viewer, no typing) is stopped and marked
@@ -385,8 +526,8 @@ sleep_idle(){
     # its own AdsPower runs on this screen: never put to sleep
     local ads=0 run=0 asl=0 nos=0
     pgrep -u "$u" -f "adspower_global|SunBrowser" >/dev/null 2>&1 && ads=1
-    [ -f "$sd/launcher.pid" ] && kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null && run=1
     [ -f "$sd/asleep" ] && asl=1; [ -f "$sd/nosleep" ] && nos=1
+    [ "$asl" = 0 ] && [ "${sl:-0}" -gt 0 ] && launcher_alive "$u" "$sd" && run=1
     last=0; for f in "$WAKE/$n.active" "$sd/activity" "$sd/layout" "$sd/waking"; do [ -e "$f" ] && [ "$(stat -c %Y "$f")" -gt "$last" ] && last=$(stat -c %Y "$f"); done
     [ "$(sleep_step "$sl" "$now" "$last" "$asl" "$nos" "$ads" "$run")" = sleep ] || continue
     put_to_sleep "$n" "$u" "$(( (now-last)/60 )) min unused"
@@ -399,11 +540,11 @@ take_wakes(){
     [ -e "$f" ] || continue
     n=$(basename "$f" .wake); req=$(stat -c %Y "$f" 2>/dev/null || date +%s); rm -f -- "$f"
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] && grep -qx "$n" "$REQ" 2>/dev/null && id "ag-$n" >/dev/null 2>&1 || continue
-    touch "$WAKE/$n.active"; sd="$HOMEC/workspaces/$n/.screen"
+    wake_touch "$WAKE/$n.active"; sd="$HOMEC/workspaces/$n/.screen"
     if [ -f "$sd/asleep" ]; then
       # the wake's clock starts when it was asked (the proxy or the viewer wrote the file), so it counts what the person waits
       t0=$((req*1000)); [ $(( $(now_ms) - t0 )) -lt 120000 ] || t0=$(now_ms)
-      echo "$t0" > "$sd/waking"; rm -f -- "$sd/asleep"; echo "screen for $n: woken"
+      ag_put "ag-$n" "$sd/waking" "$t0"; ag_rm "ag-$n" "$sd/asleep"; echo "screen for $n: woken"
     fi
     screen_up "$n" "ag-$n"
   done
@@ -418,10 +559,10 @@ take_stops(){
     u="ag-$n"; u=${u:0:32}; id "$u" >/dev/null 2>&1 || continue
     pkill -TERM -u "$u" 2>/dev/null; sleep 2; pkill -KILL -u "$u" 2>/dev/null
     rm -f -- "$RST/$n"; read -r _ sl <<< "$(limit_of "$n")"
-    [ "$sl" -gt 0 ] && touch "$HOMEC/workspaces/$n/.screen/asleep"
+    [ "$sl" -gt 0 ] && ag_mark "$u" "$HOMEC/workspaces/$n/.screen/asleep"
     echo "agent users: $n: stopped everything it ran"
   done < "$REQ.stop"
-  : > "$REQ.stop"
+  own_clear "$REQ.stop"
 }
 # OPS-17: aqeelOS's memory watchdog (app/memwatch.mjs) asks, one "<agent> sleep|chrome|adspower" per line in $REQ.mem,
 # when the box is short of memory. Each is checked again here: an agent mid-reply or with its screen used in the last
@@ -458,13 +599,14 @@ take_mem(){
       *) echo "memory: $n: $what not done (in use or not running)" ;;
     esac
   done < "$REQ.mem"
-  : > "$REQ.mem"
+  own_clear "$REQ.mem"
 }
 
 # screen_up <agent> <user> [desktop <why>]: with "desktop", only the desktop of a running screen starts again (OPS-13)
 screen_up(){
   local n=$1 u=${2} part=${3:-all} why=${4:-} ws="$HOMEC/workspaces/$1" sd="$HOMEC/workspaces/$1/.screen" line disp cdp cport cap sl
-  line=$(port_of "$n"); disp=$(echo "$line" | cut -d' ' -f2); cdp=$(echo "$line" | cut -d' ' -f3)
+  ok_name "$n" || return 0
+  line=$(port_of "$n") || return 0; disp=$(echo "$line" | cut -d' ' -f2); cdp=$(echo "$line" | cut -d' ' -f3)
   read -r cap sl <<< "$(limit_of "$n")"; cport=$(chrome_port "$cdp" "$sl")
   # only aqeelOS (claude) and the agent's own user may reach its Chrome's control port; behind the proxy, the proxy's
   # user may reach the inner one too
@@ -472,29 +614,30 @@ screen_up(){
   if [ "$cport" != "$cdp" ]; then iptables -C OUTPUT -o lo -p tcp --dport "$cport" -m owner ! --uid-owner "$OWNER" -m owner ! --uid-owner "$u" -m owner ! --uid-owner aq-wake -j REJECT 2>/dev/null || iptables -I OUTPUT 1 -o lo -p tcp --dport "$cport" -m owner ! --uid-owner "$OWNER" -m owner ! --uid-owner "$u" -m owner ! --uid-owner aq-wake -j REJECT 2>/dev/null; fi
   # the profile's bot-desktop folder is the agent's own .screen folder (where aqeelOS looks for any agent's screen)
   local prof="$HOMEC/.hermes/profiles/$n"
-  if [ -d "$prof" ] && [ ! -L "$prof/bot-desktop" ]; then rm -rf "$prof/bot-desktop.engine"; [ -e "$prof/bot-desktop" ] && mv "$prof/bot-desktop" "$prof/bot-desktop.engine"; ln -s "$sd" "$prof/bot-desktop"; chown -h "$OWNER:$OWNER" "$prof/bot-desktop"; fi
+  # (the profile is the owner's: the link is made as the owner, not as root)
+  if [ -d "$prof" ] && [ ! -L "$prof/bot-desktop" ]; then as_user "$OWNER" sh -c 'rm -rf -- "$1/bot-desktop.engine"; [ -e "$1/bot-desktop" ] && mv -- "$1/bot-desktop" "$1/bot-desktop.engine"; ln -s -- "$2" "$1/bot-desktop"' sh "$prof" "$sd" </dev/null; fi
   # asleep (OPS-4): started by take_wakes when used
   [ -f "$sd/asleep" ] && return 0
   local running=0 mode want haswm=0 failed=0 wk_age=-1 t0
-  [ -f "$sd/launcher.pid" ] && kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null && [ -S "$sd/rfb.sock" ] && running=1
+  [ -S "$sd/rfb.sock" ] && launcher_alive "$u" "$sd" && running=1
   # OPS-19: a screen that is not running and may sleep stays asleep until used (the wake proxy, the viewer or a schedule's
   # check asks for it), so a box start or a screen that was never used costs nothing
   if [ "$running" = 0 ] && [ "$part" = all ]; then
     [ -f "$sd/waking" ] && wk_age=$(( $(date +%s) - $(stat -c %Y "$sd/waking" 2>/dev/null || date +%s) ))
     if [ "$(ondemand_step "$sl" "$([ -f "$sd/nosleep" ] && echo 1 || echo 0)" "$wk_age")" = sleep ]; then
-      mkdir -p "$sd"; chown "$u:$OWNER" "$sd"; chmod 2770 "$sd"; touch "$sd/asleep"; chown "$u:$OWNER" "$sd/asleep" 2>/dev/null
-      screen_event "$n" sleep 0 true "$(cat "$sd/mode" 2>/dev/null || echo none)" "not running: left asleep until used"
+      ag_dir "$u" "$sd"; ag_mark "$u" "$sd/asleep"
+      screen_event "$n" sleep 0 true "$(screen_mode "$u" "$sd" none)" "not running: left asleep until used"
       echo "screen for $n: left asleep until used"; return 0
     fi
   fi
   # lean or the old desktop: a running screen keeps what it runs (a change of the setting applies at its next sleep and wake)
   want=$(mode_of "$n"); command -v fluxbox >/dev/null 2>&1 && haswm=1; [ -f "$sd/lean.failed" ] && failed=1
-  if [ "$running" = 1 ] && [ -f "$sd/mode" ]; then mode=$(cat "$sd/mode"); elif [ "$running" = 1 ]; then mode=desktop; else mode=$(screen_pick "$want" "$haswm" "$failed"); fi
+  if [ "$running" = 1 ]; then mode=$(screen_mode "$u" "$sd" desktop); else mode=$(screen_pick "$want" "$haswm" "$failed"); fi
   # the one window-manager launch (the whole screen and that part alone both use it); its log keeps why the last one ended
   local desk lean="" open="about:blank"
   case $mode in
     desktop) desk="( dbus-launch --exit-with-session bash -c 'xfwm4 & xfdesktop & xfce4-panel & wait' >>'$sd/desktop.log' 2>&1 & )" ;;
-    lean-fluxbox) lean_wm_files "$sd"; chown -R "$u:$OWNER" "$sd/fb" 2>/dev/null
+    lean-fluxbox) as_user "$u" bash -c "$(declare -f lean_wm_files); lean_wm_files \"\$1\"" bash "$sd" </dev/null
       desk="( HOME='$sd/fb' PATH='$sd/fluxbox/bin':$PATH fluxbox -rc '$sd/fluxbox/init' -no-slit -no-toolbar >>'$sd/desktop.log' 2>&1 & )" ;;
     *) desk=":" ;;
   esac
@@ -502,28 +645,30 @@ screen_up(){
   # OPS-13: window manager, desktop background or panel gone while the display runs: the desktop alone starts again,
   # through the same back-off as the screen (a display that is not running is the whole screen's start, below)
   if [ "$part" = desktop ]; then
-    [ -f "$sd/launcher.pid" ] && kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null && [ -S "$sd/rfb.sock" ] || return 0
+    [ "$running" = 1 ] || return 0
     restart_gate "$n" || return 0
     desk_kill "$u"
-    [ "$desk" = ":" ] || runuser -u "$u" -- bash -c "cd '$ws'; export HOME='$ws' DISPLAY=:$disp XAUTHORITY='$sd/Xauthority'; $desk" && echo "janitor: $n: ${why:-desktop missing}: its ${mode#lean-} window manager is started again on :$disp"
+    [ "$desk" = ":" ] || as_user "$u" bash -c "cd '$ws'; export HOME='$ws' DISPLAY=:$disp XAUTHORITY='$sd/Xauthority'; $desk" && echo "janitor: $n: ${why:-desktop missing}: its ${mode#lean-} window manager is started again on :$disp"
     return 0
   fi
   # already running with Chrome on the port it should use: done. On another port (sleeping was switched on or off for
   # this agent, or the screen dates from before 11 Nov) it is started again once, which is not a failure.
-  if [ -f "$sd/launcher.pid" ] && kill -0 "$(cat "$sd/launcher.pid" 2>/dev/null)" 2>/dev/null && [ -S "$sd/rfb.sock" ]; then
-    [ "$(cat "$sd/layout" 2>/dev/null || echo "$cdp")" = "$cport" ] && return 0
+  if [ "$running" = 1 ]; then
+    local lay; lay=$(ag_read "$u" "$sd/layout"); [ "${lay:-$cdp}" = "$cport" ] && return 0
     echo "screen for $n: Chrome moves to port $cport"; rm -f -- "$RST/$n"
   fi
   # waiting before trying again, or given up on after 5 failures (OPS-3): not started now
   restart_gate "$n" || return 0
   screen_kill "$u" "$disp" "$ws"
-  mkdir -p "$sd"; chown "$u:$OWNER" "$sd"; chmod 2770 "$sd"
-  rm -f "$sd/rfb.sock" "/tmp/.X$disp-lock" "/tmp/.X11-unix/X$disp"
+  ag_dir "$u" "$sd"
+  # the display's lock and socket: names in /tmp and in /tmp/.X11-unix, both root's and sticky (x11_dir), so nobody can swap
+  # the folder under this, and rm removes a name, never a link's target
+  rm -f -- "/tmp/.X$disp-lock" "/tmp/.X11-unix/X$disp"
   # a lock left by the Chrome of an earlier box (the box was rebuilt, so another host name) makes Chrome refuse to start
-  rm -f "$ws/.browser/SingletonLock" "$ws/.browser/SingletonSocket" "$ws/.browser/SingletonCookie"
+  ag_rm "$u" "$sd/rfb.sock" "$ws/.browser/SingletonLock" "$ws/.browser/SingletonSocket" "$ws/.browser/SingletonCookie"
   # a screen that sleeps, and every lean screen, gets its tabs back when Chrome starts (also after it was closed by hand)
   { [ "$cport" != "$cdp" ] || [ -n "$lean" ]; } && open="--restore-last-session"
-  runuser -u "$u" -- bash -c "
+  as_user "$u" bash -c "
     cd '$ws'; export HOME='$ws' DISPLAY=:$disp XAUTHORITY='$sd/Xauthority'
     umask 007; : > \"\$XAUTHORITY\"; xauth -q add :$disp . \$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n') 2>/dev/null
     printf 'DISPLAY=:%s\nXAUTHORITY=%s\n' '$disp' \"\$XAUTHORITY\" > '$sd/env'
@@ -535,12 +680,12 @@ screen_up(){
     ( chrome_loop '$sd' '$CHROME' --no-sandbox --disable-dev-shm-usage --no-first-run --no-default-browser-check --user-data-dir='$ws/.browser' --remote-debugging-address=127.0.0.1 --remote-debugging-port=$cport --window-size=1280,800 --start-maximized $CHROME_MEM $lean $open & )
     echo $cport > '$sd/layout'
     touch '$sd/activity'
-  " || return 0
-  echo "$mode" > "$sd/mode"
+  " </dev/null || return 0
+  ag_put "$u" "$sd/mode" "$mode"
   echo "screen for $n on :$disp (chrome $cport, $mode)"
   # how long it took, whether it came up, and the fall back to the old desktop when a lean start does not (OPS-19)
   if [ "${AQ_NOVERIFY:-0}" != 1 ]; then
-    t0=$(cat "$sd/waking" 2>/dev/null); [[ "$t0" =~ ^[0-9]{13}$ ]] || t0=$(now_ms)
+    t0=$(ag_read "$u" "$sd/waking"); [[ "$t0" =~ ^[0-9]{13}$ ]] || t0=$(now_ms)
     ( wake_verify "$n" "$u" "$t0" "$([ -f "$sd/waking" ] && echo wake || echo start)" & )
   fi
 }
@@ -554,7 +699,7 @@ once(){
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
     r=$(make_user "$n") && out="$out$r"$'\n'
   done < "$REQ"
-  printf '%s' "$out" > "$DONE.tmp"; chown "$OWNER:$OWNER" "$DONE.tmp"; chmod 640 "$DONE.tmp"; mv "$DONE.tmp" "$DONE"
+  printf '%s' "$out" | own_put "$DONE"
   echo "agent users: $(printf '%s' "$out" | tr '\n' ' ')"
   remove_gone
   uploads_fix
@@ -564,22 +709,23 @@ once(){
 # an agent that no longer exists: its screen and Chrome stop, its user and SSH key go, its control port rule goes, and
 # its folder stays (handed to aqeelOS's claude user)
 remove_gone(){
-  local u n line cdp
+  local u n line cdp uid l
   for u in $(getent passwd | cut -d: -f1 | grep '^ag-'); do
-    n=${u#ag-}
-    grep -qx "$n" "$REQ" 2>/dev/null && continue
+    n=${u#ag-}; ok_name "$n" || continue
+    grep -qxF -- "$n" "$REQ" 2>/dev/null && continue
+    uid=$(id -u "$u" 2>/dev/null)
     pkill -KILL -u "$u" 2>/dev/null; sleep 1
-    line=$(grep "^$n " "$PORTS" 2>/dev/null | head -1); cdp=$(echo "$line" | cut -d' ' -f3)
+    line=$(port_line "$n"); cdp=$(echo "$line" | cut -d' ' -f3)
     [ -n "$cdp" ] && iptables -D OUTPUT -o lo -p tcp --dport "$cdp" -m owner ! --uid-owner "$OWNER" -m owner ! --uid-owner "$u" -j REJECT 2>/dev/null
     [ -n "$cdp" ] && iptables -D OUTPUT -o lo -p tcp --dport "$((cdp+10000))" -m owner ! --uid-owner "$OWNER" -m owner ! --uid-owner "$u" -m owner ! --uid-owner aq-wake -j REJECT 2>/dev/null
-    [ -f "$PORTS" ] && sed -i "/^$n /d" "$PORTS"
-    rm -f "$KEYS/$u"
+    rm -f -- "$KEYS/$u"
     userdel "$u" 2>/dev/null; groupdel "$u" 2>/dev/null
-    [ -d "$HOMEC/workspaces/$n" ] && chown -R "$OWNER:$OWNER" "$HOMEC/workspaces/$n"
+    # its folder goes back to the owner: after its last process is gone (hand_tree checks by user number), links untouched
+    [ -n "$uid" ] && hand_tree "$OWNER:$OWNER" "$HOMEC/workspaces/$n" "$uid"
     echo "agent users: removed $u"
   done
-  # display and port lines of agents that are gone (their users already went with an earlier box)
-  if [ -f "$PORTS" ]; then local keep; keep=$(while read -r l; do n=${l%% *}; grep -qx "$n" "$REQ" && echo "$l"; done < "$PORTS"); printf "%s\n" "$keep" | sed "/^$/d" > "$PORTS.tmp" && chown "$OWNER:$OWNER" "$PORTS.tmp" && chmod 640 "$PORTS.tmp" && mv "$PORTS.tmp" "$PORTS"; fi
+  # display and port lines of agents that are gone (theirs above, and those whose users went with an earlier box)
+  if [ -f "$PORTS" ]; then local keep; keep=$(while read -r l; do n=${l%% *}; grep -qxF -- "$n" "$REQ" && echo "$l"; done < "$PORTS"); printf "%s\n" "$keep" | sed "/^$/d" | own_put "$PORTS"; fi
 }
 
 # every isolated agent's screen stays up (started again if it stopped)
@@ -596,13 +742,13 @@ wake_ports(){
   while read -r n; do
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] && id "ag-$n" >/dev/null 2>&1 || continue
     read -r _ sl <<< "$(limit_of "$n")"; [ "$sl" -gt 0 ] || continue
-    l=$(grep "^$n " "$PORTS" 2>/dev/null | head -1); [ -n "$l" ] || continue
+    l=$(port_line "$n"); [ -n "$l" ] || continue
     out="$out$n $(echo "$l" | cut -d' ' -f3) $(( $(echo "$l" | cut -d' ' -f3) + 10000 ))"$'
 '
   done < "$REQ"
   [ "$out" = "$(cat "$WAKE/ports" 2>/dev/null)"$'
 ' ] || [ "$out" = "$(cat "$WAKE/ports" 2>/dev/null)" ] && return 0
-  printf '%s' "$out" > "$WAKE/ports.tmp" && chown aq-wake:"$OWNER" "$WAKE/ports.tmp" && chmod 640 "$WAKE/ports.tmp" && mv "$WAKE/ports.tmp" "$WAKE/ports"
+  printf '%s' "$out" | wake_put "$WAKE/ports"
 }
 
 # OPS-5 (OPERATIONS.md rule 4). Expected equals running: for each agent with a screen, exactly one display on its own
@@ -611,9 +757,9 @@ wake_ports(){
 # (the copy running longest is kept). A Chrome that gave up (chrome.stopped) files one issue. The counts go to $JAN.
 # One agent's counts, "<name> <expected> <running> <extra pids...>", from "pid user etimes args" lines on stdin.
 jan_count(){
-  local n=$1 u=$2 disp=$3 ws=$4 exp=5
+  local n=$1 u=$2 disp=$3 ws=$4 exp=5 mode=${5:-}
   # OPS-19: a lean screen has an X server, one window manager (fluxbox) and Chrome, or no window manager at all
-  case "$(cat "$ws/.screen/mode" 2>/dev/null)" in lean-fluxbox) exp=3 ;; lean-bare) exp=2 ;; esac
+  case "${mode:-$(screen_mode "$u" "$ws/.screen")}" in lean-fluxbox) exp=3 ;; lean-bare) exp=2 ;; esac
   [ -f "$ws/.screen/chrome.stopped" ] && exp=$((exp-1))
   [ -f "$ws/.screen/asleep" ] && exp=0
   awk -v u="$u" -v d="$disp" -v b="--user-data-dir=$ws/.browser" -v n="$n" -v want="$exp" '
@@ -663,8 +809,8 @@ last_use(){ local f m last=0; for f in "$WAKE/$1.active" "$2/activity"; do [ -e 
 in_reply(){ [ -f "$BUSY" ] && [ $(( $2 - $(stat -c %Y "$BUSY") )) -lt 180 ] && grep -qx -- "$1" "$BUSY"; }
 # one agent: ps lines on stdin; $5 = now (tests)
 desk_check(){
-  local n=$1 u=$2 disp=$3 ws=$4 now=${5:-$(date +%s)} f="$RST/$1.part" miss since=0 busy=0 step
-  miss=$(jan_missing "$u" "$disp" "$(cat "$ws/.screen/mode" 2>/dev/null || echo desktop)")
+  local n=$1 u=$2 disp=$3 ws=$4 now=${5:-$(date +%s)} f="$RST/$1.part" miss since=0 busy=0 step mode=${6:-}
+  miss=$(jan_missing "$u" "$disp" "${mode:-$(screen_mode "$u" "$ws/.screen")}")
   [ -f "$ws/.screen/asleep" ] && miss=""
   if [ -z "$miss" ]; then rm -f -- "$f"; return 0; fi
   mkdir -p "$RST"; [ -f "$f" ] && read -r since < "$f"
@@ -688,15 +834,16 @@ harness_orphans(){
 # the Chrome port a daemon was started on (BU_CDP_WS / BU_CDP_URL); root in the box may not read another user's
 # environ (no ptrace right), so it is read as the process's own user then
 harness_port(){
-  local pid=$1 env
+  local pid=$1 env who
   env=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null) || env=""
-  [ -n "$env" ] || env=$(runuser -u "$(ps -o user= -p "$pid" 2>/dev/null | tr -d ' ')" -- cat "/proc/$pid/environ" 2>/dev/null | tr '\0' '\n')
+  [ -n "$env" ] || { who=$(pid_user "$pid"); [ -n "$who" ] && env=$(as_user "$who" cat "/proc/$pid/environ" 2>/dev/null </dev/null | tr '\0' '\n'); }
   printf '%s\n' "$env" | sed -n 's#^BU_CDP_\(WS\|URL\)=[a-z]*://[^/]*:\([0-9][0-9]*\).*#\2#p' | head -1
 }
 harness_sweep(){
   local listen lines="" pid pp et port
   listen=$(ss -Hltn 2>/dev/null | awk '{n=split($4,a,":"); printf "%s ", a[n]}')
   while read -r pid pp et; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
     port=$(harness_port "$pid"); lines="$lines$pid $pp $et ${port:--}"$'\n'
   done < <(ps -eo pid=,ppid=,etimes=,args= 2>/dev/null | awk '$4 ~ /python/ && index($0, "-m browser_harness.daemon") {print $1, $2, $3}')
   for pid in $(printf '%s' "$lines" | harness_orphans "$listen"); do
@@ -705,32 +852,33 @@ harness_sweep(){
 }
 janitor(){
   harness_sweep
-  local ps n u line disp ws out="" tot_e=0 tot_r=0 res e r x pid prev
+  local ps n u line disp ws out="" tot_e=0 tot_r=0 res e r x pid prev mode
   ps=$(ps -eo pid=,user:32=,etimes=,args= 2>/dev/null)
   mkdir -p "$(dirname "$SEEN")"; touch "$SEEN"; prev=$(cat "$SEEN"); : > "$SEEN.tmp"
   while read -r n; do
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
     u="ag-$n"; u=${u:0:32}; id "$u" >/dev/null 2>&1 || continue
-    line=$(grep "^$n " "$PORTS" 2>/dev/null | head -1); [ -n "$line" ] || continue
-    disp=$(echo "$line" | cut -d' ' -f2); ws="$HOMEC/workspaces/$n"
-    res=$(printf '%s\n' "$ps" | jan_count "$n" "$u" "$disp" "$ws")
+    line=$(port_line "$n"); [ -n "$line" ] || continue
+    disp=$(echo "$line" | cut -d' ' -f2); ws="$HOMEC/workspaces/$n"; mode=$(screen_mode "$u" "$ws/.screen")
+    res=$(printf '%s\n' "$ps" | jan_count "$n" "$u" "$disp" "$ws" "$mode")
     read -r _ e r x <<< "$res"
     tot_e=$((tot_e+e)); tot_r=$((tot_r+r))
-    printf '%s\n' "$ps" | desk_check "$n" "$u" "$disp" "$ws"
+    printf '%s\n' "$ps" | desk_check "$n" "$u" "$disp" "$ws" "" "$mode"
     for pid in $x; do
       if printf '%s\n' "$prev" | grep -qx "$pid"; then echo "janitor: $n: removed extra process $pid ($(ps -o args= -p "$pid" 2>/dev/null | cut -c1-60))"; kill -TERM "$pid" 2>/dev/null
       else echo "$pid" >> "$SEEN.tmp"; echo "janitor: $n: extra process $pid, removed next minute if still there"; fi
     done
-    if [ -f "$ws/.screen/chrome.stopped" ] && [ ! -f "$ws/.screen/chrome.reported" ]; then
+    # "reported" is this script's own note: kept with root's files, not in the agent's folder
+    if [ -f "$ws/.screen/chrome.stopped" ] && [ ! -f "$RST/$n.chrome-reported" ]; then
       report "$n" "chrome-stopped" "its Chrome exited 5 times within an hour and is left stopped. See $ws/.screen/chrome.log; to try again: echo $n >> $RESET"
-      touch "$ws/.screen/chrome.reported"
+      mkdir -p "$RST"; : > "$RST/$n.chrome-reported"
     fi
-    [ -f "$ws/.screen/chrome.stopped" ] || rm -f -- "$ws/.screen/chrome.reported"
+    [ -f "$ws/.screen/chrome.stopped" ] || rm -f -- "$RST/$n.chrome-reported"
     local mb; mb=$(mem_cap "$n" "$u" "$ws")
-    out="$out\"$n\":{\"expected\":$e,\"running\":$r,\"extra\":[$(echo $x | tr ' ' ',')],\"mb\":${mb:-0},\"asleep\":$([ -f "$ws/.screen/asleep" ] && echo true || echo false),\"mode\":\"$(cat "$ws/.screen/mode" 2>/dev/null || echo desktop)\",\"nosleep\":$([ -f "$ws/.screen/nosleep" ] && echo true || echo false)},"
+    out="$out\"$n\":{\"expected\":$e,\"running\":$r,\"extra\":[$(echo $x | tr ' ' ',')],\"mb\":${mb:-0},\"asleep\":$([ -f "$ws/.screen/asleep" ] && echo true || echo false),\"mode\":\"$mode\",\"nosleep\":$([ -f "$ws/.screen/nosleep" ] && echo true || echo false)},"
   done < "$REQ"
   mv "$SEEN.tmp" "$SEEN"
-  printf '{"at":%s,"expected":%s,"running":%s,"agents":{%s}}\n' "$(date +%s)" "$tot_e" "$tot_r" "${out%,}" > "$JAN.tmp" && chown "$OWNER:$OWNER" "$JAN.tmp" 2>/dev/null; chmod 640 "$JAN.tmp"; mv "$JAN.tmp" "$JAN"
+  printf '{"at":%s,"expected":%s,"running":%s,"agents":{%s}}\n' "$(date +%s)" "$tot_e" "$tot_r" "${out%,}" | own_put "$JAN"
 }
 
 # OPS-2 (rule 2): an agent's memory is what its own user runs (its real share, Pss, so Chrome's shared pages count once).
@@ -789,12 +937,13 @@ trim_logs(){
   local f n
   while read -r n; do
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
-    for f in "$HOMEC/workspaces/$n/.screen/"{chrome,xvnc,desktop}.log; do
-      [ -f "$f" ] && [ "$(stat -c %s "$f")" -gt 10485760 ] && tail -c 2097152 "$f" > "$f.tmp" && cat "$f.tmp" > "$f" && rm -f -- "$f.tmp" && echo "agent users: $n: trimmed ${f##*/}"
+    # the logs are the agent's own files: trimmed as the agent
+    for f in chrome xvnc desktop; do
+      trim_bytes "ag-$n" "$HOMEC/workspaces/$n/.screen/$f.log" 10485760 2097152 && echo "agent users: $n: trimmed $f.log"
     done
   done < "$REQ"
-  [ -f "$SCREEN_EVENTS" ] && [ "$(wc -l < "$SCREEN_EVENTS")" -gt 4000 ] && tail -2000 "$SCREEN_EVENTS" > "$SCREEN_EVENTS.tmp" && cat "$SCREEN_EVENTS.tmp" > "$SCREEN_EVENTS" && rm -f -- "$SCREEN_EVENTS.tmp"
-  [ -f "$ISSUES" ] && [ "$(wc -l < "$ISSUES")" -gt 400 ] && tail -200 "$ISSUES" > "$ISSUES.tmp" && cat "$ISSUES.tmp" > "$ISSUES" && rm -f -- "$ISSUES.tmp"
+  trim_lines "$WAKE_USER" "$SCREEN_EVENTS" 4000 2000
+  trim_lines "$OWNER" "$ISSUES" 400 200
   return 0
 }
 
@@ -805,12 +954,13 @@ trim_logs(){
 uploads_fix(){
   local d="$HOMEC/uploads" n u
   [ -d "$d" ] || return 0
-  find "$d" -xdev -type f ! -perm -044 -exec chmod a+r {} + 2>/dev/null
+  # the folder is the owner's: both steps run as the owner
+  as_user "$OWNER" find "$d" -xdev -type f ! -perm -044 -exec chmod a+r {} + 2>/dev/null </dev/null
   [ -f "$REQ" ] || return 0
   while read -r n; do
     [[ "$n" =~ ^[a-z0-9][a-z0-9_-]{0,28}$ ]] || continue
     u="ag-$n"; u=${u:0:32}; id "$u" >/dev/null 2>&1 || continue
-    setfacl -m "u:$u:rX,d:u:$u:rX" "$d" 2>/dev/null
+    as_user "$OWNER" setfacl -m "u:$u:rX,d:u:$u:rX" "$d" 2>/dev/null </dev/null
   done < "$REQ"
   return 0
 }
@@ -873,6 +1023,8 @@ orphan_stop(){
     p=$pid
     for i in 1 2 3; do
       pp=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' '); [ -n "$pp" ] && [ "$pp" -gt 1 ] || break
+      # only a restart loop of the same user: a process is never stopped because of what another user's child is called
+      [ "$(pid_user "$pp")" = "$(pid_user "$pid")" ] || break
       ps -o args= -p "$pp" 2>/dev/null | grep -q 'staging-run[.]sh' || break
       kill -TERM "$pp" 2>/dev/null; p=$pp
     done
@@ -897,7 +1049,7 @@ orphan_sweep(){
     ports=$(printf '%s\n' "$listen" | orphan_ports "$pid")
     if [ "$kind" = pg ]; then clients=$(printf '%s\n' "$ps" | orphan_pg_clients "$pid"); else clients=$(printf '%s\n' "$estab" | orphan_clients "$ports"); fi
     cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null)
-    [ -n "$cwd" ] || cwd=$(runuser -u "$user" -- readlink "/proc/$pid/cwd" 2>/dev/null)
+    [ -n "$cwd" ] || cwd=$(as_user "$user" readlink "/proc/$pid/cwd" 2>/dev/null </dev/null)
     gone=0
     case "$cwd" in *" (deleted)") gone=1 ;; "") ;; *) [ -d "$cwd" ] || gone=1 ;; esac
     # first seen, last client, start: a number reused by another process (another start) begins again
@@ -909,6 +1061,7 @@ orphan_sweep(){
     [ "$clients" -gt 0 ] && last=$now
     printf '%s %s %s\n' "$first" "$last" "$start" > "$f"
     agent=""; case "$cwd" in */workspaces/*) agent=${cwd#*/workspaces/}; agent=${agent%%/*} ;; esac
+    ok_name "$agent" || agent=""
     [ -n "$agent" ] && in_reply "$agent" "$now" && continue
     act=$(orphan_step "$kind" "$age" $((now-last)) $((now-first)) "$clients" "$gone" "$checking")
     what="$kind process $pid of $user ($((age/3600)) h old, ${cwd:-folder unknown}, ports: ${ports:-none}, clients: $clients)"
@@ -926,13 +1079,35 @@ orphan_sweep(){
   return 0
 }
 
+# The watcher installs a newer copy of this script from the app's folder (a deploy puts it there) and starts it.
+# That folder belongs to the owner's user, so that user decides what root runs: it is root in all but name, by design
+# (deploys need no root). Agents cannot write there. What is checked here: the copy is taken first into root's own folder
+# and only that copy is looked at and installed; one that does not parse is never installed (L6), and aqeelOS is told once;
+# and when root has made the list $PIN, only a copy whose sha256 is in it is installed (then a deploy that changes this
+# script needs root to add the new sum: `sha256sum scripts/agent-users.sh | cut -d' ' -f1 >> $PIN`).
+self_update(){
+  [ -f "$SRC" ] && [ "$0" != "$SRC" ] && ! cmp -s "$SRC" "$0" || return 1
+  local t sum why=""
+  mkdir -p /var/lib/aqeelos && t=$(mktemp /var/lib/aqeelos/agent-users.XXXXXX) || return 1
+  cat -- "$SRC" > "$t" 2>/dev/null; sum=$(sha256sum < "$t" | cut -d' ' -f1)
+  if cmp -s "$t" "$0"; then rm -f -- "$t"; return 1; fi
+  bash -n "$t" 2>/dev/null || why="does not parse (bash -n)"
+  [ -z "$why" ] && [ -f "$PIN" ] && ! grep -qx -- "$sum" "$PIN" && why="is not in root's list $PIN"
+  if [ -n "$why" ]; then
+    rm -f -- "$t"; mkdir -p "$RST"
+    [ "$(cat "$RST/.update-refused" 2>/dev/null)" = "$sum" ] || { echo "$sum" > "$RST/.update-refused"; report default "root-script-update" "the new copy of the root script ($SRC) $why, so the one running stays. Nothing else is affected." "Root script update refused"; }
+    return 1
+  fi
+  install -m 755 -o root -g root "$t" "$0"; local rc=$?; rm -f -- "$t" "$RST/.update-refused"; return $rc
+}
+
 # sourced by the tests (scripts/agent-users.test.mjs): the functions only
 [ "${AQ_AGENT_USERS_LIB:-0}" = 1 ] && return 0 2>/dev/null
 
 case "${1:-watch}" in
   once) once ;;
-  reset) [ -n "${2:-}" ] && echo "$2" >> "$RESET" && take_resets ;;
+  reset) ok_name "${2:-}" && echo "$2" | own_add "$RESET" && take_resets ;;
   janitor) janitor ;;
-  stop) [ -n "${2:-}" ] && echo "$2" >> "$REQ.stop" && take_stops ;;
-  watch) last=""; n=0; while true; do take_resets; take_stops; take_mem; take_wakes; proxy_up; [ $((n % 12)) -eq 0 ] && [ -f "$REQ" ] && { janitor; sleep_idle; setup_wake; }; [ $((n % 720)) -eq 0 ] && [ -f "$REQ" ] && trim_logs; [ $((n % 60)) -eq 0 ] && [ -f "$REQ" ] && { uploads_fix; orphan_sweep; }; [ $((n % 6)) -eq 0 ] && { date +%s > "$ALIVE"; chown "$OWNER:$OWNER" "$ALIVE" 2>/dev/null; }; if [ -f "$SRC" ] && [ "$0" != "$SRC" ] && ! cmp -s "$SRC" "$0"; then install -m 755 -o root -g root "$SRC" "$0" && exec "$0" watch; fi; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
+  stop) ok_name "${2:-}" && echo "$2" | own_add "$REQ.stop" && take_stops ;;
+  watch) last=""; n=0; while true; do take_resets; take_stops; take_mem; take_wakes; proxy_up; [ $((n % 12)) -eq 0 ] && [ -f "$REQ" ] && { janitor; sleep_idle; setup_wake; }; [ $((n % 720)) -eq 0 ] && [ -f "$REQ" ] && trim_logs; [ $((n % 60)) -eq 0 ] && [ -f "$REQ" ] && { uploads_fix; orphan_sweep; }; [ $((n % 6)) -eq 0 ] && { date +%s | own_put "$ALIVE"; }; self_update && exec "$0" watch; s=$(stat -c %Y "$REQ" 2>/dev/null || echo none); if [ "$s" != "$last" ]; then once; last=$s; fi; n=$((n+1)); [ $((n % 6)) -eq 0 ] && [ -f "$REQ" ] && screens; sleep 5; done ;;
 esac
