@@ -14,6 +14,13 @@ exactly "clean engine plus the steps without this patch"; the engine update chec
 update copy equals the live engine without it. So the git apply was a no-op on every path: step 16 now only copies
 branding.py. The file is kept in `retired/` for the record; step 17b reads only this folder's own `*.patch` files.
 
+## Retired: step 5 "port-reuse" (12 Nov 2026)
+
+`plugins/platforms/whatsapp/bridge_ownership.py` `port_is_free` sets `SO_REUSEADDR` itself upstream (engine commits
+155588754a "reuse bridge ports after restart", 1848982075 "POSIX-only reuse in the probe", 7d9f04469b docs), in both live
+engines. Our text replacement no longer matched the new code, so every deploy printed `MISFIT port-reuse` and the go-live
+step ended with exit 3 ("! skill patches: see the message above (exit 3)" on P&P). The step is removed.
+
 ## 2026-11-06-shared-skills.patch (applied by step 17)
 
 Skills for everyone. Every agent also reads the main profile's `skills/` folder (installed once) as its

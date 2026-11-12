@@ -113,18 +113,9 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
             _aq["token_type"] = "Bearer"
             token_response = _AqToken.model_validate(_aq)`;
  if(!s.includes('aqeelos:token-type')&&s.includes(from)){await writeFile(pf,s.replace(from,to));changed++;console.log('patched',pf)}else if(!s.includes('aqeelos:token-type'))misfit('token-type '+pf)}}
-// 5) Engine: a WhatsApp bridge port that was just closed (TIME_WAIT, ~60 s after a restart) was treated as "bound by
-//    another process", a permanent error with no retry, so a second agent's WhatsApp stayed down after every restart.
-//    SO_REUSEADDR ignores just-closed connections; a port really in use still fails the bind.
-{const pf=path.join(HOME,'hermes-agent','plugins','platforms','whatsapp','bridge_ownership.py');if(await exists(pf)){let s=await readFile(pf,'utf8');
- const from=`    with socket.socket() as sock:
-        try:
-            sock.bind(("127.0.0.1", port))`;
- const to=`    with socket.socket() as sock:
-        try:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # aqeelos:port-reuse (TIME_WAIT is not "in use")
-            sock.bind(("127.0.0.1", port))`;
- if(!s.includes('aqeelos:port-reuse')&&s.includes(from)){await writeFile(pf,s.replace(from,to));changed++;console.log('patched',pf)}else if(!s.includes('aqeelos:port-reuse'))misfit('port-reuse '+pf)}}
+// 5) Retired 12 Nov 2026 (port-reuse: SO_REUSEADDR in the WhatsApp bridge's port probe, so a just-closed port in TIME_WAIT
+//    is not "in use"). The engine does it itself in plugins/platforms/whatsapp/bridge_ownership.py port_is_free since
+//    155588754a (POSIX only since 1848982075); our replacement no longer matched and printed MISFIT on every deploy (exit 3).
 // 7) The engine's own messages (to WhatsApp, Telegram, the chat: "Hermes is shutting down", "Hermes is back"…)
 //    say aqeelOS. Only the words people read change; commands such as `hermes gateway restart` stay as they are.
 {const dir=path.join(HOME,'hermes-agent','locales');

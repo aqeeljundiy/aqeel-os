@@ -45,3 +45,6 @@ test('the retired 6 Nov patch is kept for the record, outside the folder the ste
  const D=path.join(path.dirname(fileURLToPath(import.meta.url)),'..','engine','patches');
  assert.ok(!existsSync(path.join(D,'2026-11-06-tonight.patch')));assert.ok(existsSync(path.join(D,'retired','2026-11-06-tonight.patch')));
  assert.match(readFileSync(path.join(D,'README.md'),'utf8'),/retired/i)});
+
+test('step 5 (port-reuse) is retired: the engine sets SO_REUSEADDR itself, so the run prints no MISFIT for it (P&P: "skill patches: exit 3") and leaves the file alone',{skip,timeout:300000},()=>{
+ const r=steps();assert.doesNotMatch(r.out,/MISFIT port-reuse/,r.out);assert.equal(r.bridge,UPSTREAM,'the engine\'s own bridge_ownership.py is left as it is')});
