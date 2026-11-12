@@ -44,7 +44,7 @@ import {createOptins,appNames,solvedIssues} from './agent-optins.mjs';
 import {isConnector as isConnectorEntry} from './connectors.mjs';
 import {createAntigravity} from './antigravity.mjs';
 import {createSlackQuiet,slackQuietPlan} from './slack-quiet.mjs';
-import {holdWrites,withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';
+import {holdWrites,withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';import {alertTitle} from './alert-title.mjs';
 import {createSchedules} from './schedules.mjs';
 import {createScreens} from './screens.mjs';
 import {createAgentAdspower} from './agent-adspower.mjs';
@@ -1037,10 +1037,7 @@ async function ownerChannel(prefer){const ch=await relay.channelsFor('default').
 async function ownerSend(text,prefer){const c=await ownerChannel(prefer);
  // with no channel: a message that needs the owner (the fixer's "needs a person" or "could not fix") is a Bottlenecks
  // item, in the bell's Needs you; anything else is Activity (7 Nov 2026), and the Send test the owner pressed is theirs
- // the title is the first line, cut at a sentence or a word when it is long, and the text goes on from there (UI walk of
- // 12 Nov 2026: Activity read "...1094 a" over "dded .bundled_manifest...", one word split between the two lines)
- const line=String(text).split('\n')[0];let cut=line.length;if(cut>140){const b=Math.max(line.lastIndexOf(': ',138),line.lastIndexOf('. ',138)),w=line.lastIndexOf(' ',138);cut=b>60?b+1:w>40?w:140}
- const first=line.slice(0,cut).trim(),need=/needs a person|What is needed|could not fix this by itself|What is needed from you/i.test(text);
+ const {first,cut}=alertTitle(text),need=/needs a person|What is needed|could not fix this by itself|What is needed from you/i.test(text);
  const bell=why=>(need?bottlenecks.event('alerts',first,String(text)+'\n\n'+why,{topic:'alerts|'+String(text).slice(0,60)}):
   news.add({aud:'admins',started:/^Test from /.test(text),group:'alerts|'+first.replace(/[0-9]+/g,'#'),icon:'bell',title:first,text:String(text).slice(cut).trim()+' '+why,go:'/system/teams',label:'Teams'})).catch(()=>{});
  if(!c){await bell('No channel to you is set up yet, so this alert waits here. Pick one under Alerts go to on System › Teams.');return {bell:true}}
@@ -2407,7 +2404,7 @@ async function hermesCall(req,res,u,url){
   // System › Logs: the agents' tool addresses carry a secret part (/mcp/<kind>/<agent>/<secret>), and keys can turn up in a line: hidden before they reach the page
   :p==='/hapi/logs'&&req.method==='GET'?d=>Array.isArray(d?.lines)?{...d,lines:d.lines.map(l=>redactText(String(l)))}:d
   :/^\/hapi\/mcp\/servers$/.test(p)&&req.method==='GET'?d=>hideOwnTools(d)
-  :p==='/hapi/status'&&req.method==='GET'?d=>Array.isArray(d?.profiles)?{...d,profiles:d.profiles.filter(x=>(x?.name||x)!==HELP_AGENT)}:d
+  :p==='/hapi/status'&&req.method==='GET'?d=>users.statusFor(u,d)
   :/^\/gapi(\/p\/[^/]+)?\/api\/model\/options$/.test(p)&&users.allowedModels(u)?d=>({...d,providers:(d.providers||[]).map(pv=>({...pv,models:(pv.models||[]).filter(m=>users.modelOk(u,pv.slug,m))})).filter(pv=>pv.models.length)})
   :/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)&&req.method==='POST'?async d=>{await users.own(d.id||d.session?.id||d.session_id,u);return d}
   // a fork belongs to the person who forked it (else it would count as the owner's and they could not open it)

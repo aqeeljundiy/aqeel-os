@@ -63,6 +63,14 @@ test('the rule by role: admins manage every agent, members (employees) only thei
  const list={sessions:[{id:'c-rina'},{id:'c-ada'},{id:'c-owner'}]};
  assert.deepEqual(users.filter(admin,'/hapi/sessions',list,'default').sessions.map(x=>x.id+':'+(x.person||'')),['c-rina:Rina','c-ada:']);
  assert.deepEqual(users.filter(rina,'/hapi/sessions',list,'default').sessions.map(x=>x.id),['c-rina']);
+ // the engine's status: a member sees only whether it runs and their own agents; an admin all of it (Help left out)
+ const st={gateway_running:true,gateway_state:'running',active_agents:2,active_sessions:1,gateway_pid:4242,hermes_home:'/root/.hermes',env_path:'/root/.hermes/.env',gateway_platforms:{whatsapp:{}},profiles:[{name:'default'},{name:'rinabot'},{name:'adabot'},{name:'aqeelos-help'}],gateway_shared_with:['default','rinabot','adabot']};
+ const mem=users.statusFor(rina,JSON.parse(JSON.stringify(st)));
+ assert.deepEqual(Object.keys(mem).sort(),['active_agents','active_sessions','gateway_running','gateway_shared_with','gateway_state','profiles']);
+ assert.equal(JSON.stringify(mem).includes('adabot'),false,'a member sees no other agent');assert.equal(JSON.stringify(mem).match(/4242|\.hermes|\.env/),null);
+ assert.equal(mem.gateway_running,true);
+ const adm=users.statusFor(admin,JSON.parse(JSON.stringify(st)));
+ assert.equal(adm.gateway_pid,4242);assert.ok(adm.profiles.some(x=>x.name==='adabot'));assert.ok(!adm.profiles.some(x=>x.name==='aqeelos-help'),'Help stays hidden');
  assert.equal(users.memberChat('c-rina'),true);assert.equal(users.memberChat('c-ada'),false);
  assert.equal(users.gate(owner,'/gapi/p/rinabot/api/sessions','POST',Q,'rinabot'),null)});
 

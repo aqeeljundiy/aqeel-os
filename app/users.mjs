@@ -261,6 +261,14 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  function filePathOk(u,fp,change){if(isAdmin(u))return true;const base=home(u);const r=path.resolve(String(fp||''));return !change&&r===base||r.startsWith(base+path.sep)}
 
  /* ---------- filtering what comes back ---------- */
+ // the engine's status: an admin sees all of it (Help's profile left out); a member only whether the engine runs and their own agents
+ // (not the names of the others, the install paths or the process id)
+ function statusFor(u,data){if(!data||typeof data!=='object')return data;const nm=x=>String(x?.name??x),mineA=x=>nm(x)!==HELP_AGENT&&!!level(u,nm(x));
+  if(Array.isArray(data.profiles))data={...data,profiles:data.profiles.filter(x=>nm(x)!==HELP_AGENT)};
+  if(isAdmin(u))return data;
+  const o={};for(const k of ['gateway_running','gateway_state','active_agents','active_sessions','version'])if(k in data)o[k]=data[k];
+  if(Array.isArray(data.profiles))o.profiles=data.profiles.filter(mineA);
+  if(Array.isArray(data.gateway_shared_with))o.gateway_shared_with=data.gateway_shared_with.filter(mineA);return o}
  function filter(u,p,data,agent){
   if(!data||typeof data!=='object')return data;
   // chats are private per person; untracked (older, Telegram…) chats are the owner's. With Team view on, the owner's list has everyone's, each marked with whose it is
@@ -453,5 +461,5 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  async function finishReset(tok,pw){await load();sweep();const r=db.resets.find(y=>safeEq(y.h,tokHash(tok)));const x=r&&byId(r.uid);if(!x||x.disabled)return {error:'This reset link has expired or was already used. Ask for a new one.'};
   if(String(pw||'').length<8)return {error:'Use a password of at least 8 characters.'};
   if(x.id==='owner')db.ownerPw=hash(pw);else db.users.find(y=>y.id===x.id).pw=hash(pw);db.resets=db.resets.filter(y=>y.uid!==x.id);await save();return {ok:true,user:byId(x.id)}}
- return {limits:limiter,loginKey,needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,memberChat,lockedByOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginNote,emailOnly,applyEmailMoves,loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent,addonCheck};
+ return {statusFor,limits:limiter,loginKey,needsOwner,createOwner,makeRecovery,recoverOwner,forgot,resetInfo,finishReset,hooks,leadOf,leadPerson,setLead,agentPerson,tierOf,agentMayManage,powerOf,needLead,face,expiredInvites,agentOwner,byId,ownerOf,sessionOwner,memberChat,lockedByOwner,modelOk,allowedModels,limitOf,people:()=>[owner(),...db.users],loginNote,emailOnly,applyEmailMoves,loginCode,finishLogin,created,reserve,can,canOn,load,login,user,own,gate,filter,filePathOk,api,inviteInfo,accept,isAdmin,home,level,atLeast,schedOk,dropAgent,restoreAgent,addonCheck};
 }
