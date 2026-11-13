@@ -8,7 +8,7 @@ This is the one list of everything still open in aqeelOS. It lives in git, so th
 - A session only stops when everything left is waiting on the owner. Those items go under **Waiting on you** with the exact step needed.
 - Each session ends by updating this file: what's done, what's still left and why.
 
-_Last updated: 13 Nov 2026_
+_Last updated: 13 Nov 2026 (afternoon)_
 
 ---
 
@@ -17,7 +17,7 @@ _Last updated: 13 Nov 2026_
 ### aqeelOS /v2 (owner, 13 Nov: "Make a /v2 for aqeelOS now.")
 Same app, cleaner: today's aqeelOS at `/` stays the main and is not touched; `/v2` runs the same code and look with a tidy layer on top. Method: admin kit for behaviour, checks and motion only, never its layout (his verdict on the kit /v2s: "insanely ugly, the first version is better").
 - [x] **V2-0 Plan and v1 checklist**: `docs/v1-checklist.md`, every screen of today's app (phone and desktop) with every component, feature, animation and brand moment; 52 screenshots kept off the repo on the owner's PC (`admin-kit-reviews\aqeelos\kit-v1\v1\`, they show real data). Before numbers: 28 text sizes, 20 corners, 40 spacings, 18 control heights, 8 page widths, 37 animation lengths, 9 curves, 104 colours.
-- [~] **V2-1 The /v2 route**: `/v2` serves today's app with the v2 layer (`app/v2-boot.js`, `v2.css`, `v2.js`, `v2-page.mjs`); `/` unchanged. Waits for the live check below.
+- [~] **V2-1 The /v2 route**: `/v2` serves today's app with the v2 layer (`app/v2-boot.js`, `v2.css`, `v2.js`, `v2-page.mjs`); `/` unchanged. **Live on P&P** (8545459, checked signed out: / and /v2 answer 200, /v2 carries the v2 files and / none, no "Hermes" anywhere, no script errors). **Elkiya: not yet.** Three tries were put back by the deploy's own live test: twice it ran past 15 minutes on the busy box (load 40-47), the third time every AI account was used up until 10:10 UTC (17:10 WIB), so the Kirimdev test line could not reply. Deploy again after 10:10 UTC (`AQ_BOX=ai-vps FORCE=1 bash scripts/deploy.sh`); /v2 answered fine while it was up.
 - [~] **V2-2 Chat first**: highlight that glides in the menu and chat list, Chats / Scheduled runs / All as one quiet row with a sliding underline, tighter menu on computers and 44px tap targets on phones, chat rows rising in, one text scale (6 sizes), resize handles by keyboard, the floating screen snapping to corners and morphing between side panel and window, light/dark following the device, digits in Google Sans Flex. Kit scorecard: checklist 40/40, still reads as v1, consistency, features and motion pass; taste fails only on engine reads over 1 s on the busy test copy and the chat's deliberate 3-second live check. Comparison page on the owner's PC: `admin-kit-reviews\aqeelos\v1-first\index.html`. **Waits for the owner's yes on Chat before any other page.**
 - [x] **V2-FIX** Found by the scorecard, fixed for `/` too: opening a chat read the browser status and the live reply twice (`Chat.once`); `/ui/install` ran three slow probes one after another on every page load (now together, a recent answer reused for 30 s).
 - [ ] **V2-PEOPLE** The people and roles checks fail the same 7 steps on today's code as on /v2 (a member gets no lead agent on the test copy, the owner sees the member's chat, "Second agent is refused" passes the cap). Not caused by /v2; to look at. Also: people-check drops every ssh session of the box user while it runs (seen three times on P&P, 13 Nov), and these checks make agents in the live engine folder (cleaned up by hand: pc-*, role-b-*).
