@@ -57,8 +57,11 @@ html.v2 .side-search input{height:var(--h-ctl);font-size:var(--fs-2)}
 html.v2 .side-sub>div:first-child>button:first-child{min-height:var(--h-ctl);font-size:var(--fs-2)}
 /* a phone: every control of the chat list is a full 44px tap target (v1 had 30-38px ones) */
 @media (max-width:760px){html.v2 .side-sub>div:first-child>button:first-child,html.v2 .side-sub .side-refresh,html.v2 .side-search input,html.v2 .side-sub .tabs button{min-height:44px}html.v2 .side-sub .side-refresh{width:44px}html.v2 .side-search input{height:44px}
- html.v2 .side-list .item{min-height:44px}html.v2 .side-list .item .more{width:44px;min-height:44px;opacity:1}
- html.v2 .topbar .ghost.icon,html.v2 .topbar .k-btn{min-width:44px;min-height:44px}}
+ html.v2 .side-list .item{min-height:44px}html.v2 .side-list .more{opacity:1}
+ html.v2 .topbar .ghost.icon,html.v2 .topbar .k-btn{min-width:44px;min-height:44px}
+ html.v2 .side .item-row>.more{width:44px;height:44px;margin-top:-22px;right:0}html.v2 .side .item-row>.item{padding-right:48px}
+ html.v2[data-v2sec="chat"] .composer-bar .ghost.icon,html.v2[data-v2sec="chat"] .composer-bar .pick,html.v2[data-v2sec="chat"] .send{min-width:44px;min-height:44px;height:44px}html.v2[data-v2sec="chat"] .msg-tools button{width:44px;min-height:44px;height:44px}
+ html.v2[data-v2sec="chat"] .composer textarea{min-height:44px}html.v2[data-v2sec="chat"] .step-head{min-height:44px}}
 
 /* ---------- top bar ---------- */
 html.v2 .bn-n,html.v2 .bell-n,html.v2 .k-btn kbd,html.v2 .v2-chip{font-size:var(--fs-0)}
