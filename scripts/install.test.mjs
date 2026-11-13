@@ -132,3 +132,15 @@ test('the engine state says when it refuses aqeelOS’s keys or does not answer'
  assert.equal((await call(r,member,'GET','/ui/install')).body.engine,undefined)});
 
 test('the address check’s ping answers with this install’s id, before sign-in',()=>{const {r}=routes();const res={};r.ping({},res);assert.equal(res.code,200);assert.equal(res.body.id,I.installId())});
+
+test('the install page’s slow reads go out together, not one after another (13 Nov 2026, kit slow-data)',async()=>{
+ const slow=v=>()=>new Promise(r=>setTimeout(()=>r(v),150));
+ const {r}=routes({recentLookups:slow([]),engineProbe:slow('ok'),claudeOn:slow(true)});
+ const t0=Date.now();const s=await call(r,admin,'GET','/ui/install');const ms=Date.now()-t0;
+ assert.equal(s.body.engine.state,'ok');assert.equal(s.body.claude.on,true);assert.deepEqual(s.body.supervision.recent,[]);
+ assert.ok(ms<400,'took '+ms+' ms: the three reads ran one after another')});
+
+test('the engine probe is not run again on every page load: a recent answer is reused (13 Nov 2026, kit slow-data)',async()=>{
+ let n=0;const {r}=routes({engineProbe:async()=>{n++;await new Promise(x=>setTimeout(x,120));return 'ok'}});
+ await call(r,admin,'GET','/ui/install');const t0=Date.now();const s=await call(r,admin,'GET','/ui/install');
+ assert.equal(s.body.engine.state,'ok');assert.equal(n,1);assert.ok(Date.now()-t0<100,'the second read waited for a new probe')});

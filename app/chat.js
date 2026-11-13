@@ -154,7 +154,7 @@ const Chat={
  paintQueue(){const el=$('#queueList');if(!el)return;const s=this.live[this.id];const q=s?.queue||[];
   el.innerHTML=q.length?`<div class="queue">${q.map((m,i)=>`<span class="qchip" title="${esc(m.text)}"><b>${i+1}</b><span class="qt">${esc(m.text)}</span><button class="ghost icon" data-act="unqueue" data-i="${i}" aria-label="Remove from queue">${icon('x',12)}</button></span>`).join('')}${s.paused&&!s.running?`<span class="qnote">Paused after Stop</span><button class="qgo" data-act="queue-go">${icon('play',13)}Send next</button>`:`<span class="qnote">${s.running?'Runs after this reply':''}</span>`}</div>`:''},
  runQueue(id){const s=this.live[id];if(!s||s.running||s.paused||!s.queue?.length)return;const next=s.queue.shift();if(this.id===id)this.paintQueue();setTimeout(()=>this.send(next.text,next.images||[],id),250)},
- async browserChip(){const id=this.id;if(!id)return;let st={};try{st=await UI('/ui/local-browser/status?session='+encodeURIComponent(id))}catch{return}if(this.id!==id)return;
+ async browserChip(){const id=this.id;if(!id)return;let st={};try{st=await this.once('lb:'+id,()=>UI('/ui/local-browser/status?session='+encodeURIComponent(id)))}catch{return}if(this.id!==id)return;
   const l=$('.cb-l');if(!l)return;l.querySelector('.lb-chip')?.remove();if(!st.session)return;
   l.insertAdjacentHTML('beforeend','<span class="lb-chip" title="This chat browses in your own Chrome">'+icon('monitor',13)+'In my browser<button class="ghost icon" data-act="lb-off" title="Back to the AI box screen" aria-label="Back to the AI box screen">'+icon('x',12)+'</button></span>')},
  paintComposerBar(){const b=$('#cbar');if(b)morph(b,this.barHtml());this.browserChip();const ta=$('#msg');if(ta)ta.placeholder=this.placeholder();this.paintQueue()},
@@ -416,7 +416,13 @@ const Chat={
    else if(s.interrupted){s.interrupted=null;s.conn=null;this.loadHistory(id)}   // it was finished or left alone meanwhile: show how it ended
    else if(s.turns[s.turns.length-1]?.dropped){s.conn=null;this.loadHistory(id)}}
   catch{this._lvFail=(this._lvFail||0)+1;this._lvSkip=Math.min(2**this._lvFail,20);if(s.conn==='reconnecting'&&this._lvFail>=4&&this.id===id){s.conn='lost';this.paint();this.paintComposerBar()}}},3000)},
- async peek(id){const r=await fetch('/ui/live?peek=1&agent='+encodeURIComponent(S.profile||'default')+'&session='+encodeURIComponent(id),{headers:{'x-hui':'1'},credentials:'same-origin'});if(!r.ok)throw new Error('The server answered '+r.status);return r.json()},
+ // one read per address while a chat opens: opening a chat drew the composer bar and checked the live reply twice within a
+ // second, so the same two reads went out twice (kit render-check loaded-twice, 13 Nov 2026). A caller shares the answer of a
+ // read still on its way or finished less than `keep` ms ago; a failed read is never kept.
+ once(k,fn,keep=1500){const m=this._once||(this._once=new Map());const c=m.get(k);if(c&&(!c.at||Date.now()-c.at<keep))return c.p;
+  const e={at:0,p:null};e.p=Promise.resolve().then(fn).then(v=>{e.at=Date.now();setTimeout(()=>{if(m.get(k)===e)m.delete(k)},keep);return v},err=>{if(m.get(k)===e)m.delete(k);throw err});m.set(k,e);return e.p},
+ peek(id){return this.once('peek:'+(S.profile||'default')+':'+id,()=>this.peekNow(id))},
+ async peekNow(id){const r=await fetch('/ui/live?peek=1&agent='+encodeURIComponent(S.profile||'default')+'&session='+encodeURIComponent(id),{headers:{'x-hui':'1'},credentials:'same-origin'});if(!r.ok)throw new Error('The server answered '+r.status);return r.json()},
  reconnect(){const p=(async()=>{const id=this.id,s=this.live[id];if(!s)return;s.conn='reconnecting';this._lvFail=0;this._lvSkip=0;this.paint();this.paintComposerBar();
   let j;try{j=await this.peek(id)}catch(e){s.conn='lost';this.paint();this.paintComposerBar();return toast("Couldn't reach your AI box: "+e.message,'err')}
   if(this.id!==id)return;if(j.live)return this.follow(id);s.conn=null;this.undrop(s);await this.loadHistory(id)})();pressBusy(p);return p},

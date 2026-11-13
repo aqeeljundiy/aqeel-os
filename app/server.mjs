@@ -158,7 +158,7 @@ import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // 
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
 import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';import {createSchedulesRoutes} from './schedules-routes.mjs';import {createIdentitiesRoutes} from './identities-routes.mjs';import {createHooksRoutes} from './hooks-routes.mjs';import {createOAuthCallbackRoutes} from './oauth-callback-routes.mjs';import {createBoxRoutes} from './box-routes.mjs';   // the routes that used to sit in this file (one module each)
-import {createScreenLink,createScreenTickets} from './screen-link.mjs';   // the screen viewer's own connection, ticket per connection (AUD-15)
+import {createScreenLink,createScreenTickets} from './screen-link.mjs';import {appPage} from './v2-page.mjs';   // the screen viewer's own connection, ticket per connection (AUD-15)
 
 delete Object.prototype.__proto__;   // a key named __proto__ from a request is an ordinary key: no lookup reaches Object.prototype (security audit, 12 Nov 2026)
 const here=path.dirname(fileURLToPath(import.meta.url));
@@ -2546,7 +2546,7 @@ const server=createServer(async(req,res)=>{
   if(p==='/data/development.json')return validCookie(req)?serveFile(res,'data/development.json'):send(res,401,{error:'Sign in first.'});
   if(req.method==='GET'||req.method==='HEAD'){
    // Cloudflare makes browsers keep .js/.css for hours, so every start gets fresh file addresses.
-   const html=(await readFile(path.join(root,'app','index.html'),'utf8')).replace(/(\.(?:js|css))"/g,`$1?v=${BUILD}"`).replace('<meta charset="utf-8">',`<meta charset="utf-8"><meta name="build" content="${BUILD}">`);
+   const html=appPage(await readFile(path.join(root,'app','index.html'),'utf8'),p,BUILD);
    res.writeHead(200,{'content-type':types['.html'],'cache-control':'no-store',...security});return res.end(req.method==='HEAD'?undefined:html)}
   send(res,404,'Not found');
  }catch(e){console.error(e);if(!res.headersSent)send(res,500,{error:'Server error'})}

@@ -20,6 +20,12 @@ const run=(cmd,args,opt={})=>new Promise(res=>{let out='';let p;try{p=spawn(cmd,
 export function createInstallRoutes({recentLookups=async()=>[],send,readBody,isAdmin,listAgents=async()=>[],readConfig=async()=>null,setKey,wait=4000,hermes,claudeOn=async()=>false,engineProbe=async()=>'ok',onTz=()=>{},log=m=>console.log(m),fetchImpl=fetch,runImpl=run,
  claudeBin=process.env.CLAUDE_BIN||path.join(homedir(),'.local','bin','claude'),hermesHome=(process.env.HERMES_HOME||path.join(homedir(),'.hermes')).replace(/^~(?=\/|$)/,homedir())}){
  let claudeJob={state:'idle',steps:[],error:''};
+ // the engine and sign-in probes take 1-3 s on a busy box and every page load asks for this state (13 Nov 2026, kit slow-data):
+ // an answer younger than 30 s is given at once, an older one is given while a fresh probe runs behind it; only the very
+ // first read waits. A probe that fails is never kept.
+ const fresh=(fn,ms=30000)=>{let v,at=0,busy=null;const go=()=>busy||(busy=Promise.resolve().then(fn).then(x=>{v=x;at=Date.now();return x}).finally(()=>{busy=null}));
+  return ()=>{if(!at)return go();if(Date.now()-at>ms)go().catch(()=>{});return Promise.resolve(v)}};
+ const engineNow=fresh(engineProbe),claudeNow=fresh(claudeOn);
  let tzJob=null;
 
  async function state(req,u){const s=I.settings(),admin=isAdmin(u),url=I.publicUrl(),from=I.publicUrlFrom();
@@ -36,13 +42,15 @@ export function createInstallRoutes({recentLookups=async()=>[],send,readBody,isA
   // reply or run is still continued afterwards
   {const w=windowOf(s);out.maintenance={...w,text:windowText(w),own:!!s.maintenance,resumeHours:resumeMaxMs(s)/3600e3}}
   out.cadenceRule={on:s.cadenceRule!==false};
-  if(admin)out.supervision={on:s.supervision===true,recent:await recentLookups(10).catch(()=>[])};
+  // the three slow reads go out together (13 Nov 2026: one after another they took 1-4 s on a busy box, kit render-check slow-data)
+  const [recent,engine,cOn]=await Promise.all([recentLookups(10).catch(()=>[]),engineNow().catch(()=>'down'),claudeNow().catch(()=>false)]);
+  if(admin)out.supervision={on:s.supervision===true,recent};
   // ok | auth (the engine refuses aqeelOS's keys: it has not restarted since they were written) | down
-  out.engine={state:await engineProbe().catch(()=>'down')};
+  out.engine={state:engine};
   out.onlineCode={on:I.onlineCodeOn(),from:I.onlineCodeFrom()};
   out.hosts=Object.fromEntries(Object.keys(I.HOSTS).map(k=>[k,{value:I.hostSetting(k),from:I.hostFrom(k),env:I.HOSTS[k][0]}]));
   out.agentUsers=I.agentUsersState();
-  out.claude={...I.claudeState({bin:claudeBin,hermesHome}),on:await claudeOn().catch(()=>false),job:claudeJob};
+  out.claude={...I.claudeState({bin:claudeBin,hermesHome}),on:cOn,job:claudeJob};
   return out}
 
  // every agent's engine runs its schedules in its own config's zone: each one gets the install's zone. The app follows at

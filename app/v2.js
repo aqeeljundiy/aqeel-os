@@ -1,0 +1,90 @@
+// aqeelOS /v2 layer (13 Nov 2026). Loaded only on /v2, after the app's own scripts and before boot.js; it never changes what
+// the app does, only how it moves and holds together: one highlight that glides in the menu and the chat list, chat rows
+// that rise in the first time they show, the sidebar and the live screen resizable by keyboard too, the floating screen
+// snapping to a corner and morphing between side panel and window, light/dark following the device until one is picked.
+// Everything here is inside this function: no new global names (scripts/check-globals.mjs).
+(()=>{
+ const html=document.documentElement;
+ const reduce=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+ const secOf=()=>(location.hash.replace(/^#\/?/,'').split(/[\/?]/)[0])||'chat';
+ const markSec=()=>html.setAttribute('data-v2sec',secOf());
+ addEventListener('hashchange',markSec);markSec();
+
+ /* ---------- the gliding highlight ----------
+    The sidebar is redrawn by morph() (core.js), which removes anything it did not draw. So the glide is put back after
+    every redraw at the place it last stood, and then moves to the new active item: it glides across redraws and pages. */
+ const last={};
+ const GLIDES=[['.side .sections','.sec.on','sec'],['.side .side-list','.item.on','list']];
+ function glide(boxSel,onSel,key){const box=document.querySelector(boxSel);if(!box)return;
+  const on=box.querySelector(onSel);let g=box.querySelector(':scope>.v2-glide');
+  if(!box.classList.contains('v2-has-glide'))box.classList.add('v2-has-glide');
+  const fresh=!g;if(fresh){g=document.createElement('span');g.className='v2-glide still';g.setAttribute('aria-hidden','true');box.append(g)}
+  if(!on||!on.offsetParent){if(g.classList.contains('v2-show'))g.classList.remove('v2-show');return}
+  const br=box.getBoundingClientRect(),r=on.getBoundingClientRect();
+  const p={x:Math.round(r.left-br.left+box.scrollLeft),y:Math.round(r.top-br.top+box.scrollTop),w:Math.round(r.width),h:Math.round(r.height)};
+  const put=q=>{const t=`translate(${q.x}px,${q.y}px)`;if(g.style.transform!==t)g.style.transform=t;if(g.style.width!==q.w+'px')g.style.width=q.w+'px';if(g.style.height!==q.h+'px')g.style.height=q.h+'px'};
+  const was=last[key];last[key]=p;
+  if(fresh){put(was||p);if(!g.classList.contains('v2-show'))g.classList.add('v2-show');void g.offsetWidth;g.classList.remove('still');if(was)requestAnimationFrame(()=>put(p));return}
+  if(!g.classList.contains('v2-show'))g.classList.add('v2-show');put(p)}
+
+ /* ---------- chat rows rise in the first time each is seen ---------- */
+ const seen=new Set();let firstList=true;
+ function rows(){const list=document.querySelector('.side .side-list');if(!list)return;let i=0;
+  for(const b of list.querySelectorAll('.item[data-go^="/chat/"]')){const k=b.getAttribute('data-go');if(seen.has(k))continue;seen.add(k);
+   if(reduce()||!firstList&&i>20)continue;const row=b.closest('.item-row')||b;row.style.setProperty('--i',i++);row.classList.add('v2-in');
+   row.addEventListener('animationend',()=>row.classList.remove('v2-in'),{once:true})}
+  if(seen.size)firstList=false}
+
+ /* ---------- the version mark next to the wordmark ---------- */
+ function chip(){const w=document.querySelector('.side-top .wordmark');if(!w||w.querySelector('.v2-chip'))return;
+  const a=document.createElement('a');a.className='v2-chip';a.href='/'+location.hash;a.textContent='v2';a.title='You are on the new version (v2). Click for the current one.';
+  a.addEventListener('click',()=>{a.href='/'+location.hash});w.append(a)}
+
+ /* ---------- panels: the resize handles work by keyboard too ---------- */
+ const LIM={side:[220,420,'--side-open','sideW','.side'],screen:[360,null,'--screen-w','screenW','#screenPane']};
+ function handles(){for(const h of document.querySelectorAll('[data-drag="side"],[data-drag="screen"]')){if(h.hasAttribute('tabindex'))continue;
+  h.tabIndex=0;h.setAttribute('role','separator');h.setAttribute('aria-orientation','vertical');
+  h.setAttribute('aria-label',h.dataset.drag==='side'?'Sidebar width: arrow keys to change, Enter to reset':'Screen panel width: arrow keys to change, Enter to reset')}}
+ document.addEventListener('keydown',e=>{const h=e.target.closest?.('[data-drag="side"],[data-drag="screen"]');if(!h)return;
+  const [lo,hiFix,prop,key,sel]=LIM[h.dataset.drag];const app=document.querySelector('.app'),el=document.querySelector(sel);if(!app||!el)return;
+  if(e.key==='Enter'){app.style.removeProperty(prop);store.set(key,null);e.preventDefault();return}
+  const step=e.shiftKey?48:16,dir=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;if(!dir)return;e.preventDefault();
+  const hi=hiFix||Math.round(innerWidth*.72),cur=el.offsetWidth,w=Math.max(lo,Math.min(hi,cur+(h.dataset.drag==='screen'?-dir:dir)*step));
+  app.style.setProperty(prop,w+'px');store.set(key,w)});
+
+ /* ---------- the floating screen: snaps to the nearest corner when let go near an edge ---------- */
+ let floatDrag=false;
+ document.addEventListener('pointerdown',e=>{floatDrag=!!e.target.closest?.('[data-drag="float"]')&&!e.target.closest('button')},true);
+ document.addEventListener('pointerup',()=>{if(!floatDrag)return;floatDrag=false;const fl=document.querySelector('#screenFloat');if(!fl||typeof Screen==='undefined')return;
+  const r=fl.getBoundingClientRect(),M=12,near=72;let x=r.left,y=r.top;
+  if(x<near)x=M;else if(innerWidth-r.right<near)x=innerWidth-r.width-M;
+  if(y<near)y=M;else if(innerHeight-r.bottom<near)y=innerHeight-r.height-M;
+  if(x===r.left&&y===r.top)return;
+  fl.classList.add('v2-snap');Screen.float.x=Math.round(x);Screen.float.y=Math.round(y);Screen.placeFloat();store.set('screenFloat',Screen.float);
+  setTimeout(()=>fl.classList.remove('v2-snap'),400)});
+
+ /* ---------- side panel <-> window: the screen morphs from where it was to where it goes ---------- */
+ const paneEl=()=>document.querySelector('#screenFloat')||(!document.querySelector('#screenPane')?.hidden&&document.querySelector('#screenPane'));
+ if(typeof ACT!=='undefined'&&ACT['scr-mode']){const mode=ACT['scr-mode'];
+  ACT['scr-mode']=(...a)=>{const from=paneEl()?.getBoundingClientRect();const res=mode(...a);
+   requestAnimationFrame(()=>{const to=paneEl();if(!from||!to||reduce())return;const r=to.getBoundingClientRect();if(!r.width||!r.height)return;
+    to.animate([{transformOrigin:'0 0',transform:`translate(${from.left-r.left}px,${from.top-r.top}px) scale(${from.width/r.width},${from.height/r.height})`,opacity:.55},{transformOrigin:'0 0',transform:'none',opacity:1}],{duration:360,easing:'cubic-bezier(.2,.7,.2,1)'})});
+   return res}}
+
+ /* ---------- light and dark ---------- */
+ // the switch fades the colours over instead of flashing them
+ if(typeof theme==='function'){const flip=theme;window.theme=(...a)=>{html.classList.add('v2-theming');const r=flip(...a);setTimeout(()=>html.classList.remove('v2-theming'),320);return r}}
+ // nothing picked yet: follow the device, also when it changes (evening dark mode)
+ const mq=matchMedia('(prefers-color-scheme: dark)');
+ mq.addEventListener?.('change',e=>{let t=null;try{t=localStorage.getItem('hui-theme')}catch{}if(t)return;
+  html.classList.add('v2-theming');html.classList.toggle('dark',e.matches);if(typeof paintTop==='function'&&document.querySelector('.topbar'))paintTop();setTimeout(()=>html.classList.remove('v2-theming'),320)});
+
+ /* ---------- after every redraw ---------- */
+ let queued=false;
+ const tick=()=>{queued=false;chip();handles();rows();for(const [b,o,k] of GLIDES)glide(b,o,k)};
+ const later=()=>{if(!queued){queued=true;requestAnimationFrame(tick)}};
+ new MutationObserver(ms=>{if(ms.every(m=>m.target.classList?.contains('v2-glide')||m.target.classList?.contains('v2-in')))return;later()})
+  .observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+ addEventListener('resize',later);
+ later();
+})();

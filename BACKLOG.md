@@ -8,11 +8,18 @@ This is the one list of everything still open in aqeelOS. It lives in git, so th
 - A session only stops when everything left is waiting on the owner. Those items go under **Waiting on you** with the exact step needed.
 - Each session ends by updating this file: what's done, what's still left and why.
 
-_Last updated: 12 Nov 2026_
+_Last updated: 13 Nov 2026_
 
 ---
 
 ## Now
+
+### aqeelOS /v2 (owner, 13 Nov: "Make a /v2 for aqeelOS now.")
+Same app, cleaner: today's aqeelOS at `/` stays the main and is not touched; `/v2` runs the same code and look with a tidy layer on top. Method: admin kit for behaviour, checks and motion only, never its layout (his verdict on the kit /v2s: "insanely ugly, the first version is better").
+- [~] **V2-0 Plan and v1 checklist**: `docs/v1-checklist.md`, every screen of today's app (phone and desktop) with every component, feature, animation and brand moment, one checkbox each with a screenshot; style survey of today's CSS for before-numbers.
+- [~] **V2-1 The /v2 route**: `/v2` serves today's app with the v2 layer (tidied scale from aqeelOS's own values, motion, flexible panels that can sit at the side or float as a window, light/dark parity, Plus Jakarta Sans text with Google Sans Flex numbers).
+- [~] **V2-2 Chat first**: only Chat gets the v2 layer, shown next to v1 with the kit scorecard and side-by-side screenshots (1440 and 375, light and dark). **Waits for the owner's yes on Chat before any other page.**
+- [ ] **V2-3 The rest** (after the yes): agents, Code, files, schedules, people, settings, usage, accounts, screens, boards, sign-in, one page at a time with the same checks.
 
 ### Late evening of 12 Nov (live on both servers in 089f216)
 - [x] **FIX-ISO** No fixer run has a shell as the box user (AUD-6). Isolation check passes on both servers.

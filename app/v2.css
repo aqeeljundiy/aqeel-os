@@ -1,0 +1,114 @@
+/* aqeelOS /v2 (13 Nov 2026, owner: "Make a /v2 for aqeelOS now"). Loaded only on /v2 (app/server.mjs), on top of the same
+   app code and look as /. The same app, tidier: every value below comes from aqeelOS's own CSS (the style survey of
+   13 Nov found 28 text sizes, 20 corner sizes, 40 spacings and 37 animation lengths), folded into one short scale.
+   Never a different layout: v1's sidebar, top bar, welcome, composer and colours stay (docs/v1-checklist.md).
+   Step one is Chat only (html[data-v2sec="chat"]); the sidebar and top bar are part of it. Other pages show as on /. */
+
+/* numbers: a family of their own, digits only, listed first, so letters stay Plus Jakarta Sans (owner, 12-13 Nov) */
+@font-face{font-family:'Google Sans Flex';font-style:normal;font-weight:200 800;font-display:swap;src:url('/assets/google-sans-flex-digits.woff2') format('woff2');unicode-range:U+30-39}
+@view-transition{navigation:auto}
+
+/* ---------- the scale: aqeelOS's own most-used values ---------- */
+html.v2{
+ font-family:'Google Sans Flex','Plus Jakarta Sans',system-ui,sans-serif;
+ /* text: 11 (badges, keys), 12 (labels), 13.5 (lists, controls), 15 (reading), 19 (titles), 30 (welcome); were 28 sizes.
+    --ak-text-* name the same scale for the kit's checks (render-check text-size-off-scale) */
+ --fs-0:11px;--fs-1:12px;--fs-2:13.5px;--fs-3:15px;--fs-4:19px;--fs-5:30px;
+ --ak-text-xs:var(--fs-0);--ak-text-sm:var(--fs-1);--ak-text-md:var(--fs-2);--ak-text-lg:var(--fs-3);--ak-text-xl:var(--fs-4);--ak-text-title:var(--fs-5);
+ /* one control height and one small one; were 18 heights */
+ --h-ctl:36px;--h-sm:30px;
+ /* motion: three lengths on one curve; were 37 lengths and 9 curves */
+ --t-fast:160ms;--t-med:240ms;--t-slow:360ms;--ease:cubic-bezier(.2,.7,.2,1);
+ --v2-ring:color-mix(in srgb,var(--blue) 22%,transparent);
+}
+html.v2 .item .n,html.v2 .msg-tools .meta,html.v2 .badge,html.v2 .k-btn kbd{font-variant-numeric:tabular-nums}
+
+/* ---------- sidebar: same menu, tighter, one highlight that glides ---------- */
+html.v2 .sections{gap:2px;padding:4px 10px 8px;position:relative}
+html.v2 .sec{font-size:var(--fs-2);position:relative;z-index:1;transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+/* tighter rows on a computer, so more chats fit under the menu; a phone keeps v1's 44px tap targets */
+@media (min-width:761px){html.v2 .sec{min-height:var(--h-ctl)}}
+html.v2 .sec svg{transition:transform var(--t-med) var(--ease)}
+html.v2 .sec:hover svg{transform:translateX(1px)}
+html.v2 .sec:active{transform:scale(.985)}
+/* the glide (app/v2.js) draws the active background, so the item itself stays clear */
+html.v2 .v2-has-glide>.on,html.v2 .v2-has-glide>.item-row>.on,html.v2 .v2-has-glide>.on:hover,html.v2 .v2-has-glide>.item-row>.on:hover{background:transparent}
+html.v2 .v2-glide{position:absolute;left:0;top:0;z-index:0;pointer-events:none;border-radius:var(--r-pill);background:var(--blue-soft);opacity:0;transition:transform var(--t-med) var(--ease),height var(--t-med) var(--ease),width var(--t-med) var(--ease),opacity var(--t-fast) var(--ease)}
+html.v2 .v2-glide.v2-show{opacity:1}
+html.v2 .v2-glide.still{transition:none}
+html.v2 .side-list .v2-glide{border-radius:var(--r-md);background:var(--soft)}
+html.v2 .side-list{position:relative}
+html.v2 .side-list .item,html.v2 .side-list .item-row{position:relative;z-index:1}
+html.v2 .item{font-size:var(--fs-2);transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+html.v2 .item:active{transform:scale(.99)}
+html.v2 .item .more{transition:opacity var(--t-fast) var(--ease),background var(--t-fast) var(--ease)}
+html.v2 .group-label{font-size:var(--fs-1);padding:12px 10px 4px}
+/* chat rows rise in, one after another, the first time each is seen (capped, so a long list is not slow) */
+html.v2 .v2-in{animation:v2rise var(--t-slow) var(--ease) both;animation-delay:calc(min(var(--i,0),12) * 22ms)}
+@keyframes v2rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* the Chats / Scheduled runs / All switch: one quiet row with an underline that glides, not a pill in a grey track (taste.md) */
+html.v2 .side-sub .tabs{background:transparent;border:0;border-bottom:1px solid var(--border);border-radius:0;padding:0 2px;gap:2px;overflow:visible}
+html.v2 .side-sub .tabs button{min-height:var(--h-sm);padding:0 8px!important;font-size:var(--fs-2)!important;color:var(--muted);border-radius:var(--r-sm);margin-bottom:4px;transition:color var(--t-fast) var(--ease),background var(--t-fast) var(--ease)}
+html.v2 .side-sub .tabs button:hover{color:var(--ink);background:var(--soft-2)}
+html.v2 .side-sub .tabs button.on{color:var(--ink);font-weight:600;background:transparent}
+html.v2 .side-sub .tabs .pill{top:auto;bottom:-1px;height:2px;border-radius:var(--r-sm);background:var(--blue);box-shadow:none}
+html.v2 .side-search input{height:var(--h-ctl);font-size:var(--fs-2)}
+html.v2 .side-sub>div:first-child>button:first-child{min-height:var(--h-ctl);font-size:var(--fs-2)}
+/* a phone: every control of the chat list is a full 44px tap target (v1 had 30-38px ones) */
+@media (max-width:760px){html.v2 .side-sub>div:first-child>button:first-child,html.v2 .side-sub .side-refresh,html.v2 .side-search input,html.v2 .side-sub .tabs button{min-height:44px}html.v2 .side-sub .side-refresh{width:44px}html.v2 .side-search input{height:44px}
+ html.v2 .side-list .item{min-height:44px}html.v2 .side-list .item .more{width:44px;min-height:44px;opacity:1}
+ html.v2 .topbar .ghost.icon,html.v2 .topbar .k-btn{min-width:44px;min-height:44px}}
+
+/* ---------- top bar ---------- */
+html.v2 .bn-n,html.v2 .bell-n,html.v2 .k-btn kbd,html.v2 .v2-chip{font-size:var(--fs-0)}
+html.v2 .crumbs b{font-size:var(--fs-3)}
+html.v2 .k-btn{min-height:var(--h-ctl);font-size:var(--fs-2)}
+
+/* ---------- panels: sidebar and the live screen, resizable at the side or floating as a window ---------- */
+html.v2 [data-drag="side"],html.v2 [data-drag="screen"]{outline:none}
+html.v2 [data-drag="side"]::after,html.v2 [data-drag="screen"]::after{content:"";position:absolute;top:50%;left:50%;width:4px;height:36px;margin:-18px 0 0 -2px;border-radius:var(--r-sm);background:var(--border);opacity:0;transition:opacity var(--t-fast) var(--ease),background var(--t-fast) var(--ease),height var(--t-med) var(--ease)}
+html.v2 [data-drag="side"]:hover::after,html.v2 [data-drag="screen"]:hover::after,html.v2 [data-drag]:focus-visible::after{opacity:1}
+html.v2 [data-drag]:focus-visible::after,body.dragging [data-drag]::after{background:var(--blue);height:56px;margin-top:-28px}
+html.v2 .screen-float{transition:box-shadow var(--t-med) var(--ease)}
+html.v2 .screen-float.v2-snap{transition:left var(--t-med) var(--ease),top var(--t-med) var(--ease),width var(--t-med) var(--ease),box-shadow var(--t-med) var(--ease)}
+html.v2 body.dragging .screen-float{box-shadow:var(--shadow-float),0 0 0 3px var(--v2-ring)}
+
+/* ---------- the chat itself ---------- */
+html.v2[data-v2sec="chat"] .chat-empty h1{font-size:var(--fs-5)}
+html.v2[data-v2sec="chat"] .chat-empty p{font-size:var(--fs-3)}
+html.v2[data-v2sec="chat"] .msg.ai .body,html.v2[data-v2sec="chat"] .msg.user{font-size:var(--fs-3)}
+html.v2[data-v2sec="chat"] .msg-tools{transform:translateY(-2px);transition:opacity var(--t-fast) var(--ease),transform var(--t-fast) var(--ease)}
+html.v2[data-v2sec="chat"] .msg.ai:hover .msg-tools,html.v2[data-v2sec="chat"] .msg-tools:focus-within{opacity:1;transform:none}
+html.v2[data-v2sec="chat"] .msg-tools .meta,html.v2[data-v2sec="chat"] .hint-line{font-size:var(--fs-1)}
+html.v2[data-v2sec="chat"] .step{transition:border-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+html.v2[data-v2sec="chat"] .step:hover{border-color:color-mix(in srgb,var(--blue) 25%,var(--border))}
+html.v2[data-v2sec="chat"] .step-head,html.v2[data-v2sec="chat"] .think,html.v2[data-v2sec="chat"] .think-body{font-size:var(--fs-2)}
+html.v2[data-v2sec="chat"] .codeblock .cb-head,html.v2[data-v2sec="chat"] .step-head .state{font-size:var(--fs-1)}
+html.v2[data-v2sec="chat"] .steps-fold summary,html.v2[data-v2sec="chat"] .steps-fold>summary{font-size:var(--fs-2)}
+/* the composer: one control height, a calm blue ring when typing, the send button answers the press */
+html.v2[data-v2sec="chat"] .composer{transition:border-color var(--t-med) var(--ease),box-shadow var(--t-med) var(--ease),transform var(--t-med) var(--ease)}
+html.v2[data-v2sec="chat"] .composer:focus-within{border-color:color-mix(in srgb,var(--blue) 35%,var(--border));box-shadow:0 0 0 4px color-mix(in srgb,var(--blue) 9%,transparent),var(--shadow-card)}
+html.v2[data-v2sec="chat"] .composer textarea{font-size:var(--fs-3)}
+html.v2[data-v2sec="chat"] .composer-bar .ghost.icon{width:34px;min-height:34px;transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease),transform var(--t-fast) var(--ease)}
+html.v2[data-v2sec="chat"] .composer-bar .pick{min-height:34px;font-size:var(--fs-2);transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+html.v2[data-v2sec="chat"] .composer-bar .pick:not(:hover){background:var(--soft-2)}
+html.v2[data-v2sec="chat"] .send{width:36px;min-height:36px}
+html.v2[data-v2sec="chat"] .composer-bar button:active{transform:scale(.94)}
+
+/* ---------- light and dark: the same app in both ---------- */
+html.v2.dark .side-sub .tabs .pill{background:var(--blue-2)}
+html.v2.dark .v2-glide{background:color-mix(in srgb,var(--blue) 18%,var(--surface))}
+html.v2.dark .side-list .v2-glide{background:var(--soft)}
+html.v2.dark .sec.on{color:var(--blue-2)}
+/* the theme switch itself turns smoothly (the page fades instead of flashing) */
+html.v2.v2-theming,html.v2.v2-theming *{transition:background-color var(--t-med) var(--ease),border-color var(--t-med) var(--ease),color var(--t-med) var(--ease)!important}
+
+/* ---------- the /v2 mark next to the wordmark: says which version this is, one click back to the main one ---------- */
+html.v2 .v2-chip{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:var(--r-pill);background:var(--blue-soft);color:var(--blue-deep);font-weight:600;letter-spacing:.02em;flex:none;transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+html.v2 .v2-chip:hover{background:var(--blue);color:#fff}
+html.v2.dark .v2-chip{color:var(--blue-2)}
+html.v2.dark .v2-chip:hover{color:var(--bg)}
+html.v2 .collapsed .v2-chip{display:none}
+
+@media (prefers-reduced-motion:reduce){html.v2 .v2-in{animation:none}html.v2 .v2-glide{transition:none}}
