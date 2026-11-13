@@ -280,7 +280,8 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   if(!data||typeof data!=='object')return data;
   // chats are private per person; untracked (older, Telegram…) chats are the owner's. With Team view on, the owner's list has everyone's, each marked with whose it is
   // an admin's list also has every member's chats (the rule above), marked the same way
-  const seeAll=u.role==='owner'&&ownerSeesAll(),staff=isAdmin(u)&&u.role!=='owner',keep=id=>seeAll||mine(u,id)||staff&&memberChat(id);
+  // the owner without Team view reads as an admin does (members' chats, marked), never another admin's (13 Nov 2026)
+  const seeAll=u.role==='owner'&&ownerSeesAll(),staff=isAdmin(u)&&!seeAll,keep=id=>seeAll||mine(u,id)||staff&&memberChat(id);
   const mark=x=>{const o=seeAll||staff?sessionOwner(x.session_id||x.id):null;return o&&o!==u.id?{...x,person:byId(o)?.name||'Someone'}:x};
   if(/^\/hapi\/sessions$/.test(p)&&Array.isArray(data.sessions)){inherit(data.sessions);const s=data.sessions.filter(x=>keep(x.id)).map(mark);return {...data,sessions:s,total:s.length}}
   if(/^\/hapi\/sessions\/search$/.test(p)&&Array.isArray(data.results)){inherit(data.results);return {...data,results:data.results.filter(x=>keep(x.session_id||x.id)).map(mark)}}

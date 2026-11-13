@@ -63,6 +63,8 @@ test('the rule by role: admins manage every agent, members (employees) only thei
  const list={sessions:[{id:'c-rina'},{id:'c-ada'},{id:'c-owner'}]};
  assert.deepEqual(users.filter(admin,'/hapi/sessions',list,'default').sessions.map(x=>x.id+':'+(x.person||'')),['c-rina:Rina','c-ada:']);
  assert.deepEqual(users.filter(rina,'/hapi/sessions',list,'default').sessions.map(x=>x.id),['c-rina']);
+ // the owner without Team view reads as an admin does: members' chats marked, never an admin's (13 Nov 2026)
+ assert.deepEqual(users.filter(owner,'/hapi/sessions',list,'default').sessions.map(x=>x.id+':'+(x.person||'')),['c-rina:Rina','c-owner:']);
  // the engine's status: a member sees only whether it runs and their own agents; an admin all of it (Help left out)
  const st={gateway_running:true,gateway_state:'running',active_agents:2,active_sessions:1,gateway_pid:4242,hermes_home:'/root/.hermes',env_path:'/root/.hermes/.env',gateway_platforms:{whatsapp:{}},profiles:[{name:'default'},{name:'rinabot'},{name:'adabot'},{name:'aqeelos-help'}],gateway_shared_with:['default','rinabot','adabot']};
  const mem=users.statusFor(rina,JSON.parse(JSON.stringify(st)));
@@ -111,3 +113,4 @@ test('the password change needs the current one',async()=>{
  assert.equal((await call(owner,'PUT','/ui/me/password',{current:'nope',next:'new-owner-pass'})).status,400);
  assert.equal((await call(owner,'PUT','/ui/me/password',{current:'owner-pass-1',next:'new-owner-pass'})).status,200);
  assert.equal((await users.login('','new-owner-pass'))?.role,'owner');assert.equal(await users.login('','owner-pass-1'),null)});
+

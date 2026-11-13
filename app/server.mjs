@@ -2156,11 +2156,11 @@ async function hermesCall(req,res,u,url){
  // the owner reads other people's chats (Team view) but cannot write in, rename or delete them; each chat opened is logged
  // an admin reads a member's chat the same way (10 Nov 2026), logged always; another admin's chat stays closed to them
  {const m=users.isAdmin(u)&&/^\/(?:hapi|gapi(?:\/p\/[^/]+)?\/api)\/sessions\/([^/]+)(\/|$)/.exec(p),id=m&&decodeURIComponent(m[1]),who=id&&!['search','prune','bulk-delete','empty','import','stats'].includes(id)?users.sessionOwner(id):null;
-  const owner=u.role==='owner';
+  const owner=u.role==='owner',all=owner&&installSettings().supervision===true;   // Team view off: as an admin (13 Nov)
   if(who&&who!==u.id&&(owner?who!=='owner':true)){
-   if(!owner&&!users.memberChat(id))return send(res,403,{error:'That chat is not yours.'});
+   if(!all&&!users.memberChat(id))return send(res,403,{error:'That chat is not yours.'});
    if(req.method!=='GET')return send(res,403,{error:'This is someone else’s chat. You can read it, but not change it.'});
-   teamView.opened(u.name||'Owner',users.byId(who)?.name||who,id,agent,{always:!owner}).catch(()=>{})}}
+   teamView.opened(u.name||'Owner',users.byId(who)?.name||who,id,agent,{always:!all}).catch(()=>{})}}
  const chatM=/^\/gapi(?:\/p\/[^/]+)?\/api\/sessions\/([^/]+)\/chat\/stream$/.exec(p);
  if(chatM&&!users.isAdmin(u)&&req.method==='POST'){
   const lim=users.limitOf(u);if(lim?.tokens){const t=await usage.today(await listAllProfiles(),u.id,users.ownerOf);if(t.tokens+await code.usedToday(u.id)>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'})}

@@ -17,7 +17,12 @@ await step('Change their role to Creator',async()=>{const r=await call(owner,'/u
 await step('Now they see every model',async()=>{const o=await call(m,'/gapi/api/model/options');must(o.j.providers.flatMap(p=>p.models).length>1,'still limited')});
 await step('Set Creator to at most 1 agent',async()=>{const r=await call(owner,'/ui/roles/creator',{method:'PUT',body:{maxAgents:1}});must(r.s===200,r.t)});
 await step('First agent is allowed',async()=>{const n='role-a-'+T;const r=await call(m,'/hapi/profiles',{method:'POST',body:{name:n}});must(r.s<300,'status '+r.s);made.push(n)});
-await step('Second agent is refused',async()=>{const r=await call(m,'/hapi/profiles',{method:'POST',body:{name:'role-b-'+T}});must(r.s===403&&/limit/.test(r.t),'status '+r.s+' '+r.t.slice(0,80))});
+// a person's lead agent is not counted (users.mjs ownCount). On a test copy nobody gets a lead at joining (only the live app
+// makes them), so their first own agent becomes the lead (server.mjs memberAgent) and the cap starts at the next one
+// (13 Nov 2026: this step expected the second agent refused and made a real one in the live engine instead)
+await step('The cap holds: one agent beyond the lead is allowed, the next is refused',async()=>{const lead=((await call(owner,'/ui/people')).j.users||[]).find(x=>x.id===mid)?.lead;
+ if(lead===made[0]){const n='role-b-'+T;const r=await call(m,'/hapi/profiles',{method:'POST',body:{name:n}});must(r.s<300,'one agent beyond the lead refused: '+r.s);made.push(n)}
+ const n='role-c-'+T;const r=await call(m,'/hapi/profiles',{method:'POST',body:{name:n}});if(r.s<300)made.push(n);must(r.s===403&&/limit/.test(r.t),'status '+r.s+' '+r.t.slice(0,80));return lead===made[0]?'first agent became the lead':'lead made at joining'});
 await step('A role in use cannot be deleted',async()=>{const r=await call(owner,'/ui/roles/creator',{method:'DELETE'});must(r.s===409,'status '+r.s)});
 await step('An unused role can be deleted',async()=>{const r=await call(owner,'/ui/roles/'+roleId,{method:'DELETE'});must(r.s===200,r.t)});
 await step('Clean up',async()=>{for(const n of made)await call(m,'/hapi/profiles/'+n,{method:'DELETE'});await call(owner,'/ui/roles/creator',{method:'PUT',body:{maxAgents:5}});await call(owner,'/ui/people/'+mid,{method:'DELETE'})});
