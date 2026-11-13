@@ -108,7 +108,7 @@ html.v2.dark .sec.on{color:var(--blue-2)}
 html.v2.v2-theming,html.v2.v2-theming *{transition:background-color var(--t-med) var(--ease),border-color var(--t-med) var(--ease),color var(--t-med) var(--ease)!important}
 
 /* ---------- the /v2 mark next to the wordmark: says which version this is, one click back to the main one ---------- */
-html.v2 .v2-chip{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:var(--r-pill);background:var(--blue-soft);color:var(--blue-deep);font-weight:600;letter-spacing:.02em;flex:none;transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+html.v2 .v2-chip{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:var(--r-pill);background:var(--blue-soft);color:var(--blue);font-weight:600;letter-spacing:.02em;flex:none;transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
 html.v2 .v2-chip:hover{background:var(--blue);color:#fff}
 html.v2.dark .v2-chip{color:var(--blue-2)}
 html.v2.dark .v2-chip:hover{color:var(--bg)}
