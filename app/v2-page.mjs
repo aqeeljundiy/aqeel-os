@@ -3,6 +3,9 @@
 // (app/vendor/admin-kit/, locked copies of aqeel-admin-kit, 14 Nov 2026) with aqeelOS's theme for it (app/v2-theme.css), app/v2.css
 // (after the app's own styles) and app/v2.js (after the kit's script, before boot.js). docs/v1-checklist.md lists what must stay.
 export const isV2=p=>p==='/v2'||p==='/v2/';
+// v2 is the app's UI at every address (owner, 14 Nov 2026: "so make v2 the new UI"); the first version stays at /v1 for a
+// while, as it was, so nobody is stuck if something in v2 goes wrong
+export const isV1=p=>p==='/v1'||p==='/v1/';
 export function v2Html(html){
  const out=html
   .replace('<script src="/app/theme-boot.js"></script>','<script src="/app/v2-boot.js"></script>')
@@ -12,5 +15,5 @@ export function v2Html(html){
  if(!out.includes('/app/vendor/admin-kit/admin-kit.js')||!out.includes('/app/v2-boot.js')||!out.includes('/app/v2.css')||!out.includes('/app/v2.js'))throw new Error('v2Html: app/index.html no longer has the lines /v2 builds on');
  return out}
 // The app page as served for any address (moved verbatim from app/server.mjs, 13 Nov 2026): Cloudflare makes browsers keep
-// .js/.css for hours, so every start gets fresh file addresses (?v=BUILD); /v2 gets the v2 layer first.
-export const appPage=(page,p,BUILD)=>(isV2(p)?v2Html(page):page).replace(/(\.(?:js|css))"/g,`$1?v=${BUILD}"`).replace('<meta charset="utf-8">',`<meta charset="utf-8"><meta name="build" content="${BUILD}">`);
+// .js/.css for hours, so every start gets fresh file addresses (?v=BUILD); every address but /v1 gets the v2 layer first.
+export const appPage=(page,p,BUILD)=>(isV1(p)?page:v2Html(page)).replace(/(\.(?:js|css))"/g,`$1?v=${BUILD}"`).replace('<meta charset="utf-8">',`<meta charset="utf-8"><meta name="build" content="${BUILD}">`);

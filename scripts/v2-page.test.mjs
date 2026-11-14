@@ -1,6 +1,7 @@
-// /v2 (13 Nov 2026): the same app with the v2 layer; / must stay exactly as it is. node --test scripts/v2-page.test.mjs
+// /v2 (13 Nov 2026): the same app with the v2 layer. Since 14 Nov 2026 (owner: "so make v2 the new UI") every address
+// gets it and the first version is kept, as it was, at /v1. node --test scripts/v2-page.test.mjs
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
-import {isV2,v2Html,appPage} from '../app/v2-page.mjs';
+import {isV2,isV1,v2Html,appPage} from '../app/v2-page.mjs';
 const read=f=>readFileSync(new URL('../'+f,import.meta.url),'utf8');
 const index=read('app/index.html');
 
@@ -17,13 +18,15 @@ test('the v2 page is the app page plus the three v2 files, in the right places',
  // nothing of the app is dropped: every script and stylesheet of / is still there
  for(const m of index.matchAll(/(?:src|href)="(\/app\/[\w.-]+\.(?:js|css))"/g))if(m[1]!=='/app/theme-boot.js')assert.ok(h.includes(m[1]),m[1])});
 
-test('/ is untouched: index.html itself names no v2 file, and the server only adds them for /v2',()=>{
- assert.ok(!/v2(\.css|\.js|-boot)/.test(index));
+test('v2 is the UI at / and every address; /v1 is the first version, exactly as it was',()=>{
+ assert.ok(!/v2(\.css|\.js|-boot)/.test(index),'index.html itself stays the first version');
  assert.match(read('app/server.mjs'),/appPage\(await readFile\(path\.join\(root,'app','index\.html'\),'utf8'\),p,BUILD\)/);
- const one=appPage(index,'/','B1'),two=appPage(index,'/v2','B1');
- assert.ok(!/v2(\.css|\.js|-boot)/.test(one),'/ got a v2 file');
+ for(const p of ['/v1','/v1/'])assert.equal(isV1(p),true,p);for(const p of ['/','/v2','/v1x','/chat','/V1'])assert.equal(isV1(p),false,p);
+ for(const p of ['/','/v2','/chat/abc','/reset'])assert.ok(appPage(index,p,'B1').includes('/app/v2.js?v=B1'),p+' has no v2 layer');
+ const one=appPage(index,'/v1','B1');
+ assert.ok(!/v2(\.css|\.js|-boot)|admin-kit/.test(one),'/v1 got a v2 file');
  assert.ok(one.includes('/app/theme-boot.js?v=B1')&&one.includes('<meta name="build" content="B1">'));
- assert.ok(two.includes('/app/v2.css?v=B1')&&two.includes('/app/v2.js?v=B1')&&two.includes('/app/v2-boot.js?v=B1'))});
+ assert.match(read('app/v2.js'),/a\.href='\/v1'\+location\.hash/,'the v2 mark leads to the first version')});
 
 test('v2Html refuses an index.html that lost its anchors (it would serve v1 as /v2 without saying so)',()=>{
  assert.throws(()=>v2Html('<html></html>'),/no longer has the lines/)});
@@ -48,7 +51,7 @@ test('/v2 loads the admin kit and aqeelOS theme for it, in order; / loads neithe
  const h=v2Html(index),at=s=>h.indexOf(s);
  assert.ok(at('/app/pwa.css')<at('/app/vendor/admin-kit/admin-kit.css')&&at('/app/vendor/admin-kit/admin-kit.css')<at('/app/v2-theme.css')&&at('/app/v2-theme.css')<at('/app/v2.css'),'kit css, then the theme, then v2.css');
  assert.ok(at('/app/unified-lists.js')<at('/app/vendor/admin-kit/admin-kit.js')&&at('/app/vendor/admin-kit/admin-kit.js')<at('/app/v2.js'),'kit script after the app scripts, before v2.js');
- assert.ok(!/admin-kit|v2-theme/.test(appPage(index,'/','B1')),'/ got a kit file');
+ assert.ok(!/admin-kit|v2-theme/.test(appPage(index,'/v1','B1')),'/v1 got a kit file');assert.ok(/admin-kit/.test(appPage(index,'/','B1')),'/ has no kit');
  assert.throws(()=>v2Html(index.replace('<script src="/app/boot.js"></script>','')),/no longer has the lines/)});
 
 test('the kit copy is the released kit, byte for byte (never edited here: change aqeel-admin-kit and re-install)',async()=>{

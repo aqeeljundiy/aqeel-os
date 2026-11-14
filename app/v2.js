@@ -37,8 +37,9 @@
 
  /* ---------- the version mark next to the wordmark ---------- */
  function chip(){const w=document.querySelector('.side-top .wordmark');if(!w||w.querySelector('.v2-chip'))return;
-  const a=document.createElement('a');a.className='v2-chip';a.href='/'+location.hash;a.textContent='v2';a.title='You are on the new version (v2). Click for the current one.';
-  a.addEventListener('click',()=>{a.href='/'+location.hash});w.append(a)}
+  // v2 is the UI now (14 Nov 2026); the mark is the way back to the first version (/v1) while it is still kept
+  const a=document.createElement('a');a.className='v2-chip';a.href='/v1'+location.hash;a.textContent='v2';a.title='The new look. Click for the old one (kept at /v1 for a while).';
+  a.addEventListener('click',()=>{a.href='/v1'+location.hash});w.append(a)}
 
  /* ---------- panels: the resize handles work by keyboard too ---------- */
  const LIM={side:[220,420,'--side-open','sideW','.side'],screen:[360,null,'--screen-w','screenW','#screenPane']};
