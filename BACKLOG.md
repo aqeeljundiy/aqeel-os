@@ -27,7 +27,7 @@ Same app, cleaner: today's aqeelOS at `/` stays the main and is not touched; `/v
   - **Wrong tests (4):** the lead-agent steps expected a lead on the test copy, which since 7 Nov never makes one (it shares the live engine). The check now expects none on a test copy.
   - **Wrong test:** roles "Second agent is refused": on a test copy the first own agent becomes the lead, which does not count against the cap; the check now allows one beyond the lead and expects the next refused. It used to leave a real agent in the live engine.
   - Still open: people-check drops every ssh session of the box user while it runs (seen three times on P&P, 13 Nov), and these checks make agents in the live engine folder (cleaned up by hand: pc-*, role-b-*). For the owner: should the owner, with Team view off, read members' chats like an admin (now) or only their own?
-- [ ] **V2-3 The rest** (after the yes): agents, Code, files, schedules, people, settings, usage, accounts, screens, boards, sign-in, one page at a time with the same checks.
+- [x] **V2-3 The rest, on the admin kit** (14 Nov, owner: "Do all first, and i'll review"; then "so make v2 the new UI"): kit 0.27.0 (aqeel-admin-kit main 6f2dcf3) draws menus, dropdowns, the search, toasts, confirm boxes, the day picker and side panels on every page; tabs in its underline look; 44px controls on phones. ui-gate (main 6a580ff) checks in docs/v2-ui-gate/: every control of v1 kept. **v2 is the UI at every address since af3134a; the first version stays at /v1.** Waits for the owner's review on the live servers.
 
 ### Late evening of 12 Nov (live on both servers in 089f216)
 - [x] **FIX-ISO** No fixer run has a shell as the box user (AUD-6). Isolation check passes on both servers.
