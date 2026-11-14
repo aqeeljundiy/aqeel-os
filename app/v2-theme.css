@@ -1,0 +1,92 @@
+/*
+  Admin theme for: aqeelOS (/v2 only; loaded after app/vendor/admin-kit/admin-kit.css, before app/v2.css)
+  Built on 14 Nov 2026 from aqeelOS itself, tidied (the kit's "Tidying an existing backend"): every value is aqeelOS's own,
+  taken from assets/brand.css and the scale already folded in app/v2.css. Owner, 14 Nov 2026: "make aqeelOS with the
+  adminkit ui and do a /v2, but it's more about improving the UI, not a redesign."
+  The values point at aqeelOS's own variables (--blue, --surface, --border...), so light and dark follow the app's own
+  switch (:root.dark in brand.css) with nothing written twice.
+
+  Site character:
+  1. Who: the owner and the team members, mostly on a computer during the day, on a phone in between; they talk to agents.
+  2. Mood: calm, clear, blue-sky (white or deep navy, one blue, soft round shapes).
+  3. Density: many small actions a day (send, switch chat, pick a model), a few big ones (people, money, servers).
+  4. Shows most: text (chat replies, lists of chats, agents and schedules), some numbers (usage, health).
+  5. Must not resemble: Elkiya (elkiyagroup.com admin), Continue (store admin, member app), aqeelbanks.
+*/
+:root {
+  /* Type: Plus Jakarta Sans, with digits drawn in Google Sans Flex (the digits-only face in v2.css, listed first so
+     letters fall through to Plus Jakarta Sans). --ak-font-numbers none: the face is already here, the kit must not
+     fetch one from Google (the app's CSP allows fonts from this site only). */
+  --ak-font: 'Google Sans Flex', 'Plus Jakarta Sans', system-ui, sans-serif;
+  --ak-font-numbers: none;
+  --ak-text-xs: 11px;      /* badges, keys */
+  --ak-text-sm: 12px;      /* labels, hints */
+  --ak-text-md: 13.5px;    /* lists, controls, menus */
+  --ak-text-lg: 15px;      /* reading text */
+  --ak-text-xl: 19px;      /* titles inside a page, big numbers */
+  --ak-text-title: 28px;   /* page titles (.page-head h1) */
+  --ak-weight-normal: 400;
+  --ak-weight-medium: 500;
+  --ak-weight-bold: 600;
+  --ak-tracking-title: -0.025em;
+
+  /* Colour: aqeelOS's own, the blue only as accent */
+  --ak-bg: var(--soft-2);
+  --ak-surface: var(--surface);
+  --ak-surface-2: var(--soft);
+  --ak-border: var(--border);
+  --ak-border-strong: color-mix(in srgb, var(--border) 82%, var(--ink));
+  --ak-text: var(--ink);
+  --ak-text-muted: var(--muted);
+  --ak-accent: var(--blue);
+  --ak-accent-text: #fff;
+  --ak-success: var(--ok);
+  --ak-warn: var(--warn);
+  --ak-danger: var(--bad);
+  --ak-info: var(--blue);
+  --ak-focus: var(--blue-2);
+  --ak-nav-active-bg: var(--blue-soft);
+  --ak-nav-active-text: var(--blue);
+  --ak-tab-active-bg: var(--blue-soft);
+  --ak-tab-active-text: var(--ink);
+  --ak-chart-1: var(--blue);
+
+  /* Shape: aqeelOS's buttons and chips are pills, cards 24px, menus and popups 12px */
+  --ak-radius-control: 9999px;
+  --ak-radius-card: 24px;
+  --ak-radius-inner: 12px;
+  --ak-radius-chip: 9999px;
+  --ak-radius-pop: 12px;
+
+  /* Density: 4px steps, one 36px control (v2.css --h-ctl), rows a little taller */
+  --ak-space: 4px;
+  --ak-control-h: 36px;
+  --ak-row-h: 48px;
+
+  /* Layout: the app's own frame stays (sidebar 272px); these only matter to kit pages */
+  --ak-page-max: none;
+  --ak-page-pad: 24px;
+  --ak-page-pad-phone: 16px;
+  --ak-sidebar-w: 272px;
+
+  /* Motion: aqeelOS's three lengths on its one curve */
+  --ak-dur-fast: 160ms;
+  --ak-dur: 240ms;
+  --ak-dur-slow: 360ms;
+  --ak-ease: cubic-bezier(.2, .7, .2, 1);
+
+  /* Depth: aqeelOS's soft card shadow and its floating shadow */
+  --ak-shadow-card: var(--shadow-card);
+  --ak-shadow-pop: var(--shadow-float);
+
+  /* Layout choices, from the character above */
+  --ak-style-nav: indent;      /* calm, minimal brand: aqeelOS's menu has no lines beside open sections */
+  --ak-style-sidebar: flush;   /* aqeelOS's sidebar is full height with one line beside the page */
+  --ak-style-stats: cards;     /* Health and usage numbers each open something */
+  --ak-style-tabs: underline;  /* text-heavy pages; /v2 already draws the chat list switch as an underline */
+  --ak-style-table: open;      /* records and lists of agents and people, not dense order lists: more air */
+  --ak-style-head: plain;      /* an app, not a document */
+  --ak-style-loader: dots;     /* a chat tool: waiting for an agent should feel friendly, like someone typing */
+}
+/* dark: text on the blue is the app's dark ink, as on its own blue buttons (brand.css .dark button.primary) */
+:root.dark { --ak-accent-text: #0b0c10; --ak-border-strong: color-mix(in srgb, var(--border) 78%, var(--ink)); }

@@ -42,3 +42,27 @@ test('motion in the v2 layer uses the app timing tokens and honours reduce motio
  assert.ok(!/transition:[^;}]*\b\d+m?s\b/.test(css),'a literal duration in a transition');
  assert.match(css,/prefers-reduced-motion:reduce/);
  assert.match(read('app/v2.js'),/prefers-reduced-motion: reduce/)});
+
+// the admin kit on /v2 (owner, 14 Nov 2026: "make aqeelOS with the adminkit ui ... improving the UI, not a redesign")
+test('/v2 loads the admin kit and aqeelOS theme for it, in order; / loads neither',()=>{
+ const h=v2Html(index),at=s=>h.indexOf(s);
+ assert.ok(at('/app/pwa.css')<at('/app/vendor/admin-kit/admin-kit.css')&&at('/app/vendor/admin-kit/admin-kit.css')<at('/app/v2-theme.css')&&at('/app/v2-theme.css')<at('/app/v2.css'),'kit css, then the theme, then v2.css');
+ assert.ok(at('/app/unified-lists.js')<at('/app/vendor/admin-kit/admin-kit.js')&&at('/app/vendor/admin-kit/admin-kit.js')<at('/app/v2.js'),'kit script after the app scripts, before v2.js');
+ assert.ok(!/admin-kit|v2-theme/.test(appPage(index,'/','B1')),'/ got a kit file');
+ assert.throws(()=>v2Html(index.replace('<script src="/app/boot.js"></script>','')),/no longer has the lines/)});
+
+test('the kit copy is the released kit, byte for byte (never edited here: change aqeel-admin-kit and re-install)',async()=>{
+ const {createHash}=await import('node:crypto');const man=JSON.parse(read('app/vendor/admin-kit/manifest.json'));
+ for(const [f,sum] of Object.entries(man.files))assert.equal(createHash('sha256').update(readFileSync(new URL('../app/vendor/admin-kit/'+f,import.meta.url))).digest('hex'),sum,f)});
+
+test('the theme fills every value the kit needs and fetches no font from outside (the CSP allows this site only)',()=>{
+ const t=read('app/v2-theme.css');
+ for(const v of ['font','text-xs','text-sm','text-md','text-lg','text-title','weight-normal','weight-medium','weight-bold','tracking-title','bg','surface','surface-2','border','border-strong','text','text-muted','accent','accent-text','success','warn','danger','info','radius-control','radius-card','radius-chip','radius-pop','space','control-h','row-h','page-max','page-pad','sidebar-w','dur-fast','dur','dur-slow','ease','shadow-card','shadow-pop','style-nav','style-sidebar','style-stats','style-tabs','style-table','style-head','style-loader'])
+  assert.match(t,new RegExp('--ak-'+v+':\\s*[^;\\s][^;]*;'),'--ak-'+v);
+ assert.match(t,/--ak-font-numbers:\s*none/);assert.ok(!/@import|https?:\/\//.test(t.replace(/\/\*[\s\S]*?\*\//g,'')))});
+
+test('on /v2 the app hands toasts and confirm boxes to the kit, and Ctrl+K opens one box, the app search',()=>{
+ const s=read('app/v2.js');
+ assert.match(s,/window\.toast=\(msg,kind\)=>/);assert.match(s,/Oops\.add\('toast'/,'failures still reach "What went wrong"');
+ assert.match(s,/window\.confirmBox=\(title,text,okLabel='Delete',danger=true\)=>/);assert.match(s,/\.then\(ok=>!!ok\)/);
+ assert.match(s,/addEventListener\('keydown',e=>\{if\(!\(e\.ctrlKey\|\|e\.metaKey\)[^]*?e\.stopPropagation\(\)[^]*?palette\(\)\},true\)/,'Ctrl+K stopped in the capture phase, then the app search')});

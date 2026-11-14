@@ -114,4 +114,11 @@ html.v2.dark .v2-chip{color:var(--blue-2)}
 html.v2.dark .v2-chip:hover{color:var(--bg)}
 html.v2 .collapsed .v2-chip{display:none}
 
+/* ---------- the admin kit's parts in aqeelOS (14 Nov 2026; theme in app/v2-theme.css) ---------- */
+/* the dimmed page behind a box: aqeelOS's own (.scrim), dark and blurred in both themes; the kit mixes it from the text
+   colour, which in dark mode washes the page white */
+html.v2 .ak-overlay{background:rgba(11,12,16,.32);backdrop-filter:blur(5px)}
+/* toasts at the bottom centre, where aqeelOS has always shown them; the kit's bottom-right corner covers the chat's Send */
+@media (min-width:601px){html.v2 [data-sonner-toaster][data-x-position]{left:50%!important;right:auto!important;transform:translateX(-50%)}}   /* a phone: the kit's own full-width toast */
+
 @media (prefers-reduced-motion:reduce){html.v2 .v2-in{animation:none}html.v2 .v2-glide{transition:none}}

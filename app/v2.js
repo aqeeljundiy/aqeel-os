@@ -79,6 +79,26 @@
  mq.addEventListener?.('change',e=>{let t=null;try{t=localStorage.getItem('hui-theme')}catch{}if(t)return;
   html.classList.add('v2-theming');html.classList.toggle('dark',e.matches);if(typeof paintTop==='function'&&document.querySelector('.topbar'))paintTop();setTimeout(()=>html.classList.remove('v2-theming'),320)});
 
+ /* ---------- the admin kit's parts (owner, 14 Nov 2026: "make aqeelOS with the adminkit ui ... improving the UI, not a redesign") ----------
+    app/vendor/admin-kit/admin-kit.js loads just before this file, on /v2 only. The app keeps calling its own helpers; on /v2 they
+    hand the work to the kit's part, with the same words and the same answer to the caller. Anything the kit's part cannot
+    do yet stays the app's own (menus with icons, search and ticks; drawers with a button row): see docs/v1-checklist.md. */
+ const AK=typeof AdminKit==='object'&&AdminKit?AdminKit:null;
+ // Ctrl+K (Cmd+K on a Mac) is the app's search, which also finds chats, agents and settings. The kit listens for the same
+ // keys for its own command menu; stop the keys before either sees them and open the app's one, as on / (boot.js), so one
+ // press never opens two boxes (seen 14 Nov 2026).
+ addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey)||e.altKey||e.key?.toLowerCase()!=='k')return;e.stopPropagation();
+  const mod=typeof isMac!=='undefined'&&isMac?e.metaKey:e.ctrlKey;if(!mod||typeof S==='undefined'||!S.signedIn||typeof palette!=='function')return;
+  e.preventDefault();if(!document.querySelector('.palette'))palette()},true);
+ if(AK){
+  // toasts: the kit's (they stack, pause on hover and swipe away on a phone); a failure is still kept for "What went wrong"
+  if(typeof toast==='function'&&AK.toast){window.toast=(msg,kind)=>{const t=String(msg??'');
+   if(kind==='err'){try{Oops.add('toast',t)}catch{}AK.toast.error(t)}else AK.toast.success(t)}}
+  // "are you sure" boxes: the kit's, same title, words and button; resolves true or false as before
+  if(typeof confirmBox==='function'&&AK.confirm){window.confirmBox=(title,text,okLabel='Delete',danger=true)=>
+   AK.confirm({title:String(title??''),body:typeof plainText==='function'?plainText(text):String(text??''),confirmLabel:okLabel,cancelLabel:'Cancel',tone:danger?'danger':undefined}).then(ok=>!!ok)}
+ }
+
  /* ---------- after every redraw ---------- */
  let queued=false;
  const tick=()=>{queued=false;chip();handles();rows();for(const [b,o,k] of GLIDES)glide(b,o,k)};

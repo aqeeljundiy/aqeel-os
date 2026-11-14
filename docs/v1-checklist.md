@@ -84,6 +84,7 @@ Measured on the rendered pages (kit `consistency.json`): 19 text sizes, 27 text 
 - [ ] Switches (blue when on, also in dark)
 - [ ] Designed menus and pickers (no browser `<select>` lists), anchored to their button
 - [ ] Drawers and confirm boxes over a blurred scrim; Escape closes every layer
+  - /v2 (14 Nov 2026): confirm boxes are the admin kit's (same title, words, Cancel and the named button, Escape, the blurred scrim); the kit's box has no X in its corner, Cancel and Escape close it. Toasts are the kit's (white, stack, swipe away), at the bottom centre; on a phone full width.
 - [ ] Loading: skeleton rows (shimmer) and the ring; a page is drawn out of sight and swapped in whole (no flicker)
 - [ ] Empty heroes with a sky gradient and one clear next step
 - [ ] Code blocks with a copy button; markdown tables with rounded outline
