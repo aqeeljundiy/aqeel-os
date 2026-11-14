@@ -24,6 +24,10 @@ import threading
 from pathlib import Path
 from typing import Any
 
+try:
+    from .reply_fix import normalize as _normalize
+except ImportError:  # loaded as a plain module (the engine's plugin loader or a test)
+    from reply_fix import normalize as _normalize
 from providers import register_provider
 from providers.base import ProviderProfile
 
@@ -143,7 +147,8 @@ def _make_client_class():
                 if re.search(r"auth|sign.?in", msg, re.I):
                     msg += " (sign in again on Models › Accounts)"
                 raise RuntimeError("Antigravity: " + msg)
-            return str(final.get("response") or "").strip(), ""
+            # Gemini's own tool-call habits, read into the form the bridge reads (reply_fix.py)
+            return _normalize(str(final.get("response") or "").strip()), ""
 
         def list_models(self, *, timeout_seconds: float = 30.0) -> list[str]:
             r = subprocess.run([_agy_bin(None), "models"], capture_output=True, text=True, timeout=timeout_seconds,

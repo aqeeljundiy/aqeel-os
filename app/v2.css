@@ -39,6 +39,9 @@ html.v2 .v2-glide.still{transition:none}
 html.v2 .side-list .v2-glide{border-radius:var(--r-md);background:var(--soft)}
 html.v2 .side-list{position:relative}
 html.v2 .side-list .item,html.v2 .side-list .item-row{position:relative;z-index:1}
+/* everything in the list sits above the highlight, not only rows (15 Nov 2026: Code's project folders animate open, which makes each a layer of
+   its own; the highlight, added last, was drawn over the whole folder and the selected chat looked empty) */
+html.v2 .side-list>:not(.v2-glide){position:relative;z-index:1}
 html.v2 .item{font-size:var(--fs-2);transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
 html.v2 .item:active{transform:scale(.99)}
 html.v2 .item .more{transition:opacity var(--t-fast) var(--ease),background var(--t-fast) var(--ease)}

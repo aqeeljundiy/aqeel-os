@@ -71,4 +71,4 @@ jobs:
       # engine/claude-subscription-directsdk-experimental/tests needs the same engine (11 failed, 63 errors on a Linux box without its modules).
       # They run on a box: scripts/live-test.sh (engine-fixes) and by hand. Moving them here needs a pinned engine checkout (audit action 13).
       - name: Python tests
-        run: python3 -I scripts/group-context.test.py
+        run: python3 -I scripts/group-context.test.py && python3 -I scripts/antigravity-reply.test.py

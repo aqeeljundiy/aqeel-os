@@ -4,6 +4,7 @@
 // paired with aqeelOS, the agent's models from aqeelOS replace them (see modelsForAgent): one list, as in aqeelOS
 // (25 Oct 2026), where each model carries the harness it runs on (Claude Code, Codex or the aqeelOS engine), so the
 // hidden provider follows the model and there is no engine picker; a model this copy cannot run says why.
+import {startEffort} from './effort.js';
 const $=id=>document.getElementById(id);
 const EFFORT_LABELS={none:'None',minimal:'Minimal',low:'Low',medium:'Medium',high:'High',xhigh:'Extra high',max:'Max',ultra:'Ultra'};
 export const effortLabel=e=>EFFORT_LABELS[e]||e;
@@ -23,7 +24,7 @@ function fillModels(){
    o.dataset.desc=(e===efforts.find(x=>x)&&m.description)?m.description:'';group.append(o)}
   select.append(group)}
  const want=saved.combo?.[provider],values=[...select.options].map(o=>o.value);
- const def=list.find(m=>m.isDefault)||list[0];const fallback=def?def.id+'|'+(provider==='claude'?'':def.defaultEffort||def.efforts?.[0]||''):values[0];
+ const def=list.find(m=>m.isDefault)||list[0];const fallback=def?def.id+'|'+(provider==='claude'?'':startEffort(def)):values[0];
  select.value=values.includes(want)?want:values.includes(fallback)?fallback:values[0];
  syncVisible();
 }
@@ -43,7 +44,7 @@ const pickedModel=()=>{const v=$('model-name').value,i=v.indexOf(':');return [v.
 $('model-name').addEventListener('change',()=>{const [provider,id]=pickedModel();
  if(provider!==$('provider-pick').value){$('provider-pick').value=provider;saved.provider=provider;persist();fillModels();$('provider-pick').dispatchEvent(new Event('change',{bubbles:true}))}
  const m=(catalog[provider]||[]).find(x=>x.id===id),levels=EFFORTS(provider,m),cur=$('effort').value;
- setCombined(id,levels.includes(cur)?cur:provider==='claude'?'':m?.defaultEffort||levels[0]||'')});
+ setCombined(id,levels.includes(cur)?cur:provider==='claude'?'':startEffort(m))});
 $('effort').addEventListener('change',()=>setCombined(pickedModel()[1],$('effort').value));
 let signedIn=[],forAgent='';
 // paired with aqeelOS, the list is the one the chat's model menu has for the agent picked here (a member: only the
