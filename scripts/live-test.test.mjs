@@ -44,3 +44,9 @@ test('OPS-6: a miss that rests on the model is reported, never counted',()=>{
  const r=[{name:'tools',ok:true},{name:'agent',ok:false,advisory:true,why:'answered without the check word'}];
  assert.deepEqual(summary(r),{ok:true,failed:[]});assert.deepEqual(warnings(r),['agent: answered without the check word']);
  assert.deepEqual(summary([...r,{name:'engine',ok:false,why:'1 unclean exit'}]),{ok:false,failed:['engine: 1 unclean exit']})});
+
+test('the Kirimdev check resets the test chat and writes in the line language (14 Nov 2026)',async()=>{
+ const {resetWord,kirimTestText}=await import('./live-test.mjs');
+ assert.equal(resetWord({resetWords:['','mulai ulang','reset']}),'mulai ulang');assert.equal(resetWord({}),'reset');
+ assert.match(kirimTestText({language:'Indonesian'}),/^Cek deploy aqeelOS/);assert.match(kirimTestText({language:'Bahasa Indonesia'}),/balas/);
+ assert.match(kirimTestText({language:'English'}),/please reply/);assert.match(kirimTestText({}),/please reply/)});

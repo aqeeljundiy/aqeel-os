@@ -5,9 +5,11 @@
 ### Added
 
 - Per-profile `claude_config_dir` setting selects the Claude login for every native spawn in a multiplexed gateway (#34).
+- aqeelOS: warm standby natives. The next call's `claude` process starts while the current call waits on the model and is adopted only when every spawn input matches, so tool rounds skip native start-up. On by default; `CLAUDE_SUBSCRIPTION_DIRECTSDK_WARM=0` turns it off, `_WARM_MAX` (4) and `_WARM_IDLE_SECONDS` (300) bound it. One `claude native call:` timing line per call.
 
 ### Fixed
 
+- Opt the profile in to Hermes' streaming dispatch (`profile.supports_streaming = True`, as upstream does). Core treats an external-process provider as non-streaming unless it opts in, so the native text deltas this transport already yields were buffered until the call ended and a chat reply appeared in one piece. Final responses are unchanged.
 - Accept Hermes tool names of 51–64 characters through stable 50-character aliases, mapping native tool calls back to the original names and preserving replay.
 - Accept Hermes Relay's host-local `traceparent` request metadata without forwarding it to the native CLI or upstream, preventing full agent and fallback requests from failing on `extra_headers`.
 - Continue rejecting arbitrary headers, credential overrides, and malformed header containers at the transport boundary.

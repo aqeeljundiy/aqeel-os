@@ -12,7 +12,7 @@ import {homedir} from 'node:os';
 export const BILI_VERSION='0.1.213';
 export const BILI_NAME='billion-context';
 const RETRY_MS=60*60e3;
-export const FOLD_AT=180000;   // tokens of history before the proxy asks the model to fold (below the engine's own 200k)
+export const FOLD_AT=90000;   // tokens of history before the proxy asks the model to fold (below the engine's own 100k, app/efficiency.mjs; was 180k under 200k until 14 Nov 2026)
 
 export function createBillionContext({HERMES_HOME,readConfig,setKey,pick,home0=homedir(),log=m=>console.log(m),
  npm=null,run=null,now=()=>Date.now(),nodePath=process.execPath,version=BILI_VERSION}){
