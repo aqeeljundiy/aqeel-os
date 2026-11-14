@@ -485,13 +485,19 @@ function setAttached(list,{save=true}={}){const known=new Set(aqAgents.map(a=>a.
  const sel=$('agent-pick'),v=attached[0]||'';if(sel.value!==v){sel.value=v;sel.dispatchEvent(new Event('change'))}paintAgentChips();share()}
 function pickAgent(){if(!aqAgents.length)return;let list=null;try{list=JSON.parse(localStorage.getItem(attachedKey())||'null')}catch{}
  if(!Array.isArray(list)){const own=project()?.settings?.agent;list=[own||viewingAgent].filter(Boolean)}setAttached(list,{save:false})}
-$('agent-pick').addEventListener('change',()=>void modelsForAgent($('agent-pick').value));   // the first agent's models (aqeelOS › Models)
+$('agent-pick').addEventListener('change',()=>void modelsForAgent($('agent-pick').value));
+$('provider-pick').addEventListener('change',()=>setTimeout(paintAgentChips));   // the "runs as" chip follows the model   // the first agent's models (aqeelOS › Models)
 $('agent-pick').closest('.dd')?.setAttribute('hidden','');$('agent-pick').hidden=true;
 const agentChips=document.createElement('div');agentChips.className='agent-chips agent-chip';agentChips.hidden=true;$('chat-prompt').before(agentChips);
+// the agent's picture: the letter first, its own picture from aqeelOS once loaded (owner, 15 Nov 2026: "use their profile pics")
+function agentAv(a){const av=document.createElement('span');av.className='av';av.textContent=(a.name.trim()[0]||'?').toUpperCase();
+ if(a.pic){const img=new Image();img.alt='';img.decoding='async';img.onload=()=>{av.textContent='';av.classList.add('pic');av.append(img)};img.src='/api/aqeelos/avatar/'+encodeURIComponent(a.id)+'?v='+encodeURIComponent(a.pic)}return av}
 function paintAgentChips(){agentChips.replaceChildren();agentChips.hidden=!aqAgents.length;if(!aqAgents.length)return;
- for(const id of attached){const a=aqAgents.find(x=>x.id===id);if(!a)continue;const c=document.createElement('span');c.className='agent-chip-one';const av=document.createElement('span');av.className='av';av.textContent=(a.name.trim()[0]||'?').toUpperCase();
-  // the agent's own picture from aqeelOS (owner, 15 Nov 2026: "use their profile pics"); the letter stays until it has loaded, and if it cannot
-  if(a.pic){const img=new Image();img.alt='';img.decoding='async';img.onload=()=>{av.textContent='';av.classList.add('pic');av.append(img)};img.src='/api/aqeelos/avatar/'+encodeURIComponent(a.id)+'?v='+encodeURIComponent(a.pic)}
+ // aqeelOS models always run as an agent: with none picked, aqeelOS uses the person's main agent (code-device-routes.mjs, engine/run).
+ // Say so here (owner, 15 Nov 2026: "there's no agent but the chat says it's Donna AI"), faded, until they pick one.
+ if(!attached.length&&getChoice().provider==='aqeelos'){const d=aqAgents.find(x=>x.id==='default')||aqAgents[0];if(d){const c=document.createElement('span');c.className='agent-chip-one implied';
+  const t=document.createElement('span');t.textContent='Runs as '+d.name;c.title='No agent picked, so aqeelOS models run as '+d.name+(d.id==='default'?', your main agent':'')+', with its tools. Add an agent to choose another.';c.append(agentAv(d),t);agentChips.append(c)}}
+ for(const id of attached){const a=aqAgents.find(x=>x.id===id);if(!a)continue;const c=document.createElement('span');c.className='agent-chip-one';const av=agentAv(a);
   const t=document.createElement('span');t.textContent=a.name;const apps=[...(a.apps||[]),...(a.google?['Google']:[])];c.title=a.name+(apps.length?' · '+apps.slice(0,6).join(', '):'')+'. The AI can ask it for things; it never changes the project.';
   const x=document.createElement('button');x.type='button';x.innerHTML='<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';x.title='Remove '+a.name;x.setAttribute('aria-label','Remove '+a.name);x.addEventListener('click',()=>{c.classList.add('out');setTimeout(()=>setAttached(attached.filter(y=>y!==id)),140)});c.append(av,t,x);agentChips.append(c)}
  const rest=aqAgents.filter(a=>!attached.includes(a.id));if(rest.length&&attached.length<6){const add=document.createElement('button');add.type='button';add.className='agent-chip-add';add.textContent=attached.length?'+ Agent':'+ Add an agent';add.title='Attach another agent: the AI can ask it to fetch things with its own access';

@@ -1397,6 +1397,8 @@ body.embed .aq-meter.hot .v{stroke:#d1453b}
 .agent-chip-one button{width:20px;height:20px;min-height:20px;padding:0!important;border:0;border-radius:50%;background:none;box-shadow:none;color:var(--muted);line-height:0;display:grid;place-items:center;transition:background .15s,color .15s}
 .agent-chip-one button svg{display:block}
 .agent-chip-one button:hover{color:var(--ink);background:var(--soft)}
+.agent-chip-one.implied{background:none;box-shadow:inset 0 0 0 1px var(--border);color:var(--muted);font-weight:500;padding-right:10px}
+.agent-chip-one.implied .av{opacity:.75}
 .agent-chip-one.out{opacity:0;transform:scale(.92);transition:opacity .14s ease,transform .14s ease}
 .agent-chip-add{min-height:26px!important;height:26px;padding:0 10px!important;border:1px dashed var(--border)!important;border-radius:var(--r-pill);background:none!important;box-shadow:none!important;font-size:12px;font-weight:500;color:var(--muted)!important;transition:color .15s,border-color .15s}
 .agent-chip-add:hover{color:var(--blue)!important;border-color:var(--blue)!important}
