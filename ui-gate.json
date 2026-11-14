@@ -1,0 +1,279 @@
+{
+ "name": "aqeelOS",
+ "url": "http://localhost:4471",
+ "storageState": ".ui-gate/auth.json",
+ "themes": {
+  "mode": "class",
+  "class": "dark"
+ },
+ "routes": [
+  {
+   "name": "chat",
+   "path": "/#/chat",
+   "settle": 1500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "disabled": null,
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "twoStep": false,
+      "role": "owner",
+      "avatar": null,
+      "emoji": null,
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "role_name": null,
+      "recovery": false,
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "chat-search",
+   "path": "/#/chat",
+   "settle": 1500,
+   "steps": [
+    {
+     "click": "[data-act=palette]"
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "disabled": null,
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "twoStep": false,
+      "role": "owner",
+      "avatar": null,
+      "emoji": null,
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "role_name": null,
+      "recovery": false,
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "chat-permission",
+   "path": "/#/chat",
+   "settle": 1500,
+   "steps": [
+    {
+     "click": "[data-act=perm-menu]"
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "disabled": null,
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "twoStep": false,
+      "role": "owner",
+      "avatar": null,
+      "emoji": null,
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "role_name": null,
+      "recovery": false,
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-chat",
+   "path": "/v2#/chat",
+   "settle": 1500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "disabled": null,
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "twoStep": false,
+      "role": "owner",
+      "avatar": null,
+      "emoji": null,
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "role_name": null,
+      "recovery": false,
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-chat-search",
+   "path": "/v2#/chat",
+   "settle": 1500,
+   "steps": [
+    {
+     "click": "[data-act=palette]"
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "disabled": null,
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "twoStep": false,
+      "role": "owner",
+      "avatar": null,
+      "emoji": null,
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "role_name": null,
+      "recovery": false,
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-chat-permission",
+   "path": "/v2#/chat",
+   "settle": 1500,
+   "steps": [
+    {
+     "click": "[data-act=perm-menu]"
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "disabled": null,
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "twoStep": false,
+      "role": "owner",
+      "avatar": null,
+      "emoji": null,
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "role_name": null,
+      "recovery": false,
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  }
+ ],
+ "setup": [
+  {
+   "wait": 2500
+  }
+ ],
+ "source": {
+  "include": [
+   "app"
+  ],
+  "exclude": [
+   "vendor",
+   "node_modules"
+  ]
+ }
+}

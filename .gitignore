@@ -49,3 +49,6 @@ id_ed25519*
 *.db
 *.tar.gz
 *.zip
+
+# ui-gate renders and its signed-in test session (local only)
+/.ui-gate/
