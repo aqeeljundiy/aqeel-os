@@ -76,7 +76,7 @@ const sentEv=(to,source,id='msg_'+Math.random(),conv='cnv_A',pid='111')=>JSON.st
 
 // an Indonesian line, as the owner runs it: these are settings (kirimdev.json), not code
 const LOCALE={language:'Indonesian',localPrefix:{country:'62',local:'0'},resetText:'✅ Test reset. Chat dari awal ya, anggap kamu customer baru.',handoff:{customerText:'Baik kak, untuk pertanyaan ini saya bantu teruskan ke tim kami dulu ya 🙏 Mohon ditunggu sebentar.'}};
-async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin,extra={},paidSince=null,bridge={self:async()=>'',send:async()=>{},result:async()=>null},probs=[],oks=[],health=false,docLinks=null,reviewReply=null,qrSince=null}={}){
+async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin,extra={},paidSince=null,bridge={self:async()=>'',send:async()=>{},result:async()=>null},probs=[],oks=[],health=false,docLinks=null,reviewReply=null,qrSince=null,describeImage=null,chat=null}={}){
  const DATA=await mkdtemp(path.join(tmpdir(),'kd-')),WORK=path.join(DATA,'work');
  await mkdir(path.join(WORK,'cove-support','media','staff'),{recursive:true});
  await writeFile(path.join(WORK,'cove-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\n');
@@ -88,14 +88,15 @@ async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',c
  const fetchImpl=async(url,o)=>{const p=url.replace('https://api.kirimdev.com/v1/','');
   if(o.method==='POST'&&/^(111|222)\/messages$/.test(p)){const b=JSON.parse(o.body);b.pid=p.split('/')[0];sent.push(b);return {ok:true,json:async()=>({data:{id:'msg_'+sent.length,status:'queued'}})}}
   if(/^(111|222)\/messages\/msg_\d+$/.test(p)&&box.receipt)return {ok:true,json:async()=>({data:{id:p.split('/').pop(),...box.receipt}})};
-  if(/^(111|222)\/messages\?/.test(p))return {ok:true,json:async()=>({data:[{direction:'inbound',content:'mau tanya',created_at:'2026-11-05T10:00:00.000Z',type:'text'}]})};
+  if(/^https:\/\/media\.test\//.test(url))return {ok:true,headers:{get:()=>'image/jpeg'},arrayBuffer:async()=>new ArrayBuffer(16)};
+  if(/^(111|222)\/messages\?/.test(p))return {ok:true,json:async()=>({data:chat||[{direction:'inbound',content:'mau tanya',created_at:'2026-11-05T10:00:00.000Z',type:'text'}]})};
   if(p==='accounts')return {ok:true,json:async()=>({data:[{phone_number_id:'111',phone_number:'+62 811-1111-111',name:'Cove',status:'connected'}]})};
   if(p==='webhook_subscriptions')return {ok:true,json:async()=>({data:{id:'wbs_9',status:'active',initial_secret:'whsec_new'}})};
   if(o.method==='PATCH'&&p.startsWith('webhook_subscriptions/')){patched.push([p,JSON.parse(o.body)]);return {ok:true,json:async()=>({data:{id:p.split('/')[1],events:JSON.parse(o.body).events}})}}
   return {ok:false,status:404,json:async()=>({})}};
  // fake timers: the burst window only closes when the test calls settle(), never because the box was slow
  const due=new Map(),delays=[];let tid=0;const setTimer=(fn,ms)=>{const i=++tid;due.set(i,fn);delays.push(ms);return i},clearTimer=i=>{due.delete(i)};
- const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,paidSince,reviewReply,qrSince,bridge,docLinks,...(health?{problem:async(...x)=>{probs.push(x)},solved:async(...x)=>{oks.push(x)}}:{}),
+ const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,paidSince,reviewReply,qrSince,describeImage,bridge,docLinks,...(health?{problem:async(...x)=>{probs.push(x)},solved:async(...x)=>{oks.push(x)}}:{}),
   teamGroup:async a=>a==='cove-support'?team:null,
   runAgent:async(a,q,context)=>{asked.push([a,q,context]);return typeof agentSays==='function'?agentSays(q,context):agentSays},telegram:async(...x)=>{posts.push(x);return tg.ok?4242:false},tell:async t=>{told.push(t)}});
  const post=(raw,h={},agent='cove-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.received',...h},Buffer.from(raw));
@@ -567,3 +568,14 @@ test('a QRIS made in an earlier reply counts: "the QRIS above" is sent with that
  await t.post(meta('628123','qrisnya mana kak'));await t.settle();
  assert.ok(t.sent.length>=1,'sent, not handed off');assert.ok(!t.posts.some(x=>/HANDOFF/.test(String(x[3]))));
  assert.ok(asked.every(s=>s<Date.now()-50*60e3),'looked back over the payment window, not only this run')});
+
+// customer photos (14 Nov 2026, owner: "questions with an attached photo must be read word by word"): every word reaches the agent
+test('a customer photo: its words are asked for exactly, kept whole, and up to five new photos are read per reply',async()=>{
+ const {IMAGE_ASK}=await import('../app/kirimdev-agent.mjs');assert.match(IMAGE_ASK,/copy every word and number you can read in it exactly/);
+ const long='Text: '+'Reta 10 mg, 1.5 mg = 15 unit, water 3 ml, '.repeat(25)+' Shows: a dose chart';
+ const photos=Array.from({length:6},(_,i)=>({id:'img'+i,direction:'inbound',type:'image',media_url:'https://media.test/p'+i+'.jpg',content:'',created_at:'2026-11-05T10:0'+i+':00.000Z'}));
+ let read=0;const t=await make({chat:photos,describeImage:async()=>{read++;return long}});
+ await t.post(meta('628123','ini maksudnya gimana?'));await t.settle();
+ assert.equal(read,5,'five new photos read in one reply, the oldest left');
+ const q=t.asked[0][1];assert.ok(q.includes(long.slice(0,1050)),'the whole reading reaches the agent, past the old 400 characters');
+ assert.match(q,/Read every word of the customer's new messages/);assert.match(q,/ask them one short question about exactly that instead of guessing/)});
