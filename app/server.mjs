@@ -91,7 +91,7 @@ import {createResume} from './resume.mjs';   // continue what a restart cut off 
 import {createResumeEngine} from './resume-engine.mjs';
 import {windowOf,inWindow,resumeMaxMs,restartGraceMs,restartWaitPolls} from './maintenance.mjs';
 import {stopGatewayCmd,stopTimeoutMs,parseGatewayList,ownGateways,stopOwnGatewayCmd,startOwnGatewayCmd} from './gateway-stop.mjs';
-import {createRestartLater,inQuiet,oneShotDueSoon} from './restart-later.mjs';
+import {createRestartLater,inQuiet,cronDueSoon} from './restart-later.mjs';
 import {createHelp} from './help.mjs';
 import {createLive} from './live.mjs';
 import {createBackups} from './backup.mjs';
@@ -720,14 +720,8 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
   if(run.bridges)for(const a of await listAllProfiles().catch(()=>[]))await stopBridges(a).catch(()=>{});
   run.bridgesDone=true;run.started=true;later.covered().catch(()=>{});await shx('~/services.sh >/dev/null 2>&1');for(const a of own)await shx(startOwnGatewayCmd(a),60000);
   platCache.clear();hapiStatus.drop();hapiLists.drop();guardAfterRestart(Date.now())})().finally(()=>{gwRestarting=null});return gwRestarting}
-// restarts that can wait go to the quiet hours (restart-later.mjs); an immediate one covers them
-// since 12 Nov 2026 they go in the maintenance window (maintenance.mjs) and no longer wait for an idle box: what the
-// restart cuts off is continued afterwards (resume.mjs)
-// a restart in the window waits gently for what is running (restartGraceMs, 10 minutes unless the install says otherwise), then restarts
-// with --interrupt (stopGatewayCmd passes --yes) and resume.mjs continues what that cut off
-// a one-time schedule due within 15 minutes holds the window restart (restart-later.mjs oneShotDueSoon, 14 Nov 2026)
-const oneShotSoon=async()=>{const r=await fetch(DASH.origin+'/api/cron/jobs?profile=all',{signal:AbortSignal.timeout(20000),headers:{'x-hermes-session-token':DASH_TOKEN}});if(!r.ok)return null;const j=await r.json().catch(()=>null);return oneShotDueSoon(Array.isArray(j)?j:j?.jobs||[],Date.now())};
-const later=createRestartLater({DATA,dueSoon:oneShotSoon,restart:why=>restartGateway(why,{wait:true,waitMax:restartWaitPolls(restartGraceMs(installSettings()))}),tz:()=>installTz()||process.env.TZ||'',inWindow:d=>inWindow(d,windowOf(installSettings())),label:()=>{const w=windowOf(installSettings());return 'the maintenance window ('+w.from+'-'+w.to+' '+w.tz+')'}});
+// restarts that can wait: in the maintenance window, after a due one-time schedule (restart-later.mjs)
+const later=createRestartLater({DATA,dueSoon:cronDueSoon(DASH.origin,DASH_TOKEN),restart:why=>restartGateway(why,{wait:true,waitMax:restartWaitPolls(restartGraceMs(installSettings()))}),tz:()=>installTz()||process.env.TZ||'',inWindow:d=>inWindow(d,windowOf(installSettings())),label:()=>{const w=windowOf(installSettings());return 'the maintenance window ('+w.from+'-'+w.to+' '+w.tz+')'}});
 const restartLater=why=>later.add(why).catch(e=>console.warn('restart later',e.message));
 if(LIVE_APP)setInterval(()=>later.tick().catch(e=>console.warn('quiet-hours restart',e.message)),5*60e3).unref();
 // a minute after aqeelOS restarted the engine, every tool server is checked and fixed (automation-guard.mjs); an engine

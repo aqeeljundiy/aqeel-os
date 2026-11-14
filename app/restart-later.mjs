@@ -20,6 +20,12 @@ export const inQuiet=(date,tz)=>{const h=hourIn(date,tz);return h>=QUIET.from&&h
 export const isOneShot=j=>{const e=String(j?.schedule?.expr??j?.schedule??'').trim();return j?.schedule?.kind==='once'||/^(once\b|\d{4}-\d\d-\d\d)/i.test(e)||j?.repeat?.times===1};
 export function oneShotDueSoon(jobs,at,minutes=15){const t=+at;return (jobs||[]).find(j=>isOneShot(j)&&j.enabled!==false&&j.state!=='paused'&&j.state!=='completed'&&(()=>{const n=Date.parse(j.next_run_at||'');return Number.isFinite(n)&&n>=t-5*60e3&&n<=t+minutes*60e3})())||null}
 
+// the engine's schedules, asked from its dashboard API, for the check above (server.mjs wires it to the window restart)
+export const cronDueSoon=(origin,token,fetchFn=fetch)=>async()=>{const r=await fetchFn(origin+'/api/cron/jobs?profile=all',{signal:AbortSignal.timeout(20000),headers:{'x-hermes-session-token':token}});if(!r.ok)return null;const j=await r.json().catch(()=>null);return oneShotDueSoon(Array.isArray(j)?j:j?.jobs||[],Date.now())};
+
+// Since 12 Nov 2026 these restarts go in the maintenance window (maintenance.mjs) and no longer wait for an idle box: what the
+// restart cuts off is continued afterwards (resume.mjs). A restart in the window waits gently for what is running (restartGraceMs,
+// 10 minutes unless the install says otherwise), then restarts with --interrupt (stopGatewayCmd passes --yes).
 // inWindow/label: the install's maintenance window (maintenance.mjs) instead of the fixed hours above (12 Nov 2026)
 export function createRestartLater({DATA,restart,dueSoon=async()=>null,tz=()=>'',now=()=>new Date(),log=m=>console.log(m),inWindow=d=>inQuiet(d,tz()),label=()=>'the quiet hours ('+QUIET.from+':00-'+QUIET.to+':00)'}){
  const FILE=path.join(DATA,'restart-later.json'),REQ=path.join(DATA,'restart-request.json');let st=null;

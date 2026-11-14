@@ -41,3 +41,11 @@ test('a one-time schedule due within 15 minutes holds the window restart; recurr
  const L=createRestartLater({DATA:dir,restart:async w=>restarts.push(w),dueSoon:async()=>due,inWindow:()=>true,log:()=>{}});
  await L.add('settings');assert.equal(await L.tick(),false);assert.equal(restarts.length,0,'held while the one-time job is due');
  due=null;assert.equal(await L.tick(),true);assert.equal(restarts.length,1,'restarted once it ran')});
+
+test('the window restart asks the engine for its schedules (both list shapes); an engine that does not answer holds nothing',async()=>{
+ const {cronDueSoon}=await import('../app/restart-later.mjs');const soon=new Date(Date.now()+5*60e3).toISOString(),seen=[];
+ const f=body=>async(url,o)=>{seen.push([url,o.headers['x-hermes-session-token']]);return {ok:true,json:async()=>body}};
+ assert.equal((await cronDueSoon('http://e','tok',f({jobs:[{id:'j',schedule:{kind:'once'},next_run_at:soon}]}))())?.id,'j');
+ assert.equal((await cronDueSoon('http://e','tok',f([{id:'k',repeat:{times:1},next_run_at:soon}]))())?.id,'k');
+ assert.deepEqual(seen[0],['http://e/api/cron/jobs?profile=all','tok']);
+ assert.equal(await cronDueSoon('http://e','tok',async()=>({ok:false}))(),null)});
