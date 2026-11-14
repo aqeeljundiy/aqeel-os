@@ -158,7 +158,7 @@ import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // 
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
 import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';import {createSchedulesRoutes} from './schedules-routes.mjs';import {createIdentitiesRoutes} from './identities-routes.mjs';import {createHooksRoutes} from './hooks-routes.mjs';import {createOAuthCallbackRoutes} from './oauth-callback-routes.mjs';import {createBoxRoutes} from './box-routes.mjs';   // the routes that used to sit in this file (one module each)
-import {createScreenLink,createScreenTickets} from './screen-link.mjs';import {appPage} from './v2-page.mjs';   // the screen viewer's own connection, ticket per connection (AUD-15)
+import {createScreenLink,createScreenTickets} from './screen-link.mjs';import {appPage} from './v2-page.mjs';import {createTeamPost} from './team-post.mjs';   // the screen viewer's own connection, ticket per connection (AUD-15)
 
 delete Object.prototype.__proto__;   // a key named __proto__ from a request is an ordinary key: no lookup reaches Object.prototype (security audit, 12 Nov 2026)
 const here=path.dirname(fileURLToPath(import.meta.url));
@@ -1533,6 +1533,7 @@ const secretHits=createLimiter(30,600e3);
 const teamGroups=createTeamGroups({DATA,tell:async(a,before,g)=>{const t=x=>x?.chatId?(x.name||x.chatId)+' · '+TEAM_ROLES.map(([k,l])=>l+' '+(x.topics?.[k]??'-')).join(', '):'none';
  await bottlenecks.event('team-group',(NAMES[a]||a)+'’s team group changed','By '+(g.by||'?')+'.\nBefore: '+t(before)+'\nNow: '+t(g),{info:true}).catch(()=>{});if(LIVE_APP)writeAgentContext().catch(()=>{})}});
 const docLinks=createDocLinks({DATA,PUBLIC_URL:()=>String(PUBLIC_URL)});
+const teamPost=createTeamPost({HERMES_HOME,live:LIVE_APP,python:enginePython});
 const kirimdev=createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev),DATA,docLinks,WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
  // kind "customer" (a customer left without a reply, an unanswered handoff, a stopped message): shown and counted on Health, for the
  // team; agent-health.mjs never gives it to the agent or the code fixer, neither can answer a customer (audit H7)
@@ -1548,9 +1549,7 @@ const kirimdev=createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev),DATA,docLinks,WOR
  runAgent:createKirimdevAgent({DATA,home:homedir(),live:LIVE_APP,customer:()=>customerTools}),describeImage:createImageReader({home:homedir(),live:LIVE_APP}),reviewReply:createReviewer({home:homedir(),live:LIVE_APP}),
  paidSince:(a,ph,t)=>customerTools.paidSince(a,ph,t),
  qrSince:(a,ph,t)=>customerTools.qrSince(a,ph,t),
- telegram:async(a,chatId,threadId,text)=>{const t=await readFile(path.join(HERMES_HOME,'profiles',a,'.env'),'utf8').catch(()=>'');const tok=(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(t)||[])[1];if(!tok||!LIVE_APP)return false;
-  const r=await fetch('https://api.telegram.org/bot'+tok+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chatId,...(threadId?{message_thread_id:threadId}:{}),text:text.slice(0,4000)}),signal:AbortSignal.timeout(30000)}).catch(()=>null);
-  const j=r&&r.ok?await r.json().catch(()=>({})):{};return j.ok?(j.result?.message_id||true):false},   // the post's id once Telegram confirmed it
+ telegram:(a,c,t,x)=>teamPost.send(a,c,t,x),   // the post's id once Telegram confirmed it; kept in the topic's conversation (team-post.mjs)
  activity:(a,title,text)=>news.add({aud:'admins',icon:'tag',kind:'blue',title,text,go:'/channels/kirimdev',label:'Kirimdev'}),
  tell:(text,detail)=>bottlenecks.event('kirimdev',text,detail,{info:true})});
 /* Tebar webhooks (tebar.mjs, 11 Nov 2026): POST /hooks/tebar/<agent>, signed with the secret the person pasted. Failed posts
@@ -1635,9 +1634,7 @@ const postingLimits=createPostingLimits({DATA,WORK:path.join(homedir(),'workspac
  event:(kind,text,detail,o)=>health.problem(o.agent,kind,text,{topic:o.topic,fix:detail}),solved:(a,topic)=>health.ok(a,topic),
  engineTools:async a=>{const f=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'logs','agent.log'),h=await openFile(f,'r').catch(()=>null);if(!h)return null;
   try{const st=await h.stat(),n=Math.min(st.size,4e6),b=Buffer.alloc(n);await h.read(b,0,n,st.size-n);return engineToolList(b.toString('utf8'))}finally{await h.close()}},
- telegram:async(a,chatId,threadId,text)=>{const t=await readFile(path.join(HERMES_HOME,'profiles',a,'.env'),'utf8').catch(()=>'');const tok=(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(t)||[])[1];if(!tok||!LIVE_APP)return false;
-  const r=await fetch('https://api.telegram.org/bot'+tok+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chatId,...(threadId?{message_thread_id:Number(threadId)}:{}),text:text.slice(0,4000),disable_web_page_preview:true}),signal:AbortSignal.timeout(30000)}).catch(()=>null);
-  return !!(r&&r.ok&&(await r.json().catch(()=>({}))).ok)}});
+ telegram:(a,c,t,x)=>teamPost.send(a,c,t,x,{preview:false}).then(Boolean)});
 if(LIVE_APP){setTimeout(()=>postingLimits.ensure().catch(e=>console.warn('posting gates',e.message)),20000).unref();setInterval(()=>postingLimits.tick(),60000).unref()}
 /* "Run myself" (self-runs.mjs, 5 Nov 2026): run_self, run_self_status and run_self_list on their own tool server
    (aqeelos-self, one signed address per agent, from this box only), given to every agent with its own Linux user. The
