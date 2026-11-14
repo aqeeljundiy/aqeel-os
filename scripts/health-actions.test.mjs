@@ -42,7 +42,8 @@ const SAMPLES={
  apps:[{kind:'apps',id:'report|r',agent:'a',title:'Notion and Slack need a sign-in',acts:[{do:'signin-app',agent:'a',name:'notion',label:'Sign in to Notion'},{do:'signin-app',agent:'a',name:'slack',label:'Sign in to Slack'}]}],
  schedule:[{kind:'schedule',id:'sched|a|j|1',agent:'a',title:'x',job:{id:'j',name:'J'}}],
  stopped:[{kind:'stopped',id:'event|e',agent:'a',title:'x'}],
- kirimdev:[{kind:'kirimdev',id:'event|e',title:'x'}]};
+ kirimdev:[{kind:'kirimdev',id:'event|e',title:'x'}],
+ repeat:[{kind:'repeat',id:'event|e',agent:'a',title:'A answered the same post twice',data:{post:'https://www.threads.com/@x/post/1'}}]};
 // kinds that have nothing to press by design (the fixer has them; personNeed is null for them)
 const NO_BUTTON=new Set(['system']);
 

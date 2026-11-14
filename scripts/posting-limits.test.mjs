@@ -93,7 +93,7 @@ test('the same post answered twice is told to the agent and shown under Bottlene
  let r=await x.pl.record('ct',{post_url:u,text:a});assert.doesNotMatch(r.text,/REPEAT/);assert.equal(x.events.length,0);
  x.tick(11*60e3);r=await x.pl.record('ct',{post_url:u,text:b});
  assert.match(r.text,/REPEAT: this post already had our answer at 10:00/);assert.match(r.text,/Do not send to this post again/);
- const ev=x.events.find(e=>e[0]==='repeat');assert.ok(ev,'a Bottlenecks item');assert.match(ev[1],/answered the same post twice/);assert.match(ev[2],/Dfuk5wZkvpy/);assert.match(ev[2],/delete the extra reply/);assert.equal(ev[3].agent,'ct');
+ const ev=x.events.find(e=>e[0]==='repeat');assert.ok(ev,'a Bottlenecks item');assert.match(ev[1],/answered the same post twice/);assert.match(ev[2],/Dfuk5wZkvpy/);assert.match(ev[2],/delete the extra reply/);assert.equal(ev[3].agent,'ct');assert.equal(ev[3].data.post,u,'the button opens this post');
  assert.ok(x.tg.some(t=>/answered the same post twice/.test(t[3])),'the alert chat is told');
  x.tick(15*60e3);r=await x.pl.record('ct',{post_url:'https://www.threads.com/@farra1717/post/NEWreply1',text:a});assert.doesNotMatch(r.text,/REPEAT/);
  x.tick(25*3600e3);const n=x.events.length;r=await x.pl.record('ct',{post_url:u,text:b});assert.doesNotMatch(r.text,/REPEAT/,'a day later is a new conversation');assert.equal(x.events.length,n)});

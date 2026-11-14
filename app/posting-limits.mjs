@@ -260,7 +260,7 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
   const who=nameOf(a),q=x=>'"'+String(x.text||'').replace(/\s+/g,' ').slice(0,120)+'"';
   const title=who+' answered the same post twice';
   const detail='Post: '+e.post+'. First at '+hm(prev.at,r.tz)+': '+q(prev)+'. Again at '+hm(e.at,r.tz)+': '+q(e)+'. Open the post and delete the extra reply, keep the first. '+who+' was told not to send to this post again.';
-  await event('repeat',title,detail,{topic:'repeat|'+a+'|'+e.post,agent:a}).catch(()=>{});
+  await event('repeat',title,detail,{topic:'repeat|'+a+'|'+e.post,agent:a,data:{post:e.post}}).catch(()=>{});
   const m=/^telegram:(-?\d+)(?::(\d+))?$/.exec(r.alert||'');if(m)await telegram(a,m[1],m[2]||null,'⚠️ '+title+'\n'+detail).catch(()=>false);
   log('posting: '+a+' answered '+e.post+' again ('+prev.id+' then '+e.id+')');
   return 'REPEAT: this post already had our answer at '+hm(prev.at,r.tz)+' ('+q(prev)+'). Do not send to this post again in this or any run; the owner sees it under Bottlenecks. If they wrote something new, it has its own link: answer that one.'}

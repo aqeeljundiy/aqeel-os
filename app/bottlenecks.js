@@ -94,6 +94,8 @@ const Bottlenecks={items:[],
   // a channel that logged out or keeps failing (server.mjs channelAttention): Link again for WhatsApp, else its page
   if(x.kind==='channel'){const c=x.channel||{};return [c.id==='whatsapp'&&c.needs_link?['Link again',()=>{closeLayers();ACT['wa-link']({dataset:{agent:c.agent}});return new Promise(()=>{})},true]:['Reconnect it',async()=>{await post(UI,'/ui/channels/reconnect',{agent:c.agent,platform:String(c.id).split('-')[0]});toast('Reconnecting')},true],['Not now',later]]}
   // a Kirimdev line (kirimdev.mjs: the API key, the API, the webhook): its own page, not the WhatsApp channel's
+  // the same public post answered twice (posting-limits.mjs repeatOf): open it to delete the extra reply, then say it is gone
+  if(x.kind==='repeat')return [['Open the post',()=>{const u=x.data?.post||(/https:\/\/\S+?(?=\.?\s|$)/.exec(x.text||'')||[])[0];if(u)window.open(u,'_blank','noopener');return Promise.resolve()},true],['I deleted it',done],['Not now',later]];
   if(x.kind==='kirimdev'&&!x.info)return [['Open Kirimdev',()=>{closeLayers();go('/channels/kirimdev');return new Promise(()=>{})},true],['Not now',later]];
   // health checks (agent-health.mjs): a system problem an agent reported, schedules that stopped, a bot removed from a
   // Telegram group, messages that keep failing
