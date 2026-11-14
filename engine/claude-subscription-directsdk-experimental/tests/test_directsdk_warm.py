@@ -150,11 +150,13 @@ def test_tool_round_adopts_the_standby_and_answers_exactly_as_cold(tmp_path, poo
         caplog.clear()
         first = client.create(**request())
         assert _until(lambda: len(pool) == 1), 'no standby was started while the call ran'
-        began = time.monotonic()
+        standby_pid = next(iter(pool.idle.values())).process.pid
         second = client.create(**follow_up(request(), first))
         assert modes(caplog) == ['cold', 'warm']
         served = native.queries()[-1][0]
-        assert native.starts()[served] < began, 'the follow-up was not served by the standby started earlier'
+        # The plugin's own log says it adopted the standby ('warm' above). A start-time comparison was dropped on 14 Nov 2026:
+        # the fake CLI writes its start time once it runs, which on a loaded box lags the launch and failed 1 run in 6.
+        assert served == standby_pid, 'the follow-up was not served by the standby started earlier'
         # Same replay (system + user + assistant + tool result = 3 frames into native), same responses, same usage.
         assert [n for _, n in native.queries()[-2:]] == [n for _, n in cold_queries] == [1, 3]
         assert [comparable(r) for r in (first, second)] == [comparable(r) for r in cold]
@@ -236,12 +238,12 @@ def test_cancel_kills_an_adopted_standby_and_its_children(tmp_path, pool, caplog
         first = client.create(**request())
         assert _until(lambda: len(pool) == 1)
         hang.write_text('1')
-        began = time.monotonic()
+        standby_pid = next(iter(pool.idle.values())).process.pid
         stream = client.create(**follow_up(request(), first), stream=True)
         assert next(stream).choices[0].delta.content == 'started'
         assert modes(caplog) == ['cold']  # The warm call logs when it ends.
         pid, grandchild = map(int, Path(str(hang) + '.pids').read_text().split())
-        assert pid == stream.request.process.pid and native.starts()[pid] < began, 'the call did not adopt the standby'
+        assert pid == stream.request.process.pid == standby_pid, 'the call did not adopt the standby'   # pid match, not start time (see above)
         client.cancel()
         with pytest.raises(RuntimeError, match='cancel'):
             list(stream)
