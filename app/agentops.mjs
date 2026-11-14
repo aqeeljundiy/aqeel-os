@@ -23,7 +23,9 @@ export const HELP_AGENT=process.env.HELP_AGENT||'aqeelos-help';
 // agent for the live test, deploy checks and Health, but the agent lists people pick from leave it out (owner, 14 Nov 2026, UI
 // audit item 15: "Aq livetest is listed among real agents"). Only this one: other test agents can be real agents in training.
 export const LIVE_TEST_AGENT=process.env.LIVE_TEST_AGENT||'aq-livetest';
-export const listedAgent=a=>{const n=String(a?.name??a?.id??a);return n!==HELP_AGENT&&n!==LIVE_TEST_AGENT};
+// the plain agent a Code turn on aqeelOS models runs as when the person picks no agent (app/code-agent.mjs): kept out of every agent list, as Help
+export const CODE_AGENT=process.env.CODE_AGENT||'aqeelos-code-agent';
+export const listedAgent=a=>{const n=String(a?.name??a?.id??a);return n!==HELP_AGENT&&n!==LIVE_TEST_AGENT&&n!==CODE_AGENT};
 
 const queues=new Map();
 // while a restore copies the engine's files (backup.mjs), aqeelOS's own writes to them wait here (up to 30 minutes)
@@ -75,7 +77,7 @@ export async function agentNames({copies=false}={}){const k=copies?1:0,dir=path.
  const m=(await stat(dir).catch(()=>null))?.mtimeMs||0,hit=namesHit.get(k);if(hit&&hit.m===m&&Date.now()-hit.t<2000)return [...await hit.p];
  const p=(async()=>{const n=['default'];
   for(const d of await readdir(dir,{withFileTypes:true}).catch(()=>[]))
-   if(d.isDirectory()&&!d.name.startsWith('.')&&d.name!==HELP_AGENT&&(copies||!d.name.includes('--'))&&await isAgent(d.name))n.push(d.name);
+   if(d.isDirectory()&&!d.name.startsWith('.')&&d.name!==HELP_AGENT&&d.name!==CODE_AGENT&&(copies||!d.name.includes('--'))&&await isAgent(d.name))n.push(d.name);
   return n})();
  namesHit.set(k,{t:Date.now(),m,p});p.catch(()=>namesHit.delete(k));return [...await p]}
 

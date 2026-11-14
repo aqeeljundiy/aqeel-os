@@ -75,7 +75,7 @@ import {createAccessRequests} from './access-requests.mjs';
 import {startScreenFollow} from './screen-follow.mjs';
 import {createN8n} from './n8n.mjs';
 import {createCode} from './code.mjs';
-import {createCodeAgents,safeRel} from './code-agents.mjs';
+import {createCodeAgents,safeRel} from './code-agents.mjs';import {createCodeAgent} from './code-agent.mjs';
 import {createCodeBridge} from './code-bridge.mjs';
 import {createCodeOnline} from './code-online.mjs';
 import {createTeamFolders} from './team-folders.mjs';
@@ -850,6 +850,7 @@ const teamFolders=createTeamFolders({DATA,names:uid=>{const x=users.byId(uid);re
 const codeAgents=createCodeAgents({HERMES_HOME,DATA,sign,readIds,outboxAccess:(a,d)=>agentDefaults.outboxAccess(a,d)});
 // every aqeelOS model for Code projects on a person's computer: the engine reaches the project through this bridge only
 const codeBridge=createCodeBridge({PORT,DATA,sign:v=>createHmac('sha256',relayKeys.cur).update(v).digest('base64url'),sigOk:(given,a)=>relayKeys.ok(given,'code-bridge:',a),code,mayUse:(uid,a)=>{const w=users.byId(uid);return !!w&&!users.gate(w,'/gapi/api/model/options','GET',new URLSearchParams(),a)},workspaces:a=>path.join(homedir(),'workspaces',a),access:(a,d)=>agentDefaults.outboxAccess(a,d)});
+const codeAgent=createCodeAgent({DASH:DASH.origin,DASH_TOKEN,API_KEY,live:LIVE_APP,codeBridge,readConfig,pick});setTimeout(()=>void codeAgent.ensure(),20000).unref?.();   // the plain agent for Code turns with no agent picked
 /* A Code run asks one of its attached agents (aqeelos_ask in Code, code_ask_agent on the engine): one chat turn for
    that agent, as the person who sent the run (their daily limit and the models they may use, as in Chat), with a
    folder of its own to save files in. The answer's text and files come back; where the files go is the caller's. */
@@ -2383,7 +2384,7 @@ async function openBrowser(res,agent){
 /* ---------- routes ---------- */
 const LOCAL_KEY=await localKey(DATA).catch(e=>{console.warn('local owner key:',e.message);return null});   // DATA/local-owner.key, mode 600, kept across restarts
 const notifyToolsRoutes=createNotifyToolsRoutes({DASH,DASH_TOKEN,MCP_OAUTH_BASE,NAMES,OWN_SETTINGS,PUBLIC_URL,accessAsk,addMcpByUrl,adminTier,agentAccess,agentAds,appSettings,appsOff,askBrowser,askSecret,bottlenecks,chatHistory,closeSolvedSignins,code,codeAgents,codeAsk,conflicts,connAccounts,googleTools,instructions,issues,keysId,kirimdev,labels,lockedAgent,nameThing,optins,originOf,pausedLoad,platformsCached,postingLimits,questions,readBody,reconnectAsked,reconnectOne,relay,relayKeys,restartGateway,restartLater,schedules,screens,secretAccess,secretDir,secretHow,secretLinks,send,sharing,slackClientFor,slackc,startSignin,teamGroups,users,versions,whyOf});
-const codeDeviceRoutes=createCodeDeviceRoutes({API_KEY,GATE,NAMES,accountsApi,agentDefaults,agentModel,code,codeAgents,codeAsk,codeBridge,codeOnline,codeProvName,codeRuns,displayName,googleContext,isTestAgent,listAgents,listAllProfiles,live,liveEnd,liveStart,longFetch,readBody,runOwner,security,send,sign,teamFolders,usage,users});
+const codeDeviceRoutes=createCodeDeviceRoutes({API_KEY,GATE,NAMES,accountsApi,agentDefaults,agentModel,code,codeAgent,codeAgents,codeAsk,codeBridge,codeOnline,codeProvName,codeRuns,displayName,googleContext,isTestAgent,listAgents,listAllProfiles,live,liveEnd,liveStart,longFetch,readBody,runOwner,security,send,sign,teamFolders,usage,users});
 const channelsRoutes=createChannelsRoutes({ADDED_FILE,DASH,DASH_TOKEN,HERMES_HOME,NAMES,PERSON_HELP,approvePerson,attention:{get t(){return attention.t},set t(v){attention.t=v}},channelAttention,checkChannel,editAdded,envQueue,links,listAllProfiles,pairingDir,pausedLoad,pausedSave,personId,platCache,platformsCached,readBody,relay,restartGateway,samePerson,send,stopBridges,syncNotifyTool,users,waLinking,waMapping,waPrepOff});
 const healthRoutes=createHealthRoutes({agentGraph,agentMemory,agentName,chatHistory,cloudFixer,codeChanges,effView,escalations,health,issues,listAgents,listAllProfiles,memWatch,needCtx,ownerSend,questions,readBody,relay,resume,send,teamSettings,usage,users});
 const connectedRoutes=createConnectedRoutes({DASH,DASH_TOKEN,HERMES_HOME,NAMES,PUBLIC_URL,backupModels,backups,engineUpd,gconnect,googleConnected,guard,kirimdev,kirimdevChanged,kirimdevSetup,listAgents,localAppVersions,mcpEdit,msconnect,newerApp,ownsAgent,priceCatalog,privateAddress,readBody,releaseAppVersions,secretLinks,selfRuns,send,slackc,srEligible,syncNotifyTool,teamGroups,teamSettings,tebar,users,whyOf,writeAgentContext});

@@ -12,7 +12,7 @@ import {hostSetting,onlineCodeOn,ONLINE_CODE_MSG} from './install-routes.mjs';
 // from 15 Nov 2026 sends message and instructions apart); an older Code sends one prompt, which stays the message
 export function turnText(b={}){const split=typeof b.message==='string'&&typeof b.instructions==='string';
  return {text:String(split?b.message:b.prompt||'').slice(0,400000),sys:split?b.instructions.slice(0,200000):''}}
-export function createCodeDeviceRoutes({API_KEY,GATE,NAMES,accountsApi,agentDefaults,agentModel,code,codeAgents,codeAsk,codeBridge,codeOnline,codeProvName,codeRuns,displayName,googleContext,isTestAgent,listAgents,listAllProfiles,live,liveEnd,liveStart,longFetch,readBody,runOwner,security,send,sign,teamFolders,usage,users}){
+export function createCodeDeviceRoutes({API_KEY,GATE,NAMES,accountsApi,agentDefaults,agentModel,code,codeAgent,codeAgents,codeAsk,codeBridge,codeOnline,codeProvName,codeRuns,displayName,googleContext,isTestAgent,listAgents,listAllProfiles,live,liveEnd,liveStart,longFetch,readBody,runOwner,security,send,sign,teamFolders,usage,users}){
  return async function handle(req,res,p,url){
   // aqeelOS Code (the desktop app) calls these with the key it got when it was paired; nothing else may
   if(p.startsWith('/ui/code/')&&/^Bearer aqc_/.test(req.headers.authorization||'')){const dev=await code.who(String(req.headers.authorization).slice(7));if(!dev)return send(res,401,{error:'This computer is not paired any more. Open Code in aqeelOS to pair it again.'}),true;
@@ -87,9 +87,11 @@ export function createCodeDeviceRoutes({API_KEY,GATE,NAMES,accountsApi,agentDefa
    if(p.startsWith('/ui/code/engine/')){const box=BOX,far=!BOX;
     if(p==='/ui/code/engine/run'&&req.method==='POST'){if(box&&codeOnline.remote())return send(res,409,{error:'Online Code runs in its own container here, so agents cannot reach its folders. Use Claude Code, Codex or Gemini CLI.'}),true;
      let b={};try{b=JSON.parse(await readBody(req,40e6))}catch{return send(res,400,{error:'The request was not valid JSON.'}),true}
-     // no agent picked in Code: the one this person would chat with (as agent-model answers)
-     const may=(await listAgents()).filter(mine),a=String(b.agent||'')||(may.includes('default')?'default':may[0]||'');if(!may.includes(a)||await isTestAgent(a))return send(res,403,{error:'You can’t use that agent.'}),true;
-     const name=NAMES[a]||await displayName(a);if(await agentDefaults.codeLocked(a))return send(res,403,{error:name+'’s terminal and file tools are locked, so it cannot work on code. Pick a Claude or ChatGPT model, or ask an admin.'}),true;
+     // no agent picked in Code: the plain Code agent (app/code-agent.mjs; owner, 15 Nov 2026: not the main agent with its memory and apps)
+     // for a project on the person's computer; on the box's own copy, the one this person would chat with (it needs its own Linux user)
+     const may=(await listAgents()).filter(mine),plain=!b.agent&&far&&!!codeAgent&&await codeAgent.ready(),a=plain?codeAgent.id:String(b.agent||'')||(may.includes('default')?'default':may[0]||'');
+     if(!plain&&(!may.includes(a)||await isTestAgent(a)))return send(res,403,{error:'You can’t use that agent.'}),true;
+     const name=plain?codeAgent.name:NAMES[a]||await displayName(a);if(await agentDefaults.codeLocked(a))return send(res,403,{error:name+'’s terminal and file tools are locked, so it cannot work on code. Pick a Claude or ChatGPT model, or ask an admin.'}),true;
      // the other agents attached to this message: the engine may ask them (code_ask_agent) while the turn goes on
      const attached=[a,...new Set((Array.isArray(b.agents)?b.agents:[]).map(String).filter(x=>x!==a))].slice(0,6);for(const x of attached.slice(1))if(!may.includes(x)||await isTestAgent(x))return send(res,403,{error:'You can’t use one of the attached agents.'}),true;
      // a member: within their daily limit (Chat and Code together) and only on models they may use, as in Chat

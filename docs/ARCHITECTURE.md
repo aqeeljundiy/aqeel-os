@@ -50,7 +50,7 @@ All in `app/` unless noted. Names are file names without `.mjs`.
 | **Fixers and issues** | `issues` `cloud-fixer` `fixer-git` `fixer-watch` `bottlenecks` `rule-conflicts` `automation-guard` |
 | **Insight** | `usage` `usage-extra` `efficiency` `efficiency-view` `chat-history` `news` `explain` `why` `starters` (empty-chat prompts) `morning` `graphify` `billion-context` `team-view` `team-folders` `team-group` `team-settings` |
 | **Look** | `brand` `icons` `icons-off` `pwa` `pwa-zip` `png` `raster` (`pwa` → `pwa-zip` → `icons-off` is the one import cycle) |
-| **Code app glue** | `code` `code-agents` `code-bridge` `code-changes` `code-online` |
+| **Code app glue** | `code` `code-agent` (the plain agent for Code turns with no agent picked) `code-agents` `code-bridge` `code-changes` `code-online` |
 
 ## 3. How a request flows
 

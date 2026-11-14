@@ -496,7 +496,11 @@ function paintAgentChips(){agentChips.replaceChildren();agentChips.hidden=!aqAge
  // aqeelOS models always run as an agent: with none picked, aqeelOS uses the person's main agent (code-device-routes.mjs, engine/run).
  // Say so here (owner, 15 Nov 2026: "there's no agent but the chat says it's Donna AI"), faded, until they pick one.
  if(!attached.length&&getChoice().provider==='aqeelos'){const d=aqAgents.find(x=>x.id==='default')||aqAgents[0];if(d){const c=document.createElement('span');c.className='agent-chip-one implied';
-  const t=document.createElement('span');t.textContent='Runs as '+d.name;c.title='No agent picked, so aqeelOS models run as '+d.name+(d.id==='default'?', your main agent':'')+', with its tools. Add an agent to choose another.';c.append(agentAv(d),t);agentChips.append(c)}}
+  // on a person's computer aqeelOS runs it as its plain Code agent (app/code-agent.mjs: no one's memory, skills or apps); the online copy
+  // on the box still uses the main agent, which has its own user there
+  const t=document.createElement('span');if(isOnline){t.textContent='Runs as '+d.name;c.title='No agent picked, so aqeelOS models run as '+d.name+(d.id==='default'?', your main agent':'')+', with its tools. Add an agent to choose another.';c.append(agentAv(d),t)}
+  else{t.textContent='Runs as Code, no agent';c.title='No agent picked, so aqeelOS models run as plain Code: build tools only, no agent\'s memory, skills or connected apps. Add an agent to work with one.';const av=document.createElement('span');av.className='av';av.textContent='</>';av.style.fontSize='8.5px';c.append(av,t)}
+  agentChips.append(c)}}
  for(const id of attached){const a=aqAgents.find(x=>x.id===id);if(!a)continue;const c=document.createElement('span');c.className='agent-chip-one';const av=agentAv(a);
   const t=document.createElement('span');t.textContent=a.name;const apps=[...(a.apps||[]),...(a.google?['Google']:[])];c.title=a.name+(apps.length?' · '+apps.slice(0,6).join(', '):'')+'. The AI can ask it for things; it never changes the project.';
   const x=document.createElement('button');x.type='button';x.innerHTML='<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';x.title='Remove '+a.name;x.setAttribute('aria-label','Remove '+a.name);x.addEventListener('click',()=>{c.classList.add('out');setTimeout(()=>setAttached(attached.filter(y=>y!==id)),140)});c.append(av,t,x);agentChips.append(c)}

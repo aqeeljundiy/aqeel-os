@@ -974,6 +974,8 @@ dialog label.switch-row{display:flex;align-items:center;gap:12px}
 .gh-list{display:grid;gap:6px;margin:4px 0 14px}.gh-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-md)}.gh-row.on{border-color:var(--blue-2);background:var(--blue-soft)}.gh-row strong{flex:1;font-size:13px}.gh-row button{min-height:28px;padding:4px 12px;font-size:12px}.gh-status{margin:0 0 12px}
 @media (max-width:700px){.mcp-group .mcp-row{grid-template-columns:auto 1fr;}.mcp-group .mcp-row .mcp-cmd{grid-column:1/-1}}
 .project-field{display:grid;gap:6px;margin:12px 0 0}.project-field>strong{font-size:13px}
+/* in the settings dialog too: .kit-dialog label {display:block} outranked it, so "Memory for this project" sat beside its box (15 Nov 2026) */
+.kit-dialog label.project-field{display:grid;gap:6px;margin:12px 0 0}.project-field>textarea{width:100%;box-sizing:border-box}
 .project-memory{font-size:12.5px;line-height:1.6}
 .project-knowledge{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:var(--muted)}.project-knowledge code{padding:2px 8px;border-radius:6px;background:var(--soft-2);color:var(--ink-2)}
 .project-field>button{justify-self:start;min-height:30px;padding:5px 12px;font-size:12px}

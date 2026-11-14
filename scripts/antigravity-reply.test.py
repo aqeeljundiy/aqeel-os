@@ -1,23 +1,12 @@
-# Tests for engine/antigravity-subscription/reply_fix.py: Gemini's tool calls in the form the engine's prompt bridge reads.
+# Tests for engine/antigravity-subscription/reply_fix.py: Gemini's reply through agy, whole and clean for the engine's prompt bridge.
 # Run: python3 -I scripts/antigravity-reply.test.py
 import importlib.util
-import json
 import pathlib
-import re
 
 here = pathlib.Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("rf", here.parent / "engine" / "antigravity-subscription" / "reply_fix.py")
 rf = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rf)
-BLOCK = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)   # what agent/acp_openai_bridge.py reads
-# as the bridge reads a block: {"function": {"name", "arguments": "<json string>"}} -> {"name", "arguments": dict}
-def calls(t):
-    out = []
-    for m in BLOCK.findall(t):
-        f = json.loads(m)["function"]
-        a = f["arguments"]
-        out.append({"name": f["name"], "arguments": json.loads(a) if isinstance(a, str) else a})
-    return out
 n = 0
 
 
@@ -28,23 +17,23 @@ def check(name, cond):
     print("ok", name)
 
 
-# what Gemini sent on 15 Nov 2026 (Code, "create a website"): one call named tool_call wrapping the real one, and its own end marker
-seen = '!<tool_call>{"type": "function", "function": {"name": "tool_call", "arguments": "{\\"calls\\": [{\\"name\\": \\"mcp__aqeelos_code__project_list\\", \\"arguments\\": {\\"path\\": \\".\\", \\"depth\\": 2}}]}"}}</tool_call><|tool_call_end|>'
-out = rf.normalize(seen)
-check("the wrapper becomes the real call", calls(out) == [{"name": "mcp__aqeelos_code__project_list", "arguments": {"path": ".", "depth": 2}}])
-check("its markers are not left in the text", "<|" not in out)
+# 15 Nov 2026: the answer came in two text steps with agy's to-do tool between them, and agy's result kept only the last scrap
+steps = {1: "I'll build the Skintific store: a home page, products and checkout.\n<tool_call>{...}</tool_call>", 3: "現在用"}
+check("the answer is put together from every text step when agy's result holds only the last", rf.whole(steps, "現在用").startswith("I'll build the Skintific store"))
+check("the steps keep their order", rf.whole({3: "second", 1: "first"}, "") == "first\n\nsecond")
+check("agy's result is kept when it is the whole answer", rf.whole({1: "The vast blue sea."}, "The vast blue sea.\nDONE\n") == "The vast blue sea.\nDONE\n")
+check("no steps: agy's result", rf.whole({}, "only this") == "only this")
 
-two = '<tool_call>{"name":"multi_tool_use.parallel","arguments":{"tool_uses":[{"recipient_name":"functions.project_read","parameters":{"path":"index.html"}},{"name":"project_list","arguments":"{\\"path\\": \\"src\\"}"}]}}</tool_call>'
-check("a parallel wrapper becomes one block per call", [c["name"] for c in calls(rf.normalize(two))] == ["project_read", "project_list"])
-
-native = 'Writing the page.<|tool_call_start|>{"name": "project_write", "arguments": {"path": "index.html", "content": "<h1>Hi</h1>"}}<|tool_call_end|>'
-out = rf.normalize(native)
-check("Gemini's own start and end markers are read as a block", calls(out) == [{"name": "project_write", "arguments": {"path": "index.html", "content": "<h1>Hi</h1>"}}] and out.startswith("Writing the page."))
-
-plain = '<tool_call>{"type": "function", "function": {"name": "project_read", "arguments": "{\\"path\\": \\"a.txt\\"}"}}</tool_call>'
-check("a call already in the right form is kept", calls(rf.normalize(plain)) == [{"name": "project_read", "arguments": {"path": "a.txt"}}])
-check("text with no calls keeps its words, without stray markers", rf.normalize("Done, the site is ready.<|im_end|>") == "Done, the site is ready.")
-broken = "<tool_call>{not json}</tool_call>"
-check("a block it cannot read is left as it was (never lost)", rf.normalize(broken) == broken)
-check("an empty reply stays empty", rf.normalize("") == "")
+check("Gemini's markers are not left in the text", rf.clean("Done, the site is ready.<|im_end|>") == "Done, the site is ready.")
+native = 'Writing the page.<|tool_call_start|>{"name": "x"}<|tool_call_end|>'
+check("Gemini's own start and end markers become the bridge's block", rf.clean(native) == 'Writing the page.<tool_call>{"name": "x"}</tool_call>')
+engine_meta = '<tool_call>{"type": "function", "function": {"name": "tool_call", "arguments": "{\\"calls\\": []}"}}</tool_call>'
+check("the engine's own tool_call (its tool catalog) is left exactly as it is", rf.clean(engine_meta) == engine_meta)
+write = '現在用<tool_call>{"type": "function", "function": {"name": "project_write", "arguments": {"path": "index.html", "content": "<html>\n<body>Skintific</body>\n</html>"}}}</tool_call>'
+import json, re
+fixed = rf.clean(write)
+blk = re.search(r"<tool_call>(.*)</tool_call>", fixed, re.S).group(1)
+check("a write with line breaks in the page becomes valid JSON, the page kept to the letter", json.loads(blk)["function"]["arguments"]["content"] == "<html>\n<body>Skintific</body>\n</html>")
+check("a block that is not JSON at all is left as it was", rf.clean("<tool_call>{not json}</tool_call>") == "<tool_call>{not json}</tool_call>")
+check("an empty reply stays empty", rf.clean("") == "")
 print(n, "passed")

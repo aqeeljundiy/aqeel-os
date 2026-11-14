@@ -25,9 +25,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .reply_fix import normalize as _normalize
+    from .reply_fix import clean as _clean, whole as _whole
 except ImportError:  # loaded as a plain module (the engine's plugin loader or a test)
-    from reply_fix import normalize as _normalize
+    from reply_fix import clean as _clean, whole as _whole
 from providers import register_provider
 from providers.base import ProviderProfile
 
@@ -93,7 +93,7 @@ def _make_client_class():
                                     stderr=subprocess.PIPE, text=True, encoding="utf-8")
             with self._active_process_lock:
                 self._active_processes.add(proc)
-            conv_id, text, final, error, tool_seen = "", [], None, "", ""
+            conv_id, steps, final, error, tool_seen = "", {}, None, "", ""
             timer = threading.Timer(max(60.0, float(timeout_seconds or 900)) + 30, proc.kill)
             timer.start()
             try:
@@ -115,6 +115,8 @@ def _make_client_class():
                             break
                     elif kind == "step_update":
                         st = ev.get("step_update") or {}
+                        if st.get("step_type") == "agent_response" and st.get("text_delta"):
+                            steps[st.get("step_index", 0)] = steps.get(st.get("step_index", 0), "") + str(st["text_delta"])
                         # manage_task is agy's own to-do list for the turn (no files, commands or web): Claude models
                         # use it to plan. It is one of the four tools agy cannot drop, and it is the only one let through.
                         name = str(st.get("tool_name") or (st.get("tool_info") or {}).get("name") or "")
@@ -147,8 +149,8 @@ def _make_client_class():
                 if re.search(r"auth|sign.?in", msg, re.I):
                     msg += " (sign in again on Models › Accounts)"
                 raise RuntimeError("Antigravity: " + msg)
-            # Gemini's own tool-call habits, read into the form the bridge reads (reply_fix.py)
-            return _normalize(str(final.get("response") or "").strip()), ""
+            # the whole answer from every text step (agy's result can hold only the last one), without Gemini's markers (reply_fix.py)
+            return _clean(_whole(steps, str(final.get("response") or "")).strip()), ""
 
         def list_models(self, *, timeout_seconds: float = 30.0) -> list[str]:
             r = subprocess.run([_agy_bin(None), "models"], capture_output=True, text=True, timeout=timeout_seconds,
