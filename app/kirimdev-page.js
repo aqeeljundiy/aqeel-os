@@ -69,7 +69,7 @@ const Kirim={
  async setup(o){const edit=!!o.agent,l=edit?(Kirim.d?.lines||[]).find(x=>x.agent===o.agent):null,s=l?.settings||{};if(edit&&!l)return;
   const num=edit?null:(Kirim.d?.numbers?.list||[]).find(x=>x.phoneNumberId===o.pid);if(!edit&&!num)return;
   let cfg;try{cfg=await UI('/ui/kirimdev/setup?agent='+encodeURIComponent(o.agent||''))}catch(e){return fail(e)}
-  const V={agent:o.agent||'',fresh:false,group:cfg.team?.chatId?String(cfg.team.chatId):'',gtype:false,topic:cfg.team?.topics?.questions??null,ttype:false,
+  const V={review:s?.review==='off'?'off':'on',agent:o.agent||'',fresh:false,group:cfg.team?.chatId?String(cfg.team.chatId):'',gtype:false,topic:cfg.team?.topics?.questions??null,ttype:false,
    lang:['','Indonesian','English'].includes(s.language||'')?(s.language||''):'other',pay:s.payment?.helper?.path||'',ptype:false,style:s.payment?.helper?.style||'picture',card:s.payment?.card||'',ctype:false};
   if(V.pay&&!cfg.helpers.some(h=>h.path===V.pay)){V.ptype=true}
   cfg.cardHelpers=cfg.cardHelpers||[];if(V.card&&!cfg.cardHelpers.some(h=>h.path===V.card))V.ctype=true;
@@ -90,6 +90,8 @@ const Kirim={
    <section class="km-sec"><h3>Replies</h3><label>Language</label><div class="seg-mini km-seg" role="group" aria-label="Language" id="kmf-lang">${LANGS.map(([k,t])=>`<button type="button" data-v="${k}" class="${V.lang===k?'on':''}" aria-pressed="${V.lang===k}">${esc(t)}</button>`).join('')}</div>
     <div class="km-reveal" id="kmf-lbox" hidden><input id="kmf-lo" class="km-lo" aria-label="Language" value="${esc('other'===V.lang?s.language||'':'')}" placeholder="Type the language, like Malay" maxlength="30" autocomplete="off"></div>
     ${i('kmf-quiet','Quiet time after a team reply (minutes)',s.pauseMin??15,'15','inputmode="numeric" maxlength="4"')}<p class="hint">After a team member writes in a chat, the agent stays out of it this long. 0 means it never waits.</p>
+    <div class="km-2"><div>${i('kmf-qs','Wait for the customer to finish (seconds)',s.quietSec??90,'90','inputmode="numeric" maxlength="3"')}</div><div>${i('kmf-mw','Longest wait (seconds)',s.maxWaitSec??180,'180','inputmode="numeric" maxlength="4"')}</div></div><p class="hint">Customers often send several short messages. The agent answers once they have been quiet this long, all of it together, and never later than the longest wait after their first message. 0 answers at once.</p>
+    <label>Check each reply before it is sent</label><div class="seg-mini km-seg" role="group" aria-label="Check each reply before it is sent" id="kmf-review">${[['on','On'],['off','Off']].map(([k,t])=>`<button type="button" data-v="${k}" class="${V.review===k?'on':''}" aria-pressed="${V.review===k}">${t}</button>`).join('')}</div><p class="hint">A second look by the agent's own model: does the reply answer what the customer asked, say only what the chat and its knowledge support, and read them right? A reply that fails is written again; a second fail goes to the team.</p>
     <div class="km-2"><div>${i('kmf-rw','Reset word',(s.resetWords||['reset']).join(', '),'reset','maxlength="60"')}</div><div>${i('kmf-rt','Reset reply',s.resetText,'Test reset. Start again as a new customer.','maxlength="300"')}</div></div><p class="hint">A tester who sends the reset word starts over as a new customer.</p></section>
    <section class="km-sec"><h3>Payments</h3><label for="kmf-pay">Payment helper</label>${Kirim.field('kmf-pay','Automatic')}
     <div class="km-reveal" id="kmf-pbox" hidden>${i('kmf-pp','File in the agent’s folder',V.ptype?V.pay:'','.tools/qris','spellcheck="false"')}<div class="seg-mini km-seg" role="group" aria-label="What it does" id="kmf-style">${[['picture','Makes a QR picture'],['send','Sends it itself']].map(([k,t])=>`<button type="button" data-v="${k}" class="${V.style===k?'on':''}" aria-pressed="${V.style===k}">${t}</button>`).join('')}</div></div>
@@ -138,7 +140,7 @@ const Kirim={
   q('#kmf-card').onclick=e=>Kirim.pick(e,[{label:'Automatic',sub:cfg.cardHelpers.length?'Uses '+cfg.cardHelpers[0].path+' from its folder':'Uses .tools/card from its folder, when there is one',v:'',on:!V.card&&!V.ctype},...(cfg.cardHelpers.length?[{header:'In the agent’s folder'},...cfg.cardHelpers.map(h=>({label:h.path,v:h.path,on:!V.ctype&&V.card===h.path}))]:[]),'-',{label:'Another file',icon:'edit',type:true,on:V.ctype}],
    x=>{V.ctype=!!x.type;if(!x.type)V.card=x.v;paintCard();if(V.ctype)setTimeout(()=>q('#kmf-cp').focus(),60)});
   const seg=(id,on)=>q('#'+id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;q('#'+id).querySelectorAll('button').forEach(x=>{x.classList.toggle('on',x===b);x.setAttribute('aria-pressed',x===b)});on(b.dataset.v)});
-  seg('kmf-lang',v=>{V.lang=v;Kirim.reveal(q('#kmf-lbox'),v==='other');if(v==='other')setTimeout(()=>q('#kmf-lo').focus(),60)});seg('kmf-style',v=>{V.style=v});
+  seg('kmf-lang',v=>{V.lang=v;Kirim.reveal(q('#kmf-lbox'),v==='other');if(v==='other')setTimeout(()=>q('#kmf-lo').focus(),60)});seg('kmf-style',v=>{V.style=v});seg('kmf-review',v=>{V.review=v});
   const val=x=>q(x)?.value.trim()??'';
   const go=async()=>{err.textContent='';note.textContent='';
    if(!edit&&!V.fresh&&!V.agent){err.textContent='Pick the agent that answers this number.';return}
@@ -148,7 +150,7 @@ const Kirim={
    const pay=V.ptype?val('#kmf-pp'):V.pay,card=V.ctype?val('#kmf-cp'):V.card;
    const b={agent:edit?l.agent:fresh||V.agent,phoneNumberId:edit?l.phoneNumberId:num.phoneNumberId,persona:val('#kmf-persona'),business:val('#kmf-biz'),
     testers:[...tbox.querySelectorAll('.km-trow:not(.closing)')].map(r=>({who:r.querySelector('.kmf-tw').value.trim(),phone:r.querySelector('.kmf-tp').value.trim()})),
-    language:V.lang==='other'?val('#kmf-lo'):V.lang,pauseMin:val('#kmf-quiet'),resetWords:val('#kmf-rw'),resetText:val('#kmf-rt'),
+    language:V.lang==='other'?val('#kmf-lo'):V.lang,pauseMin:val('#kmf-quiet'),quietSec:val('#kmf-qs'),maxWaitSec:val('#kmf-mw'),review:V.review,resetWords:val('#kmf-rw'),resetText:val('#kmf-rt'),
     // the limits are kept whatever the helper: Automatic leaves the helper to the payment tool (customer-tools.mjs), as before
     orders:{chatId:val('#kmf-oc'),threadId:val('#kmf-ot')},payment:pay||card||val('#kmf-min')||val('#kmf-max')||val('#kmf-cmax')||val('#kmf-vmax')?{card,cardMax:val('#kmf-cmax'),vaMax:val('#kmf-vmax'),...(pay?{helper:{path:pay,style:V.ptype?V.style:cfg.helpers.find(h=>h.path===pay)?.style||'picture'}}:{}),currency:val('#kmf-cur'),min:val('#kmf-min'),max:val('#kmf-max')}:null,
     labels:chosen(),team:group?{chatId:group,questions:topic??''}:null};

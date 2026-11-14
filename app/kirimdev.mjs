@@ -24,6 +24,7 @@
 //   send aqeelOS did not make) pauses the agent there for the line's quiet time (pauseMin, 15 by default)
 // - brands never mix: a line takes only events for its own phoneNumberId, and whatsapp_reply refuses a number that
 //   wrote to another line and not to this one
+import {reviewPrompt,parseReview} from './kirim-review.mjs';
 import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,unlink,stat,appendFile,readdir} from 'node:fs/promises';
 import {publicUrl} from './install.mjs';   // Your address (System › Settings), read at the moment a webhook is made
@@ -141,7 +142,7 @@ export const BRIDGE={url:process.env.WHATSAPP_BRIDGE_URL||'http://127.0.0.1:3000
   // the running bridge loaded probe_watch.js: the file is there and the bridge started after it was written
  async ready(){try{const f=await stat(path.join(HH(),'hermes-agent','scripts','whatsapp-bridge','probe_watch.js'));const h=await (await fetch(BRIDGE.url+'/health',{signal:AbortSignal.timeout(5000)})).json();return Date.now()-Number(h.uptime||0)*1000>f.mtimeMs}catch{return false}},
  async result(id){try{return JSON.parse(await readFile(path.join(HH(),'platforms','whatsapp','probes',id+'.json'),'utf8'))}catch{return null}}};
-export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,mediaLink=null,receiptFinal=()=>{},echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
+export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,reviewReply=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,mediaLink=null,receiptFinal=()=>{},echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
  const pub=()=>String(PUBLIC_URL??publicUrl()).replace(/\/+$/,'');   // the address given (tests) or the install's current one
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
@@ -298,7 +299,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    // handed to the team (audit H4): the agent stays silent in this chat. The message is kept, the team's alert is refreshed, and the
    // customer gets the line's wait text at most once an hour. A person's reply, a release on the page or the long timeout ends it.
    if(hold){log('kirimdev '+agent+': '+tail(m.from)+' wrote while the chat is with the team; the agent stays silent');await nudgeHold(agent,line,hold,m.text);schedule(key,{debounceSec:Math.ceil((Math.max(hold.until,until)-now())/1000)+5});continue}
-   schedule(key,paused?{debounceSec:Math.ceil((until-now())/1000)+5}:line)}}
+   schedule(key,paused?{debounceSec:Math.ceil((until-now())/1000)+5}:{debounceSec:quietWait(line,st.pending[key])})}}
  // the chat is the team's again → the agent's: a person answered, the team's answer was relayed, a tester reset, a release on the page
  function release(agent,num,why=''){const k=agent+'|'+num,h=st.holds[k];if(!h)return false;delete st.holds[k];for(const [id,w] of Object.entries(st.waits||{}))if(w.agent===agent&&w.from===String(num))delete st.waits[id];
   log('kirimdev '+agent+': the chat with '+tail(num)+' is no longer held for the team'+(why?' ('+why+')':''));return true}
@@ -341,6 +342,13 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  const FAIL_MAX=3,FAIL_WAIT=[60,300],FAIL_WINDOW=30*60e3,PROV_WAIT=[120,300,600,900],TURN_MAX=2*3600e3;
  const timers=new Map(),running=new Set();let active=0;
  // setTimer/clearTimer are injectable so tests drive the burst window themselves instead of racing a 0 s timer
+ // wait for the customer to finish (owner, 14 Nov 2026: "wait a sec for customers to finish their sentence, maybe respond in 1.5
+ // minutes or even 2, so you digest every message first"). Customers write in bursts of short lines with pauses longer than a few
+ // seconds; the agent answers once they have been quiet for lines.<agent>.quietSec (90 s by default), never later than maxWaitSec
+ // (180 s) after their first unanswered message. Both are set per line on Channels › Kirimdev; 0 answers at once.
+ const QUIET=90,MAXWAIT=180;
+ const secs=(v,d,max)=>{const n=v===''||v==null?d:Number(v);return Number.isFinite(n)?Math.min(max,Math.max(0,Math.round(n))):d};
+ const quietWait=(line,p)=>{const q=secs(line?.quietSec,QUIET,600),m=secs(line?.maxWaitSec,MAXWAIT,1800);if(!q)return 0;const left=Math.ceil(((p?.at||now())+m*1000-now())/1000);return Math.max(Math.min(q,3),Math.min(q,left))};
  function schedule(key,line){clearTimer(timers.get(key));timers.set(key,setTimer(()=>{timers.delete(key);return run(key).catch(e=>log('kirimdev '+key+': '+e.message))},(line.debounceSec??8)*1000))}
  async function run(key){if(running.has(key))return;
   running.add(key);let acquired=false,later=false;
@@ -360,7 +368,8 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    // the provider is used up or throttled (hold set by a run that said so): nothing is started until its reset time, not even a try that cannot work (12 Nov 2026)
    const ph=st.provider?.[p.agent];if(ph&&ph.until>now()){later=true;delete st.turns[key];schedule(key,{debounceSec:Math.ceil((ph.until-now())/1000)});return}
    const epoch=st.cut[key]||'';
-   try{await answer(p.agent,line,p,key)}
+   try{await answer(p.agent,line,p,key);
+    if(p.superseded){later=true;delete st.turns[key];await saveState();if(st.pending[key])schedule(key,{debounceSec:quietWait(line,st.pending[key])});return}}
    catch(e){const lim=providerUnavailable(e.message,{now:now()});
     // ROOT CAUSE of the 'agent stopped' loops (12 Nov 2026): the engine run exits 1 because the Claude/GPT account is used up or throttled (HTTP 429 'session limit'), for every chat of the line at once; the two
     // always-active tester chats showed it. That is not the chat's fault: it waits for the reset time (30 min at most, else 2/5/10/15 min), the customer's message stays, ONE Health problem names the reason, and the first good answer clears it
@@ -397,6 +406,14 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    catch(e){log('kirimdev '+agent+': a customer photo could not be read: '+e.message)}
    finally{if(f)await unlink(f).catch(()=>{})}}
   const old=Object.entries(st.images).sort((a,b)=>a[1].at-b[1].at).slice(0,-300);for(const [k] of old)delete st.images[k]}
+ // the second look before sending (kirim-review.mjs): on unless the line says review 'off'. The guard's result passes through unless the
+ // reviewer holds it; a reviewer that fails holds it too (fail closed), except when the AI provider itself is down (the run waits for it)
+ const reviewOn=line=>String(line?.review??'on')!=='off';
+ async function review(agent,line,g,{newMessages=[],history=''}={}){if(!reviewReply||!reviewOn(line))return g;
+  let r;try{r=parseReview(await reviewReply(agent,reviewPrompt({newMessages,history,draft:g.parts,language:line.language||''})))}
+  catch(e){if(providerUnavailable(e.message,{now:now()}))throw e;r={ok:false,problems:['the reply could not be checked before sending ('+String(e.message).slice(0,120)+')']}}
+  if(r.ok)return g;log('kirimdev '+agent+': the check before sending held a reply: '+r.problems.join(' | ').slice(0,300));
+  return {...g,kinds:['review'],hold:'A check before sending found problems: '+r.problems.join('; ')+'. Fix exactly these; if you are not sure what the customer meant, ask them one short question instead of guessing.'}}
  async function history(agent,line,p,key){if(!p.conversationId)return '';const q=new URLSearchParams({conversation_id:p.conversationId,limit:'30'});
   const l=((await api(line.phoneNumberId+'/messages?'+q)).data||[]).sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at))).filter(m=>String(m.created_at)>(st.cut[key]||''));
   await noteImages(agent,l);
@@ -415,6 +432,9 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   const lastQ=hist.split('\n').filter(l=>l.startsWith('CUSTOMER: ')).pop()?.slice(10)||(p.messages||[]).slice(-1)[0]||'-';
   const handoff=(why,o={})=>postHandoff({id:'h'+(++st.seq),agent,from:p.from,conversationId:p.conversationId,name:p.name,lastQ,why,notify:mode!=='draft',tries:0,at:now(),...o},line);
   // a team member replied while the agent was thinking: theirs stands (no alert: a person answered)
+  const superseded=async(agent,line,p,key)=>{await state();const n=st.pending[key];if(!n||n.token===p.token||(st.cut[key]||'')!==epoch||p.outbound)return false;
+   if(now()-(p.at||now())>=secs(line.maxWaitSec,MAXWAIT,1800)*1000)return false;
+   p.superseded=true;log('kirimdev '+agent+': '+tail(p.from)+' kept writing while the reply was written; it was not sent, all their messages are answered together');return true};
   const stale=async()=>{await state();if((st.cut[key]||'')!==epoch||pausedUntil(agent,p.conversationId,p.from)>now()||humanAt(agent,p.conversationId,p.from)>=runAt){log('kirimdev '+agent+': conversation reset or a team member answered meanwhile; the agent\'s reply was not sent');return true}return false};
   if(await stale())return;
   // nothing written: the customer would never hear back and nobody would know (audit H7). A person gets the chat.
@@ -424,8 +444,12 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   const withPhotos=t=>line.autoPhotos?.pattern&&new RegExp(line.autoPhotos.pattern,'i').test(t)&&!/\[(FOTO|TEMPLATE):/.test(t)?t+'\n'+(line.autoPhotos.tags||[]).join('\n'):t;
   // a payment made for this customer in a recent earlier run counts too: a follow-up reply that points back to the QRIS sent a minute
   // ago is not a false claim (false handoff, 10 Nov). Window: lines.<agent>.paymentRecentMin (default 60).
-  const check=async text=>guardReply(splitReply(withPhotos(text)),{paid:paidSince?await paidSince(agent,p.from,runAt-Math.max(0,Number(line.paymentRecentMin??60)||0)*60e3).catch(()=>null):null,qrPics:qrSince?await qrSince(agent,p.from,runAt).catch(()=>[]):[],
+  // a payment lookup that fails counts as "no payment proven" (fail closed, 14 Nov 2026: a failed lookup turned the payment-claim check
+  // off); a QRIS made in a recent earlier reply counts, so "the QRIS above is still valid" is attached, not held (false handoffs)
+  const since=runAt-Math.max(0,Number(line.paymentRecentMin??60)||0)*60e3;
+  const check=async text=>{const g=guardReply(splitReply(withPhotos(text)),{paid:paidSince?await paidSince(agent,p.from,since).catch(()=>false):null,qrPics:qrSince?await qrSince(agent,p.from,since).catch(()=>[]):[],
    ctx:await guardCtx(agent,line,p.from,{hist}),customerText:(p.messages||[]).join('\n')});
+   return g.hold?g:await review(agent,line,g,{newMessages:(p.messages||[]).map(m=>m||'(a photo or file)'),history:hist})};
   let g=await check(out);
   // held by the exit guard (audit H6): the customer gets nothing wrong. The reply is written once more with the reason; if that is
   // held too (or is nothing), a person gets the chat with the held text, which only the team sees.
@@ -437,6 +461,9 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    if(!g2||g2.hold){const held=(g2||g).parts.join('\n---\n'),secret=((g2||g).kinds||[]).includes('secret');log('kirimdev '+agent+': reply for '+tail(p.from)+' held again; handed to the team');
     return handoff('The exit guard stopped the agent\'s reply twice, so nothing was sent to the customer. '+String((g2||g).hold).split(': ')[0]+'.',{kind:'held',held:secret?'(not shown: it held what looks like a key)':held})}
    g=g2}
+  // the customer kept writing while this reply was written: it answers only part of what they said, so it is not sent; the run
+  // starts again with every message once they are quiet (never past maxWaitSec from their first unanswered message)
+  if(await superseded(agent,line,p,key))return;
   if(g.attached?.length)log('kirimdev '+agent+': the reply promised the QRIS without its picture; attached '+g.attached.join(' '));
   if(g.dropped?.length)log('kirimdev '+agent+': dropped '+g.dropped.length+' note(s) from the reply');
   if(mode==='draft')return makeDraft(agent,line,p,g.parts);
@@ -684,7 +711,12 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    if(other)throw Error('That number wrote to another Kirimdev line ('+other.split('|')[0]+'), not to yours. Never answer another brand\'s customers; that agent answers them.')}
   if(!num||!within24h(agent,num))throw Error('That number has not written to this Kirimdev line in the last 24 hours, so WhatsApp does not allow a reply. Ask the team to contact them another way.');
   if(modeOf(line)==='test'&&!testerNow(agent,line,num))throw Error('This line is in Test, so it only answers its testers.');
-  const parts=splitReply(text);if(!parts.length)throw Error('Write the text to send.');const sent=[];
+  let parts=splitReply(text);if(!parts.length)throw Error('Write the text to send.');const sent=[];
+  // the same exit guard as an answered message (14 Nov 2026: this tool only got the leak check): language, payment claims, wait-only
+  {const since=now()-Math.max(0,Number(line.paymentRecentMin??60)||0)*60e3;
+   const g=guardReply(parts,{paid:paidSince?await paidSince(agent,num,since).catch(()=>false):null,qrPics:qrSince?await qrSince(agent,num,since).catch(()=>[]):[],ctx:await guardCtx(agent,line,num,{})});
+   // leaks are left to deliver(), which stops them and tells the team once; what only this guard sees is refused here, for the agent to rewrite
+   if(g.hold&&(g.kinds||[]).length&&g.kinds.every(k=>['payment','wait','language'].includes(k)))throw Error('Not sent: '+g.hold);if(!g.hold&&g.attached?.length)parts=g.parts}
   const sig=parts.join('\n---\n'),last=st.lastReply[agent+'|'+num];
   if(last&&last.text===sig&&now()-last.at<10*60e3)throw Error('That exact message was already sent to this customer '+Math.max(1,Math.round((now()-last.at)/60e3))+' minute(s) ago. It was not sent again.');
   const ops=[];for(const p of withCaptions(parts)){const id=await prepare(agent,line,num,p);if(id)ops.push(id)}await saveState();
@@ -723,7 +755,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
     handoffsWaiting:Object.values(st.handoffs).filter(h=>h.agent===agent).length,phoneNumberId:String(l.phoneNumberId||''),health:health().lines[agent]||null,
     holds:Object.values(st.holds).filter(h=>h.agent===agent&&h.until>t).map(h=>({ref:holdRef(h.from),who:tail(h.from),since:h.at,until:h.until,wrote:h.n||0})),noReply:{today:st.noreply?.[agent]?.day===new Date(t).toISOString().slice(0,10)?st.noreply[agent].n:0,last:st.noreply?.[agent]?.last||null},modeSet:st.modes[agent]||null,
     delivery:pollsNow(agent,l,sec)?'poll':'webhook',polledAt:st.poll?.[agent]?.at||null,pollError:st.poll?.[agent]?.error||null,
-    settings:{persona:l.persona||'',business:l.business||'',language:l.language||'',pauseMin:Number(l.pauseMin??DEFAULT_PAUSE),resetWords:l.resetWords||['reset'],resetText:l.resetText||'',
+    settings:{persona:l.persona||'',business:l.business||'',language:l.language||'',pauseMin:Number(l.pauseMin??DEFAULT_PAUSE),review:l.review==='off'?'off':'on',quietSec:secs(l.quietSec,QUIET,600),maxWaitSec:secs(l.maxWaitSec,MAXWAIT,1800),resetWords:l.resetWords||['reset'],resetText:l.resetText||'',
      testers:(l.testers||[]).map(t=>({who:t.who||'',phone:String(t.phone||''),chat:!!t.conversationId})),payment:l.payment||null,orders:l.orders||null,labels:l.labels?.allowed||[],approvers:(l.approvers||[]).map(a=>({who:a.who||'',telegramId:String(a.telegramId||'')}))}}}))}
  // a mode change is always a person's, on the page: written down with who and when, shown in the bell, logged (audit M6)
  async function setMode(agent,mode,by=''){if(!MODES.includes(mode))throw Error('Mode is test, draft or live.');const c=await readStore(CONF,{lines:{}});if(!c.lines?.[agent])throw Error('No line for '+agent+'.');await state();
@@ -755,6 +787,10 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   if('persona' in b||!cur){l.persona=str(b.persona,40);if(!l.persona)throw Error('Give the agent’s name as customers see it.')}
   if('business' in b||!cur)l.business=str(b.business,80)||l.business||'';
   if('language' in b){const v=str(b.language,30);if(v&&!/^[\p{L} ()-]+$/u.test(v))throw Error('The language is a word, like Indonesian or English.');if(v)l.language=v;else delete l.language}
+  if('review' in b){if(!['on','off'].includes(b.review))throw Error('The check before sending is on or off.');l.review=b.review}
+  for(const [k,max,what] of [['quietSec',600,'The wait for the customer to finish is a whole number of seconds, 0 to 600.'],['maxWaitSec',1800,'The longest wait is a whole number of seconds, 0 to 1800.']])
+   if(k in b){const n=b[k]===''||b[k]==null?null:Number(b[k]);if(n==null)delete l[k];else if(!Number.isInteger(n)||n<0||n>max)throw Error(what);else l[k]=n}
+  if('quietSec' in l&&'maxWaitSec' in l&&l.maxWaitSec&&l.maxWaitSec<l.quietSec)throw Error('The longest wait cannot be shorter than the wait for the customer to finish.');
   if('pauseMin' in b||!cur){const n=b.pauseMin===''||b.pauseMin==null?DEFAULT_PAUSE:Number(b.pauseMin);if(!Number.isInteger(n)||n<0||n>1440)throw Error('The quiet time is a whole number of minutes, 0 to 1440.');l.pauseMin=n}
   if('testers' in b){const T=Array.isArray(b.testers)?b.testers:[];if(T.length>10)throw Error('Ten testers at most.');const old=cur?.testers||[];
    l.testers=T.map(t=>{const who=str(t?.who,40),phone=String(t?.phone??'').replace(/\D/g,'');if(!who&&!phone)return null;

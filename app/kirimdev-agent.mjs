@@ -22,6 +22,12 @@ export function createImageReader({home,live,execute=execFile}){
  return (agent,file)=>new Promise((resolve,reject)=>{if(!live)return reject(Error('not on the live box'));
   execute(path.join(home,'.local','bin','hermes'),['-p',agent,'chat','-Q','--source','tool','-t',CUSTOMER_TOOLSET,'--image',file,'-q',IMAGE_ASK],
    {cwd:path.join(home,'workspaces',agent),timeout:90e3,maxBuffer:1e6},(error,out,err)=>error?reject(Error(stoppedWhy(error,out,err))):resolve(cleanImageText(out)))})}
+// the second look at a draft (kirim-review.mjs): the agent's own model and profile (its instructions and knowledge), the customer
+// tool set with no run key so every tool refuses, no thread kept. Answers one line of JSON.
+export function createReviewer({home,live,execute=execFile}){
+ return (agent,prompt)=>new Promise((resolve,reject)=>{if(!live)return reject(Error('not on the live box'));
+  execute(path.join(home,'.local','bin','hermes'),['-p',agent,'chat','-Q','--source','tool','-t',CUSTOMER_TOOLSET,'-q',prompt],
+   {cwd:path.join(home,'workspaces',agent),timeout:120e3,maxBuffer:1e6},(error,out,err)=>error?reject(Error(stoppedWhy(error,out,err))):resolve(cleanImageText(out)))})}
 export function createKirimdevAgent({DATA,home,live,execute=execFile,customer=null}){
  return async(agent,query,{session,run}={})=>{
   if(!live)throw Error('not on the live box');

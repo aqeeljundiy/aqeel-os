@@ -118,7 +118,7 @@ import {createGoogleShares} from './google-shares.mjs';
 import {createGoogleFiles} from './google-files.mjs';
 import {createGoogleTools,GOOGLE_TOOLS,GOOGLE_TOOL_NAMES} from './google-tools.mjs';   // Google with no terminal (11 Nov 2026)
 import {createKirimdev,publicReach,LABEL_NEVER} from './kirimdev.mjs';
-import {createKirimdevAgent,createImageReader} from './kirimdev-agent.mjs';
+import {createKirimdevAgent,createImageReader,createReviewer} from './kirimdev-agent.mjs';
 import {createPostingLimits} from './posting-limits.mjs';
 import {engineToolList} from './silent-ok.mjs';
 import {open as openFile} from 'node:fs/promises';
@@ -1549,7 +1549,7 @@ const kirimdev=createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev),DATA,docLinks,WOR
   for(const a of agents)if(await stat(path.join(homedir(),'workspaces',a,'.secrets','KIRIMDEV_API_KEY')).catch(()=>null))console.warn('kirimdev: '+a+' still has an old copy of the key in its folder; it was not updated (run scripts/migrate-agent-keys.mjs)');
   console.log('kirimdev: a new API key was saved (ending '+key.slice(-4)+')')},
  apiKey:async()=>{if(!LIVE_APP)return null;const t=await readFile(path.join(HERMES_HOME,'secrets','kirimdev.env'),'utf8').catch(()=>'');return (/^KIRIMDEV_API_KEY=["']?([^"'\s]+)/m.exec(t)||[])[1]||null},
- runAgent:createKirimdevAgent({DATA,home:homedir(),live:LIVE_APP,customer:()=>customerTools}),describeImage:createImageReader({home:homedir(),live:LIVE_APP}),
+ runAgent:createKirimdevAgent({DATA,home:homedir(),live:LIVE_APP,customer:()=>customerTools}),describeImage:createImageReader({home:homedir(),live:LIVE_APP}),reviewReply:createReviewer({home:homedir(),live:LIVE_APP}),
  paidSince:(a,ph,t)=>customerTools.paidSince(a,ph,t),
  qrSince:(a,ph,t)=>customerTools.qrSince(a,ph,t),
  telegram:async(a,chatId,threadId,text)=>{const t=await readFile(path.join(HERMES_HOME,'profiles',a,'.env'),'utf8').catch(()=>'');const tok=(/^TELEGRAM_BOT_TOKEN=["']?([^"'\s]+)/m.exec(t)||[])[1];if(!tok||!LIVE_APP)return false;

@@ -76,7 +76,7 @@ const sentEv=(to,source,id='msg_'+Math.random(),conv='cnv_A',pid='111')=>JSON.st
 
 // an Indonesian line, as the owner runs it: these are settings (kirimdev.json), not code
 const LOCALE={language:'Indonesian',localPrefix:{country:'62',local:'0'},resetText:'✅ Test reset. Chat dari awal ya, anggap kamu customer baru.',handoff:{customerText:'Baik kak, untuk pertanyaan ini saya bantu teruskan ke tim kami dulu ya 🙏 Mohon ditunggu sebentar.'}};
-async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin,extra={},paidSince=null,bridge={self:async()=>'',send:async()=>{},result:async()=>null},probs=[],oks=[],health=false,docLinks=null}={}){
+async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin,extra={},paidSince=null,bridge={self:async()=>'',send:async()=>{},result:async()=>null},probs=[],oks=[],health=false,docLinks=null,reviewReply=null,qrSince=null}={}){
  const DATA=await mkdtemp(path.join(tmpdir(),'kd-')),WORK=path.join(DATA,'work');
  await mkdir(path.join(WORK,'cove-support','media','staff'),{recursive:true});
  await writeFile(path.join(WORK,'cove-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\n');
@@ -94,14 +94,14 @@ async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',c
   if(o.method==='PATCH'&&p.startsWith('webhook_subscriptions/')){patched.push([p,JSON.parse(o.body)]);return {ok:true,json:async()=>({data:{id:p.split('/')[1],events:JSON.parse(o.body).events}})}}
   return {ok:false,status:404,json:async()=>({})}};
  // fake timers: the burst window only closes when the test calls settle(), never because the box was slow
- const due=new Map();let tid=0;const setTimer=(fn)=>{const i=++tid;due.set(i,fn);return i},clearTimer=i=>{due.delete(i)};
- const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,paidSince,bridge,docLinks,...(health?{problem:async(...x)=>{probs.push(x)},solved:async(...x)=>{oks.push(x)}}:{}),
+ const due=new Map(),delays=[];let tid=0;const setTimer=(fn,ms)=>{const i=++tid;due.set(i,fn);delays.push(ms);return i},clearTimer=i=>{due.delete(i)};
+ const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,paidSince,reviewReply,qrSince,bridge,docLinks,...(health?{problem:async(...x)=>{probs.push(x)},solved:async(...x)=>{oks.push(x)}}:{}),
   teamGroup:async a=>a==='cove-support'?team:null,
   runAgent:async(a,q,context)=>{asked.push([a,q,context]);return typeof agentSays==='function'?agentSays(q,context):agentSays},telegram:async(...x)=>{posts.push(x);return tg.ok?4242:false},tell:async t=>{told.push(t)}});
  const post=(raw,h={},agent='cove-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.received',...h},Buffer.from(raw));
  const postSent=(raw,agent='cove-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.sent'},Buffer.from(raw));
  const settle=async()=>{for(let n=0;n<20&&due.size;n++){const fns=[...due.values()];due.clear();await Promise.all(fns.map(f=>f()))}await new Promise(r=>setImmediate(r))};
- return {k,DATA,probs,oks,sent,asked,posts,told,patched,post,postSent,settle,tg,due,setTimer,clearTimer,later:ms=>{clock+=ms},set receipt(v){box.receipt=v}}}
+ return {k,DATA,probs,oks,sent,asked,posts,told,patched,post,postSent,settle,tg,due,delays,setTimer,clearTimer,later:ms=>{clock+=ms},set receipt(v){box.receipt=v}}}
 
 test('signature: any v1 from any secret, within 5 minutes, raw bytes',()=>{const raw='{"a":1}',t=Math.floor(Date.now()/1000);
  assert.equal(verifySignature(Buffer.from(raw),sign(raw,t),[SECRET]),true);
@@ -505,3 +505,65 @@ test('a held chat is released from the page by its reference: the number is not 
  assert.equal(await t.k.releaseRef('someone-else',h[0].ref,'an admin'),false,'only the line\'s own chats');
  assert.equal(await t.k.releaseRef('cove-support',h[0].ref,'an admin'),true);assert.deepEqual((await t.k._state()).holds,{});
  assert.equal(await t.k.releaseRef('cove-support',h[0].ref,'an admin'),false,'again: already released')});
+
+// wait for the customer to finish (owner, 14 Nov 2026): answer once they are quiet, all of it together
+test('the agent waits until the customer has been quiet (90 s by default), never past the longest wait (180 s)',async()=>{const t=await make();
+ await t.post(meta('628123','halo'));assert.equal(t.delays.at(-1),90000,'90 s after a message by default');
+ t.later(170e3);await t.post(meta('628123','mau tanya'));assert.equal(t.delays.at(-1),10000,'only 10 s left of the 180 s longest wait');
+ t.later(30e3);await t.post(meta('628123','harga?'));assert.equal(t.delays.at(-1),3000,'past the longest wait: answered in a moment');
+ await t.settle();assert.equal(t.asked.length,1,'one answer for the whole burst');assert.match(t.asked[0][1],/CUSTOMER: halo\nCUSTOMER: mau tanya\nCUSTOMER: harga\?/)});
+
+test('quietSec and maxWaitSec are per line; 0 answers at once',async()=>{const t=await make({extra:{quietSec:30,maxWaitSec:60}});
+ await t.post(meta('628123','halo'));assert.equal(t.delays.at(-1),30000);
+ const t0=await make({extra:{quietSec:0}});await t0.post(meta('628123','halo'));assert.equal(t0.delays.at(-1),0)});
+
+test('a reply written while the customer kept writing is not sent; every message is answered together',async()=>{let t,n=0;
+ t=await make({agentSays:async()=>{if(++n===1){t.later(20e3);await t.post(meta('628123','dan itu artinya sudah termasuk water ya?'))}return 'Jawaban '+n}});
+ await t.post(meta('628123','kalau 1.5 mg itu pen ke 15?'));await t.settle();
+ assert.equal(t.asked.length,2,'asked again with everything');assert.deepEqual(t.sent.map(b=>b.text?.body),['Jawaban 2'],'only the full answer is sent');
+ assert.match(t.asked[1][1],/CUSTOMER: kalau 1\.5 mg itu pen ke 15\?\nCUSTOMER: dan itu artinya sudah termasuk water ya\?/)});
+
+test('past the longest wait a reply is sent even if the customer is still writing (they are never left without an answer)',async()=>{let t,n=0;
+ t=await make({extra:{maxWaitSec:60},agentSays:async()=>{if(++n===1){t.later(90e3);await t.post(meta('628123','satu lagi'))}return 'Jawaban '+n}});
+ await t.post(meta('628123','halo'));await t.settle();
+ assert.equal(t.sent[0]?.text?.body,'Jawaban 1','the first answer went out');assert.equal(t.asked.length,2,'the late message is answered next')});
+
+test('the wait settings are checked when saved, and kept',async()=>{const t=await make({extra:{phoneNumberId:'111111'}});
+ await assert.rejects(t.k.saveLine('cove-support',{phoneNumberId:'111111',quietSec:700}),/0 to 600/);
+ await assert.rejects(t.k.saveLine('cove-support',{phoneNumberId:'111111',quietSec:120,maxWaitSec:60}),/cannot be shorter/);
+ await t.k.saveLine('cove-support',{phoneNumberId:'111111',quietSec:45,maxWaitSec:120});const c=JSON.parse(await (await import('node:fs/promises')).readFile(path.join(t.DATA,'kirimdev.json'),'utf8'));
+ assert.equal(c.lines['cove-support'].quietSec,45);assert.equal(c.lines['cove-support'].maxWaitSec,120)});
+
+// the check before sending (kirim-review.mjs, 14 Nov 2026): a draft that misreads or misses a question is written again, then a person gets it
+test('the check before sending holds a draft that misses the question; the agent rewrites it with the reasons',async()=>{const seen=[];let n=0;
+ const t=await make({mode:'live',agentSays:q=>/check before sending found problems/.test(q)?'Dosis 1.5 mg itu peptide saja kak, belum termasuk water.':'Halo kak',
+  reviewReply:async(a,prompt)=>{seen.push(prompt);return ++n===1?'{"ok":false,"problems":["it does not answer whether 1.5 mg includes the water"]}':'{"ok":true}'}});
+ await t.post(meta('628123','dan suntikan itu 1.5 mg = water dan peptide atau hanya peptide nya'));await t.settle();
+ assert.equal(t.asked.length,2);assert.match(t.asked[1][1],/does not answer whether 1\.5 mg includes the water/);
+ assert.deepEqual(t.sent.map(b=>b.text?.body),['Dosis 1.5 mg itu peptide saja kak, belum termasuk water.']);
+ assert.match(seen[0],/1\.5 mg = water dan peptide/,'the reviewer sees the customer message');assert.match(seen[0],/Halo kak/,'and the draft')});
+
+test('held twice by the check: nothing is sent, a person gets the chat with the held text',async()=>{
+ const t=await make({mode:'live',agentSays:'Halo kak',reviewReply:async()=>'{"ok":false,"problems":["misreads the quantity"]}'});
+ await t.post(meta('628123','pesan 2 ya'));await t.settle();
+ assert.ok(!t.sent.some(b=>b.text?.body==='Halo kak'),'the held draft never reached the customer');assert.ok(t.posts.some(x=>/HANDOFF[\s\S]*Held text[\s\S]*Halo kak/.test(String(x[3]))),'the team sees what was held')});
+
+test('a check that fails holds the reply (fail closed); the line can turn the check off',async()=>{
+ const t=await make({mode:'live',agentSays:'Halo kak',reviewReply:async()=>{throw Error('boom')}});
+ await t.post(meta('628123','halo'));await t.settle();assert.ok(!t.sent.some(b=>b.text?.body==='Halo kak'),'not sent while it could not be checked');
+ let called=0;const off=await make({mode:'live',agentSays:'Halo kak',extra:{review:'off'},reviewReply:async()=>{called++;return '{"ok":false}'}});
+ await off.post(meta('628123','halo'));await off.settle();assert.equal(called,0);assert.equal(off.sent.length,1)});
+
+test('whatsapp_reply gets the full guard: a payment claim with no payment is refused for the agent to rewrite',async()=>{
+ const t=await make({mode:'live',paidSince:async()=>false});await t.post(meta('628123','halo'));await t.settle();const n=t.sent.length;
+ await assert.rejects(t.k.reply('cove-support','628123','QRIS sudah saya kirimkan ya kak'),/Not sent: .*no (QR picture|payment) was made/);assert.equal(t.sent.length,n)});
+
+test('a payment lookup that fails holds a payment claim (it used to switch the check off)',async()=>{
+ const t=await make({mode:'live',agentSays:'Link pembayaran sudah saya kirim ya kak',paidSince:async()=>{throw Error('disk')}});
+ await t.post(meta('628123','sudah transfer?'));await t.settle();assert.ok(!t.sent.some(b=>/Link pembayaran sudah/.test(b.text?.body||'')),'the claim did not reach the customer')});
+
+test('a QRIS made in an earlier reply counts: "the QRIS above" is sent with that picture, not handed off',async()=>{const asked=[];
+ const t=await make({mode:'live',agentSays:'QRIS-nya sudah kami kirim di atas ya kak, masih berlaku',paidSince:async()=>true,qrSince:async(a,ph,since)=>{asked.push(since);return ['[FOTO: qris-123.png]']}});
+ await t.post(meta('628123','qrisnya mana kak'));await t.settle();
+ assert.ok(t.sent.length>=1,'sent, not handed off');assert.ok(!t.posts.some(x=>/HANDOFF/.test(String(x[3]))));
+ assert.ok(asked.every(s=>s<Date.now()-50*60e3),'looked back over the payment window, not only this run')});
