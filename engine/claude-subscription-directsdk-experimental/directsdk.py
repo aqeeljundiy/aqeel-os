@@ -8,6 +8,7 @@ from collections import deque
 import hashlib
 import inspect
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -65,6 +66,7 @@ NATIVE_ERROR_STATUS = {
 
 CARRIER = 'claude-subscription-directsdk-experimental.native_assistant'
 PREFIX = 'mcp__hermes__'
+logger = logging.getLogger(__name__)
 
 
 class Object(SimpleNamespace):
@@ -333,6 +335,15 @@ class Request:
             self.process = subprocess.Popen(command, stdin=stdin, **kwargs, **_own_process_group())
         return self.process
 
+    def adopt(self, native):
+        """Take over a standby native as if spawned here: from now on cancel() kills its tree."""
+        with self.lock:
+            if not self.cancelled.is_set():
+                self.process = native.process
+                return
+        native.discard()
+        raise RuntimeError('Claude request cancelled')
+
 
 def _own_process_group():
     """Popen kwargs that put native (and the node/cmd children it spawns) in a group we can kill as one."""
@@ -552,6 +563,236 @@ def process_workdir():
         return _process_cwd
 
 
+# aqeelOS (14 Nov 2026): warm standby natives. Every model call spawned a fresh `claude -p`; on the loaded
+# Elkiya box (load 18-27 on 12 cores) a 22k-token call with a 26-token answer took 4-11 s, two per chat
+# reply. Most of the difference with other providers is native's start-up (node, its bundle, the inert MCP
+# handshake), paid before the first replay acknowledgment. A live native cannot be reused for the next call:
+# after a tool_use under --max-turns 1 it already holds its own "permission denied" tool_result (and its
+# per-request context), so Hermes' real result would be a second answer to the same tool_use (checked
+# offline against a mock Messages API on native 2.1.321). Instead, while a call waits on the model, a
+# standby is started from exactly the same inputs and left blocking on stdin, where it holds no
+# conversation state. The next call whose inputs hash the same adopts it and replays its history as
+# usual. Anything that differs (model, effort, system prompt, tools, body, env, cwd, timeout, binary)
+# misses and spawns cold, exactly as before.
+WARM_ENV, WARM_MAX_ENV, WARM_IDLE_ENV = ('CLAUDE_SUBSCRIPTION_DIRECTSDK_WARM', 'CLAUDE_SUBSCRIPTION_DIRECTSDK_WARM_MAX',
+                                         'CLAUDE_SUBSCRIPTION_DIRECTSDK_WARM_IDLE_SECONDS')
+
+
+def warm_settings():
+    """(on, most standbys, idle seconds), read per call from the gateway's own environment. On by default."""
+    on = os.environ.get(WARM_ENV, '1').strip().lower() not in ('0', 'false', 'no', 'off')
+    try:
+        most = int(os.environ.get(WARM_MAX_ENV, '4'))
+    except ValueError:
+        most = 4
+    try:
+        idle = float(os.environ.get(WARM_IDLE_ENV, '300'))
+    except ValueError:
+        idle = 300.0
+    if not math.isfinite(idle) or idle <= 0:
+        idle = 300.0
+    return on and most > 0, max(most, 0), idle
+
+
+def _spawn_detached(command, **kwargs):
+    return subprocess.Popen(command, **kwargs, **_own_process_group())
+
+
+def warm_key(command, env, cwd, upstream, timeout, files):
+    """Everything a spawn depends on, hashed. The native binary's identity is part of it, so a
+    `claude update` never hands an old standby to a new call."""
+    try:
+        info = os.stat(command[0])
+        binary = [info.st_mtime_ns, info.st_size, info.st_ino]
+    except (OSError, IndexError):
+        binary = None
+    blob = json.dumps([command, sorted(env.items()), cwd, upstream, timeout, sorted(files.items()), binary], separators=(',', ':'))
+    return hashlib.sha256(blob.encode('utf-8', 'surrogatepass')).hexdigest()
+
+
+class Native:
+    """One spawned native with its own files, admission relay and pipe readers.
+
+    A request either builds one now (cold) or adopts a standby the pool built earlier from the same
+    inputs (warm); both go through this constructor, so the child a request talks to is the same
+    either way and only its start time differs. The relay starts without a queried frame; the request
+    sets it before writing any frame."""
+
+    def __init__(self, files, build_command, env, cwd, upstream, timeout, spawn, key=None):
+        self.key, self.process, self.admission, self.reader, self.err_drain = key, None, None, None, None
+        self.stderr, self.events = deque(maxlen=40), queue.Queue()
+        self.born, self.expires, self._released = time.monotonic(), None, False
+        # Per-request files only; native runs in the stable cwd from _workdir.
+        self.root = Path(tempfile.mkdtemp(prefix='claude-directsdk-'))
+        try:
+            for name, text in files.items():
+                (self.root / name).write_text(text, encoding='utf-8')
+            self.admission = Admission(upstream, timeout)
+            child_env = dict(env, ANTHROPIC_BASE_URL=self.admission.url)
+            self.process = spawn(build_command(self.root), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', cwd=cwd, env=child_env)
+        except BaseException:
+            self.discard()
+            raise
+        p = self.process
+
+        # Native's stderr is diagnosis, not noise: a gateway-only failure (issue #44)
+        # previously vanished into DEVNULL, and the reporter had to patch the plugin to
+        # learn the stream was empty. Drain on a thread so the child never blocks.
+        def drain_err():
+            try:
+                for line in p.stderr:
+                    self.stderr.append(line)
+            except Exception:
+                pass
+            finally:
+                try:
+                    p.stderr.close()
+                except Exception:
+                    pass
+
+        def read():
+            try:
+                for line in p.stdout:
+                    self.events.put(json.loads(line))
+            except Exception as error:
+                self.events.put(error)
+            finally:
+                # The consumer may close while paused at a yielded chunk.
+                # Reaping belongs to this owner thread, never cancel().
+                p.wait()
+                self.events.put(None)
+        self.err_drain = threading.Thread(target=drain_err, daemon=True)
+        self.err_drain.start()
+        self.reader = threading.Thread(target=read, daemon=True)
+        self.reader.start()
+
+    def usable(self):
+        """A standby is handed out only while it still waits on stdin with an untouched relay."""
+        a = self.admission
+        return self.process.poll() is None and not a.used and not a.denied and not a.cancelled and time.monotonic() < self.expires
+
+    def release(self):
+        """End of a request (its tree is already killed): close the relay, reap, close pipes, drop files."""
+        if self._released:
+            return
+        self._released = True
+        try:
+            if self.admission is not None:
+                self.admission.close()
+            p = self.process
+            if p is not None:
+                p.wait(timeout=5)
+                if self.reader is not None:
+                    self.reader.join(timeout=5)
+                for pipe in (p.stdin, p.stdout):
+                    if pipe and not pipe.closed:
+                        pipe.close()
+        finally:
+            # Windows stragglers can still hold these open for a moment; cleanup must not fail the request.
+            shutil.rmtree(self.root, ignore_errors=True)
+
+    def discard(self):
+        """Kill the whole tree and release; for standbys and half-built natives, never raises."""
+        try:
+            if self.process is not None:
+                kill_process_tree(self.process)
+            self.release()
+        except Exception:
+            pass
+
+
+class WarmPool:
+    """Idle standby natives by spawn key: at most one per key, at most `most` in all (oldest
+    dropped first), each killed after `idle` seconds unused, every one killed at exit."""
+
+    def __init__(self):
+        self.lock = threading.Condition()
+        self.idle, self.starting, self.janitor, self.closed = {}, set(), None, False
+
+    def __len__(self):
+        with self.lock:
+            return len(self.idle)
+
+    def take(self, key):
+        with self.lock:
+            native = self.idle.pop(key, None)
+            self.lock.notify_all()
+        if native is None:
+            return None
+        if not native.usable():
+            native.discard()
+            return None
+        return native
+
+    def offer(self, key, factory, most, idle):
+        """Start a standby for key on a background thread unless one is there or on its way."""
+        with self.lock:
+            if self.closed or key in self.idle or key in self.starting:
+                return False
+            self.starting.add(key)
+        threading.Thread(target=self._start, args=(key, factory, most, idle), daemon=True, name='claude-directsdk-warm').start()
+        return True
+
+    def _start(self, key, factory, most, idle):
+        try:
+            native = factory()
+        except Exception as error:
+            with self.lock:
+                self.starting.discard(key)
+            logger.info('claude native standby not started: %s', error)
+            return
+        surplus = []
+        with self.lock:
+            self.starting.discard(key)
+            if self.closed or key in self.idle:
+                surplus.append(native)
+            else:
+                native.expires = time.monotonic() + idle
+                self.idle[key] = native
+                while len(self.idle) > most:
+                    surplus.append(self.idle.pop(next(iter(self.idle))))
+                if self.janitor is None:
+                    self.janitor = threading.Thread(target=self._sweep, daemon=True, name='claude-directsdk-warm-janitor')
+                    self.janitor.start()
+                self.lock.notify_all()
+        for extra in surplus:
+            extra.discard()
+
+    def _sweep(self):
+        """Kill standbys past their idle time (or already dead); exits when none are left."""
+        while True:
+            with self.lock:
+                while True:
+                    if not self.idle:
+                        self.janitor = None
+                        return
+                    now = time.monotonic()
+                    stale = [key for key, n in self.idle.items() if n.expires <= now or n.process.poll() is not None]
+                    if stale:
+                        stale = [self.idle.pop(key) for key in stale]
+                        break
+                    self.lock.wait(min(30.0, min(n.expires for n in self.idle.values()) - now))
+            for native in stale:
+                native.discard()
+
+    def clear(self):
+        with self.lock:
+            natives = list(self.idle.values())
+            self.idle.clear()
+            self.lock.notify_all()
+        for native in natives:
+            native.discard()
+
+    def close(self):
+        with self.lock:
+            self.closed = True
+        self.clear()
+
+
+_WARM = WarmPool()
+atexit.register(_WARM.close)
+
+
 class Client:
     HERMES_SKIP_TRANSPORT_WRAP = True
     HERMES_SKIP_ASYNC_WRAP = True
@@ -637,244 +878,222 @@ class Client:
 
     def _run(self, request, kwargs, body, manifest, names, system, frames):
         hermes_names = {native: hermes for hermes, native in names.items()}
-        p = None
-        reader = None
-        err_drain = None
-        native_stderr = deque(maxlen=40)
+        child = None
+        mode, started, sent_at, first_at, standby_age = 'cold', time.monotonic(), None, None, None
         try:
             timeout = kwargs.get('timeout', self.timeout)
             timeout = getattr(timeout, 'read', timeout)
             if not isinstance(timeout, (int, float)) or timeout <= 0:
                 raise ValueError('timeout must be positive seconds')
-            # Per-request files only; native runs in the stable cwd from _workdir. Windows stragglers
-            # can still hold these open for a moment, and cleanup must not fail the request.
-            with tempfile.TemporaryDirectory(prefix='claude-directsdk-', ignore_cleanup_errors=True) as tmp:
-                root = Path(tmp)
-                (root / 'tools.json').write_text(json.dumps(manifest), encoding='utf-8')
-                mcp = {'mcpServers': {'hermes': {'command': sys.executable, 'args': [str(Path(__file__).with_name('inert_mcp.py')), str(root / 'tools.json')]}}}
-                env = _with_login_identity(_with_windows_essentials(dict(self.env if self.env is not None else os.environ)))
-                if self.env is None:
-                    conflicts = [key for key in ('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_FOUNDRY_API_KEY') if env.get(key)]
-                    conflicts += [key for key in ('CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY') if env.get(key, '').lower() not in ('', '0', 'false', 'no', 'off')]
-                    if conflicts:
-                        raise ValueError('OAuth provider refuses conflicting native auth/backend overrides: ' + ', '.join(conflicts))
-                # Fail with the install hint, not a Popen FileNotFoundError, when Claude Code is absent.
-                resolved = resolve_claude(self.command, env)
-                if resolved is None:
-                    raise ClaudeCodeMissing(INSTALL_HINT)
-                apply_config_dir(env)
-                # An inherited effort level would override the --effort Hermes passes below.
-                for key in ('CLAUDE_CODE_EXTRA_BODY', 'CLAUDE_CODE_EFFORT_LEVEL'):
-                    env.pop(key, None)
-                env.update(ENABLE_TOOL_SEARCH='false', CLAUDE_CODE_MAX_RETRIES='0', DISABLE_AUTO_COMPACT='1', DISABLE_COMPACT='1')
-                # Telemetry and feature flags follow the user's claude_code_telemetry setting, read per spawn.
-                apply_traffic_policy(env)
-                # Hermes owns budgets; native's replayed reminder invalidates cached history.
-                env['CLAUDE_CODE_TOTAL_TOKENS_REMINDER'] = 'off'
-                # The queried frame lets the relay keep the cache breakpoint off native's per-request context.
-                request.admission = Admission(env.get('ANTHROPIC_BASE_URL', 'https://api.anthropic.com'), timeout, queried=frames[-1]['message']['content'])
-                env['ANTHROPIC_BASE_URL'] = request.admission.url
-                # Native settings apply env inside the process, avoiding execve's
-                # per-argument/environment-string limit for full Hermes schemas.
-                (root / 'settings.json').write_text(json.dumps({'env': {'CLAUDE_CODE_EXTRA_BODY': body}}), encoding='utf-8')
-                (root / 'system.md').write_text(system, encoding='utf-8')
-                parsed = json.loads(body)
-                if 'max_tokens' in parsed:
-                    env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = str(parsed['max_tokens'])
-                # The resolved path matters on Windows: CreateProcess finds claude.exe on PATH but not the npm claude.cmd shim.
-                command = resolved + ['-p', '--model', native_model(kwargs['model']), '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--system-prompt-file', str(root / 'system.md'), '--settings', str(root / 'settings.json'), '--setting-sources', '', '--strict-mcp-config', '--disable-slash-commands', '--max-turns', '1', '--permission-mode', 'dontAsk', '--no-session-persistence', '--mcp-config', json.dumps(mcp)]
-                # Native appends a per-turn effort message at its own level (the CLI default unless
-                # --effort is given), which overrides the top-level output_config.effort from the extra body.
-                effort = parsed.get('output_config', {}).get('effort')
-                if effort:
-                    command += ['--effort', effort]
-                p = request.spawn(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', cwd=self._workdir(), env=env)
-                # Native's stderr is diagnosis, not noise: a gateway-only failure (issue #44)
-                # previously vanished into DEVNULL, and the reporter had to patch the plugin to
-                # learn the stream was empty. Drain on a thread so the child never blocks.
-                native_stderr = deque(maxlen=40)
+            interpreter, inert = sys.executable, str(Path(__file__).with_name('inert_mcp.py'))
+            env = _with_login_identity(_with_windows_essentials(dict(self.env if self.env is not None else os.environ)))
+            if self.env is None:
+                conflicts = [key for key in ('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_FOUNDRY_API_KEY') if env.get(key)]
+                conflicts += [key for key in ('CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY') if env.get(key, '').lower() not in ('', '0', 'false', 'no', 'off')]
+                if conflicts:
+                    raise ValueError('OAuth provider refuses conflicting native auth/backend overrides: ' + ', '.join(conflicts))
+            # Fail with the install hint, not a Popen FileNotFoundError, when Claude Code is absent.
+            resolved = resolve_claude(self.command, env)
+            if resolved is None:
+                raise ClaudeCodeMissing(INSTALL_HINT)
+            apply_config_dir(env)
+            # An inherited effort level would override the --effort Hermes passes below.
+            for key in ('CLAUDE_CODE_EXTRA_BODY', 'CLAUDE_CODE_EFFORT_LEVEL'):
+                env.pop(key, None)
+            env.update(ENABLE_TOOL_SEARCH='false', CLAUDE_CODE_MAX_RETRIES='0', DISABLE_AUTO_COMPACT='1', DISABLE_COMPACT='1')
+            # Telemetry and feature flags follow the user's claude_code_telemetry setting, read per spawn.
+            apply_traffic_policy(env)
+            # Hermes owns budgets; native's replayed reminder invalidates cached history.
+            env['CLAUDE_CODE_TOTAL_TOKENS_REMINDER'] = 'off'
+            # The relay (Native) replaces ANTHROPIC_BASE_URL with its own loopback route.
+            upstream = env.get('ANTHROPIC_BASE_URL', 'https://api.anthropic.com')
+            # Native settings apply env inside the process, avoiding execve's
+            # per-argument/environment-string limit for full Hermes schemas.
+            files = {'tools.json': json.dumps(manifest), 'settings.json': json.dumps({'env': {'CLAUDE_CODE_EXTRA_BODY': body}}), 'system.md': system}
+            parsed = json.loads(body)
+            if 'max_tokens' in parsed:
+                env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = str(parsed['max_tokens'])
+            # Native appends a per-turn effort message at its own level (the CLI default unless
+            # --effort is given), which overrides the top-level output_config.effort from the extra body.
+            effort = parsed.get('output_config', {}).get('effort')
+            model = native_model(kwargs['model'])
 
-                def drain_err():
-                    try:
-                        for line in p.stderr:
-                            native_stderr.append(line)
-                    except Exception:
-                        pass
-                    finally:
-                        try:
-                            p.stderr.close()
-                        except Exception:
-                            pass
-                err_drain = threading.Thread(target=drain_err, daemon=True)
-                err_drain.start()
-                events = queue.Queue()
-                def read():
-                    try:
-                        for line in p.stdout:
-                            events.put(json.loads(line))
-                    except Exception as error:
-                        events.put(error)
-                    finally:
-                        # The consumer may close while paused at a yielded chunk.
-                        # Reaping belongs to this owner thread, never cancel().
-                        p.wait()
-                        events.put(None)
-                reader = threading.Thread(target=read, daemon=True)
-                reader.start()
-                deadline = time.monotonic() + timeout
-                def receive():
-                    nonlocal deadline
-                    while True:
-                        if request.cancelled.is_set():
-                            raise RuntimeError('Claude request cancelled')
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0:
-                            raise TimeoutError('Claude request timed out')
-                        try:
-                            event = events.get(timeout=min(remaining, .2))
-                        except queue.Empty:
-                            continue
-                        if isinstance(event, Exception):
-                            # The offending stdout line is the whole diagnosis (a shim banner, a stray print); keep it.
-                            raise RuntimeError('Invalid native stream-json output: ' + repr((getattr(event, 'doc', None) or str(event))[:300]) + _stderr_tail(native_stderr)) from event
-                        deadline = time.monotonic() + timeout
-                        return event
-                for index, frame in enumerate(frames):
-                    frame = copy.deepcopy(frame)
-                    if frame['type'] == 'user' and index < len(frames) - 1:
-                        frame['shouldQuery'] = False
-                    p.stdin.write(json.dumps(frame, allow_nan=False) + '\n')
-                    p.stdin.flush()
-                    if frame.get('shouldQuery') is False:
-                        while True:
-                            ack = receive()
-                            if ack is None:
-                                raise RuntimeError('Native exited before replay acknowledgment')
-                            if ack.get('type') == 'result':
-                                if ack.get('num_turns') != 0 or ack.get('is_error'):
-                                    raise RuntimeError('Native history replay not supported: expected zero-turn acknowledgment')
-                                break
-                p.stdin.close()
-                assistants, results, stopped, emitted = [], [], False, ''
-                native_error = native_error_code = None
+            def build_command(root):
+                mcp = {'mcpServers': {'hermes': {'command': interpreter, 'args': [inert, str(root / 'tools.json')]}}}
+                # The resolved path matters on Windows: CreateProcess finds claude.exe on PATH but not the npm claude.cmd shim.
+                return resolved + ['-p', '--model', model, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--system-prompt-file', str(root / 'system.md'), '--settings', str(root / 'settings.json'), '--setting-sources', '', '--strict-mcp-config', '--disable-slash-commands', '--max-turns', '1', '--permission-mode', 'dontAsk', '--no-session-persistence', '--mcp-config', json.dumps(mcp)] + (['--effort', effort] if effort else [])
+            cwd = self._workdir()
+            warm, most, idle = warm_settings()
+            key = warm_key(build_command(Path('<request>')), env, cwd, upstream, timeout, files) if warm else None
+            child = _WARM.take(key) if warm else None
+            if child is not None:
+                mode, standby_age = 'warm', time.monotonic() - child.born
+                request.adopt(child)
+            else:
+                child = Native(files, build_command, env, cwd, upstream, timeout, request.spawn, key)
+            request.admission = child.admission
+            if request.cancelled.is_set():
+                request.admission.abort()
+            # The queried frame lets the relay keep the cache breakpoint off native's per-request context.
+            request.admission.queried = frames[-1]['message']['content']
+            p, native_stderr, events = child.process, child.stderr, child.events
+            deadline = time.monotonic() + timeout
+            def receive():
+                nonlocal deadline
                 while True:
-                    event = receive()
-                    if event is None:
-                        break
-                    kind = event.get('type')
-                    if kind == 'assistant':
-                        if event.get('error') or event.get('message', {}).get('error'):
-                            detail = '\n'.join(b.get('text', '') for b in event.get('message', {}).get('content', []) if b.get('type') == 'text')
-                            native_error, native_error_code = detail, event.get('error')
-                        else:
-                            assistants.append(event['message'])
-                    elif kind == 'result':
-                        results.append(event)
-                    elif kind == 'stream_event':
-                        native = event['event']
-                        if native['type'] == 'message_stop':
-                            stopped = True
-                        delta = native.get('delta', {})
-                        if delta.get('type') == 'text_delta':
-                            emitted += delta['text']
-                            yield self._chunk(kwargs['model'], {'content': delta['text']})
-                        elif delta.get('type') == 'thinking_delta':
-                            yield self._chunk(kwargs['model'], {'reasoning_content': delta['thinking']})
-                p.wait(timeout=max(.1, deadline-time.monotonic()))
-                reader.join(timeout=1)
-                if err_drain is not None:
-                    err_drain.join(timeout=1)
-                if request.cancelled.is_set():
-                    raise RuntimeError('Claude request cancelled')
-                admission = request.admission
-                if admission.used:
-                    if admission.status != 200 or not admission.capture.complete:
-                        # Native's last error is the admission denial; name the first attempt's outcome so reports are diagnosable.
-                        first = f'first upstream attempt: status {admission.status}, capture ' + ('complete' if admission.capture.complete else 'incomplete') + (f', relay failure {admission.failure}' if admission.failure else '') + f', native retries denied: {admission.denied}'
-                        if admission.error_text():
-                            first += ', upstream said: ' + admission.error_text()[:500]
-                        # The first attempt's real HTTP status; a 200 cut short or a relay failure has none.
-                        status = admission.status if isinstance(admission.status, int) and admission.status >= 400 else None
-                        raise ClaudeAPIError(f'Incomplete upstream response ({first})' + (': ' + native_error if native_error else ''), status)
-                    assistants = [admission.capture.message]
-                    stopped = True
-                native_failure_handled = admission.denied or (admission.used and assistants[0].get('stop_reason') == 'refusal')
-                if native_error and not native_failure_handled:
-                    if native_error_code == 'authentication_failed' and not admission.used:
-                        # No usable login where Hermes runs native: it refuses before any upstream request; only its /api/hello pre-flight reaches the relay.
-                        raise ClaudeCodeLoggedOut(f'{LOGGED_OUT_HINT} (native: {native_error}){_stderr_tail(native_stderr)}')
-                    raise ClaudeAPIError('Native API error: ' + native_error, NATIVE_ERROR_STATUS.get(str(native_error_code)))
-                if len(results) != 1 or not assistants or not stopped:
-                    raise RuntimeError('Incomplete native response: assistant, message_stop and one result required')
-                final = results[0]
-                blocks = [b for a in assistants for b in a['content']]
-                calls = []
-                for block in blocks:
-                    if block.get('type') == 'tool_use':
-                        # Native built-ins are off (--tools '', inert MCP, dontAsk), so any other name is
-                        # the model's, e.g. a Tool Search-deferred tool called directly (#39). Hermes owns
-                        # validation and answers an unknown name with a recoverable error.
-                        if block['name'] in hermes_names:
-                            # Native sometimes drops the prefix on a tool it was offered (#62); carry the
-                            # offered name so replayed history does not teach the slip back to the model.
-                            block['name'] = PREFIX + block['name']
-                        name = block['name'].removeprefix(PREFIX)
-                        name = hermes_names.get(name, name)
-                        calls.append({'id': block['id'], 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(block['input'], separators=(',', ':'), allow_nan=False)}})
-                boundary = bool(calls) and final.get('subtype') == 'error_max_turns' and p.returncode == 1
-                if not boundary and not native_failure_handled and (p.returncode != 0 or final.get('is_error') or final.get('subtype') != 'success'):
-                    raise RuntimeError('Native request failed: ' + str(final.get('subtype')) + _stderr_tail(native_stderr))
-                usage = assistants[0]['usage'] if admission.used else final.get('usage')
-                if not isinstance(usage, dict) or not all(isinstance(usage.get(k), (int, float)) for k in ('input_tokens', 'output_tokens')):
-                    raise RuntimeError('Native result missing complete token usage')
-                text = ''.join(b.get('text', '') for b in blocks if b.get('type') == 'text')
-                if emitted != text:
-                    if text.startswith(emitted):
-                        yield self._chunk(kwargs['model'], {'content': text[len(emitted):]})
+                    if request.cancelled.is_set():
+                        raise RuntimeError('Claude request cancelled')
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError('Claude request timed out')
+                    try:
+                        event = events.get(timeout=min(remaining, .2))
+                    except queue.Empty:
+                        continue
+                    if isinstance(event, Exception):
+                        # The offending stdout line is the whole diagnosis (a shim banner, a stray print); keep it.
+                        raise RuntimeError('Invalid native stream-json output: ' + repr((getattr(event, 'doc', None) or str(event))[:300]) + _stderr_tail(native_stderr)) from event
+                    deadline = time.monotonic() + timeout
+                    return event
+            for index, frame in enumerate(frames):
+                frame = copy.deepcopy(frame)
+                if frame['type'] == 'user' and index < len(frames) - 1:
+                    frame['shouldQuery'] = False
+                p.stdin.write(json.dumps(frame, allow_nan=False) + '\n')
+                p.stdin.flush()
+                if frame.get('shouldQuery') is False:
+                    while True:
+                        ack = receive()
+                        if ack is None:
+                            raise RuntimeError('Native exited before replay acknowledgment')
+                        if ack.get('type') == 'result':
+                            if ack.get('num_turns') != 0 or ack.get('is_error'):
+                                raise RuntimeError('Native history replay not supported: expected zero-turn acknowledgment')
+                            break
+            p.stdin.close()
+            sent_at = time.monotonic()
+            # Start the next call's native now, while this one waits on the model, so its start-up is off
+            # the critical path. Only agent-loop calls (with tools) get one: a title or compression call
+            # is rarely followed by another with the same inputs.
+            if warm and manifest:
+                _WARM.offer(key, lambda: Native(files, build_command, env, cwd, upstream, timeout, _spawn_detached, key), most, idle)
+            assistants, results, stopped, emitted = [], [], False, ''
+            native_error = native_error_code = None
+            while True:
+                event = receive()
+                if event is None:
+                    break
+                kind = event.get('type')
+                if first_at is None and kind == 'stream_event':
+                    first_at = time.monotonic()
+                if kind == 'assistant':
+                    if event.get('error') or event.get('message', {}).get('error'):
+                        detail = '\n'.join(b.get('text', '') for b in event.get('message', {}).get('content', []) if b.get('type') == 'text')
+                        native_error, native_error_code = detail, event.get('error')
                     else:
-                        raise RuntimeError('Native final text differs from incremental stream')
-                message = {'role': 'assistant', 'content': text or None, 'tool_calls': calls or None,
-                           'reasoning_content': ''.join(b.get('thinking', '') for b in blocks if b.get('type') == 'thinking') or None}
-                carrier = {'type': CARRIER, 'version': 1, 'messages': assistants, 'projection': projection(message)}
-                message['reasoning_details'] = [carrier]
-                # An upstream refusal is Hermes' content_filter, as core's Anthropic transport maps it (even with a tool
-                # call cut off by the classifier, which must not run): terminal, one fallback try, never retried as an
-                # empty reply. Its reason rides stop_details, not a content block.
-                refused = any(a.get('stop_reason') == 'refusal' for a in assistants)
-                if refused:
-                    details = next((a['stop_details'] for a in assistants if isinstance(a.get('stop_details'), dict)), {})
-                    explanation, category = details.get('explanation'), details.get('category')
-                    message['refusal'] = (explanation.strip() if isinstance(explanation, str) and explanation.strip() else
-                                          f'provider refusal category: {category}' if isinstance(category, str) and category else None)
-                    # The cut-off call stays out of what Hermes acts on: Hermes promotes a refusal to the text it shows
-                    # only when nothing else is in the message, so with the call kept the user read "no explanation".
-                    # The carrier above still holds native's turn as sent, refused tool_use included.
-                    message['tool_calls'], calls = None, []
-                inp = usage['input_tokens'] + usage.get('cache_read_input_tokens', 0) + usage.get('cache_creation_input_tokens', 0)
-                normalized_usage = {'prompt_tokens': inp, 'completion_tokens': usage['output_tokens'], 'total_tokens': inp + usage['output_tokens'], 'prompt_tokens_details': {'cached_tokens': usage.get('cache_read_input_tokens', 0)}, 'cache_creation_input_tokens': usage.get('cache_creation_input_tokens', 0), 'native_usage': usage,
-                                    'completion_tokens_details': {'reasoning_tokens': usage.get('output_tokens_details', {}).get('thinking_tokens', 0)},
-                                    'native_cost': {'total_cost_usd': final.get('total_cost_usd'), 'modelUsage': final.get('modelUsage')}}
-                normalized_usage['native_admission'] = {'upstream_requests': int(admission.used), 'blocked_requests': admission.denied, 'request_id': admission.request_id}
-                if admission.unrestored:
-                    normalized_usage['native_admission']['unrestored'] = admission.unrestored
-                finish = 'content_filter' if refused else 'tool_calls' if calls else ('length' if any(a.get('stop_reason') in ('max_tokens', 'model_context_window_exceeded') for a in assistants) else 'stop')
-                response = obj({'id': assistants[-1].get('id', 'claude-native'), 'model': kwargs['model'], 'object': 'chat.completion', 'choices': [{'index': 0, 'finish_reason': finish, 'message': message}], 'usage': normalized_usage})
-                chunk = self._chunk(kwargs['model'], {'content': None, 'tool_calls': [dict(tc, index=i) for i, tc in enumerate(calls)] or None, 'reasoning_details': [carrier], **({'refusal': message['refusal']} if refused else {})}, finish, normalized_usage)
-                chunk._response = response
-                yield chunk
+                        assistants.append(event['message'])
+                elif kind == 'result':
+                    results.append(event)
+                elif kind == 'stream_event':
+                    native = event['event']
+                    if native['type'] == 'message_stop':
+                        stopped = True
+                    delta = native.get('delta', {})
+                    if delta.get('type') == 'text_delta':
+                        emitted += delta['text']
+                        yield self._chunk(kwargs['model'], {'content': delta['text']})
+                    elif delta.get('type') == 'thinking_delta':
+                        yield self._chunk(kwargs['model'], {'reasoning_content': delta['thinking']})
+            p.wait(timeout=max(.1, deadline-time.monotonic()))
+            child.reader.join(timeout=1)
+            child.err_drain.join(timeout=1)
+            if request.cancelled.is_set():
+                raise RuntimeError('Claude request cancelled')
+            admission = request.admission
+            if admission.used:
+                if admission.status != 200 or not admission.capture.complete:
+                    # Native's last error is the admission denial; name the first attempt's outcome so reports are diagnosable.
+                    first = f'first upstream attempt: status {admission.status}, capture ' + ('complete' if admission.capture.complete else 'incomplete') + (f', relay failure {admission.failure}' if admission.failure else '') + f', native retries denied: {admission.denied}'
+                    if admission.error_text():
+                        first += ', upstream said: ' + admission.error_text()[:500]
+                    # The first attempt's real HTTP status; a 200 cut short or a relay failure has none.
+                    status = admission.status if isinstance(admission.status, int) and admission.status >= 400 else None
+                    raise ClaudeAPIError(f'Incomplete upstream response ({first})' + (': ' + native_error if native_error else ''), status)
+                assistants = [admission.capture.message]
+                stopped = True
+            native_failure_handled = admission.denied or (admission.used and assistants[0].get('stop_reason') == 'refusal')
+            if native_error and not native_failure_handled:
+                if native_error_code == 'authentication_failed' and not admission.used:
+                    # No usable login where Hermes runs native: it refuses before any upstream request; only its /api/hello pre-flight reaches the relay.
+                    raise ClaudeCodeLoggedOut(f'{LOGGED_OUT_HINT} (native: {native_error}){_stderr_tail(native_stderr)}')
+                raise ClaudeAPIError('Native API error: ' + native_error, NATIVE_ERROR_STATUS.get(str(native_error_code)))
+            if len(results) != 1 or not assistants or not stopped:
+                raise RuntimeError('Incomplete native response: assistant, message_stop and one result required')
+            final = results[0]
+            blocks = [b for a in assistants for b in a['content']]
+            calls = []
+            for block in blocks:
+                if block.get('type') == 'tool_use':
+                    # Native built-ins are off (--tools '', inert MCP, dontAsk), so any other name is
+                    # the model's, e.g. a Tool Search-deferred tool called directly (#39). Hermes owns
+                    # validation and answers an unknown name with a recoverable error.
+                    if block['name'] in hermes_names:
+                        # Native sometimes drops the prefix on a tool it was offered (#62); carry the
+                        # offered name so replayed history does not teach the slip back to the model.
+                        block['name'] = PREFIX + block['name']
+                    name = block['name'].removeprefix(PREFIX)
+                    name = hermes_names.get(name, name)
+                    calls.append({'id': block['id'], 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(block['input'], separators=(',', ':'), allow_nan=False)}})
+            boundary = bool(calls) and final.get('subtype') == 'error_max_turns' and p.returncode == 1
+            if not boundary and not native_failure_handled and (p.returncode != 0 or final.get('is_error') or final.get('subtype') != 'success'):
+                raise RuntimeError('Native request failed: ' + str(final.get('subtype')) + _stderr_tail(native_stderr))
+            usage = assistants[0]['usage'] if admission.used else final.get('usage')
+            if not isinstance(usage, dict) or not all(isinstance(usage.get(k), (int, float)) for k in ('input_tokens', 'output_tokens')):
+                raise RuntimeError('Native result missing complete token usage')
+            text = ''.join(b.get('text', '') for b in blocks if b.get('type') == 'text')
+            if emitted != text:
+                if text.startswith(emitted):
+                    yield self._chunk(kwargs['model'], {'content': text[len(emitted):]})
+                else:
+                    raise RuntimeError('Native final text differs from incremental stream')
+            message = {'role': 'assistant', 'content': text or None, 'tool_calls': calls or None,
+                       'reasoning_content': ''.join(b.get('thinking', '') for b in blocks if b.get('type') == 'thinking') or None}
+            carrier = {'type': CARRIER, 'version': 1, 'messages': assistants, 'projection': projection(message)}
+            message['reasoning_details'] = [carrier]
+            # An upstream refusal is Hermes' content_filter, as core's Anthropic transport maps it (even with a tool
+            # call cut off by the classifier, which must not run): terminal, one fallback try, never retried as an
+            # empty reply. Its reason rides stop_details, not a content block.
+            refused = any(a.get('stop_reason') == 'refusal' for a in assistants)
+            if refused:
+                details = next((a['stop_details'] for a in assistants if isinstance(a.get('stop_details'), dict)), {})
+                explanation, category = details.get('explanation'), details.get('category')
+                message['refusal'] = (explanation.strip() if isinstance(explanation, str) and explanation.strip() else
+                                      f'provider refusal category: {category}' if isinstance(category, str) and category else None)
+                # The cut-off call stays out of what Hermes acts on: Hermes promotes a refusal to the text it shows
+                # only when nothing else is in the message, so with the call kept the user read "no explanation".
+                # The carrier above still holds native's turn as sent, refused tool_use included.
+                message['tool_calls'], calls = None, []
+            inp = usage['input_tokens'] + usage.get('cache_read_input_tokens', 0) + usage.get('cache_creation_input_tokens', 0)
+            normalized_usage = {'prompt_tokens': inp, 'completion_tokens': usage['output_tokens'], 'total_tokens': inp + usage['output_tokens'], 'prompt_tokens_details': {'cached_tokens': usage.get('cache_read_input_tokens', 0)}, 'cache_creation_input_tokens': usage.get('cache_creation_input_tokens', 0), 'native_usage': usage,
+                                'completion_tokens_details': {'reasoning_tokens': usage.get('output_tokens_details', {}).get('thinking_tokens', 0)},
+                                'native_cost': {'total_cost_usd': final.get('total_cost_usd'), 'modelUsage': final.get('modelUsage')}}
+            normalized_usage['native_admission'] = {'upstream_requests': int(admission.used), 'blocked_requests': admission.denied, 'request_id': admission.request_id}
+            if admission.unrestored:
+                normalized_usage['native_admission']['unrestored'] = admission.unrestored
+            finish = 'content_filter' if refused else 'tool_calls' if calls else ('length' if any(a.get('stop_reason') in ('max_tokens', 'model_context_window_exceeded') for a in assistants) else 'stop')
+            response = obj({'id': assistants[-1].get('id', 'claude-native'), 'model': kwargs['model'], 'object': 'chat.completion', 'choices': [{'index': 0, 'finish_reason': finish, 'message': message}], 'usage': normalized_usage})
+            chunk = self._chunk(kwargs['model'], {'content': None, 'tool_calls': [dict(tc, index=i) for i, tc in enumerate(calls)] or None, 'reasoning_details': [carrier], **({'refusal': message['refusal']} if refused else {})}, finish, normalized_usage)
+            chunk._response = response
+            yield chunk
         finally:
             request.cancel()
-            if request.admission is not None:
-                request.admission.close()
-            if p is not None:
-                p.wait(timeout=5)
-                if reader is not None:
-                    reader.join(timeout=5)
-                for pipe in (p.stdin, p.stdout):
-                    if pipe and not pipe.closed:
-                        pipe.close()
+            if child is not None:
+                child.release()
             with self._lock:
                 self._requests.discard(request)
+            ms = lambda t: f'{(t - started) * 1000:.0f} ms' if t is not None else 'never'
+            logger.info('claude native call: %s start%s, query sent after %s, first model event after %s, done after %s, %d warm standby idle',
+                        mode, f' (standby {standby_age:.1f} s old)' if standby_age is not None else '', ms(sent_at), ms(first_at), ms(time.monotonic()), len(_WARM))
 
     @staticmethod
     def _chunk(model, delta, finish=None, usage=None):
