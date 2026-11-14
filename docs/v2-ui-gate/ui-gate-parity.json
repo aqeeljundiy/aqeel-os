@@ -1,0 +1,4 @@
+{
+ "routes": { "chat": "v2-chat", "chat-search": "v2-chat-search", "chat-permission": "v2-chat-permission" },
+ "controls": {}
+}

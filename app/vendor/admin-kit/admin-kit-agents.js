@@ -1,4 +1,4 @@
-/* aqeel-admin-kit 0.26.0 agent access page part. Do not edit in a site; change the kit repo and re-install. */
+/* aqeel-admin-kit 0.27.0 agent access page part. Do not edit in a site; change the kit repo and re-install. */
 // Settings › Agent access: the owner makes a token per agent, chooses what it may do, sees when it was last used,
 // and revokes it. Talks to the site's /api/agent-tokens (ak-mcp.mjs tokensApi). Load after admin-kit.js:
 //   <div id="agents"></div>

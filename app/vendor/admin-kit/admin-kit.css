@@ -586,6 +586,33 @@ ak-date[block] .ak-date__trigger { width: 100%; }
 .ak-pop__check { display: inline-flex; color: var(--ak-accent); }
 .ak-pop__sep { height: 1px; margin: calc(var(--ak-space) * 1.5) 0; background: var(--ak-border); }
 
+/* ---------- menu opened from any button: AdminKit.menu (0.27.0) ---------- */
+.ak-menu-pop { display: flex; flex-direction: column; padding: 0; overflow: hidden; min-width: max(var(--anchor-width, 0px), calc(var(--ak-space) * 55)); max-width: min(calc(var(--ak-space) * 110), calc(100vw - var(--ak-space) * 6)); }
+.ak-menu { display: flex; flex-direction: column; min-height: 0; outline: 0; }
+.ak-menu [cmdk-input] { width: 100%; padding: calc(var(--ak-space) * 3) calc(var(--ak-space) * 3.5); border: 0; border-bottom: 1px solid var(--ak-border); background: none; color: var(--ak-text); font: inherit; outline: 0; }
+.ak-menu [cmdk-input]::placeholder { color: var(--ak-text-muted); }
+/* the site's own field styles (focus rings, corners) never reach the search fields of the kit's boxes */
+.ak-menu:not([data-sheet]) [cmdk-input], .ak-menu:not([data-sheet]) [cmdk-input]:focus, .ak-cmd [cmdk-input], .ak-cmd [cmdk-input]:focus { box-shadow: none; border-radius: 0; min-height: 0; }
+.ak-menu[data-sheet] [cmdk-input]:focus { border-color: var(--ak-accent); box-shadow: none; }
+.ak-menu [cmdk-list] { flex: 1; min-height: 0; max-height: min(var(--available-height, 60vh), calc(var(--ak-space) * 95)); overflow-y: auto; padding: calc(var(--ak-space) * 1.5); scroll-padding-block: calc(var(--ak-space) * 1.5); }
+.ak-menu [cmdk-item] { display: flex; align-items: center; gap: calc(var(--ak-space) * 2.5); min-height: var(--ak-control-h); padding: calc(var(--ak-space) * 1.5) calc(var(--ak-space) * 2.5); border-radius: calc(var(--ak-radius-pop) * 0.6); cursor: default; user-select: none; transition: background-color var(--ak-dur-fast) var(--ak-ease); }
+.ak-menu [cmdk-item][data-selected="true"] { background: var(--ak-surface-2); }
+.ak-menu [cmdk-item][data-disabled="true"] { opacity: 0.45; }
+.ak-menu [cmdk-item][data-tone="danger"] { color: var(--ak-danger); }
+.ak-menu [cmdk-item][data-checked] { font-weight: var(--ak-weight-medium); }
+.ak-menu [cmdk-group-heading] { padding: calc(var(--ak-space) * 2) calc(var(--ak-space) * 2.5) calc(var(--ak-space) * 1); color: var(--ak-text-muted); font-size: var(--ak-text-xs); font-weight: var(--ak-weight-medium); }
+.ak-menu [cmdk-separator] { height: 1px; margin: calc(var(--ak-space) * 1.5) 0; background: var(--ak-border); }
+.ak-menu [cmdk-empty] { padding: calc(var(--ak-space) * 5); color: var(--ak-text-muted); text-align: center; }
+.ak-menu__icon { display: inline-flex; flex: none; color: var(--ak-text-muted); }
+[data-tone="danger"] > .ak-menu__icon { color: inherit; }
+.ak-menu__text { display: grid; flex: 1; min-width: 0; }
+.ak-menu__text > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ak-menu__text small { color: var(--ak-text-muted); font-size: var(--ak-text-xs); font-weight: var(--ak-weight-normal); }
+.ak-menu .ak-kbd { margin-left: auto; }
+.ak-menu[data-sheet] [cmdk-list] { max-height: 70dvh; padding: 0 calc(var(--ak-space) * 2) calc(var(--ak-space) * 4); }
+.ak-menu[data-sheet] [cmdk-item] { min-height: max(calc(var(--ak-control-h) * 1.3), 44px); border-radius: var(--ak-radius-control); }
+.ak-menu[data-sheet] [cmdk-input] { margin: 0 calc(var(--ak-space) * 2) calc(var(--ak-space) * 2); width: auto; min-height: 44px; border: 1px solid var(--ak-border-strong); border-radius: var(--ak-radius-control); }
+
 /* ---------- overlay, sheets and drawers (Vaul) ---------- */
 .ak-overlay {
   position: fixed;
@@ -682,6 +709,11 @@ ak-date[block] .ak-date__trigger { width: 100%; }
 .ak-dialog h2 { margin: 0; font-size: var(--ak-text-lg); font-weight: var(--ak-weight-bold); }
 .ak-dialog p { margin: calc(var(--ak-space) * 2) 0 0; color: var(--ak-text-muted); }
 .ak-dialog__actions { display: flex; justify-content: flex-end; gap: calc(var(--ak-space) * 2); margin-top: calc(var(--ak-space) * 6); }
+.ak-dialog__x { position: absolute; top: calc(var(--ak-space) * 3); right: calc(var(--ak-space) * 3); }
+.ak-dialog:has(.ak-dialog__x) h2 { padding-right: calc(var(--ak-space) * 10); }
+/* the drawer's button row (slot="footer", 0.27.0) */
+.ak-sheet__foot { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: calc(var(--ak-space) * 2); padding: calc(var(--ak-space) * 3) calc(var(--ak-space) * 4); border-top: 1px solid var(--ak-border); }
+.ak-sheet[data-vaul-drawer-direction="bottom"] .ak-sheet__foot { padding-bottom: max(env(safe-area-inset-bottom), calc(var(--ak-space) * 3)); }
 
 /* ---------- command menu (cmdk) ---------- */
 .ak-cmd {
@@ -726,6 +758,10 @@ ak-date[block] .ak-date__trigger { width: 100%; }
 .ak-cmd [cmdk-item][data-selected="true"] { background: var(--ak-surface-2); }
 .ak-cmd [cmdk-item] small { color: var(--ak-text-muted); font-size: var(--ak-text-xs); }
 .ak-cmd [cmdk-empty] { padding: calc(var(--ak-space) * 8); color: var(--ak-text-muted); text-align: center; }
+.ak-cmd [cmdk-item] .ak-menu__icon { margin-right: calc(var(--ak-space) * -1.5); }
+.ak-cmd__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ak-cmd__foot { display: flex; flex-wrap: wrap; gap: calc(var(--ak-space) * 4); padding: calc(var(--ak-space) * 2.5) calc(var(--ak-space) * 5); border-top: 1px solid var(--ak-border); color: var(--ak-text-muted); font-size: var(--ak-text-xs); }
+@media (max-width: 640px) { .ak-cmd__foot { display: none; } .ak-cmd [cmdk-item] { min-height: 44px; } }
 .ak-kbd {
   padding: 0 calc(var(--ak-space) * 1.5);
   border: 1px solid var(--ak-border);
@@ -1659,3 +1695,6 @@ ak-splash[data-known] .ak-splash__line { width: 100%; animation: none; backgroun
   .ak-splash__line { width: 100%; opacity: 0.6; }
   ak-splash { transition-duration: 0.01ms; }
 }
+
+/* a loader nobody can see does not keep moving (0.27.0): the hidden loading badge animated its dots all the time */
+[hidden] ak-loader *, ak-loader[hidden] * { animation: none !important; }

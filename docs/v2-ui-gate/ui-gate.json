@@ -275,5 +275,7 @@
    "vendor",
    "node_modules"
   ]
- }
+ },
+ "planFile": "ui-gate-plan.md",
+ "parityFile": "ui-gate-parity.json"
 }

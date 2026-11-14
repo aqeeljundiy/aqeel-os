@@ -81,22 +81,46 @@
 
  /* ---------- the admin kit's parts (owner, 14 Nov 2026: "make aqeelOS with the adminkit ui ... improving the UI, not a redesign") ----------
     app/vendor/admin-kit/admin-kit.js loads just before this file, on /v2 only. The app keeps calling its own helpers; on /v2 they
-    hand the work to the kit's part, with the same words and the same answer to the caller. Anything the kit's part cannot
-    do yet stays the app's own (menus with icons, search and ticks; drawers with a button row): see docs/v1-checklist.md. */
+    hand the work to the kit's part, with the same words and the same answer to the caller. Kit 0.27.0 grew what the app's
+    pieces had and the kit did not (owner, 14 Nov 2026: "Grow the kit"): menus with icons, second lines, ticks, headings and
+    search, opened from the app's own buttons; the search box with icons, live results and its key hints. */
  const AK=typeof AdminKit==='object'&&AdminKit?AdminKit:null;
- // Ctrl+K (Cmd+K on a Mac) is the app's search, which also finds chats, agents and settings. The kit listens for the same
- // keys for its own command menu; stop the keys before either sees them and open the app's one, as on / (boot.js), so one
- // press never opens two boxes (seen 14 Nov 2026).
+ const kitOpen=()=>document.querySelector('.ak-menu-pop,.ak-cmd,.ak-dialog,.ak-sheet');
+ // Ctrl+K (Cmd+K on a Mac) opens the search, once: the kit listens for the same keys, so they are stopped before it and
+ // the app's own handler (boot.js) see them and the search is opened here (both opened, seen 14 Nov 2026)
  addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey)||e.altKey||e.key?.toLowerCase()!=='k')return;e.stopPropagation();
   const mod=typeof isMac!=='undefined'&&isMac?e.metaKey:e.ctrlKey;if(!mod||typeof S==='undefined'||!S.signedIn||typeof palette!=='function')return;
-  e.preventDefault();if(!document.querySelector('.palette'))palette()},true);
+  e.preventDefault();if(AK?.command?.isOpen)AK.command.close();else if(!document.querySelector('.palette'))palette()},true);
+ // Escape closes the top kit box only. The app's own Escape (core.js) runs first and would close the drawer under it.
+ addEventListener('keydown',e=>{if(e.key!=='Escape'||e.isComposing||!AK||!kitOpen())return;e.stopPropagation();e.preventDefault();
+  if(AK.menu?.isOpen)return AK.menu.close();if(AK.command?.isOpen)return AK.command.close();
+  const d=document.querySelector('.ak-dialog');if(d){(d.querySelector('.ak-dialog__actions .ak-btn:not(.ak-btn--primary):not(.ak-btn--danger)')||d.querySelector('.ak-dialog__x'))?.click();return}
+  document.querySelector('.ak-sheet .ak-sheet__head [aria-label="Close"]')?.click()},true);
  if(AK){
   // toasts: the kit's (they stack, pause on hover and swipe away on a phone); a failure is still kept for "What went wrong"
   if(typeof toast==='function'&&AK.toast){window.toast=(msg,kind)=>{const t=String(msg??'');
    if(kind==='err'){try{Oops.add('toast',t)}catch{}AK.toast.error(t)}else AK.toast.success(t)}}
-  // "are you sure" boxes: the kit's, same title, words and button; resolves true or false as before
+  // "are you sure" boxes: the kit's, same title, words and buttons, and the X in the corner as on /; resolves true or false
   if(typeof confirmBox==='function'&&AK.confirm){window.confirmBox=(title,text,okLabel='Delete',danger=true)=>
-   AK.confirm({title:String(title??''),body:typeof plainText==='function'?plainText(text):String(text??''),confirmLabel:okLabel,cancelLabel:'Cancel',tone:danger?'danger':undefined}).then(ok=>!!ok)}
+   AK.confirm({title:String(title??''),body:typeof plainText==='function'?plainText(text):String(text??''),confirmLabel:okLabel,cancelLabel:'Cancel',tone:danger?'danger':undefined,closeButton:true}).then(ok=>!!ok)}
+  // menus: the kit's, from the same items (icon, second line, tick, heading, divider, red, key, search). A menu with content
+  // of its own (opt.html: the date grid, the connected-accounts form) stays the app's.
+  if(typeof menu==='function'&&AK.menu){const own=menu;
+   window.menu=(anchor,items,opt={})=>{if(opt.html||!anchor?.getBoundingClientRect)return own(anchor,items,opt);
+    for(const x of document.querySelectorAll('.menu'))x.remove();
+    const list=(items||[]).filter(Boolean).map(i=>i==='-'?'-':i.header?{header:i.header,title:i.title}:
+     {label:String(i.label??''),sub:i.sub||undefined,icon:i.ava||(i.icon?icon(i.icon,16):undefined),checked:!!i.on,tone:i.bad?'danger':undefined,disabled:!!i.disabled,kbd:i.kbd||undefined,title:i.title||undefined,keywords:i.find||undefined,run:i.run});
+    // the phone sheet's title: the menu's first heading, else the button's own words (its tooltip is a sentence)
+    const label=list.find(i=>i.header)?.header||anchor.textContent?.trim().slice(0,60)||anchor.getAttribute?.('aria-label')||'Menu';
+    const r=anchor.getBoundingClientRect(),align=r.left>innerWidth*.6?'end':'start';
+    AK.menu(anchor,list,{label,search:!!opt.search,placeholder:'Search',align}).then(()=>setTimeout(()=>opt.onClose?.(),0));
+    return null}}
+  // the search (Ctrl+K and the top bar's search button): the kit's box, with the app's lists and live results
+  if(typeof palette==='function'&&typeof paletteFind==='function'&&AK.command){const ownPalette=palette;
+   const asItem=x=>({label:x.l,group:x.g,hint:x.sub||undefined,icon:x.ic?icon(x.ic,16):undefined,run:x.run});
+   AK.command.text({placeholder:matchMedia('(max-width:600px)').matches?'Search or run a command':'Search pages, chats, skills or run a command',empty:'Nothing found.',match:'contains',label:'Search',foot:['↑↓ to move','Enter to open','Esc to close']});
+   AK.command.onQuery(async q=>(await paletteFind(q.toLowerCase())).map(asItem));
+   window.palette=()=>{if(typeof closeLayers==='function')closeLayers(false);AK.command.set(ownPalette(true).map(asItem));AK.command.open()}}
  }
 
  /* ---------- after every redraw ---------- */

@@ -93,10 +93,13 @@ html.v2[data-v2sec="chat"] .steps-fold summary,html.v2[data-v2sec="chat"] .steps
 html.v2[data-v2sec="chat"] .composer{transition:border-color var(--t-med) var(--ease),box-shadow var(--t-med) var(--ease),transform var(--t-med) var(--ease)}
 html.v2[data-v2sec="chat"] .composer:focus-within{border-color:color-mix(in srgb,var(--blue) 35%,var(--border));box-shadow:0 0 0 4px color-mix(in srgb,var(--blue) 9%,transparent),var(--shadow-card)}
 html.v2[data-v2sec="chat"] .composer textarea{font-size:var(--fs-3)}
-html.v2[data-v2sec="chat"] .composer-bar .ghost.icon{width:34px;min-height:34px;transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease),transform var(--t-fast) var(--ease)}
-html.v2[data-v2sec="chat"] .composer-bar .pick{min-height:34px;font-size:var(--fs-2);transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+/* one control height in the composer row (36px, phones 44px) and the same space left and right (ui-gate, 14 Nov 2026: 34/36px
+   buttons side by side, 18px left and 12px right); the text keeps its place by moving its own inset into the field */
+html.v2[data-v2sec="chat"] .composer{padding-left:12px}html.v2[data-v2sec="chat"] .composer textarea{padding-left:6px}
+html.v2[data-v2sec="chat"] .composer-bar .ghost.icon{width:var(--h-ctl);min-height:var(--h-ctl);transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease),transform var(--t-fast) var(--ease)}
+html.v2[data-v2sec="chat"] .composer-bar .pick{min-height:var(--h-ctl);font-size:var(--fs-2);transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
 html.v2[data-v2sec="chat"] .composer-bar .pick:not(:hover){background:var(--soft-2)}
-html.v2[data-v2sec="chat"] .send{width:36px;min-height:36px}
+@media (min-width:761px){html.v2[data-v2sec="chat"] .send{width:var(--h-ctl);min-height:var(--h-ctl);height:var(--h-ctl)}}
 html.v2[data-v2sec="chat"] .composer-bar button:active{transform:scale(.94)}
 
 /* ---------- light and dark: the same app in both ---------- */

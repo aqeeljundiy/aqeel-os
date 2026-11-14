@@ -66,3 +66,22 @@ test('on /v2 the app hands toasts and confirm boxes to the kit, and Ctrl+K opens
  assert.match(s,/window\.toast=\(msg,kind\)=>/);assert.match(s,/Oops\.add\('toast'/,'failures still reach "What went wrong"');
  assert.match(s,/window\.confirmBox=\(title,text,okLabel='Delete',danger=true\)=>/);assert.match(s,/\.then\(ok=>!!ok\)/);
  assert.match(s,/addEventListener\('keydown',e=>\{if\(!\(e\.ctrlKey\|\|e\.metaKey\)[^]*?e\.stopPropagation\(\)[^]*?palette\(\)\},true\)/,'Ctrl+K stopped in the capture phase, then the app search')});
+
+// kit 0.27.0 on /v2 (owner, 14 Nov 2026: "Grow the kit"): the app's menus and search drawn by the kit, nothing dropped
+test('on /v2 menus are the kit menu, made from the same items, and menus with content of their own stay the app\'s',()=>{
+ const s=read('app/v2.js');
+ assert.match(s,/window\.menu=\(anchor,items,opt=\{\}\)=>\{if\(opt\.html\|\|!anchor\?\.getBoundingClientRect\)return own\(anchor,items,opt\)/,'opt.html menus (date grid) go to the app');
+ for(const k of ['sub:i.sub','checked:!!i.on',"tone:i.bad?'danger'",'disabled:!!i.disabled','kbd:i.kbd','title:i.title','keywords:i.find','run:i.run','header:i.header'])assert.ok(s.includes(k),'menu item field '+k);
+ assert.match(s,/search:!!opt\.search/);assert.match(s,/opt\.onClose\?\.\(\)/,'onClose still called');
+ assert.match(read('app/vendor/admin-kit/manifest.json'),/"version": "0\.27\.0"/,'needs kit 0.27.0 (AdminKit.menu)')});
+
+test('on /v2 the search is the kit box with the same lists as / (one source) and its live results',()=>{
+ const core=read('app/core.js'),s=read('app/v2.js');
+ assert.match(core,/^function palette\(listsOnly\)\{/m);assert.match(core,/^async function paletteFind\(q\)\{/m);
+ assert.match(core,/const all=\[\.\.\.actions,\.\.\.pages,\.\.\.models,\.\.\.chats\];if\(listsOnly===true\)return all;/,'palette(true) answers the lists, opening nothing');assert.match(core,/const found=await paletteFind\(q\);/,'/ searches with paletteFind');
+ assert.match(s,/const ownPalette=palette;/);assert.match(s,/AK\.command\.set\(ownPalette\(true\)\.map\(asItem\)\)/);assert.match(s,/AK\.command\.onQuery\(async q=>\(await paletteFind\(/);
+ assert.match(s,/match:'contains'/,'matches like / (words that contain the text)');assert.match(s,/foot:\['↑↓ to move','Enter to open','Esc to close'\]/)});
+
+test('on /v2 Escape closes only the top kit box (not the app drawer under it)',()=>{
+ const s=read('app/v2.js');
+ assert.match(s,/addEventListener\('keydown',e=>\{if\(e\.key!=='Escape'[^]*?e\.stopPropagation\(\)[^]*?AK\.menu\.close\(\)[^]*?AK\.command\.close\(\)[^]*?\},true\)/)});
