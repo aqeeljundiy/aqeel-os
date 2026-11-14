@@ -26,6 +26,10 @@ function schedTrigger(j){return ((SCHED.info||{}).triggers||{})[(j.profile||'def
 function triggerLine(j){const t=schedTrigger(j);return t?`<span class="sched-meta sched-trig" title="Why this trigger">${esc(t.label)}${t.detail?' ('+esc(t.detail.slice(0,60))+')':''}${t.why?' · '+esc(t.why):''}</span>`:''}
 function schedMeta(j){const i=SCHED.info||{};const k=(j.profile||'default')+'|'+j.id;return {m:(i.meta||{})[k]||{},r:(i.runs||{})[k]||{runs:[],tokens:0,cost:0}}}
 const folderOf=j=>schedMeta(j).m.folder||bracketOf(j.name)||'General';
+// a folder holding one schedule is not shown as a folder: that schedule sits loose in the list where the folder would be
+// (owner, 14 Nov 2026, UI audit item 16). Counted over every schedule this person sees, so a search or agent filter that
+// leaves one match in a bigger folder keeps the folder; an empty folder made on purpose stays a folder.
+const schedLoneFolders=(jobs,fOf)=>{const c={};for(const j of jobs||[]){const f=fOf(j);c[f]=(c[f]||0)+1}return new Set(Object.keys(c).filter(f=>c[f]===1))};
 // a description the helper model could not write (it tries again later): the start of the prompt stands in
 const promptLine=t=>{const s=String(t||'').replace(/\s+/g,' ').trim();return s.length>160?s.slice(0,157).replace(/\s\S*$/,'')+'…':s};
 // the engine's own job state (a finished one-off, one running now, one that failed), and the checks its dashboard makes:
@@ -71,6 +75,7 @@ PAGES.schedules=async(p,el)=>{
  const order=Object.keys(groups).sort((a,b)=>sort==='az'?a.localeCompare(b):sort==='cost'?month(groups[b])-month(groups[a])||a.localeCompare(b):sort==='size'?groups[b].length-groups[a].length||a.localeCompare(b)
   :pos(a)-pos(b)||(a==='General')-(b==='General')||a.localeCompare(b));
  SCHED.shownOrder=order;
+ const lone=schedLoneFolders(jobs,folderOf),loose=f=>lone.has(f)&&groups[f]?.length===1;
  // a member's open and shut folders are their own (kept in this browser; the shared ones are the admins')
  const folds=admin?I.folds||{}:store.get('schedFolds',{}),colors=I.colors||{};let n=0;
  // folders start shut, except a lone one (a first schedule must not hide in a closed General folder); a folder someone shut stays shut
@@ -92,7 +97,7 @@ PAGES.schedules=async(p,el)=>{
   ${agents.length>1?`<button type="button" class="sel-btn inline sched-agent-btn" data-act="sched-agent-pick" aria-haspopup="menu"><span class="sv">${SCHED.agent?esc(ident(SCHED.agent).name):'All agents'}</span>${icon('chevD',15)}</button>`:''}
   <button type="button" class="sel-btn inline" data-act="sched-sort" aria-haspopup="menu" title="How folders are ordered"><span class="sv">${icon('list',14)} ${esc(SORTS[sort])}</span>${icon('chevD',15)}</button>
   ${admin?`<button class="ghost" data-act="sched-folder-new">${icon('plus',16)}New folder</button><button class="ghost" data-act="run-rules" title="One run at a time, posting limits and live checks, per agent">${icon('shield',16)}Run rules</button>`:''}</div>
-  ${order.length?order.map(f=>{const l=groups[f],shut=!q&&(folds[f]===true||folds[f]!==false&&order.length>1);return `<section class="sched-folder ${shut?'shut':''} ${colors[f]?'c-'+colors[f]:''}" data-folder="${esc(f)}"><div class="sf-bar"><button class="sf-head" data-act="sched-fold" data-f="${esc(f)}" aria-expanded="${!shut}" ${admin?'draggable="true" title="Drag to reorder"':''}>${icon('chevD',16)}<span class="sf-ic">${icon('folder',16)}</span><b>${esc(f)}</b><span class="n">${l.length}</span>${month(l)?`<span class="sf-cost">≈ ${usd(month(l))} this month</span>`:''}</button>${admin?`<button type="button" class="sf-more" data-act="sched-folder-menu" data-f="${esc(f)}" aria-label="Options for the folder ${esc(f)}">${icon('more',16)}</button>`:''}</div><div class="sf-body"><div class="card list">${l.length?l.map(row).join(''):`<div class="sf-empty">Nothing here yet. Drag a schedule onto this folder, or use ⋯ › Move to folder.</div>`}</div></div></section>`}).join(''):emptyBox('Nothing matches','Try another word or agent.')}`;
+  ${order.length?order.map((f,i)=>{const l=groups[f];if(loose(f))return `${loose(order[i-1])?'':'<div class="sched-loose"><div class="card list">'}${row(l[0])}${loose(order[i+1])?'':'</div></div>'}`;const shut=!q&&(folds[f]===true||folds[f]!==false&&order.length>1);return `<section class="sched-folder ${shut?'shut':''} ${colors[f]?'c-'+colors[f]:''}" data-folder="${esc(f)}"><div class="sf-bar"><button class="sf-head" data-act="sched-fold" data-f="${esc(f)}" aria-expanded="${!shut}" ${admin?'draggable="true" title="Drag to reorder"':''}>${icon('chevD',16)}<span class="sf-ic">${icon('folder',16)}</span><b>${esc(f)}</b><span class="n">${l.length}</span>${month(l)?`<span class="sf-cost">≈ ${usd(month(l))} this month</span>`:''}</button>${admin?`<button type="button" class="sf-more" data-act="sched-folder-menu" data-f="${esc(f)}" aria-label="Options for the folder ${esc(f)}">${icon('more',16)}</button>`:''}</div><div class="sf-body"><div class="card list">${l.length?l.map(row).join(''):`<div class="sf-empty">Nothing here yet. Drag a schedule onto this folder, or use ⋯ › Move to folder.</div>`}</div></div></section>`}).join(''):emptyBox('Nothing matches','Try another word or agent.')}`;
  if(admin)schedDrag(el);
  let t;$('#schedQ').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{SCHED.q=e.target.value;(pageRun(el),PAGES.schedules(p,el)).then(()=>{const i=$('#schedQ');if(!i)return;i.focus();i.setSelectionRange(i.value.length,i.value.length)})},200)};
  // descriptions still being written: look again in a little while

@@ -1431,6 +1431,8 @@ button.think svg:last-child{transition:transform var(--t-fast) var(--ease)}butto
 .sj-row[draggable=true]{cursor:pointer}.sj-row.dragging,.sched-folder.dragging{opacity:.45}
 .sched-folder.drop-on{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-soft)}
 .sched-folder.drop-before{box-shadow:0 -3px 0 0 var(--blue)}.sched-folder.drop-after{box-shadow:0 3px 0 0 var(--blue)}
+/* a folder with one schedule shows that schedule loose, as a card of its own (UI audit 16, 14 Nov 2026) */
+.sched-loose{margin-bottom:8px}.sched-loose>.card{margin:0}
 .sf-empty{padding:16px 18px;font-size:13px;color:var(--muted)}
 .mv-list{display:flex;flex-direction:column;gap:4px;max-height:50vh;overflow:auto}
 .mv-f{display:flex;align-items:center;gap:10px;justify-content:flex-start;width:100%;padding:10px 12px;border-radius:var(--r-md);background:none;border:1px solid transparent;box-shadow:none;font-weight:500;text-align:left}
