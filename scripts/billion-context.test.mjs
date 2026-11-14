@@ -55,3 +55,10 @@ test('savings: read from the running proxy, cached a minute; waiting when none r
 
 test('the proxy folds before the engine shortens (FOLD_AT below the efficiency default)',async()=>{
  const {DEFAULTS}=await import('../app/efficiency.mjs');assert.ok(FOLD_AT<DEFAULTS['compression.threshold_tokens'],FOLD_AT+' must stay below '+DEFAULTS['compression.threshold_tokens'])});
+
+// 14 Nov 2026: the plugin's HTTPS_PROXY (meant for the model's traffic) carried every Telegram bot, ~7,000 "ProxyError: 502" and
+// failed replies. Where the plugin is on, the chat channels no longer take the engine-wide proxy (gateway.trust_env false).
+test('where the plugin is on, the chat channels do not use its proxy (gateway.trust_env false); where it is off, nothing changes',async()=>{const {B,cfg}=await make();
+ await B.install();assert.equal(cfg.sales.gateway.trust_env,false);assert.equal(cfg.default.gateway.trust_env,false);
+ assert.equal(cfg.help.gateway?.trust_env,undefined,'switched off on the Plugins page: left as it was');
+ assert.deepEqual(await B.install(),[],'set once')});

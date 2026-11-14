@@ -60,7 +60,12 @@ export function createBillionContext({HERMES_HOME,readConfig,setKey,pick,home0=h
       // its tools (compress, decompress, acp_status) reach the model only on channels that list the plugin, as the
       // engine's own `plugins enable` does
       const pt=pick(c,'platform_toolsets');if(pt&&typeof pt==='object')for(const [p,list] of Object.entries(pt)){const l=[].concat(list||[]).map(String);
-       if(Array.isArray(list)&&!l.includes(BILI_NAME)){await setKey(a,'platform_toolsets.'+p,[...l,BILI_NAME]);did=true}}}}
+       if(Array.isArray(list)&&!l.includes(BILI_NAME)){await setKey(a,'platform_toolsets.'+p,[...l,BILI_NAME]);did=true}}
+      // its proxy is for the model's traffic only, but the plugin sets HTTPS_PROXY for the whole engine, and the chat channels fell
+      // back to it: every Telegram bot went through it, about 7,000 "ProxyError: 502 Bad Gateway" and failed replies from 12 Nov
+      // (14 Nov 2026). gateway.trust_env false is the engine's own switch for "the gateway inherits a proxy it must not use";
+      // a channel's own proxy (TELEGRAM_PROXY, telegram.proxy_url) still applies
+      if(pick(c,'gateway.trust_env')!==false){await setKey(a,'gateway.trust_env',false);did=true}}}
     if(did)changed.push(a)}catch(e){log('billion-context: install for '+a+': '+e.message)}}
   if(changed.length)log('billion-context: plugin installed or updated for '+changed.join(', '));return changed}
  async function offAll(){const changed=[];
