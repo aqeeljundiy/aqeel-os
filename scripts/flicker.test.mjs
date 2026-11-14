@@ -23,7 +23,7 @@ class E extends N{constructor(tag,attrs={},...kids){super(1);this.tagName=tag.to
  get classList(){const e=this,l=()=>(e.attrs.get('class')||'').split(/\s+/).filter(Boolean);return {contains:c=>l().includes(c)}}}
 const h=(tag,attrs,...kids)=>new E(tag,attrs||{},...kids);
 const frag=(...kids)=>{const f=new N(11);f.append(...kids);return f};
-const morph=new Function('document',[grab('core.js','const MORPH_KEEP_CLS='),grab('core.js','function morphKey('),grab('core.js','function morphKids('),grab('core.js','function morphNode('),'return {morphKids,morphNode}'].join('\n'));
+const morph=new Function('document',[grab('core.js','const MORPH_KEEP_CLS='),grab('core.js','function morphKey('),grab('core.js','function morphKids('),grab('core.js','function morphNode('),grab('core.js','function morphKept('),'return {morphKids,morphNode}'].join('\n'));
 const doc={activeElement:null};const {morphKids}=morph(doc);
 
 test('morph keeps every element that is still there and changes only what differs',()=>{
@@ -41,6 +41,14 @@ test('morph matches rows by their key, so a reorder or a new row keeps the other
  assert.deepEqual(list.childNodes.map(x=>x.getAttribute('data-go')),['/chat/new','/chat/b','/chat/a']);
  assert.equal(list.childNodes[1],b);assert.equal(list.childNodes[2],a);
  assert.equal(a.getAttribute('class'),'item on');assert.equal(b.getAttribute('class'),'item')});
+
+test('morph leaves a node another script marked data-morph-keep where it is (the /v2 chip and glide)',()=>{
+ const chip=h('a',{class:'v2-chip','data-morph-keep':''},'v2'),img=h('img',{src:'/logo.png',class:'mark'});
+ const w=h('span',{class:'wordmark'},img,chip);
+ morphKids(w,frag(h('img',{src:'/logo.png',class:'mark'})));
+ assert.equal(w.childNodes.length,2,'the chip is still there');assert.equal(w.childNodes[0],img);assert.equal(w.childNodes[1],chip);
+ const plain=h('span',{class:'wordmark'},h('img',{src:'/logo.png',class:'mark'}),h('a',{class:'other'},'x'));
+ morphKids(plain,frag(h('img',{src:'/logo.png',class:'mark'})));assert.equal(plain.childNodes.length,1,'an unmarked extra is still removed')});
 
 test('morph removes what is gone and adds what is new',()=>{
  const list=h('div',{},h('p',{},'one'),h('p',{},'two'),h('p',{},'three'));

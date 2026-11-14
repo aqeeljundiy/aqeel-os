@@ -18,7 +18,7 @@
  function glide(boxSel,onSel,key){const box=document.querySelector(boxSel);if(!box)return;
   const on=box.querySelector(onSel);let g=box.querySelector(':scope>.v2-glide');
   if(!box.classList.contains('v2-has-glide'))box.classList.add('v2-has-glide');
-  const fresh=!g;if(fresh){g=document.createElement('span');g.className='v2-glide still';g.setAttribute('aria-hidden','true');box.append(g)}
+  const fresh=!g;if(fresh){g=document.createElement('span');g.className='v2-glide still';g.setAttribute('aria-hidden','true');g.setAttribute('data-morph-keep','');box.append(g)}
   if(!on||!on.offsetParent){if(g.classList.contains('v2-show'))g.classList.remove('v2-show');return}
   const br=box.getBoundingClientRect(),r=on.getBoundingClientRect();
   const p={x:Math.round(r.left-br.left+box.scrollLeft),y:Math.round(r.top-br.top+box.scrollTop),w:Math.round(r.width),h:Math.round(r.height)};
@@ -38,7 +38,7 @@
  /* ---------- the version mark next to the wordmark ---------- */
  function chip(){const w=document.querySelector('.side-top .wordmark');if(!w||w.querySelector('.v2-chip'))return;
   // v2 is the UI now (14 Nov 2026); the mark is the way back to the first version (/v1) while it is still kept
-  const a=document.createElement('a');a.className='v2-chip';a.href='/v1'+location.hash;a.textContent='v2';a.title='The new look. Click for the old one (kept at /v1 for a while).';
+  const a=document.createElement('a');a.className='v2-chip';a.setAttribute('data-morph-keep','');a.href='/v1'+location.hash;a.textContent='v2';a.title='The new look. Click for the old one (kept at /v1 for a while).';
   a.addEventListener('click',()=>{a.href='/v1'+location.hash});w.append(a)}
 
  /* ---------- panels: the resize handles work by keyboard too ---------- */

@@ -512,10 +512,13 @@ function morphKids(a,b,from){const keyed=new Map();for(let c=from===undefined?a.
  let cur=from===undefined?a.firstChild:from;
  for(const nb of [...b.childNodes]){const k=morphKey(nb);let m=null;
   if(k){m=keyed.get(k)||null;if(m&&(m.tagName!==nb.tagName))m=null}
-  else{for(let c=cur;c;c=c.nextSibling){if(morphKey(c))continue;if(c.nodeType===nb.nodeType&&(c.nodeType!==1||c.tagName===nb.tagName))m=c;break}}
+  else{for(let c=cur;c;c=c.nextSibling){if(morphKey(c)||morphKept(c))continue;if(c.nodeType===nb.nodeType&&(c.nodeType!==1||c.tagName===nb.tagName))m=c;break}}
   if(m){if(k)keyed.delete(k);if(m!==cur)a.insertBefore(m,cur);else cur=cur.nextSibling;morphNode(m,nb)}
   else a.insertBefore(nb,cur)}
- while(cur){const n=cur.nextSibling;cur.remove();cur=n}}
+ while(cur){const n=cur.nextSibling;if(!morphKept(cur))cur.remove();cur=n}}
+// a node another script added on purpose and marks data-morph-keep stays where it is (15 Nov 2026: /v2's version chip and gliding highlight
+// were removed by every redraw and put back at once, so the flicker check counted the sidebar as drawn again on every page change)
+function morphKept(n){return n.nodeType===1&&n.hasAttribute('data-morph-keep')}
 function morphNode(a,b){if(a.nodeType===3||a.nodeType===8){if(a.nodeValue!==b.nodeValue)a.nodeValue=b.nodeValue;return}if(a.nodeType!==1)return;
  const pill=a.classList.contains('pill');
  for(const at of [...a.attributes]){const n=at.name;if(b.hasAttribute(n))continue;if(n==='style'&&pill||n==='aria-busy'&&a.classList.contains('is-busy')||n==='open'&&a.tagName==='DETAILS')continue;a.removeAttribute(n)}
