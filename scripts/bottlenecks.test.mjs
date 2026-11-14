@@ -54,4 +54,7 @@ await t('a member counts only what they can act on: their blocked agent and thei
  const all=forPopup([{id:'access|1',kind:'access',title:'Sela asks for Gmail'},{id:'ticket|w',kind:'ticket',title:'A Help ticket is waiting'},{id:'signin|a|slack',kind:'signin',title:'Slack needs signing in',signin:{name:'slack'}},
   rep('sela','A sign-in for Notion (OAuth)'),rep('sela','A new API key for Xendit'),{id:'instr|sela|p1',kind:'instructions',agent:'sela',title:'Sela: new instructions wait for your approval'}]);
  assert.deepEqual(all.map(x=>x.kind),["access","ticket","signin","apps","report","instructions"]);assert.deepEqual(all.filter(memberCan).map(x=>x.kind),['report','instructions'])});
+await t('a post answered twice asks a person to delete the extra reply and shows in the popup',()=>{
+ assert.match(personNeed({kind:'repeat',title:'Cove answered the same post twice'}),/delete the extra reply/);
+ assert.equal(forPopup([{id:'event|e1',kind:'repeat',agent:'ct',title:'Cove answered the same post twice'}]).length,1)});
 console.log(n+' passed');

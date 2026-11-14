@@ -236,15 +236,34 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
   if(got.err)return {isError:true,text:got.err};if(got.again)return {text:'Already recorded.'};
   const e=got.e;const l=await entries(a);
   if(e.over)await event('comment',nameOf(a)+' posted over its limits',e.over+' Post: '+(u||id||'unknown')+'.',{topic:'comment-over',agent:a}).catch(()=>{});
+  const rep=await repeatOf(a,r,e,l);
   const needCheck=!!t&&(kind==='comment'||(kind==='thread'&&!!u));let s;
   if(needCheck){s=await check(a,r,e);if(s!=='visible'){await new Promise(x=>setTimeout(x,retryMs));s=await check(a,r,e)}}else s='recorded';
   e.checkedAt=now();if(s==='missing'){e.status='missing';e.missingAt=now();await alert(a,r,e,'now')}else e.status=s;await keep(a);
   const d=decideKind(r,l,kind,{now:now(),stopped:await stoppedFor(a,r,kind)});const count='Today: '+d.today+' of '+d.perDay+(r.hotShare>0&&kind==='comment'?', '+d.share+'% hot':'')+(hasSubjects(r)?' ('+(KIND_NAME[kind]||kind)+')':'')+'.';
-  if(e.over)return {isError:true,text:'STOP posting this run: this post was over the limits ('+e.over+'). It is recorded and the owner sees it under Bottlenecks. '+count};
-  if(e.status==='visible')return {text:'Recorded and visible to the public on Threads (checked signed out). '+count};
-  if(e.status==='recorded')return {text:'Recorded. '+count};
-  if(e.status==='unchecked')return {text:'Recorded. The visibility check could not run right now; aqeelOS checks it again within minutes. '+count};
-  return {isError:true,text:'NOT visible: the post cannot be found on the public page or the post itself (checked signed out, twice). The owner has been told. Stop posting this run, and start your final answer with the line [CRON_FAILURE], then one line on what happened.'}}
+  const said=x=>rep?{...x,text:x.text+' '+rep}:x;
+  if(e.over)return said({isError:true,text:'STOP posting this run: this post was over the limits ('+e.over+'). It is recorded and the owner sees it under Bottlenecks. '+count});
+  if(e.status==='visible')return said({text:'Recorded and visible to the public on Threads (checked signed out). '+count});
+  if(e.status==='recorded')return said({text:'Recorded. '+count});
+  if(e.status==='unchecked')return said({text:'Recorded. The visibility check could not run right now; aqeelOS checks it again within minutes. '+count});
+  return said({isError:true,text:'NOT visible: the post cannot be found on the public page or the post itself (checked signed out, twice). The owner has been told. Stop posting this run, and start your final answer with the line [CRON_FAILURE], then one line on what happened.'})}
+
+ // The same post answered twice (15 Nov 2026, Cove Threads: two answering runs 11 minutes apart each answered one reply, and
+ // on 12 Nov one person got the same answer reworded five times). The owner: "if there are things that conflict, agents need to
+ // be able to spot it, or even show it on Bottlenecks". A comment recorded for a link that already got one of ours in the last
+ // day is told to the agent in the record's answer (so it stops), and shown under Bottlenecks with the alert chat told, so a
+ // person deletes the extra one. Their next message has its own link, so a real conversation is never flagged.
+ const hm=(ms,tz)=>{try{return new Date(ms).toLocaleTimeString('en-GB',{timeZone:tz||undefined,hour:'2-digit',minute:'2-digit'})}catch{return new Date(ms).toISOString().slice(11,16)}};
+ async function repeatOf(a,r,e,l){if(kindOf(e)!=='comment'||!e.post)return '';
+  const prev=l.filter(x=>x.id!==e.id&&x.post===e.post&&kindOf(x)==='comment'&&!['pending','sending'].includes(x.status)&&e.at-x.at<24*3600e3&&e.at>=x.at).sort((x,y)=>y.at-x.at)[0];
+  if(!prev)return '';e.repeatOf=prev.id;await keep(a);
+  const who=nameOf(a),q=x=>'"'+String(x.text||'').replace(/\s+/g,' ').slice(0,120)+'"';
+  const title=who+' answered the same post twice';
+  const detail='Post: '+e.post+'. First at '+hm(prev.at,r.tz)+': '+q(prev)+'. Again at '+hm(e.at,r.tz)+': '+q(e)+'. Open the post and delete the extra reply, keep the first. '+who+' was told not to send to this post again.';
+  await event('repeat',title,detail,{topic:'repeat|'+a+'|'+e.post,agent:a}).catch(()=>{});
+  const m=/^telegram:(-?\d+)(?::(\d+))?$/.exec(r.alert||'');if(m)await telegram(a,m[1],m[2]||null,'⚠️ '+title+'\n'+detail).catch(()=>false);
+  log('posting: '+a+' answered '+e.post+' again ('+prev.id+' then '+e.id+')');
+  return 'REPEAT: this post already had our answer at '+hm(prev.at,r.tz)+' ('+q(prev)+'). Do not send to this post again in this or any run; the owner sees it under Bottlenecks. If they wrote something new, it has its own link: answer that one.'}
 
  // a script said it was about to post and never recorded it: it may have posted, so it stays counted and is ONE Health item per agent.
  // A ticket that never got as far as "sending" is dropped after the same time (the script died before it posted).
