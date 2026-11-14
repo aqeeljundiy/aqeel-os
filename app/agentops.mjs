@@ -19,6 +19,11 @@ export const LIVE_APP=isLive();
 // Help's own engine profile (help.mjs): no tools, no skills, no channels. It is not an agent, so agentNames leaves it
 // out and with it every list built from that (defaults, skills, schedules, channels, usage per agent, Models)
 export const HELP_AGENT=process.env.HELP_AGENT||'aqeelos-help';
+// the throwaway agent the live test talks to (scripts/live-test.mjs makes it and puts it on the test-agents list). It stays an
+// agent for the live test, deploy checks and Health, but the agent lists people pick from leave it out (owner, 14 Nov 2026, UI
+// audit item 15: "Aq livetest is listed among real agents"). Only this one: other test agents can be real agents in training.
+export const LIVE_TEST_AGENT=process.env.LIVE_TEST_AGENT||'aq-livetest';
+export const listedAgent=a=>{const n=String(a?.name??a?.id??a);return n!==HELP_AGENT&&n!==LIVE_TEST_AGENT};
 
 const queues=new Map();
 // while a restore copies the engine's files (backup.mjs), aqeelOS's own writes to them wait here (up to 30 minutes)

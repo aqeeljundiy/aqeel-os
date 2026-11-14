@@ -114,3 +114,13 @@ test('the password change needs the current one',async()=>{
  assert.equal((await call(owner,'PUT','/ui/me/password',{current:'owner-pass-1',next:'new-owner-pass'})).status,200);
  assert.equal((await users.login('','new-owner-pass'))?.role,'owner');assert.equal(await users.login('','owner-pass-1'),null)});
 
+
+test('the live test\'s throwaway agent is left out of the agent lists, like Help; other test agents stay listed (UI audit 15, 14 Nov 2026)',async()=>{
+ const {listedAgent,LIVE_TEST_AGENT}=await import('../app/agentops.mjs');assert.equal(LIVE_TEST_AGENT,process.env.LIVE_TEST_AGENT||'aq-livetest');
+ assert.equal(listedAgent(LIVE_TEST_AGENT),false);assert.equal(listedAgent({name:LIVE_TEST_AGENT}),false);assert.equal(listedAgent('aqeelos-help'),false);
+ assert.equal(listedAgent('continue-support'),true,'a real agent in training on the test-agents list is still listed');assert.equal(listedAgent('default'),true);
+ const owner={id:'owner',role:'owner',name:'O'},pr={profiles:[{name:'default'},{name:'rinabot'},{name:LIVE_TEST_AGENT},{name:'aqeelos-help'},{name:'rinabot--wa2'}]};
+ assert.deepEqual(users.filter(owner,'/hapi/profiles',JSON.parse(JSON.stringify(pr))).profiles.map(x=>x.name),['default','rinabot']);
+ assert.deepEqual(users.statusFor(owner,{gateway_running:true,profiles:[{name:'default'},{name:LIVE_TEST_AGENT},{name:'rinabot'}]}).profiles.map(x=>x.name),['default','rinabot'])});
+test('System › Teams and Models › every agent leave the live test\'s agent out too',async()=>{const {readFileSync}=await import('node:fs');const src=f=>readFileSync(new URL('../app/'+f,import.meta.url),'utf8');
+ assert.match(src('health-routes.mjs'),/agents:v\.agents\.filter\(listedAgent\)\.map/);assert.match(src('instructions-routes.mjs'),/\(await listAgents\(\)\)\.filter\(a=>listedAgent\(a\)&&/)});

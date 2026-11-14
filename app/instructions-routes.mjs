@@ -8,7 +8,7 @@
 import path from 'node:path';
 import {stat} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
-import {readConfig} from './agentops.mjs';
+import {readConfig,listedAgent} from './agentops.mjs';
 export function createInstructionsRoutes({accountsApi,backupModels,bottlenecks,cfgLimit,channelAttention,code,DATA,DESKTOP_RELEASES,displayName,help,instructions,listAgents,localAppVersions,n8n,NAMES,needsFor,newerApp,readBody,releaseAppVersions,security,send,signinsDue,teamFolders,users,versions}){
  return async function handle(req,res,p,url,u){
    // an agent's instructions (instructions.mjs): history, a version with its changes, save, bring back, rewrites waiting for approval, flags
@@ -69,7 +69,7 @@ export function createInstructionsRoutes({accountsApi,backupModels,bottlenecks,c
     if(b.owner){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can open n8n as its owner.'}),true;if(!await n8n.ready())return send(res,409,{error:'n8n is not connected yet.'}),true;const st=await n8n.status(a);return send(res,200,{url:st.base+'/aqeelos-login?t='+n8n.ticket('__owner')}),true}if(!(await listAgents()).includes(a))return send(res,400,{error:'Unknown agent'}),true;
     if(!users.isAdmin(u)&&!users.atLeast(u,a,'edit'))return send(res,403,{error:'You can chat with this agent but not open its n8n.'}),true;
     try{const r=await n8n.ensure(a);const st=await n8n.status(a);return send(res,200,{url:st.base+'/aqeelos-login?t='+n8n.ticket(a),email:r.email}),true}catch(e){return send(res,409,{error:e.message}),true}}
-   if(p==='/ui/models/agents'&&req.method==='GET'){const ag=(await listAgents()).filter(a=>users.isAdmin(u)||users.level(u,a));   // the agents this person may use (owned or shared)
+   if(p==='/ui/models/agents'&&req.method==='GET'){const ag=(await listAgents()).filter(a=>listedAgent(a)&&(users.isAdmin(u)||users.level(u,a)));   // the agents this person may use (owned or shared)
     // side by side, a few at a time (each a config read; it was one after another)
     const out=await Promise.all(ag.map(a=>cfgLimit(async()=>{const c=await readConfig(a).catch(()=>null)||{};return {id:a,name:NAMES[a]||await displayName(a),model:c.model?.default||'',provider:c.model?.provider||''}})));return send(res,200,{agents:out}),true}
    // Models › AI accounts › If an account fails: each agent's fallback models, as backup-models.mjs keeps them (admins; 1 Nov 2026)

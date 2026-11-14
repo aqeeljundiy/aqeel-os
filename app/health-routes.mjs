@@ -3,7 +3,7 @@
 // the signed-in /ui/ gate. Same checks in the same order; server.mjs calls this where the block was (the person `u` is already signed in and
 // the x-hui header already checked) and it answers true when it handled the request.
 import {personOf} from './issues.mjs';
-import {isAgent,LIVE_APP,HELP_AGENT} from './agentops.mjs';
+import {isAgent,LIVE_APP,HELP_AGENT,listedAgent} from './agentops.mjs';
 import {issueActs} from './need-action.mjs';
 import {swr} from './swr.mjs';
 export function createHealthRoutes({agentGraph,agentMemory,agentName,chatHistory,cloudFixer,codeChanges,effView,escalations,health,issues,listAgents,listAllProfiles,memWatch,needCtx,ownerSend,questions,readBody,relay,resume,send,teamSettings,usage,users,warmMs=8000}){
@@ -35,7 +35,7 @@ export function createHealthRoutes({agentGraph,agentMemory,agentName,chatHistory
   // System › Teams (team-settings.mjs): teams and members, the fixer, where alerts go, Pause alerts, test agents
   if(/^\/ui\/(teams|alerts)(\/|$)/.test(p)){if(!users.isAdmin(u))return send(res,403,{error:'Only admins.'}),true;let b={};if(req.method!=='GET'){try{b=JSON.parse(await readBody(req,131072))}catch{}}
    const nm=a=>agentName(a),chans=async()=>(await relay.channelsFor('default').catch(()=>[])).map(c=>({id:c.id,name:c.name,platform:c.platform,owner:c.owner}));
-   const full=async()=>{const v=await teamSettings.view();return {...v,agents:v.agents.map(a=>({id:a,name:nm(a)})),channels:await chans()}};
+   const full=async()=>{const v=await teamSettings.view();return {...v,agents:v.agents.filter(listedAgent).map(a=>({id:a,name:nm(a)})),channels:await chans()}};   // the live test's agent is not one to file in a team
    try{
     if(p==='/ui/teams'&&req.method==='GET')return send(res,200,await full()),true;
     if(p==='/ui/teams'&&req.method==='PUT'){await teamSettings.setTeams(b);return send(res,200,await full()),true}

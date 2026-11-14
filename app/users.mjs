@@ -7,7 +7,7 @@ import {scryptSync,randomBytes,timingSafeEqual,randomInt,createHash} from 'node:
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {readPicture,emojiSlugs,AVATAR_TYPES} from './avatar-file.mjs';
-import {HELP_AGENT} from './agentops.mjs';
+import {listedAgent} from './agentops.mjs';
 import {addonDecision} from './addons.mjs';
 import {safeEq} from './account-limit.mjs';
 import {createSignInGuard,burn,hashName} from './signin-guard.mjs';
@@ -270,8 +270,8 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  /* ---------- filtering what comes back ---------- */
  // the engine's status: an admin sees all of it (Help's profile left out); a member only whether the engine runs and their own agents
  // (not the names of the others, the install paths or the process id)
- function statusFor(u,data){if(!data||typeof data!=='object')return data;const nm=x=>String(x?.name??x),mineA=x=>nm(x)!==HELP_AGENT&&!!level(u,nm(x));
-  if(Array.isArray(data.profiles))data={...data,profiles:data.profiles.filter(x=>nm(x)!==HELP_AGENT)};
+ function statusFor(u,data){if(!data||typeof data!=='object')return data;const nm=x=>String(x?.name??x),mineA=x=>listedAgent(nm(x))&&!!level(u,nm(x));
+  if(Array.isArray(data.profiles))data={...data,profiles:data.profiles.filter(x=>listedAgent(nm(x)))};
   if(isAdmin(u))return data;
   const o={};for(const k of ['gateway_running','gateway_state','active_agents','active_sessions','version'])if(k in data)o[k]=data[k];
   if(Array.isArray(data.profiles))o.profiles=data.profiles.filter(mineA);
@@ -288,8 +288,8 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
   // schedules: an admin sees every agent's but a private one's (as the gate does), a member those they may change
   if(/^\/hapi\/cron\/jobs$/.test(p)){const jobs=Array.isArray(data)?data:data.jobs;if(Array.isArray(jobs)){const f=jobs.filter(j=>schedOk(u,j.profile||'default'));return Array.isArray(data)?f:{...data,jobs:f}}}
   // the hidden copies behind extra connections (WhatsApp 2…) are not agents of their own
-  // nor is Help's profile: it belongs to nobody's agent list (help.mjs)
-  if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles))data={...data,profiles:data.profiles.filter(x=>!String(x.name).includes('--')&&x.name!==HELP_AGENT)};
+  // nor is Help's profile: it belongs to nobody's agent list (help.mjs); nor the live test's throwaway agent (agentops.mjs)
+  if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles))data={...data,profiles:data.profiles.filter(x=>!String(x.name).includes('--')&&listedAgent(x.name))};
   if(/^\/hapi\/profiles$/.test(p)&&Array.isArray(data.profiles)&&!isAdmin(u))return {...data,profiles:data.profiles.filter(x=>level(u,x.name))};
   return data}
  // a continuation (compacted chat, reset) or a fork made outside aqeelOS belongs to whoever owns the chat it came
