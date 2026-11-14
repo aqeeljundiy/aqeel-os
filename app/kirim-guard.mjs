@@ -14,7 +14,7 @@ const INTERNAL=[/(catatan|note)s?\s+(untuk|buat|for)\s+(tim|team)/i,/tidak\s+dik
 // Only explicit reply-to-operator preambles, not ordinary customer-facing delivery statements.
 const REPLY_NOTE=/^\s*(?:ini\s+balasan\s+yang\s+saya\s+siapkan\b|saya\s+belum\s+mengirim\s+apa\s*pun\b|here\s+is\s+the\s+reply\b|draft\s+reply\b|I\s+haven['’]t\s+sent\s+anything\b)[^\n]*[:.!?]\s*$/i;
 // the agent quoting its rules or narrating its plan at the start of a reply (i5e349bf6, 11 Nov 2026)
-const REASON=/^\s*(?:dari\s+rules?\b|rules?\s*:|aturan(?:nya)?\s*:|(?:thinking|reasoning)\b)|\bjadi\s+saya\s+jawab\b|\bsaya\s+jawab\b[^\n]*\bdulu\b|\blalu\s+minta\s+data\b/i;
+const REASON=/^\s*(?:dari\s+rules?\b|rules?\s*:|aturan(?:nya)?\s*:|(?:thinking|reasoning)\b)|\bjadi\s+saya\s+jawab\b|\bsaya\s+jawab\b[^\n]*\bdulu\b|\blalu\s+minta\s+data\b|^\s*(?:strike-?through|harga\s+coret|coret)\s*=|=\s*[\d.,]+\s*[x×*]\s*[\d.,]+\s*=|\bbelum\s+diketahui\b[^\n]*\bjadi\s+saya\b|\bjadi\s+saya\s+tanya(?:kan)?\s+(?:itu\s+)?dulu\s*[.!]?\s*$|\b(?:aren'?t|are\s+not|isn'?t|is\s+not)\s+known\s+yet\b|\bso\s+I\s+(?:ask|answer|reply|say)\b[^\n]*\bfirst\b|\bthe\s+reply\s+(?:also\s+)?(?:includes|has|adds|says)\b/i;
 // an error trace or stack line
 const TRACE=/Traceback \(most recent call last\)|^\s*at\s+\S+\s+\(.*:\d+:\d+\)|^\s*File ".*", line \d+|\b(?:TypeError|ReferenceError|SyntaxError|ValueError|KeyError|AttributeError|RuntimeError)\b\s*[:(]|UnhandledPromiseRejection/;
 // a whole line that is only a bracketed note to itself about a picture: dropped and logged, the rest goes out (8 Nov 2026)
@@ -117,7 +117,12 @@ export function guardReply(input,{paid=null,qrPics=[],ctx={},customerText=''}={}
  // a QR is promised only when the text says the QRIS itself is here/attached; QRIS listed as a payment option
  // (order form, 'pilih metode') is not a promise (false hold, 6 Nov)
  const QR_PROMISE=/(berikut|ini|terlampir|di ?bawah|kami kirim(kan)?|saya kirim(kan)?|here is|attached)[^\n]{0,25}\bQRIS\b|\bQRIS(-?nya)?\b[^\n]{0,15}(terlampir|di ?bawah|berikut|attached)/i;
- const promisesQr=keep.some(p=>QR_PROMISE.test(p)&&!/metode pembayaran|pilih (salah satu|metode)|payment method/i.test(p));
+ // 'QRIS-nya sudah kami kirim' (i10e323ba): the picture this run made is attached; with none, it may point back to an
+ // earlier run's QRIS, so it is held only when no recent payment exists for this customer
+ const QR_SENT=/\bQRIS(-?nya)?\b[^\n]{0,60}\b(sudah|telah|udah)\b[^\n]{0,12}\b(kami|saya|aku) ?(kirim|lampir)|\bQRIS(-?nya)?\b[^\n]{0,60}\b(sudah|telah) (terkirim|dikirim)/i;
+ const notOption=p=>!/metode pembayaran|pilih (salah satu|metode)|payment method/i.test(p);
+ const saysSent=keep.some(p=>!TAG.test(p)&&QR_SENT.test(p)&&notOption(p));
+ const promisesQr=keep.some(p=>QR_PROMISE.test(p)&&notOption(p))||(saysSent&&(qrPics.length>0||paid!==true));
  const hasPic=keep.some(p=>/^\[FOTO:/i.test(p));
  // the run made the QRIS but the reply forgot its [FOTO:] tag: attach the picture the payment tool made (i49f4e694)
  if(promisesQr&&!hasPic&&qrPics.length){keep.push(...qrPics);return {parts:keep,removed,dropped,hold:null,attached:qrPics}}

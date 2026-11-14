@@ -64,3 +64,11 @@ test('leading rule quotes and plans are dropped; reasoning-only is held (i5e349b
 test('internalText: notes, reasoning and error traces are caught, ordinary sales text is not',()=>{
  for(const t of ['Dari rules: x','Catatan untuk tim: cek','Draft reply:','Traceback (most recent call last):\n  File "x.py", line 3','TypeError: Cannot read properties of undefined','    at foo (/app/server.mjs:12:3)','Halo kak\n(test mode) ya'])assert.equal(internalText(t),true,t);
  for(const t of ['Halo kak, pesanannya sudah kami catat ya 😊','Total Rp3.200.000, transfer ke QRIS di bawah','Saya akan cek stok dulu ya kak.'])assert.equal(internalText(t),false,t)});
+
+test('round 18 leaked notes are dropped, the answer stays (13 Nov 2026)',()=>{
+ const cases=[['Strike-through = 1.25 x 900.000 = 1.125.000.','Halo kak, untuk BPC-157 5mg harganya ~Rp1.125.000~ *Rp900.000*.'],
+  ['Product dan jumlah suntikan belum diketahui, jadi saya tanya dulu.','Halo Kak, boleh tahu Kakak pakai produk apa dan ini suntikan yang ke berapa?'],
+  ["Product and injection count aren't known yet, so I ask that first. The reply also includes the safety line for the reaction.",'Kak, boleh tahu dulu ini habis suntik produk apa?']];
+ for(const [lead,r] of cases){const g=guardReply(splitReply(lead+'\n\n'+r));assert.equal(g.hold,null,lead);assert.deepEqual(g.parts,[r],lead)}
+ for(const ok of ['Boleh saya tanya dulu, Kakak pakai produk apa?','Harga coret Rp1.125.000, sekarang Rp900.000 ya kak.','Total Rp3.710.000 ya kak.'])assert.deepEqual(guardReply(splitReply(ok)).parts,[ok],ok);
+});

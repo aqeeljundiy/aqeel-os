@@ -184,7 +184,9 @@ export function createCustomerTools({WORK,DATA,catalogOf=async()=>null,providers
     if(k==='card'&&given.length>1)return {isError:true,text:'A card link is one amount: the whole order total.'};
     if(k==='va'&&(kind!=='pay'&&kind!=='app'||!/^[A-Z0-9_]{2,20}$/.test(String(args.bank||'').toUpperCase())||given.length>1))return {isError:true,text:'A VA needs a bank code and one amount.'};
     // the parts: as given when they are right, else split by code (a QRIS carries at most the line's max)
-    const amounts=given.length?given:k==='qris'?splitAmounts(pay,{min:lo,max:hi}):pay>=lo&&pay<=hi?[pay]:null;
+    const isTest=r.mode==='test'&&!!r.tester;   // a tester of a Test line pays the small test amount for every kind (QRIS, VA, card), so the real range does not apply
+    let amounts=given.length?given:k==='qris'?splitAmounts(pay,{min:lo,max:hi}):pay>=lo&&pay<=hi?[pay]:null;
+    if(!amounts&&isTest)amounts=[pay];
     if(!amounts)return {isError:true,text:'A total of '+cur+pay+' cannot be paid by '+k+' here (each '+k+' payment is '+lo+' to '+hi+(k==='qris'?', five parts at most':'')+'). Offer another payment method, or hand off.'};
     let total=pay;
     if(r.payments>=2)return {isError:true,text:'Two payments were already made in this run. If something is wrong, hand off to the team.'};
@@ -192,10 +194,10 @@ export function createCustomerTools({WORK,DATA,catalogOf=async()=>null,providers
     const recent=(await readFile(path.join(DATA,'payments.jsonl'),'utf8').catch(()=>'')).split('\n').filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean)
      .find(p=>p.agent===agent&&p.phone===r.phone&&(p.orderTotal??p.total)===total&&p.ok&&!deliveryFailed(p.out)&&(p.kind==='card')===(k==='card')&&now()-Date.parse(p.at)<30*60e3);   // switching to or from card is a new payment
     if(recent&&!args.expired)return {isError:true,text:'A payment for '+cur+total+' was already made for this customer at '+recent.at.slice(11,16)+' UTC. Only make a new one if the customer says it expired (expired true).'};
-    // a tester pays a small test QRIS instead of the order total: the line's payment.testAmount, else 10000. Applied HERE, by code, and only
+    // a tester pays a small test payment (QRIS, VA or card) instead of the order total: the line's payment.testAmount, else 10000. Applied HERE, by code, and only
     // while the line is in Test and the run's number is one of its testers right now; the model cannot ask for it, and no rule file can
     // (audit C2: a rule file said "test numbers always get Rp10.000" and the model charged that for orders of millions)
-    const testAmt=r.mode==='test'&&r.tester&&k==='qris'?(Number.isInteger(Number(pr.testAmount))&&Number(pr.testAmount)>0?Number(pr.testAmount):10000):0;
+    const testAmt=isTest?(Number.isInteger(Number(pr.testAmount))&&Number(pr.testAmount)>0?Number(pr.testAmount):10000):0;
     if(testAmt){amounts.splice(0,amounts.length,testAmt);total=testAmt}
     const nm=clip(String(args.name||'').replace(/[^\p{L}\p{N} .,'-]/gu,'').trim(),60)||'Customer';
     r.payments++;let x;
