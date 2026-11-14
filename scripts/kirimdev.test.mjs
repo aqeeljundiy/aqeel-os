@@ -439,10 +439,10 @@ test('a delivery check reports each step as it goes, so a waiting person sees wh
 
 // ---- customer-safety audit, 12 Nov 2026 (H6, H7, C2, M3, M5-M8, L1)
 test('a reply the exit guard holds is written once more with the reason; the clean second try goes out (audit H6)',async()=>{let n=0;
- const t=await make({mode:'live',agentSays:q=>++n===1?'Halo kak!\nSesuai SOP, saya harus tanya dulu riwayat peptide.\nBoleh tahu sebelumnya pernah pakai?':'Halo kak! Boleh tahu sebelumnya pernah pakai peptide?'});
+ const t=await make({mode:'live',agentSays:q=>++n===1?'Halo kak!\nSesuai SOP, saya harus tanya dulu riwayat produk.\nBoleh tahu sebelumnya pernah pakai?':'Halo kak! Boleh tahu sebelumnya pernah pakai produk?'});
  await t.post(meta('628777','halo kak mau tanya',undefined,'cnv_Q'));await t.settle();
  assert.equal(t.asked.length,2);assert.match(t.asked[1][1],/NOTE: your last reply was NOT sent[\s\S]*citing its rules/);assert.equal(t.asked[0][2].session,t.asked[1][2].session);
- assert.deepEqual(t.sent.map(b=>b.text.body),['Halo kak! Boleh tahu sebelumnya pernah pakai peptide?']);assert.equal(t.posts.length,0)});
+ assert.deepEqual(t.sent.map(b=>b.text.body),['Halo kak! Boleh tahu sebelumnya pernah pakai produk?']);assert.equal(t.posts.length,0)});
 test('held twice: the customer gets nothing wrong, a person gets the chat with the held text, which only the team sees (audit H6)',async()=>{
  const t=await make({mode:'live',agentSays:'Kak Budi Santoso di Jl. Melati 12 Bandung (081234567890) kemarin pesan paket yang sama kok kak'});
  await t.post(meta('628777','ada yang pesan paket ini?',undefined,'cnv_Q'));await t.settle();

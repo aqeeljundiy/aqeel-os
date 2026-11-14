@@ -104,7 +104,7 @@ export function combine({work=[],need=[]}){
 
 // ---- has the source changed since the last run ----------------------------------------------------------------------------
 // For a schedule that every few minutes runs a script over data that only now and then changes (Continue Sales Recap and
-// Biomarkers sales recap read sales-recap/feed/payments.jsonl and paid-labels.json, written when an order is paid). The
+// a second brand's sales recap read sales-recap/feed/payments.jsonl and paid-labels.json, written when an order is paid). The
 // fingerprint of each source is kept per job; a change is work. A run that failed would not come back by itself, so after a
 // change the check also says go for the next `retries` calls; maxIdleMin is the safety run when nothing changed for that long.
 export async function fingerprint(src,{read=readFile}={}){const f=String(src).replace(/^file:/,'');

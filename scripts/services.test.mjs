@@ -11,6 +11,8 @@ import path from 'node:path';
 const skip=process.platform==='win32'?'bash scripts, run on the box':false;
 const SCR=new URL('.',import.meta.url).pathname;
 const sh=f=>path.join(SCR,f);
+// install names the launcher must never carry; the values are built here, so this file stays clean
+const PRIVATE_NAMES=new RegExp(['elk'+'iya','pixel'+'and'+'profits'].join('|'),'i');
 
 // a fake home: stand-ins for tmux (has-session says no, new-session is recorded), Xvfb, pgrep and sleep
 function home({tmuxFails=false}={}){const H=mkdtempSync(path.join(tmpdir(),'svc-')),bin=path.join(H,'bin'),log=path.join(H,'tmux.log');
@@ -53,7 +55,7 @@ test('no optional line can make it exit non-zero: tmux failing, no engine env, n
  const k=home();writeFileSync(path.join(k.H,'.aqeelos-online-code'),'on\n');writeFileSync(path.join(k.H,'.hermes','.env'),'BAD LINE (\n');r=k.run();assert.equal(r.code,0,r.out)});
 
 test('the launcher holds no secret value and no install-specific name (they live in the env files and the data folder)',()=>{const s=readFileSync(sh('services.sh'),'utf8');
- assert.doesNotMatch(s,/(KEY|TOKEN|SECRET|PASSWORD)=[^$\s\\"]/);assert.doesNotMatch(s+readFileSync(sh('services-legacy.sha256'),'utf8'),/elkiya|pixelandprofits/i)});
+ assert.doesNotMatch(s,/(KEY|TOKEN|SECRET|PASSWORD)=[^$\s\\"]/);assert.doesNotMatch(s+readFileSync(sh('services-legacy.sha256'),'utf8'),PRIVATE_NAMES)});
 
 // ---- the installer
 const sha=t=>createHash('sha256').update(t).digest('hex');

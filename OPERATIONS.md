@@ -11,7 +11,7 @@ Every long-running process belongs to exactly one starter: the agent-users scrip
 - Never launch with a bare `( … & )` that nothing tracks.
 - Each agent's processes run as its own Linux user `ag-<agent>`, which is its group: `aq-agent-users stop <agent>` (or a line in `~/.aqeelos-agent-users.stop`) stops everything that agent started. Kernel groups (cgroups) were ruled out on 11 Nov: the box's cgroup files are read-only and root inside it lacks the right to change that without a privileged box.
 
-*Incident, 10 Nov 2026:* a screen whose socket went missing was restarted every 30 s while the old display still ran. Each restart failed and left a desktop behind: 49 each for continue-support and biomarkers-support, about 9 GB. Fixed in `25fd701` (`screen_kill`).
+*Incident, 10 Nov 2026:* a screen whose socket went missing was restarted every 30 s while the old display still ran. Each restart failed and left a desktop behind: 49 each for continue-support and the second support agent, about 9 GB. Fixed in `25fd701` (`screen_kill`).
 
 ## 2. Every agent has a budget
 

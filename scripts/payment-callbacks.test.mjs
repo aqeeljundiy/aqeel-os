@@ -46,7 +46,7 @@ test('a bad signature, a wrong token, an agent without a key, an unknown provide
  assert.equal((await C.receive('tripay',A,{...good.headers,'x-callback-signature':'0'.repeat(64)},good.raw)).status,401);
  assert.equal((await C.receive('tripay',A,good.headers,body({reference:REF,status:'PAID',more:1}))).status,401);
  assert.equal((await C.receive('xendit',A,{'x-callback-token':'nope'},body({status:'PAID'}))).status,401);
- assert.equal((await C.receive('tripay','biomarkers-support',good.headers,good.raw)).status,401,'no key saved for that agent');
+ assert.equal((await C.receive('tripay','shop-support',good.headers,good.raw)).status,401,'no key saved for that agent');
  assert.equal((await C.receive('paypal',A,good.headers,good.raw)).status,404);assert.equal((await C.receive('tripay','../etc',good.headers,good.raw)).status,404);
  assert.equal((await C.receive('tripay',A,good.headers,Buffer.alloc(MAX_BODY+1))).status,413);
  assert.equal(nudged.length,0);assert.equal(await C.active(A,'tripay'),false)});

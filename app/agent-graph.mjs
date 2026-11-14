@@ -1,7 +1,7 @@
 // A map of each agent's own knowledge, and a small tool to search it (owner, 11 Nov 2026: "graphify on all agents,
 // efficient, also for non-coding agents").
 // Why: every reply sends the agent's instructions and memory in full (continue-threads 43 KB, continue-support 33 KB,
-// biomarkers-support 30 KB on Elkiya), and graphify's skill is another ~12k tokens whenever it is used. So:
+// a second support agent 30 KB on Elkiya), and graphify's skill is another ~12k tokens whenever it is used. So:
 //  1. The tool: graphify's own MCP server (`python -m graphify.serve <graph.json>`, stdio) is added to the agent's
 //     mcp_servers as "graphify", cut to three tools (search, one node, its neighbours): the list of tools is sent with
 //     every call too. It is added only once the agent has a map, because the server exits when there is no graph.

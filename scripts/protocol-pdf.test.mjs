@@ -76,10 +76,10 @@ test('the tool: only on a line with the setting, once per run, only to this chat
 
 // ---- audit 12 Nov 2026, H8a: the protocol as text follows the PDF's rule (one member, or nothing), and the member list must be whole
 import {listWhole} from '../app/protocol-pdf.mjs';
-const PROTO=[{name:'Reta 12 minggu',status:'active',frequency:'weekly',durationWeeks:12,product:{name:'Retatrutide',strength:10,strengthUnit:'mg',format:'vial'},phases:[{weekNumber:2,doseMg:4,units:40},{weekNumber:1,doseMg:2,units:20,notes:'malam'}],instructions:'Suntik di perut',notes:'{"internal":1}'}];
+const PROTO=[{name:'Reta 12 minggu',status:'active',frequency:'weekly',durationWeeks:12,product:{name:'Product A',strength:10,strengthUnit:'mg',format:'vial'},phases:[{weekNumber:2,doseMg:4,units:40},{weekNumber:1,doseMg:2,units:20,notes:'malam'}],instructions:'Suntik di perut',notes:'{"internal":1}'}];
 test('the protocol as text: this chat\'s one member only; two members on one number get nothing, for text and PDF alike',async()=>{
  const one=await member({protocols:PROTO});const t=await one.make.text('cove-support','0812 3456 7890',CFG);
- assert.match(t.text,/^Protocol: Reta 12 minggu\nStatus: active\nProduct: Retatrutide 10mg vial\nFrequency: weekly\nDuration: 12 weeks\n  Week 1: 2 mg = 20 units - malam\n  Week 2: 4 mg = 40 units\nInstructions: Suntik di perut$/);assert.doesNotMatch(t.text,/internal|Member/);
+ assert.match(t.text,/^Protocol: Reta 12 minggu\nStatus: active\nProduct: Product A 10mg vial\nFrequency: weekly\nDuration: 12 weeks\n  Week 1: 2 mg = 20 units - malam\n  Week 2: 4 mg = 40 units\nInstructions: Suntik di perut$/);assert.doesNotMatch(t.text,/internal|Member/);
  const two=await member({members:[{id:1,phone:'6281234567890',displayName:'Ani'},{id:2,whatsappNumber:'081234567890',displayName:'Budi'}],protocols:PROTO});
  for(const f of [two.make,two.make.text]){const r=await f('cove-support','6281234567890',CFG);assert.match(r.none,/More than one member/);assert.equal(r.text,undefined);assert.equal(r.pdf,undefined)}
  assert.ok(!two.calls.some(c=>/customers\/\d+$/.test(c[1])),'neither member\'s profile was even read');

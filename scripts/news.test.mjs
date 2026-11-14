@@ -61,6 +61,6 @@ test('the evening line',()=>{assert.equal(eveningLine(12,0),'12 things fixed the
 
 test('excerpt: cut from the start at a word boundary, ending in …',()=>{
  assert.equal(excerpt('short text',240),'short text');
- const long='SLACK_APP_TOKEN is now "Slack app token: Pixel & Profits (Socket Mode)". KIE_API_KEY is now "Kie.ai image/video generation key". '.repeat(4);
+ const long='SLACK_APP_TOKEN is now "Slack app token: Acme Studio (Socket Mode)". KIE_API_KEY is now "Kie.ai image/video generation key". '.repeat(4);
  const e=excerpt(long,80);assert.ok(e.length<=80);assert.ok(e.endsWith('…'));assert.ok(e.startsWith('SLACK_APP_TOKEN is now'));
  assert.ok(long.startsWith(e.slice(0,-1)));assert.match(long.slice(e.length-1,e.length),/[ ".]/)});

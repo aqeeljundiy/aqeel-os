@@ -10,7 +10,7 @@ import path from 'node:path';
 import {createPaidLabels} from '../app/paid-labels.mjs';
 import {commandOf,remoteCommand,cleanHook,writeFeed,fallbackScript,createEventHooks,BUSY} from '../app/event-hooks.mjs';
 
-const A='continue-support',B='biomarkers-support',CHAT='telegram:-1001000000001:5';
+const A='continue-support',B='shop-support',CHAT='telegram:-1001000000001:5';
 const HOOK={id:'sales-recap',on:['payment.paid','order.posted'],run:'python3 -I sales-recap/run.py',deliver:CHAT,feed:'sales-recap/feed',minGapSec:60};
 const ev=(type='payment.paid')=>({type,data:{kind:'qris'}});
 

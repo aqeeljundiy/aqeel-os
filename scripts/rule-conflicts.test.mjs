@@ -11,7 +11,7 @@ import {CONFLICT_RULE_LINES} from '../app/agent-access.mjs';
 const PROMPT='You are Continue Threads Manager. Skip only if a thread went out in the last 45 minutes (check the profile). Threads do not count toward the 20-singles cap (max 8/day).\n\n1) PICK type.';
 const THREADS={id:'738e7a2cea4f',name:'Threads own-post thread runner',enabled:true,state:'scheduled',prompt:PROMPT,schedule:{kind:'cron',expr:'5,35 * * * *',display:'5,35 * * * *'},script:'aqeelos-gate-738e7a2cea4f.sh'};
 const RULES={'continue-threads':{on:true,gapMin:8,perHour:6,perDay:58,stopFile:'.tools/STOP_COMMENTS',checkUrl:'https://www.threads.com/@x/replies'}};
-const CPROMPT='JOB: post comments (and comment-first DM pairings) until this hour has 5 comments, max 5/h, 8+ min apart, 70/day. Never end with 0.\nSTEP 2: search peptide threads.';
+const CPROMPT='JOB: post comments (and comment-first DM pairings) until this hour has 5 comments, max 5/h, 8+ min apart, 70/day. Never end with 0.\nSTEP 2: search product threads.';
 const COMMENTS={id:'198bc372ee48',name:'Threads comment + DM runner (5 comments/h, 3 DMs/h)',enabled:true,state:'scheduled',prompt:CPROMPT,schedule:{kind:'cron',expr:'*/10 * * * *',display:'*/10 * * * *'}};
 
 async function make({jobs=[THREADS],limits=RULES}={}){const root=await mkdtemp(path.join(tmpdir(),'conf-'));const H=path.join(root,'hermes'),DATA=path.join(root,'data');

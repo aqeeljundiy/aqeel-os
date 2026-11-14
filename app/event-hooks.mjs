@@ -1,4 +1,4 @@
-// Event hooks (12 Nov 2026). Owner's reason: the two sales-recap schedules (Continue, Biomarkers) woke a model every 5 minutes only to run a
+// Event hooks (12 Nov 2026). Owner's reason: the two sales-recap schedules (one per brand) woke a model every 5 minutes only to run a
 // script and repeat what it printed, 288 runs a day for a few paid orders. Nothing tells aqeelOS when a payment succeeds (the provider is
 // asked, paid-labels.mjs polls it every minute), so the moment is when paid-labels.mjs finds a payment PAID and saves it: it tells
 // onEvent('payment.paid' / 'order.posted'), and a hook runs the agent's script right then, with NO model:

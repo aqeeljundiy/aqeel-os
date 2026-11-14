@@ -13,7 +13,7 @@ Where it lives: `app/bottlenecks.mjs` (`personNeed`, the sentence), `app/bottlen
 | Where | Item | What the person must do | Old primary | Does it? | Now |
 |---|---|---|---|---|---|
 | Health, every fixer card | Higgsfield won't connect (3 issues on the Elkiya host, 5 agents) | Sign in to Higgsfield once | "Done, check again" | No: it asks you to say it is done before it is | **Sign in to Higgsfield** starts the sign-in for the right agent (`/ui/mcp/start-signin`, tab opens on the click); Check again after |
-| Health | Notion CRM not visible (2 issues) | Sign in to Notion and pick the AdmissionSight workspace | "Done, check again" | No | **Sign in to Notion** |
+| Health | Notion CRM not visible (2 issues) | Sign in to Notion and pick the client's workspace | "Done, check again" | No | **Sign in to Notion** |
 | Health | Pixel Agent: ChatGPT/Codex and Antigravity sign-ins dead (the P&P host) | Sign in to both | "Done, check again" | No | **Sign in to Proton ChatGPT**, **Sign in to Antigravity** (the Reconnect dialog of that account) |
 | Health | Fakhri: Google Sheets tools not loaded | Connect Google | "Done, check again" | No | **Connect Google** (Connect Google dialog) |
 | Health | Donna cannot log in to KirimDev | Sign in on the agent's own screen | "Done, check again" | No | **Sign in on screen** (that agent's screen, Take over on) |

@@ -82,7 +82,7 @@ export const listText=(cat,cur=cat?.currency||'')=>!cat?'This line has no price 
 
 // ---- reading the lists the team already keeps. Three shapes are known:
 //  "- Reta 10mg: jual Rp3.200.000 | coret Rp4.000.000"            (a pricelist file)
-//  "CL-RTGLP3-10MG | Retatrutide · 10 mg | 4000000 | 3200000"     (sku | title | list price | selling price)
+//  "CL-RTGLP3-10MG | Product A · 10 mg | 4000000 | 3200000"     (sku | title | list price | selling price)
 //  "RT-GLP3 10mg | Default Title | None | 3800000.00 | gid://… | ACTIVE"   (title | variant | sku | price | id | status)
 export const slug=s=>String(s||'').toLowerCase().normalize('NFKD').replace(/\([^)]*\)/g,' ').replace(/\+/g,' plus ').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60);
 export function parsePriceList(text){const products={};const add=(id,name,price)=>{id=String(id||'').trim();price=int(price);if(!id||!(price>0)||!name)return;let k=id,n=2;while(products[k]&&products[k].price!==price)k=id+'-'+n++;products[k]={name:String(name).trim().slice(0,120),price}};

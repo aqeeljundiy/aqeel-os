@@ -40,15 +40,15 @@ test('summary: per agent and kind, who ran on which vendor, why, and how often a
  assert.equal(summarize(all,{now:T0+H,days:7,agents:['continue-support']}).total,1)});
 
 test('on a fallback for hours: one streak, gaps of an hour end it, the item is due at the set hours',()=>{
- const stream=(from,n,gap)=>Array.from({length:n},(_,i)=>rec({at:from+i*gap,agent:'biomarkers-support'}));
+ const stream=(from,n,gap)=>Array.from({length:n},(_,i)=>rec({at:from+i*gap,agent:'shop-support'}));
  const recs=[...stream(T0,9,30*60e3)];   // 12:00 to 16:00, every half hour
- let f=onFallback(recs,{now:T0+4*H+10*60e3,hours:3});assert.equal(f.length,1);assert.deepEqual([f[0].agent,f[0].hours,f[0].n,f[0].due],['biomarkers-support',4,9,true]);
+ let f=onFallback(recs,{now:T0+4*H+10*60e3,hours:3});assert.equal(f.length,1);assert.deepEqual([f[0].agent,f[0].hours,f[0].n,f[0].due],['shop-support',4,9,true]);
  assert.equal(onFallback(recs,{now:T0+4*H+10*60e3,hours:5})[0].due,false);
  assert.deepEqual(onFallback(recs,{now:T0+6*H}),[],'not on one any more: nothing for two hours');
  // a new streak after a long gap starts again
  const two=[...stream(T0,4,30*60e3),...stream(T0+8*H,2,30*60e3)];f=onFallback(two,{now:T0+8*H+40*60e3,hours:3});assert.equal(f[0].hours,0.5);assert.equal(f[0].due,false);
- const t=fallbackText({agent:'biomarkers-support',hours:4,n:9,reason:'billing',asked:'claude-sonnet-5-5',actual:'gpt-6.1-sol'},'Biomarkers support');
- assert.match(t.text,/Biomarkers support has been answering on GPT instead of Claude for 4 hours/);assert.match(t.detail,/Models › AI accounts/)});
+ const t=fallbackText({agent:'shop-support',hours:4,n:9,reason:'billing',asked:'claude-sonnet-5-5',actual:'gpt-6.1-sol'},'Shop support');
+ assert.match(t.text,/Shop support has been answering on GPT instead of Claude for 4 hours/);assert.match(t.detail,/Models › AI accounts/)});
 
 test("a fixer run: asked Claude, ran on GPT, with the engine's reason; a run that stayed has no route",()=>{
  const run={id:'r1',kind:'fix',model:'claude-sonnet-5-5[1m]',at:T0,done:T0+20*60e3,usage:{model:'gpt-6.1-sol',cost:0.07}};
@@ -73,7 +73,7 @@ test('records on disk: appended as read, read back inside the window',async()=>{
  assert.deepEqual(await readRecords(path.join(DATA,'nowhere'),{now}),[]);assert.deepEqual(await readRecords(null),[])});
 
 /* ---------- backup-models.mjs: the policy file, reading the records, the Health item, the move ---------- */
-async function harness({room={sameModelRoom:false,keys:[]},policy=null,agents=['default','biomarkers-support']}={}){
+async function harness({room={sameModelRoom:false,keys:[]},policy=null,agents=['default','shop-support']}={}){
  const dir=await mkdtemp(path.join(tmpdir(),'bm-route-')),DATA=path.join(dir,'data'),HERMES_HOME=path.join(dir,'.hermes');await mkdir(DATA,{recursive:true});await mkdir(HERMES_HOME,{recursive:true});
  if(policy)await writeFile(path.join(DATA,'team-policy.json'),JSON.stringify(policy));
  const told=[],moved=[],cfg={};
@@ -88,16 +88,16 @@ async function harness({room={sameModelRoom:false,keys:[]},policy=null,agents=['
 
 test("every sync writes each agent's policy: the pool room and the owner's wait minutes",async()=>{
  const h=await harness({room:{sameModelRoom:true,keys:['claude:two']},policy:{route:{waitMinutes:25}}});await h.bm.sync('test');
- for(const a of ['default','biomarkers-support']){const p=JSON.parse(await readFile(path.join(h.homeOf(a),'aqeelos-route.json'),'utf8'));
+ for(const a of ['default','shop-support']){const p=JSON.parse(await readFile(path.join(h.homeOf(a),'aqeelos-route.json'),'utf8'));
   assert.deepEqual([p.v,p.waitMinutes,p.pool],[1,25,{sameModelRoom:true,keys:['claude:two']}]);assert.ok(Math.abs(p.at-Date.now())<30e3)}});
 
 test("the records are read from each agent's log, kept, summed, and shown with the agent's name",async()=>{
  const h=await harness();const now=Date.now();
- await h.write('biomarkers-support',[rec({at:now-2*H,agent:undefined,kind:'schedule'}),rec({at:now-H,agent:undefined,kind:'chat',reason:'rate_limit'})]);
+ await h.write('shop-support',[rec({at:now-2*H,agent:undefined,kind:'schedule'}),rec({at:now-H,agent:undefined,kind:'chat',reason:'rate_limit'})]);
  await h.write('default',[{at:now-H,kind:'fixer',denied:true,asked:'claude-opus-5-5',candidate:'gemini-4-argon-high',reason:'timeout',step:'not-account',why:'it is not a failure of the account'}]);
  await h.bm.tick();const st=await h.bm.status();
  assert.equal(st.routes.total,2);assert.equal(st.routes.refused,1);
- const r=st.routes.rows.find(x=>x.agent==='biomarkers-support'&&x.kind==='schedule');assert.deepEqual([r.name,r.asked,r.actual,r.n],['BIOMARKERS-SUPPORT','claude','gpt',1]);
+ const r=st.routes.rows.find(x=>x.agent==='shop-support'&&x.kind==='schedule');assert.deepEqual([r.name,r.asked,r.actual,r.n],['SHOP-SUPPORT','claude','gpt',1]);
  assert.ok(st.routes.recent.every(x=>x.name));assert.equal(st.routes.waitMinutes,DEFAULTS.waitMinutes);
  // read once: the same lines are not counted again, and they are kept in DATA for Usage and a restart
  await h.bm.tick();assert.equal((await h.bm.status()).routes.total,2);
@@ -106,20 +106,20 @@ test("the records are read from each agent's log, kept, summed, and shown with t
 test('Health: one item when an agent has been on another vendor for the set hours, cleared when it is back',async()=>{
  const h=await harness({policy:{route:{fallbackHours:2}}});const now=Date.now();
  const stream=Array.from({length:7},(_,i)=>rec({at:now-3*H+i*30*60e3,agent:undefined}));   // 3 hours ago to now, every half hour
- await h.write('biomarkers-support',stream);await h.bm.tick();
- const items=()=>h.told.filter(([t,o])=>t&&o?.topic==='route|biomarkers-support');assert.equal(items().length,1);assert.match(items()[0][0],/BIOMARKERS-SUPPORT has been answering on GPT instead of Claude for 3 hours/);
+ await h.write('shop-support',stream);await h.bm.tick();
+ const items=()=>h.told.filter(([t,o])=>t&&o?.topic==='route|shop-support');assert.equal(items().length,1);assert.match(items()[0][0],/SHOP-SUPPORT has been answering on GPT instead of Claude for 3 hours/);
  await h.bm.tick();assert.equal(items().length,1,'said once');
  // not due below the hours: another agent with a short streak raises nothing
  await h.write('default',[rec({at:now-20*60e3,agent:undefined}),rec({at:now-10*60e3,agent:undefined})]);await h.bm.tick();assert.equal(h.told.filter(([t,o])=>t&&o?.topic==='route|default').length,0);
  // it ends: no switch for over an hour -> the item is resolved
- await h.bm.tick(now+90*60e3);assert.ok(h.told.some(([t,o])=>!t&&o?.resolve==='route|biomarkers-support'))});
+ await h.bm.tick(now+90*60e3);assert.ok(h.told.some(([t,o])=>!t&&o?.resolve==='route|shop-support'))});
 
 test('a refusal "another account of the pool has room" moves that agent now, once in ten minutes',async()=>{
  const h=await harness();const now=Date.now(),denied=()=>({at:now,kind:'chat',denied:true,asked:'claude-sonnet-5-5',candidate:'gpt-6.1-sol',reason:'billing',step:'pool',why:'another account of the same pool has room'});
- await h.write('biomarkers-support',[denied(),denied()]);await h.bm.tick();assert.deepEqual(h.moved,['biomarkers-support']);
- await h.write('biomarkers-support',[denied()]);await h.bm.tick();assert.deepEqual(h.moved,['biomarkers-support']);
+ await h.write('shop-support',[denied(),denied()]);await h.bm.tick();assert.deepEqual(h.moved,['shop-support']);
+ await h.write('shop-support',[denied()]);await h.bm.tick();assert.deepEqual(h.moved,['shop-support']);
  // a refusal for any other reason moves nobody
- await h.write('default',[{...denied(),step:'wait'}]);await h.bm.tick();assert.deepEqual(h.moved,['biomarkers-support'])});
+ await h.write('default',[{...denied(),step:'wait'}]);await h.bm.tick();assert.deepEqual(h.moved,['shop-support'])});
 
 /* ---------- accounts.mjs poolRoom: step (a), the same model on another signed-in account of the pool ---------- */
 const HOME=await mkdtemp(path.join(tmpdir(),'accr-'));

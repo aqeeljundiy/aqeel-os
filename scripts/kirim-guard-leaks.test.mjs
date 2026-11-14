@@ -8,7 +8,7 @@ const OWN={phones:['6281200001111','6281200003333'],names:['Rania','Rory','Cove'
 const CTX={appHost:'https://ai.example.com',own:OWN,secrets:['kdv_live_0123456789abcdef']};
 const LEAK={
  L1_reasoning_id:'Dari rules: paket 1 itu pen, jadi saya jawab dulu.\nHalo kak, pen itu...',
- L2_reasoning_mid:'Halo kak!\nSesuai SOP, saya harus tanya dulu riwayat peptide.\nBoleh tahu sebelumnya pernah pakai?',
+ L2_reasoning_mid:'Halo kak!\nSesuai SOP, saya harus tanya dulu riwayat produk.\nBoleh tahu sebelumnya pernah pakai?',
  L3_reasoning_en:'The user is asking about price. I should check the sheet first.\nHarga paket 1 Rp 3.040.000 kak',
  L4_tool_error:'Maaf kak, {"error":"Kirimdev answered 500"} mohon tunggu',
  L5_traceback:'Traceback (most recent call last):\n  File "x.py", line 3',

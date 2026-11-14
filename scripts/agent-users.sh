@@ -619,7 +619,7 @@ port_line(){ local l; l=$(grep "^$1 " "$PORTS" 2>/dev/null | head -1); [[ "$l" =
 # Stops everything an earlier start of this agent's screen left running: the launcher shells (and the Chrome restart
 # loop they fork), the display, the desktop and its Chrome. Without this a screen whose socket went missing while its
 # display still ran was started again every 30 s: each new display failed ("X server already running") and left one
-# more desktop behind (11 Nov 2026: 49 desktops each for continue-support and biomarkers-support, about 9 GB).
+# more desktop behind (11 Nov 2026: 49 desktops each for continue-support and a second support agent, about 9 GB).
 # Only the screen's own processes: the agent's commands and tasks run as the same user and are left alone.
 # the desktop's processes (window manager, desktop background, panel and their session bus)
 DESK_PATS=("^(dbus-launch --exit-with-session )?bash -c xfwm4 " "/xfce4/" "^(/usr/bin/)?(xfwm4|xfdesktop|xfce4-panel|xfsettingsd|dbus-daemon|dbus-launch|fluxbox)( |\$)")
