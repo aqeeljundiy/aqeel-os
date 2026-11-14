@@ -5,6 +5,7 @@
 ### Added
 
 - Per-profile `claude_config_dir` setting selects the Claude login for every native spawn in a multiplexed gateway (#34).
+- aqeelOS: warm standby natives. The next call's `claude` process starts while the current call waits on the model and is adopted only when every spawn input matches, so tool rounds skip native start-up. On by default; `CLAUDE_SUBSCRIPTION_DIRECTSDK_WARM=0` turns it off, `_WARM_MAX` (4) and `_WARM_IDLE_SECONDS` (300) bound it. One `claude native call:` timing line per call.
 
 ### Fixed
 
