@@ -46,7 +46,7 @@ export function createAqeelos({root}){
  const agentsBy=new Map();
  async function agents(act){await load();if(!link.token)return [];const k=who(act),hit=agentsBy.get(k);if(hit&&Date.now()-hit.t<60000)return hit.v;let list=hit?.v||[];
   try{const r=await fetch(link.base+'/ui/code/agents',{headers:H(act),signal:AbortSignal.timeout(15000)});const j=await r.json().catch(()=>({}));if(r.status===401){link={};await writeFile(FILE,'{}').catch(()=>{});agentsBy.clear();return []}   // aqeelOS no longer knows this key: unpaired, so the page pairs it again
-  if(r.ok){list=(j.agents||[]).map(a=>({id:String(a.id),name:String(a.name||a.id),apps:a.apps||[],google:a.google||0}));agentsBy.set(k,{t:Date.now(),v:list})}}catch{}return list}
+  if(r.ok){list=(j.agents||[]).map(a=>({id:String(a.id),name:String(a.name||a.id),pic:String(a.pic||''),apps:a.apps||[],google:a.google||0}));agentsBy.set(k,{t:Date.now(),v:list})}}catch{}return list}
  // the attached agents' introductions for a run (what each is for, its apps and skills by name, a short digest of its
  // work notes for an agent the person owns), kept a minute per person and list
  const introsBy=new Map();
@@ -132,7 +132,13 @@ export function createAqeelos({root}){
  async function live(what,q,act){await load();if(!link.token)throw Error('Connect this app to aqeelOS first (open Code in aqeelOS).');
   const r=await fetch(link.base+'/ui/code/live-'+what+'?'+new URLSearchParams(q),{headers:H(act),signal:AbortSignal.timeout(20000)});const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'aqeelOS did not answer ('+r.status+').');return j}
  async function report(r){await load();if(!link.token)return;await fetch(link.base+'/ui/code/report',{method:'POST',headers:{authorization:'Bearer '+link.token,'content-type':'application/json'},body:JSON.stringify({...r,version:install.version||'dev'}),signal:AbortSignal.timeout(15000)}).catch(()=>{})}
- return {origins,state,pair,unpair,mcp,agents,intros,ticket,noteAct,freshAct,anyAct,agentModel,engineRun,engine,serve,checkUpdate,autoUpdate,reportUsage,people,publish,live,report,team,teamGit}}
+ // an agent's picture for the chips, through this computer's link (the page cannot sign in to aqeelOS itself); kept an hour per agent and version
+ const pics=new Map();
+ async function avatar(id,v,act){id=String(id||'');if(!/^[\w-]{1,80}$/.test(id)||!link.token)return null;const k=id+'|'+v,hit=pics.get(k);if(hit&&Date.now()-hit.t<3600e3)return hit.p;
+  try{const r=await fetch(link.base+'/ui/code/avatar/'+encodeURIComponent(id),{headers:H(act),signal:AbortSignal.timeout(15000)});if(!r.ok)return null;
+   const type=r.headers.get('content-type')||'';if(!/^image\/(png|jpeg|webp)$/.test(type))return null;const body=Buffer.from(await r.arrayBuffer());if(body.length>1e6)return null;
+   const p={type,body};if(pics.size>100)pics.clear();pics.set(k,{t:Date.now(),p});return p}catch{return null}}
+ return {origins,state,pair,unpair,mcp,agents,avatar,intros,ticket,noteAct,freshAct,anyAct,agentModel,engineRun,engine,serve,checkUpdate,autoUpdate,reportUsage,people,publish,live,report,team,teamGit}}
 // the entries of a stored (uncompressed) zip, as aqeelOS makes them
 function unzip(buf){const out=[];let i=0;while(i+30<=buf.length&&buf.readUInt32LE(i)===0x04034b50){const size=buf.readUInt32LE(i+18),nl=buf.readUInt16LE(i+26),xl=buf.readUInt16LE(i+28);
   const name=buf.slice(i+30,i+30+nl).toString();const start=i+30+nl+xl;out.push([name,buf.slice(start,start+size)]);i=start+size}return out}

@@ -190,6 +190,8 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/aqeelos/pair'&&req.method==='POST'){let body='';for await(const c of req){body+=c;if(body.length>4000)return send(413,{error:'Too large.'})}const d=JSON.parse(body||'{}');try{return send(200,await aqeelos.pair(String(d.base||''),String(d.token||'')))}catch(e){return send(400,{error:e.message})}}
   if(url.pathname==='/api/aqeelos/update'&&req.method==='POST')return send(200,await aqeelos.checkUpdate());
   if(url.pathname==='/api/aqeelos/agents'&&req.method==='GET')return send(200,{agents:await aqeelos.agents(act)});
+  {const m=/^\/api\/aqeelos\/avatar\/([\w-]{1,80})$/.exec(url.pathname);if(m&&req.method==='GET'){const p=await aqeelos.avatar(m[1],url.searchParams.get('v')||'',act);if(!p)return send(404,{error:'No picture.'});
+   res.writeHead(200,{'content-type':p.type,'cache-control':'private, max-age=3600','x-content-type-options':'nosniff'});return res.end(p.body)}}
   if(url.pathname==='/api/aqeelos/unpair'&&req.method==='POST')return send(200,await aqeelos.unpair());
   if(url.pathname==='/api/remote'&&req.method==='GET')return send(200,remote.view(server.address().port));
   if(url.pathname==='/api/remote'&&req.method==='POST'){let body='';for await(const c of req){body+=c;if(body.length>2000)return send(413,{error:'Too large.'})}const d=JSON.parse(body||'{}');

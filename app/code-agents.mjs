@@ -8,6 +8,9 @@ import {readFile,readdir,mkdir,rm,stat,realpath,writeFile,lstat,cp} from 'node:f
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {homedir} from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {AVATAR_TYPES,emojiSlugs,emojiAuto} from './avatar-file.mjs';
+const EMOJI_DIR=path.join(path.dirname(fileURLToPath(import.meta.url)),'..','assets','emoji');
 
 // what comes back from one ask: a few files, none too big (also checked again where they are written)
 export const FILES_MAX=12,FILE_MAX=20e6,FILES_TOTAL=40e6;
@@ -81,4 +84,11 @@ export function createCodeAgents({HERMES_HOME,DATA,sign,readIds,outboxAccess}){
  async function handoff(agent,text){const d=await hload();const now=Date.now();for(const [k,v] of Object.entries(d))if(now-v.t>7*864e5)delete d[k];
   const id=randomBytes(12).toString('base64url');d[id]={agent,text:String(text).slice(0,12000),t:now};await mkdir(DATA,{recursive:true});await writeStore(HF,JSON.stringify(d),{mode:0o600});return id}
  async function handoffGet(id){const d=await hload();const v=/^[\w-]{10,40}$/.test(String(id||''))?d[id]:null;return v&&Date.now()-v.t<7*864e5?v:null}
- return {ticket,ticketAgents,intro,outbox,collect,saveInto,runStart,runsOf,runFor,planCopy,planDrop,handoff,handoffGet}}
+ // an agent's picture for Code's chips (owner, 15 Nov 2026: "use their profile pics"): its photo, else its emoji, else the automatic
+ // one, the same choice /ui/avatar makes. {type,body,v} with v the photo's version (changes with a new photo), or null.
+ async function avatar(a,{head=false}={}){const cur=(await readIds().catch(()=>({})))[a]||{};
+  if(cur.avatar&&head)return {v:String(cur.avatarV||cur.avatar)};
+  if(cur.avatar){const body=await readFile(path.join(DATA,'avatars',path.basename(cur.avatar))).catch(()=>null);if(body)return {type:AVATAR_TYPES[cur.avatar.split('.').pop()]||'application/octet-stream',body,v:String(cur.avatarV||'')}}
+  const l=await emojiSlugs(),e=l.includes(cur.emoji)?cur.emoji:emojiAuto(a,l);if(!e)return null;if(head)return {v:'e-'+e};
+  const body=await readFile(path.join(EMOJI_DIR,e+'.png')).catch(()=>null);return body?{type:'image/png',body,v:'e-'+e}:null}
+ return {ticket,ticketAgents,intro,outbox,collect,saveInto,runStart,runsOf,runFor,planCopy,planDrop,handoff,handoffGet,avatar}}

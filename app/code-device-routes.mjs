@@ -35,12 +35,15 @@ export function createCodeDeviceRoutes({API_KEY,GATE,NAMES,accountsApi,agentDefa
      if(p==='/ui/code/team/unshare'&&req.method==='POST')return send(res,200,await teamFolders.unshare(String(b.id||''),who.id)),true}catch(e){return send(res,e.status||400,{error:e.message}),true}
     return send(res,404,{error:'Not found'}),true}
    const mine=a=>!users.gate(who,'/gapi/api/model/options','GET',new URLSearchParams(),a);   // the agents this person may chat with (shared, owned, not someone's private one)
+   // an agent's picture for Code's agent chips: only an agent this person may use there (the same rule as /ui/code/agents)
+   {const av=/^\/ui\/code\/avatar\/([\w-]+)$/.exec(p);if(av&&req.method==='GET'){const a=av[1];if(!(await listAgents()).includes(a)||!mine(a)||await isTestAgent(a))return send(res,404,{error:'No such agent'}),true;
+    const pic=await codeAgents.avatar(a);if(!pic)return send(res,404,{error:'No picture'}),true;res.writeHead(200,{'content-type':pic.type,'cache-control':'private, max-age=3600',...security});res.end(pic.body);return true}}
    if(p==='/ui/code/whoami')return send(res,200,{name:who.name||who.id,user:who.id,liveDomain:hostSetting('liveDomain')}),true;
    // the agents this person may use in Code; intro=1 adds each one's introduction for a run (what it is for, its skills by
    // name, and for an agent they own a short digest of its work notes), for the ids asked (ids=a,b) only
    if(p==='/ui/code/agents'){const intro=url.searchParams.get('intro')==='1',want=intro?new Set(String(url.searchParams.get('ids')||'').split(',').filter(Boolean).slice(0,8)):null;const out=[];
     for(const a of await listAgents()){if(!mine(a)||await isTestAgent(a)||want&&!want.has(a))continue;const c=await readConfig(a).catch(()=>null)||{};
-     out.push({id:a,name:NAMES[a]||await displayName(a),apps:Object.keys(c.mcp_servers||{}).filter(n=>n!=='aqeelos-notify'),google:(await googleContext(a).catch(()=>[])).length,...(intro?await codeAgents.intro(a,{memory:users.level(who,a)==='owner'}):{})})}return send(res,200,{agents:out}),true}
+     out.push({id:a,name:NAMES[a]||await displayName(a),pic:(await codeAgents.avatar(a,{head:true}).catch(()=>null))?.v||'',apps:Object.keys(c.mcp_servers||{}).filter(n=>n!=='aqeelos-notify'),google:(await googleContext(a).catch(()=>[])).length,...(intro?await codeAgents.intro(a,{memory:users.level(who,a)==='owner'}):{})})}return send(res,200,{agents:out}),true}
    // a run's ticket: the agents attached to one Code message, each one this person may chat with; aqeelos_ask may then
    // ask only those (checked here again on every ask)
    if(p==='/ui/code/run-ticket'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,8192))}catch{}const all=await listAgents();
