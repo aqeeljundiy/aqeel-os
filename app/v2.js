@@ -92,9 +92,13 @@
   const mod=typeof isMac!=='undefined'&&isMac?e.metaKey:e.ctrlKey;if(!mod||typeof S==='undefined'||!S.signedIn||typeof palette!=='function')return;
   e.preventDefault();if(AK?.command?.isOpen)AK.command.close();else if(!document.querySelector('.palette'))palette()},true);
  // Escape closes the top kit box only. The app's own Escape (core.js) runs first and would close the drawer under it.
- addEventListener('keydown',e=>{if(e.key!=='Escape'||e.isComposing||!AK||!kitOpen())return;e.stopPropagation();e.preventDefault();
+ addEventListener('keydown',e=>{if(e.key!=='Escape'||e.isComposing||!AK||!kitOpen())return;
+  // a question or an app menu on top of a panel answers its own Escape (core.js), as on /
+  if(document.querySelector('.drawer.stack:not(.closing),.menu:not(.closing)'))return;e.stopPropagation();e.preventDefault();
   if(AK.menu?.isOpen)return AK.menu.close();if(AK.datePick?.isOpen)return AK.datePick.close();if(AK.command?.isOpen)return AK.command.close();
   const d=document.querySelector('.ak-dialog');if(d){(d.querySelector('.ak-dialog__actions .ak-btn:not(.ak-btn--primary):not(.ak-btn--danger)')||d.querySelector('.ak-dialog__x'))?.click();return}
+  // a side panel of the app: the app decides (it asks first when something was typed)
+  if(document.querySelector('.v2-host[open]')&&typeof askClose==='function')return askClose();
   document.querySelector('.ak-sheet .ak-sheet__head [aria-label="Close"]')?.click()},true);
  if(AK){
   // toasts: the kit's (they stack, pause on hover and swipe away on a phone); a failure is still kept for "What went wrong"
@@ -118,6 +122,19 @@
   // the day picker of date fields (the schedule editor's "Once"): the kit's calendar from the same button, a bottom sheet
   // on a phone; arrows, Enter and Escape as before (Schedules, owner 14 Nov 2026: "Yes, Schedules next")
   if(typeof datePop==='function'&&AK.datePick)window.datePop=(anchor,cur,pick)=>{AK.datePick(anchor,cur||'',{label:'Pick a day'}).then(v=>{anchor.classList?.remove('open');if(v)pick(v)})};
+  // side panels and pop-ups (drawer(), every page; owner, 14 Nov 2026: "Do all first"): the app builds the panel as before
+  // (its head, body, buttons, typing guard, focus and backdrop) and the kit's sheet carries it: it moves in and out, and on a
+  // phone it is a bottom sheet you can drag down. modal="false": the app's own backdrop and the boxes it opens on top
+  // (questions, pickers) stay usable; a close by the person asks the app first (askClose: "Discard what you typed?").
+  if(typeof drawer==='function'&&customElements.get('ak-drawer')){const ownDrawer=drawer;
+   window.drawer=(title,body,foot='',opt={})=>{const d=ownDrawer(title,body,foot,opt);if(!d?.isConnected)return d;
+    const kd=document.createElement('ak-drawer');kd.className='v2-host';kd.setAttribute('heading',String(title??''));kd.setAttribute('modal','false');kd.setAttribute('side',opt.side?'right':'center');
+    kd.addEventListener('beforeclose',e=>{e.preventDefault();if(typeof askClose==='function')askClose();else closeLayers()});
+    // the app removes the panel (saved, closed, replaced): the sheet goes out with it still inside, then both are gone
+    let out=false;d.remove=()=>{if(out)return;out=true;kd.hide();setTimeout(()=>{Element.prototype.remove.call(d);kd.remove()},420)};
+    kd.append(d);document.body.append(kd);requestAnimationFrame(()=>kd.show());
+    setTimeout(()=>{if(d.contains(document.activeElement))return;const f=d.querySelector('input:not([type=checkbox]):not([type=hidden]),textarea,select');(f||d.querySelector('.drawer-head [data-act=close]'))?.focus({preventScroll:true})},120);
+    return d}}
   // the search (Ctrl+K and the top bar's search button): the kit's box, with the app's lists and live results
   if(typeof palette==='function'&&typeof paletteFind==='function'&&AK.command){const ownPalette=palette;
    const asItem=x=>({label:x.l,group:x.g,hint:x.sub||undefined,icon:x.ic?icon(x.ic,16):undefined,run:x.run});

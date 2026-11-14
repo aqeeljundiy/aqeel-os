@@ -92,3 +92,13 @@ test('on /v2 the day picker of date fields is the kit calendar, and Escape close
  assert.match(s,/window\.datePop=\(anchor,cur,pick\)=>\{AK\.datePick\(anchor,cur\|\|'',\{label:'Pick a day'\}\)\.then\(v=>\{anchor\.classList\?\.remove\('open'\);if\(v\)pick\(v\)\}\)\}/);
  assert.match(s,/if\(AK\.datePick\?\.isOpen\)return AK\.datePick\.close\(\)/);
  assert.match(read('app/v2.css'),/html\.v2\[data-v2sec="automations"\] \.sj-row \.act \.switch::after\{top:-10px;left:-1px;width:44px;height:44px/,'switches keep a 44px tap area on phones')});
+
+// side panels on every page (owner, 14 Nov 2026: "Do all first"): the app's panel inside the kit's sheet, its guard kept
+test('on /v2 the app\'s side panels sit in the kit sheet, non-modal, and a person\'s close asks the app first',()=>{
+ const s=read('app/v2.js'),c=read('app/v2.css');
+ assert.match(s,/const d=ownDrawer\(title,body,foot,opt\)/,'the app still builds the panel');
+ assert.match(s,/kd\.setAttribute\('modal','false'\)/);assert.match(s,/kd\.addEventListener\('beforeclose',e=>\{e\.preventDefault\(\);if\(typeof askClose==='function'\)askClose\(\)/);
+ assert.match(s,/d\.remove=\(\)=>\{if\(out\)return;out=true;kd\.hide\(\)/,'the sheet goes out when the app removes the panel');
+ assert.match(s,/if\(document\.querySelector\('\.drawer\.stack:not\(\.closing\),\.menu:not\(\.closing\)'\)\)return;/,'a question on top answers its own Escape');
+ assert.match(c,/html\.v2 \.scrim\.stack\{z-index:85\}/,'questions sit above the sheet');
+ assert.match(read('app/vendor/admin-kit/admin-kit.js'),/beforeclose/,'kit with beforeclose')});
