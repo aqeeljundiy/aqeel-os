@@ -52,3 +52,4 @@ id_ed25519*
 
 # ui-gate renders and its signed-in test session (local only)
 /docs/v2-ui-gate/.ui-gate/
+/docs/v2-ui-gate/pages/.ui-gate/

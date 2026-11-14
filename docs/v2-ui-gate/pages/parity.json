@@ -1,0 +1,30 @@
+{
+ "routes": {
+  "agents": "v2-agents",
+  "memory": "v2-memory",
+  "files": "v2-files",
+  "code": "v2-code",
+  "webhooks": "v2-webhooks",
+  "selfruns": "v2-selfruns",
+  "n8n": "v2-n8n",
+  "kanban": "v2-kanban",
+  "channels": "v2-channels",
+  "kirimdev": "v2-kirimdev",
+  "skills": "v2-skills",
+  "mcp": "v2-mcp",
+  "logins": "v2-logins",
+  "plugins": "v2-plugins",
+  "achievements": "v2-achievements",
+  "models": "v2-models",
+  "people": "v2-people",
+  "usage": "v2-usage",
+  "health": "v2-health",
+  "activity": "v2-activity",
+  "teams": "v2-teams",
+  "logs": "v2-logs",
+  "keys": "v2-keys",
+  "settings": "v2-settings",
+  "help": "v2-help"
+ },
+ "controls": {}
+}

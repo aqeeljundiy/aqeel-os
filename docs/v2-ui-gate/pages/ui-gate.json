@@ -1,0 +1,1581 @@
+{
+ "name": "aqeelOS pages",
+ "url": "http://localhost:4471",
+ "storageState": "../.ui-gate/auth.json",
+ "themes": {
+  "mode": "light-only"
+ },
+ "widths": [
+  375,
+  768,
+  1440
+ ],
+ "routes": [
+  {
+   "name": "agents",
+   "path": "/#/agents/profiles",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "memory",
+   "path": "/#/agents/memory",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "files",
+   "path": "/#/agents/files",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "code",
+   "path": "/#/code/code",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "webhooks",
+   "path": "/#/automations/webhooks",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "selfruns",
+   "path": "/#/automations/selfruns",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "n8n",
+   "path": "/#/automations/n8n",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "kanban",
+   "path": "/#/automations/kanban",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "channels",
+   "path": "/#/channels/channels",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "kirimdev",
+   "path": "/#/channels/kirimdev",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "skills",
+   "path": "/#/abilities/skills",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "mcp",
+   "path": "/#/abilities/mcp",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "logins",
+   "path": "/#/abilities/logins",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "plugins",
+   "path": "/#/abilities/plugins",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "achievements",
+   "path": "/#/abilities/achievements",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "models",
+   "path": "/#/models/models",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "people",
+   "path": "/#/system/people",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "usage",
+   "path": "/#/system/usage",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "health",
+   "path": "/#/system/health",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "activity",
+   "path": "/#/system/activity",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "teams",
+   "path": "/#/system/teams",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "logs",
+   "path": "/#/system/logs",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "keys",
+   "path": "/#/system/keys",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "settings",
+   "path": "/#/system/settings",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "help",
+   "path": "/#/help",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-agents",
+   "path": "/v2#/agents/profiles",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-memory",
+   "path": "/v2#/agents/memory",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-files",
+   "path": "/v2#/agents/files",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-code",
+   "path": "/v2#/code/code",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-webhooks",
+   "path": "/v2#/automations/webhooks",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-selfruns",
+   "path": "/v2#/automations/selfruns",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-n8n",
+   "path": "/v2#/automations/n8n",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-kanban",
+   "path": "/v2#/automations/kanban",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-channels",
+   "path": "/v2#/channels/channels",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-kirimdev",
+   "path": "/v2#/channels/kirimdev",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-skills",
+   "path": "/v2#/abilities/skills",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-mcp",
+   "path": "/v2#/abilities/mcp",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-logins",
+   "path": "/v2#/abilities/logins",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-plugins",
+   "path": "/v2#/abilities/plugins",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-achievements",
+   "path": "/v2#/abilities/achievements",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-models",
+   "path": "/v2#/models/models",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-people",
+   "path": "/v2#/system/people",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-usage",
+   "path": "/v2#/system/usage",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-health",
+   "path": "/v2#/system/health",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-activity",
+   "path": "/v2#/system/activity",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-teams",
+   "path": "/v2#/system/teams",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-logs",
+   "path": "/v2#/system/logs",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-keys",
+   "path": "/v2#/system/keys",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-settings",
+   "path": "/v2#/system/settings",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  },
+  {
+   "name": "v2-help",
+   "path": "/v2#/help",
+   "settle": 2500,
+   "mock": {
+    "**/ui/me": {
+     "body": {
+      "id": "owner",
+      "name": "Owner",
+      "username": "owner",
+      "email": "owner@example.com",
+      "emailVerified": true,
+      "role": "owner",
+      "admin": true,
+      "caps": [
+       "create",
+       "skills",
+       "mcp",
+       "schedules",
+       "models",
+       "tools",
+       "usage",
+       "unsafe"
+      ],
+      "agents": {},
+      "canMake": true,
+      "lead": "default"
+     }
+    }
+   }
+  }
+ ],
+ "setup": [
+  {
+   "wait": 2000
+  }
+ ],
+ "source": {
+  "include": [
+   "../../../app"
+  ],
+  "exclude": [
+   "vendor",
+   "node_modules"
+  ]
+ },
+ "planFile": "plan.md",
+ "parityFile": "parity.json"
+}

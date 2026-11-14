@@ -125,6 +125,18 @@ html.v2 .ak-overlay{background:rgba(11,12,16,.32);backdrop-filter:blur(5px)}
 /* toasts at the bottom centre, where aqeelOS has always shown them; the kit's bottom-right corner covers the chat's Send */
 @media (min-width:601px){html.v2 [data-sonner-toaster][data-x-position]{left:50%!important;right:auto!important;transform:translateX(-50%)}}   /* a phone: the kit's own full-width toast */
 
+/* ---------- tabs on every page: the kit's tab look for this theme (--ak-style-tabs: underline), the app's behaviour ----------
+   (owner, 14 Nov 2026: "Do all first"). A pill in a grey track is the one tab look the kit refuses (taste.md); the app's
+   sliding marker becomes a 2px blue line under the current tab, as the chat list already shows on /v2. Clicks, arrow keys
+   and the marker's glide are the app's (placePills, boot.js). Phones: 44px tabs. */
+html.v2 .tabs{background:transparent;border:0;border-bottom:1px solid var(--border);border-radius:0;padding:0 2px;gap:2px}
+html.v2 .tabs button{min-height:var(--h-ctl);padding:0 12px;font-size:var(--fs-2);color:var(--muted);border-radius:var(--r-sm);margin-bottom:4px;transition:color var(--t-fast) var(--ease),background var(--t-fast) var(--ease)}
+html.v2 .tabs button:hover{color:var(--ink);background:var(--soft-2)}
+html.v2 .tabs button.on{color:var(--ink);font-weight:600;background:transparent}
+html.v2 .tabs .pill{top:auto;bottom:-1px;height:2px;border-radius:var(--r-sm);background:var(--blue);box-shadow:none}
+html.v2.dark .tabs .pill{background:var(--blue-2)}
+@media (max-width:760px){html.v2 .tabs button{min-height:44px}}
+
 /* ---------- side panels and pop-ups: the app's panel inside the kit's sheet (app/v2.js, 14 Nov 2026) ----------
    The kit draws the sheet (motion; a bottom sheet with a handle on phones); the panel inside is the app's own, with its
    head, close button, body and buttons, so the kit's own head is not shown. Same widths as on /. The app's backdrop
@@ -153,12 +165,28 @@ html.v2 .scrim:not(.stack){z-index:69}
  html.v2[data-v2sec="automations"] .sj-row .act .ghost.icon,html.v2[data-v2sec="automations"] .sf-more,html.v2[data-v2sec="automations"] .drawer-head .ghost.icon{min-width:44px}
  html.v2[data-v2sec="automations"] .np-list{max-height:none}
  html.v2[data-v2sec="automations"] .drawer input:not([type=checkbox]):not([type=radio]),html.v2[data-v2sec="automations"] .tp-wrap .tp-btn{min-height:44px}html.v2[data-v2sec="automations"] .tp-wrap .tp-btn{min-width:44px}
- html.v2[data-v2sec="automations"] .sj-row .act .switch::before{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(11,12,16,.25);transition:transform var(--t-med) var(--ease)}
- html.v2[data-v2sec="automations"] .sj-row .act .switch:checked::before{transform:translateX(18px)}
- html.v2[data-v2sec="automations"] .sj-row .act .switch::after{top:-10px;left:-1px;width:44px;height:44px;border-radius:0;background:none;box-shadow:none;transform:none}
 }
 html.v2[data-v2sec="automations"] .np-list button{line-height:1.35}
 @media (min-width:761px){html.v2[data-v2sec="automations"] .sched-bar>button,html.v2[data-v2sec="automations"] .sched-bar .search input{min-height:40px}}
+
+/* ---------- phones, every page (owner, 14 Nov 2026: "Do all first"): every control a 44px tap target ----------
+   ui-gate found the same shared pieces under 44px on 25 pages: small buttons (32px), switches (24px), text fields (43px),
+   icon buttons (36px), link-style buttons (16-20px). Fixed once here, for every page. Switches keep their look: the
+   thumb moves to ::before and ::after becomes the 44px tap area; link-style buttons get the same invisible tap area. */
+@media (max-width:760px){
+ html.v2 .main button.small,html.v2 .drawer button.small,html.v2 .main a.btn,html.v2 .main .u-pick,html.v2 .main .h-row>button,html.v2 .main .tm-add,html.v2 .main .sel-btn{min-height:44px}
+ html.v2 .main button.ghost.icon,html.v2 .drawer button.ghost.icon,html.v2 .main .u-pick.icon{min-width:44px;min-height:44px}
+ html.v2 .main input:not([type=checkbox]):not([type=radio]):not([type=range]):not(.switch),html.v2 .drawer input:not([type=checkbox]):not([type=radio]):not([type=range]):not(.switch){min-height:44px}
+ html.v2 .switch::before{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(11,12,16,.25);transition:transform var(--t-med) var(--ease)}
+ html.v2 .switch:checked::before{transform:translateX(18px)}
+ html.v2 .switch::after{top:-10px;left:-1px;width:44px;height:44px;border-radius:0;background:none;box-shadow:none;transform:none}
+ html.v2 .main .linkish,html.v2 .main .link-btn,html.v2 .main button.link,html.v2 .main .inst-val>a{position:relative}
+ html.v2 .main .linkish::after,html.v2 .main .link-btn::after,html.v2 .main button.link::after,html.v2 .main .inst-val>a::after{content:"";position:absolute;left:0;right:0;top:50%;height:44px;transform:translateY(-50%)}
+ html.v2[data-v2sec="help"] .send{min-width:44px;min-height:44px;height:44px;width:44px}
+}
+/* a box inside a card: a soft fill instead of a second border (ui-gate box-in-box: Models, Settings, Health) */
+html.v2 .cf-list .cf-item,html.v2 .inst-note .inst-cmd,html.v2 .backups-card .bk-connect,html.v2 .mt-body .alert{border-color:transparent;background:var(--soft-2)}
+html.v2[data-v2sec="help"] .composer{padding-left:12px}html.v2[data-v2sec="help"] .composer textarea{padding-left:6px}
 
 /* the kit's menus and search drawn as aqeelOS draws its own (owner, 14 Nov 2026: "Adjust Chat first"): the current choice
    and the highlighted search row in the app's blue, headings at 600, search rows 42px at 14px with a 16px field and its

@@ -91,7 +91,7 @@ test('on /v2 the day picker of date fields is the kit calendar, and Escape close
  const s=read('app/v2.js');
  assert.match(s,/window\.datePop=\(anchor,cur,pick\)=>\{AK\.datePick\(anchor,cur\|\|'',\{label:'Pick a day'\}\)\.then\(v=>\{anchor\.classList\?\.remove\('open'\);if\(v\)pick\(v\)\}\)\}/);
  assert.match(s,/if\(AK\.datePick\?\.isOpen\)return AK\.datePick\.close\(\)/);
- assert.match(read('app/v2.css'),/html\.v2\[data-v2sec="automations"\] \.sj-row \.act \.switch::after\{top:-10px;left:-1px;width:44px;height:44px/,'switches keep a 44px tap area on phones')});
+ assert.match(read('app/v2.css'),/html\.v2 \.switch::after\{top:-10px;left:-1px;width:44px;height:44px/,'switches keep a 44px tap area on phones')});
 
 // side panels on every page (owner, 14 Nov 2026: "Do all first"): the app's panel inside the kit's sheet, its guard kept
 test('on /v2 the app\'s side panels sit in the kit sheet, non-modal, and a person\'s close asks the app first',()=>{
