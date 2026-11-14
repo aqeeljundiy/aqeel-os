@@ -10,7 +10,7 @@ const chrome=spawn(`${tools}/${dir}/chrome-linux64/chrome`,['--headless=new','--
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 try{
  const login=await fetch(BASE+'/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name,password:pw})});
- const ck=(login.headers.get('set-cookie')||'').split(';')[0].split('=');if(!login.ok)throw new Error('login '+login.status);
+ const ck=(login.headers.get('set-cookie')||'').split(';')[0].split('=');if(!login.ok)throw new Error('could not sign in to the test copy at '+BASE+' (HTTP '+login.status+': '+(await login.text().catch(()=>'')).slice(0,160)+')');
  let tgt;for(let i=0;i<120&&!tgt;i++){await sleep(250);try{tgt=(await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find(t=>t.type==='page')}catch{}}
  const ws=new WebSocket(tgt.webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);let id=0;const wait=new Map();
  ws.onmessage=m=>{const d=JSON.parse(m.data);if(d.id&&wait.has(d.id)){wait.get(d.id)(d);wait.delete(d.id)}};
@@ -21,4 +21,8 @@ try{
  if(js){const r=await cdp('Runtime.evaluate',{expression:js,awaitPromise:true,returnByValue:true});if(r.result?.result?.value!==undefined)console.log('js:',JSON.stringify(r.result.result.value));await sleep(1500)}
  const errs=await cdp('Runtime.evaluate',{expression:'JSON.stringify([...document.querySelectorAll(".toast")].map(t=>t.textContent))',returnByValue:true});console.log('toasts:',errs.result?.result?.value);
  const s=await cdp('Page.captureScreenshot',{format:'png'});writeFileSync(out,Buffer.from(s.result.data,'base64'));console.log('saved',out);ws.close();
+}catch(e){
+ // one line with the reason (15 Nov 2026: box-check keeps only the first line of this output, which was node's "file:///…/shot.mjs:13"
+ // stack header, so two nights of "fast page switching found problems" never said that the sign-in had failed, nor why)
+ console.log('shot failed: '+String(e?.message||e).replace(/\s+/g,' ').slice(0,300));process.exitCode=1
 }finally{chrome.kill('SIGKILL')}

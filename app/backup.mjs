@@ -509,10 +509,12 @@ export function createBackups({DATA,HOME,HERMES_HOME,tz=()=>'',ENV_ACCOUNT=proce
  async function dropLeftovers(){const out={n:0,archives:0};if(running)return out;let bytes=0;for(const f of (await readdir(TMP).catch(()=>[])).filter(f=>LEFTOVER.test(f))){const p=path.join(TMP,f);const st=await stat(p).catch(()=>null);if(!st?.isFile())continue;await rm(p,{force:true}).catch(()=>{});out.n++;if(LOCAL_NAME.test(f))out.archives++;bytes+=st.size}
   if(out.n)console.log('backup: removed '+out.n+' file(s) a cut-off backup left in '+TMP+' ('+Math.round(bytes/1e9)+' GB)');return out}
  // the newest good backup older than 48 h (or none since aqeelOS first looked): one Health item, said again at most once a day
-  async function staleCheck(){await load();if(!state.since){state.since=Date.now();await save()}
-  const at=Math.max(state.lastOkAt||0,state.last?.ok?state.last.at:0),s=staleBackup(at,state.since);
+  // the app's clock (now), never Date.now(): with the real clock the check ran on a different time than everything else (15 Nov 2026:
+  // the backup test, set on 12 Nov, began to fail 48 h later and kept main's checks red, so no install would update)
+  async function staleCheck(){await load();if(!state.since){state.since=now();await save()}
+  const at=Math.max(state.lastOkAt||0,state.last?.ok?state.last.at:0),s=staleBackup(at,state.since,now());
   if(!s){if(state.staleTold){delete state.staleTold;await save();solved()}return null}
-  if(!state.staleTold||Date.now()-state.staleTold>864e5){state.staleTold=Date.now();await save();
+  if(!state.staleTold||now()-state.staleTold>864e5){state.staleTold=now();await save();
    notify(s.never?'No backup has been made yet':'The newest good backup is '+s.hours+' hours old','Backups run every night, and the newest good one is more than '+STALE_H+' hours old'+(state.last&&!state.last.ok?'. The last try failed: '+String(state.last.error||'').slice(0,200):'')+'.')}
   return s}
  /* The night's window ended and no good backup was made in it: said once per night (audit H2: three nights without a backup and nothing
