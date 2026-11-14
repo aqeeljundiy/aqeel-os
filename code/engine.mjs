@@ -24,6 +24,9 @@ async function readSSE(body,on){const dec=new TextDecoder();let buf='';
    for(const line of raw.split(/\r?\n/)){if(line.startsWith(':'))continue;if(line.startsWith('event:'))ev=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trimStart()}
    if(!data)continue;let d;try{d=JSON.parse(data)}catch{d={text:data}}on({...d,type:d.type||ev})}}}
 
+// the turn's text: the person's message as typed, and Code's background instructions apart (aqeelOS gives them to the engine as its
+// system message). prompt, both joined, is what an aqeelOS from before 15 Nov 2026 reads; a newer one uses message and instructions.
+export const parts=p=>typeof p==='string'?{prompt:p}:{prompt:(p.instructions?p.instructions+'\n\n':'')+p.message,message:p.message,instructions:p.instructions||''};
 export function runEngine(run,{aqeelos,act,path:dir,prompt,session,onSession}){return new Promise(async resolve=>{
  const ctl=new AbortController();let done=false,handle='',msg=null,think=null,finalText='',all='',completed=false,failure='';const steps=[];
  const finish=(state,error)=>{if(done)return;done=true;run.denyAll();if(error&&state==='failed')run.emit({type:'error',text:error});if(msg)run.update(msg,{final:true});ctl.abort();resolve({state,error:error||null,text:finalText||all.trim()})};
@@ -58,7 +61,7 @@ export function runEngine(run,{aqeelos,act,path:dir,prompt,session,onSession}){r
   case 'run.failed':failure=String(e.error?.message||e.error||'The engine stopped with an error.');finish(run.stopped?'stopped':'failed',run.stopped?null:failure);break;
   case 'run.cancelled':case 'run.interrupted':finish('stopped');break}};
  try{const images=[];for(const i of run.images||[])images.push('data:'+i.type+';base64,'+(await readFile(i.path)).toString('base64'));
-  const r=await aqeelos.engineRun({agent:run.agent||'',agents:(run.agentList||[]).map(a=>a.id),plan:run.mode==='plan',provider:run.engineProvider||'',model:run.engineModel||'',effort:run.effort||'',path:dir,session:session||'',prompt,images,...(run.bridge?{bridge:run.bridge,projectName:run.projectName||path.basename(dir)}:{})},act,ctl.signal);
+  const r=await aqeelos.engineRun({agent:run.agent||'',agents:(run.agentList||[]).map(a=>a.id),plan:run.mode==='plan',provider:run.engineProvider||'',model:run.engineModel||'',effort:run.effort||'',path:dir,session:session||'',...parts(prompt),images,...(run.bridge?{bridge:run.bridge,projectName:run.projectName||path.basename(dir)}:{})},act,ctl.signal);
   await readSSE(r.body,e=>{try{on(e)}catch(er){console.warn('engine event',e.type,er.message)}});
   finish(run.stopped?'stopped':completed?'complete':'failed',failure||'The engine stopped before finishing this turn.')}
  catch(e){finish(run.stopped?'stopped':'failed',e.name==='AbortError'?null:e.message)}})}

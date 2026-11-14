@@ -8,6 +8,10 @@ import {readConfig} from './agentops.mjs';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
 import {hostSetting,onlineCodeOn,ONLINE_CODE_MSG} from './install-routes.mjs';
+// a Code turn's text: {text} the person's message as typed, {sys} Code's background instructions for the engine's system message (Code
+// from 15 Nov 2026 sends message and instructions apart); an older Code sends one prompt, which stays the message
+export function turnText(b={}){const split=typeof b.message==='string'&&typeof b.instructions==='string';
+ return {text:String(split?b.message:b.prompt||'').slice(0,400000),sys:split?b.instructions.slice(0,200000):''}}
 export function createCodeDeviceRoutes({API_KEY,GATE,NAMES,accountsApi,agentDefaults,agentModel,code,codeAgents,codeAsk,codeBridge,codeOnline,codeProvName,codeRuns,displayName,googleContext,isTestAgent,listAgents,listAllProfiles,live,liveEnd,liveStart,longFetch,readBody,runOwner,security,send,sign,teamFolders,usage,users}){
  return async function handle(req,res,p,url){
   // aqeelOS Code (the desktop app) calls these with the key it got when it was paired; nothing else may
@@ -108,12 +112,16 @@ export function createCodeDeviceRoutes({API_KEY,GATE,NAMES,accountsApi,agentDefa
      let sid=planDir?'':String(b.session||'');if(sid&&(!/^[\w.:-]{1,128}$/.test(sid)||users.ownerOf(sid)!==who.id))sid='';
      if(!sid){try{const d=await fetch(GATE.origin+pre+'/api/sessions',{method:'POST',headers:H,body:JSON.stringify({cwd:dir}),signal:AbortSignal.timeout(30000)}).then(async x=>x.ok?x.json():Promise.reject(Error((await x.text()).slice(0,200)||'HTTP '+x.status)));
        sid=String(d.session?.id||d.id||d.session_id||'');if(!sid)throw Error('no chat id');await users.own(sid,who)}catch(e){void codeAgents.planDrop(planDir);return send(res,502,{error:'The engine could not start a chat for '+name+': '+e.message}),true}}
-     let text=String(b.prompt||'').slice(0,400000);if(!text.trim()){void codeAgents.planDrop(planDir);return send(res,400,{error:'Say what to do.'}),true}
+     // Code (15 Nov 2026 on) sends the person's message and its own background instructions apart: the message reaches the engine as typed and
+     // the instructions as the turn's system message (owner: "you hard coded a prompt before my user request"). An older Code sends one prompt.
+     let {text,sys}=turnText(b);if(!text.trim()){void codeAgents.planDrop(planDir);return send(res,400,{error:'Say what to do.'}),true}
      if(far&&b.plan)text='PLAN ONLY: change nothing; read with the project tools, then propose.\n\n'+text;
      if(planDir)text='PLAN ONLY: you are in a read-only copy of the project. Change nothing; read, then propose.\n\n'+text.split(String(b.path)).join(planDir).split(real).join(planDir);
+     if(planDir&&sys)sys=sys.split(String(b.path)).join(planDir).split(real).join(planDir);
      const imgs=(Array.isArray(b.images)?b.images:[]).slice(0,6).map(String).filter(u=>/^data:image\/(png|jpeg|webp|gif);base64,/.test(u));
      const msg={message:imgs.length?[{type:'text',text},...imgs.map(u=>({type:'image_url',image_url:{url:u}}))]:text};
      // a model picked in Code is locked for this turn on its own account; "Default" leaves the agent's own choice (and auto-switch) in charge
+     if(sys.trim())msg.system_message=sys;
      if(model){msg.model=model;if(provider)msg.provider=provider;msg.require_model_lock=true}
      if(/^(none|minimal|low|medium|high|xhigh|max|ultra)$/.test(String(b.effort||'')))msg.model_options={reasoning_effort:b.effort};
      // the agent's own user is let into the folder for this turn only (taken away again when it ends, also when it does not start)

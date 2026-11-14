@@ -89,7 +89,9 @@ export function runGemini(run,{gemini,env,cwd,prompt,sessionId,onSession,browser
   let session;if(sessionId&&init?.agentCapabilities?.loadSession){try{await client.call('session/load',{sessionId,cwd,mcpServers:mcp},120000);session={sessionId}}catch{}}
   if(!session){session=await client.call('session/new',{cwd,mcpServers:mcp},120000);sessionId=null}
   run.sessionId=session.sessionId;onSession?.(session.sessionId);if(session.models?.availableModels?.length)onModels?.(session.models.availableModels);
-  const content=[{type:'text',text:(sessionId?'':INSTRUCTIONS+(run.extraInstructions||'')+'\n\n')+(run.mode==='plan'?PLAN_PROMPT:'')+prompt}];
+  // Gemini CLI takes no separate system text over ACP: Code's context goes first, marked as the app's, and the person's message after it
+  // as typed (owner, 15 Nov 2026: the app's text read as part of the request)
+  const content=[{type:'text',text:(sessionId?'':'<aqeelos-code-context>\nFrom the app, not from the person:\n'+INSTRUCTIONS+(run.extraInstructions||'')+'\n</aqeelos-code-context>\n\nThe person\'s message:\n')+(run.mode==='plan'?PLAN_PROMPT:'')+prompt}];
   if(init?.agentCapabilities?.promptCapabilities?.image)for(const img of run.images||[])content.push({type:'image',mimeType:img.type,data:readFileSync(img.path).toString('base64')});
   const result=await client.call('session/prompt',{sessionId:session.sessionId,prompt:content});
   const tc=result?._meta?.quota?.token_count||result?.usage;if(tc){run.usage.calls++;run.usage.input+=tc.input_tokens||tc.inputTokens||0;run.usage.output+=tc.output_tokens||tc.outputTokens||0}
