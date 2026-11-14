@@ -105,3 +105,13 @@ test('on /v2 the app\'s side panels sit in the kit sheet, non-modal, and a perso
  assert.match(s,/if\(document\.querySelector\('\.drawer\.stack:not\(\.closing\),\.menu:not\(\.closing\)'\)\)return;/,'a question on top answers its own Escape');
  assert.match(c,/html\.v2 \.scrim\.stack\{z-index:85\}/,'questions sit above the sheet');
  assert.match(read('app/vendor/admin-kit/admin-kit.js'),/beforeclose/,'kit with beforeclose')});
+
+test('a list row\'s highlight never covers a row, and a row never covers its own ⋯ menu (Chat and Code, 15 Nov 2026)',()=>{
+ const c=read('app/v2.css');
+ assert.match(c,/html\.v2 \.side-list>:not\(\.v2-glide\)\{position:relative;z-index:1\}/,'every row above the highlight (a Code folder is a layer of its own)');
+ assert.match(c,/html\.v2 \.side-list \.more,html\.v2 \.side-list \.code-more\{z-index:2\}/,'the ⋯ above its row, so rename, fork, archive and delete can be reached')});
+
+test('Code inside aqeelOS: a folded conversation is its 56px strip, without buttons that do not fit (15 Nov 2026)',()=>{
+ const c=read('code/studio.css');
+ assert.match(c,/body\.embed \.studio\.chat-folded\{grid-template-columns:56px 1px minmax\(280px,1fr\)\}/);
+ assert.match(c,/\.chat-folded \.panel-heading>#team-btn,\.chat-folded \.panel-heading>#publish-btn/)});

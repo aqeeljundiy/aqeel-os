@@ -1276,6 +1276,10 @@ dialog[open]::backdrop{opacity:1}
 /* inside aqeelOS: its own sidebar and header take the place of these */
 body.embed .topbar,body.embed #sidebar,body.embed #sidebar-resize{display:none!important}
 @media(min-width:851px){body.embed .studio{grid-template-columns:var(--chat) 6px minmax(280px,1fr);height:100dvh}}
+/* folded inside aqeelOS: the conversation becomes its 56px strip, as in the app on its own (15 Nov 2026: it kept its full width, so the strip
+   floated in an empty column and the work area was pushed out of view) */
+@media(min-width:851px){body.embed .studio.chat-folded{grid-template-columns:56px 1px minmax(280px,1fr)}}
+.chat-folded .panel-heading>#team-btn,.chat-folded .panel-heading>#publish-btn,.chat-folded .panel-heading>#context-meter{display:none}   /* they do not fit the strip; unfold to use them */
 
 /* the guard: what the AI may open, and who has control */
 .browser-guard{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:4px 12px;font-size:12px;border-radius:var(--r-pill);white-space:nowrap}
