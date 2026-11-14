@@ -594,6 +594,20 @@ def warm_settings():
     return on and most > 0, max(most, 0), idle
 
 
+WARM_KEEP_ENV = 'CLAUDE_SUBSCRIPTION_DIRECTSDK_WARM_KEEP_SECONDS'
+
+
+def warm_keep():
+    """Seconds a key stays kept warm after its last use (aqeelOS, 14 Nov 2026): when its standby reaches its idle
+    time, a fresh one replaces it instead of the key going cold, so the first message after a pause (a new chat's
+    "Hi") skips native's start-up too (2-4 s of the 5 s a bare call took on the box). 7200 by default; 0 = off."""
+    try:
+        keep = float(os.environ.get(WARM_KEEP_ENV, '7200'))
+    except ValueError:
+        keep = 7200.0
+    return keep if math.isfinite(keep) and keep > 0 else 0.0
+
+
 def _spawn_detached(command, **kwargs):
     return subprocess.Popen(command, **kwargs, **_own_process_group())
 
@@ -708,6 +722,8 @@ class WarmPool:
     def __init__(self):
         self.lock = threading.Condition()
         self.idle, self.starting, self.janitor, self.closed = {}, set(), None, False
+        # key -> [factory, most, idle, last use]: what renews a standby that reached its idle time (warm_keep)
+        self.recent = {}
 
     def __len__(self):
         with self.lock:
@@ -716,6 +732,8 @@ class WarmPool:
     def take(self, key):
         with self.lock:
             native = self.idle.pop(key, None)
+            if key in self.recent:
+                self.recent[key][3] = time.monotonic()
             self.lock.notify_all()
         if native is None:
             return None
@@ -724,10 +742,16 @@ class WarmPool:
             return None
         return native
 
-    def offer(self, key, factory, most, idle):
-        """Start a standby for key on a background thread unless one is there or on its way."""
+    def offer(self, key, factory, most, idle, renew=False):
+        """Start a standby for key on a background thread unless one is there or on its way.
+        A call's offer marks the key as used now; a renewal (the janitor's) does not, so a key goes cold once
+        nobody has used it for warm_keep() seconds."""
         with self.lock:
-            if self.closed or key in self.idle or key in self.starting:
+            if self.closed:
+                return False
+            if not renew:
+                self.recent[key] = [factory, most, idle, time.monotonic()]
+            if key in self.idle or key in self.starting:
                 return False
             self.starting.add(key)
         threading.Thread(target=self._start, args=(key, factory, most, idle), daemon=True, name='claude-directsdk-warm').start()
@@ -772,8 +796,18 @@ class WarmPool:
                         stale = [self.idle.pop(key) for key in stale]
                         break
                     self.lock.wait(min(30.0, min(n.expires for n in self.idle.values()) - now))
+            keep, now = warm_keep(), time.monotonic()
+            renew = []
+            with self.lock:
+                for key in [k for k, r in self.recent.items() if not keep or now - r[3] >= keep]:
+                    del self.recent[key]
+                if not self.closed:
+                    renew = [(native.key, *self.recent[native.key][:3]) for native in stale if native.key in self.recent]
             for native in stale:
                 native.discard()
+            # a key used within warm_keep() gets a fresh standby instead of going cold
+            for key, factory, most, idle in renew:
+                self.offer(key, factory, most, idle, renew=True)
 
     def clear(self):
         with self.lock:
@@ -786,6 +820,7 @@ class WarmPool:
     def close(self):
         with self.lock:
             self.closed = True
+            self.recent.clear()
         self.clear()
 
 

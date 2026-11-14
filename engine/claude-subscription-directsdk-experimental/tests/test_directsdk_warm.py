@@ -82,6 +82,7 @@ def pool(monkeypatch):
     monkeypatch.setenv(directsdk.WARM_ENV, '1')
     monkeypatch.delenv(directsdk.WARM_MAX_ENV, raising=False)
     monkeypatch.delenv(directsdk.WARM_IDLE_ENV, raising=False)
+    monkeypatch.delenv(directsdk.WARM_KEEP_ENV, raising=False)
     fresh = directsdk.WarmPool()
     monkeypatch.setattr(directsdk, '_WARM', fresh)
     yield fresh
@@ -258,6 +259,7 @@ def test_cancel_kills_an_adopted_standby_and_its_children(tmp_path, pool, caplog
 
 def test_idle_standby_is_killed_and_its_files_removed(tmp_path, pool, monkeypatch):
     monkeypatch.setenv(directsdk.WARM_IDLE_ENV, '2')
+    monkeypatch.setenv(directsdk.WARM_KEEP_ENV, '0')
     native = Native(tmp_path)
     client = native.client()
     try:
@@ -272,6 +274,40 @@ def test_idle_standby_is_killed_and_its_files_removed(tmp_path, pool, monkeypatc
         assert pool.janitor is None or _until(lambda: pool.janitor is None)
     finally:
         client.close()
+
+
+def test_recently_used_key_is_kept_warm_then_goes_cold(tmp_path, pool, monkeypatch, caplog):
+    # A standby that reached its idle time is replaced while its key was used within KEEP seconds, so the first
+    # message after a pause still finds one; once nobody used the key for KEEP seconds it goes cold.
+    caplog.set_level(logging.INFO, logger=directsdk.logger.name)
+    monkeypatch.setenv(directsdk.WARM_IDLE_ENV, '1')
+    monkeypatch.setenv(directsdk.WARM_KEEP_ENV, '4')
+    native = Native(tmp_path)
+    client = native.client()
+    try:
+        first = client.create(**request())
+        assert _until(lambda: len(pool) == 1)
+        old = next(iter(pool.idle.values()))
+        assert _until(lambda: len(pool) == 1 and next(iter(pool.idle.values())) is not old), 'the expired standby was not renewed'
+        assert _until(lambda: not _alive(old.process.pid)) and _until(lambda: not old.root.exists())
+        renewed = next(iter(pool.idle.values())).process.pid
+        result = client.create(**follow_up(request(), first))
+        assert result.choices[0].message.content == 'done after 3 frames, system You are a probe.'
+        assert modes(caplog)[-1] == 'warm' and native.queries()[-1][0] == renewed
+        # the adopting call offered again (a new use); with no further calls the key ends cold within KEEP + idle
+        assert _until(lambda: len(pool) == 0 and not pool.recent, timeout=20), 'the key was kept warm past KEEP'
+    finally:
+        client.close()
+
+
+def test_keep_setting_parse(monkeypatch):
+    monkeypatch.delenv(directsdk.WARM_KEEP_ENV, raising=False)
+    assert directsdk.warm_keep() == 7200.0
+    for off in ('0', '-5', 'nan', 'inf'):
+        monkeypatch.setenv(directsdk.WARM_KEEP_ENV, off)
+        assert directsdk.warm_keep() == 0.0
+    monkeypatch.setenv(directsdk.WARM_KEEP_ENV, 'soon')
+    assert directsdk.warm_keep() == 7200.0
 
 
 def test_bounded_pool_dead_standby_fallback_and_shutdown(tmp_path, pool, monkeypatch, caplog):
