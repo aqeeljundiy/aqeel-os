@@ -1,0 +1,276 @@
+{
+ "**/ui/me": {
+  "body": {
+   "id": "owner",
+   "name": "Owner",
+   "username": "owner",
+   "email": "owner@example.com",
+   "emailVerified": true,
+   "role": "owner",
+   "admin": true,
+   "caps": [
+    "create",
+    "skills",
+    "mcp",
+    "schedules",
+    "models",
+    "tools",
+    "usage",
+    "unsafe"
+   ],
+   "agents": {},
+   "canMake": true,
+   "lead": "default"
+  }
+ },
+ "**/hapi/cron/jobs?*": {
+  "body": [
+   {
+    "id": "job1",
+    "name": "[Reports] Morning report",
+    "prompt": "Made-up test prompt 1: write a short report and send it.",
+    "profile": "default",
+    "enabled": true,
+    "state": "scheduled",
+    "schedule": {
+     "kind": "cron",
+     "expr": "0 8 * * *"
+    },
+    "schedule_display": "daily at 08:00",
+    "next_run_at": "2026-11-14T11:00:00+00:00",
+    "last_run_at": "2026-11-13T14:00:00+00:00",
+    "last_status": "ok",
+    "deliver": "telegram",
+    "model": null,
+    "repeat": {
+     "times": null,
+     "completed": 3
+    }
+   },
+   {
+    "id": "job2",
+    "name": "[Reports] Weekly summary",
+    "prompt": "Made-up test prompt 2: write a short report and send it.",
+    "profile": "default",
+    "enabled": true,
+    "state": "scheduled",
+    "schedule": {
+     "kind": "cron",
+     "expr": "0 9 * * 1"
+    },
+    "schedule_display": "weekly",
+    "next_run_at": "2026-11-14T12:00:00+00:00",
+    "last_run_at": "2026-11-13T15:00:00+00:00",
+    "last_status": "ok",
+    "deliver": "telegram",
+    "model": null,
+    "repeat": {
+     "times": null,
+     "completed": 3
+    }
+   },
+   {
+    "id": "job3",
+    "name": "[Reports] Month end numbers",
+    "prompt": "Made-up test prompt 3: write a short report and send it.",
+    "profile": "default",
+    "enabled": true,
+    "state": "scheduled",
+    "schedule": {
+     "kind": "cron",
+     "expr": "0 7 1 * *"
+    },
+    "schedule_display": "monthly",
+    "next_run_at": "2026-11-14T13:00:00+00:00",
+    "last_run_at": "2026-11-13T16:00:00+00:00",
+    "last_status": "ok",
+    "deliver": "telegram",
+    "model": "claude-sonnet",
+    "repeat": {
+     "times": null,
+     "completed": 3
+    }
+   },
+   {
+    "id": "job4",
+    "name": "[Inbox] Check new messages",
+    "prompt": "Made-up test prompt 4: write a short report and send it.",
+    "profile": "default",
+    "enabled": true,
+    "state": "scheduled",
+    "schedule": {
+     "kind": "cron",
+     "expr": "every 2h"
+    },
+    "schedule_display": "every 2h",
+    "next_run_at": "2026-11-14T14:00:00+00:00",
+    "last_run_at": "2026-11-13T17:00:00+00:00",
+    "last_status": "ok",
+    "deliver": "telegram",
+    "model": null,
+    "repeat": {
+     "times": null,
+     "completed": 3
+    }
+   },
+   {
+    "id": "job5",
+    "name": "[Inbox] Follow up on open questions",
+    "prompt": "Made-up test prompt 5: write a short report and send it.",
+    "profile": "default",
+    "enabled": false,
+    "state": "paused",
+    "schedule": {
+     "kind": "cron",
+     "expr": "30 16 * * 1-5"
+    },
+    "schedule_display": "weekdays",
+    "next_run_at": "2026-11-14T15:00:00+00:00",
+    "last_run_at": "2026-11-13T18:00:00+00:00",
+    "last_status": "ok",
+    "deliver": "telegram",
+    "model": null,
+    "repeat": {
+     "times": null,
+     "completed": 3
+    }
+   },
+   {
+    "id": "job6",
+    "name": "Backup check",
+    "prompt": "Made-up test prompt 6: write a short report and send it.",
+    "profile": "default",
+    "enabled": true,
+    "state": "scheduled",
+    "schedule": {
+     "kind": "cron",
+     "expr": "15 3 * * *"
+    },
+    "schedule_display": "daily",
+    "next_run_at": "2026-11-14T16:00:00+00:00",
+    "last_run_at": "2026-11-13T19:00:00+00:00",
+    "last_status": "error",
+    "deliver": "telegram",
+    "model": null,
+    "repeat": {
+     "times": null,
+     "completed": 3
+    },
+    "last_error": "Made-up test error: the check could not reach the server."
+   }
+  ]
+ },
+ "**/ui/schedules/info": {
+  "body": {
+   "meta": {
+    "default|job1": {
+     "summary": "A plain description of what morning report does, for the test copy."
+    },
+    "default|job2": {
+     "summary": "A plain description of what weekly summary does, for the test copy."
+    },
+    "default|job3": {
+     "summary": "A plain description of what month end numbers does, for the test copy."
+    },
+    "default|job4": {
+     "summary": "A plain description of what check new messages does, for the test copy."
+    },
+    "default|job5": {
+     "summary": "A plain description of what follow up on open questions does, for the test copy."
+    },
+    "default|job6": {
+     "summary": "A plain description of what backup check does, for the test copy."
+    }
+   },
+   "runs": {
+    "default|job1": {
+     "runs": [
+      {
+       "secs": 42,
+       "t": "2026-11-14T09:00:00+00:00"
+      }
+     ],
+     "n": 4,
+     "tokens": 12000,
+     "cost": 0.12
+    },
+    "default|job2": {
+     "runs": [
+      {
+       "secs": 42,
+       "t": "2026-11-14T09:00:00+00:00"
+      }
+     ],
+     "n": 4,
+     "tokens": 12000,
+     "cost": 0.24
+    },
+    "default|job3": {
+     "runs": [
+      {
+       "secs": 42,
+       "t": "2026-11-14T09:00:00+00:00"
+      }
+     ],
+     "n": 4,
+     "tokens": 12000,
+     "cost": 0.36
+    },
+    "default|job4": {
+     "runs": [
+      {
+       "secs": 42,
+       "t": "2026-11-14T09:00:00+00:00"
+      }
+     ],
+     "n": 4,
+     "tokens": 12000,
+     "cost": 0.48
+    },
+    "default|job5": {
+     "runs": [
+      {
+       "secs": 42,
+       "t": "2026-11-14T09:00:00+00:00"
+      }
+     ],
+     "n": 4,
+     "tokens": 12000,
+     "cost": 0.6
+    },
+    "default|job6": {
+     "runs": [
+      {
+       "secs": 42,
+       "t": "2026-11-14T09:00:00+00:00"
+      }
+     ],
+     "n": 4,
+     "tokens": 12000,
+     "cost": 0.72
+    }
+   },
+   "names": {},
+   "folds": {
+    "Reports": false,
+    "Inbox": false
+   },
+   "folders": [
+    "Reports",
+    "Inbox"
+   ],
+   "order": [
+    "Reports",
+    "Inbox",
+    "General"
+   ],
+   "colors": {
+    "Reports": "c-blue",
+    "Inbox": "c-green"
+   }
+  }
+ },
+ "**/ui/channels/job-relays": {
+  "body": {}
+ }
+}

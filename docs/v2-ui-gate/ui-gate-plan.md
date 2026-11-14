@@ -23,6 +23,21 @@ Baseline: `ui-gate baseline` on `/` (routes chat, chat-search, chat-permission),
 | Confirm box: title, words, Cancel, named button, X, Escape | Kit confirm with `closeButton` | try-parts: X shown, Escape answers no, the drawer under it stays |
 | The look of menus and the search: current choice and highlighted row in blue, 600 headings, search rows 42px at 14px, 16px field with a magnifier, search 620px wide at 14% from the top, menus as wide as their words | v2.css, kit parts styled with the app's values (owner: "Adjust Chat first") | measured on / and /v2 (same sizes and colours), side-by-side screenshots light and dark |
 
+## Schedules (14 Nov 2026, owner: "Yes, Schedules next")
+
+Routes: schedules, schedules-sort, schedules-row-menu, schedules-new on / and /v2, with made-up schedules from `schedules-mock.json` (the local copy has no engine).
+
+| v1 feature (on /) | v2 screen and control | How verified |
+|---|---|---|
+| The list: folders, rows, descriptions, costs, switches, search, sort, New folder, Run rules | Same page, unchanged | ui-gate check v2-schedules, every baseline control found |
+| Row menu (Copy, Details, Run now, Edit, Move, Edit description, Delete in red) | Kit menu from the same items | ui-gate v2-schedules-row-menu; try-sched desktop and phone |
+| Sort and folder menus, agent filter | Kit menus | try-sched: 4 orders with a tick, A to Z re-orders; folder menu |
+| Editor dropdowns (where it sends, which model) | Kit menus (the app's select buttons call menu()) | try-sched: opens, Escape closes it and the editor stays |
+| "Once": the day picker | Kit calendar `AdminKit.datePick` from the same button | try-sched: arrow + Enter picks a day |
+| Time list with search ("1430" finds 14:30) | Kit menu with search | try-sched |
+| Editor and details side panels | Stay the app's own (shared by every page; their own step) | try-sched: Details opens on a phone |
+| Phone tap targets | 44px on every control (switches keep their look) | ui-gate: 0 major (/ has 24) |
+
 ## Added in v2
 
 - Toasts stack, pause on hover and swipe away on a phone.

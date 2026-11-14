@@ -85,3 +85,10 @@ test('on /v2 the search is the kit box with the same lists as / (one source) and
 test('on /v2 Escape closes only the top kit box (not the app drawer under it)',()=>{
  const s=read('app/v2.js');
  assert.match(s,/addEventListener\('keydown',e=>\{if\(e\.key!=='Escape'[^]*?e\.stopPropagation\(\)[^]*?AK\.menu\.close\(\)[^]*?AK\.command\.close\(\)[^]*?\},true\)/)});
+
+// Schedules (owner, 14 Nov 2026: "Yes, Schedules next"): the editor's day picker is the kit's calendar from the same button
+test('on /v2 the day picker of date fields is the kit calendar, and Escape closes it first',()=>{
+ const s=read('app/v2.js');
+ assert.match(s,/window\.datePop=\(anchor,cur,pick\)=>\{AK\.datePick\(anchor,cur\|\|'',\{label:'Pick a day'\}\)\.then\(v=>\{anchor\.classList\?\.remove\('open'\);if\(v\)pick\(v\)\}\)\}/);
+ assert.match(s,/if\(AK\.datePick\?\.isOpen\)return AK\.datePick\.close\(\)/);
+ assert.match(read('app/v2.css'),/html\.v2\[data-v2sec="automations"\] \.sj-row \.act \.switch::after\{top:-10px;left:-1px;width:44px;height:44px/,'switches keep a 44px tap area on phones')});

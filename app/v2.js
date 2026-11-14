@@ -85,7 +85,7 @@
     pieces had and the kit did not (owner, 14 Nov 2026: "Grow the kit"): menus with icons, second lines, ticks, headings and
     search, opened from the app's own buttons; the search box with icons, live results and its key hints. */
  const AK=typeof AdminKit==='object'&&AdminKit?AdminKit:null;
- const kitOpen=()=>document.querySelector('.ak-menu-pop,.ak-cmd,.ak-dialog,.ak-sheet');
+ const kitOpen=()=>document.querySelector('.ak-menu-pop,.ak-pop--cal,.ak-cmd,.ak-dialog,.ak-sheet');
  // Ctrl+K (Cmd+K on a Mac) opens the search, once: the kit listens for the same keys, so they are stopped before it and
  // the app's own handler (boot.js) see them and the search is opened here (both opened, seen 14 Nov 2026)
  addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey)||e.altKey||e.key?.toLowerCase()!=='k')return;e.stopPropagation();
@@ -93,7 +93,7 @@
   e.preventDefault();if(AK?.command?.isOpen)AK.command.close();else if(!document.querySelector('.palette'))palette()},true);
  // Escape closes the top kit box only. The app's own Escape (core.js) runs first and would close the drawer under it.
  addEventListener('keydown',e=>{if(e.key!=='Escape'||e.isComposing||!AK||!kitOpen())return;e.stopPropagation();e.preventDefault();
-  if(AK.menu?.isOpen)return AK.menu.close();if(AK.command?.isOpen)return AK.command.close();
+  if(AK.menu?.isOpen)return AK.menu.close();if(AK.datePick?.isOpen)return AK.datePick.close();if(AK.command?.isOpen)return AK.command.close();
   const d=document.querySelector('.ak-dialog');if(d){(d.querySelector('.ak-dialog__actions .ak-btn:not(.ak-btn--primary):not(.ak-btn--danger)')||d.querySelector('.ak-dialog__x'))?.click();return}
   document.querySelector('.ak-sheet .ak-sheet__head [aria-label="Close"]')?.click()},true);
  if(AK){
@@ -115,6 +115,9 @@
     const r=anchor.getBoundingClientRect(),align=r.left>innerWidth*.6?'end':'start';
     AK.menu(anchor,list,{label,search:!!opt.search,placeholder:'Search',align}).then(()=>setTimeout(()=>opt.onClose?.(),0));
     return null}}
+  // the day picker of date fields (the schedule editor's "Once"): the kit's calendar from the same button, a bottom sheet
+  // on a phone; arrows, Enter and Escape as before (Schedules, owner 14 Nov 2026: "Yes, Schedules next")
+  if(typeof datePop==='function'&&AK.datePick)window.datePop=(anchor,cur,pick)=>{AK.datePick(anchor,cur||'',{label:'Pick a day'}).then(v=>{anchor.classList?.remove('open');if(v)pick(v)})};
   // the search (Ctrl+K and the top bar's search button): the kit's box, with the app's lists and live results
   if(typeof palette==='function'&&typeof paletteFind==='function'&&AK.command){const ownPalette=palette;
    const asItem=x=>({label:x.l,group:x.g,hint:x.sub||undefined,icon:x.ic?icon(x.ic,16):undefined,run:x.run});
