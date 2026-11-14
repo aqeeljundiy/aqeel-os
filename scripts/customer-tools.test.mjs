@@ -50,7 +50,9 @@ test('a payment is for this customer only, adds up to the order total, is logged
  assert.match((await pay({amounts:[5],name:'Ani',order_total:5})).text,/10000 to 5000000/);
  const ok=await pay({amounts:[2660000],name:'Ani; rm -rf /',order_total:2660000});assert.match(ok.text,/FOTO/);
  assert.deepEqual(ran[0],['cove-support','.tools/qris',['2660000','--name','Ani rm -rf','--phone','6281234567890']]);
- assert.match((await pay({amounts:[2660000],name:'Ani',order_total:2660000})).text,/already made/);
+ // a repeat makes no new payment; since 14 Nov 2026 (owner: the support agents should send the QRIS themselves, not hand off) the
+ // still-valid one is given again with its picture, instead of a refusal that left the agent nothing but a handoff
+ {const again=await pay({amounts:[2660000],name:'Ani',order_total:2660000});assert.equal(again.resent,true);assert.match(again.text,/already has a valid QRIS[\s\S]*\[FOTO: qris-1\.png\]/);assert.equal(ran.length,1,'no second payment made')}
  const log=(await readFile(path.join(D,'payments.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);assert.equal(log.length,1);assert.equal(log[0].phone,'6281234567890');assert.equal(log[0].total,2660000);
  assert.match((await pay({amounts:[2660000],name:'Ani',order_total:2660000,expired:true})).text,/FOTO/);
  assert.match((await pay({amounts:[100000],name:'Ani',order_total:100000})).text,/Two payments/);
@@ -79,7 +81,7 @@ test('a tester of the line pays a Rp10.000 test QRIS, logged testAmount; a custo
  await C.call('cove-support',c,'create_payment',{amounts:[2000000,660000],order_total:2660000,name:'Cust',order_form:form});assert.deepEqual(ran.at(-1)[2].slice(0,2),['2000000','660000']);
  const log=(await readFile(path.join(D,'payments.jsonl'),'utf8')).trim().split('\n').map(l=>JSON.parse(l));
  assert.equal(log[0].testAmount,true);assert.equal(log[0].total,10000);assert.equal(log[0].orderTotal,2660000);assert.equal(log[1].testAmount,undefined);assert.equal(log[1].total,2660000);
- assert.equal((await C.call('cove-support',tok,'create_payment',{amounts:[2660000],order_total:2660000,name:'Tester',order_form:form})).isError,true,'a repeat is still caught')});
+ {const n=ran.length,again=await C.call('cove-support',tok,'create_payment',{amounts:[2660000],order_total:2660000,name:'Tester',order_form:form});assert.equal(again.resent,true,'a repeat is still caught: the valid one is sent again');assert.equal(ran.length,n,'no new payment')}});
 
 // website_form (i77296280, 10 Nov 2026): made by the fixer on the live box, taken into git 11 Nov
 test('website_form returns only THIS chat\'s own quiz, matched by the run\'s phone, login cached',async()=>{const W=await mkdtemp(path.join(tmpdir(),'ct3-'));await mkdir(path.join(W,'a','.secrets'),{recursive:true});await writeFile(path.join(W,'a','.secrets','STORE_PW'),'pw\n');

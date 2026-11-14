@@ -14,6 +14,7 @@
 // Events (12 Nov 2026, event-hooks.mjs): the provider is polled, nothing calls us when a payment succeeds, so this is the moment aqeelOS learns it.
 // onEvent(agent,{type,data:{kind}}) is told 'payment.paid' (a payment of the agent's is now confirmed PAID) and 'order.posted' (its order
 // form went to the Orders topic, now or on a retry), once the state is saved; never an amount, a name or a number. A failing listener changes nothing.
+import {customerHistory} from './customer-history.mjs';
 import {writeStore,readStore,storeBad} from './store.mjs';
 import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import path from 'node:path';
@@ -56,10 +57,13 @@ export function createPaidLabels({DATA,WORK,keyOf=null,label,orders=async()=>nul
  // the line's own order details (orderContextOf): from post_order, else from the payment; rows logged before the setting keep them at the top level
  const contextOf=t=>orderContextOf({orderContext:t?.context}),filled=(c,o)=>{const s=o?.context||o||{};return Object.fromEntries(c.fields.map(f=>[f.key,String(s[f.key]||'').trim()]))};
  const buyerContext=(c,v)=>'*'+c.title+'*\n'+c.fields.map(f=>'- '+f.label+': '+(v[f.key]||c.missing)).join('\n');
- const orderText=(p,refs,form,t,ctx)=>(p.mode==='test'?'🧪 TEST ':'')+'🧾 PAID ORDER ('+t.persona+', '+(p.name||'customer')+', +'+p.phone+')\n'+money(p.total,t.currency)+', '+String(p.kind||'qris').toUpperCase()+(refs.length?', ref '+refs.join(' '):'')+((p.products||[]).length?'\nProducts: '+p.products.join(', '):'')+'\n\n'+(form||p.form||'The order form was not recorded with this payment; it is in the customer\'s chat.')+(contextOf(t).fields.length?'\n\n'+buyerContext(contextOf(t),filled(contextOf(t),ctx||p)):'');
+ const orderText=(p,refs,form,t,ctx,hist='')=>(p.mode==='test'?'🧪 TEST ':'')+'🧾 PAID ORDER ('+t.persona+', '+(p.name||'customer')+', +'+p.phone+')\n'+money(p.total,t.currency)+', '+String(p.kind||'qris').toUpperCase()+(refs.length?', ref '+refs.join(' '):'')+((p.products||[]).length?'\nProducts: '+p.products.join(', '):'')+'\n\n'+(form||p.form||'The order form was not recorded with this payment; it is in the customer\'s chat.')+(contextOf(t).fields.length?'\n\n'+buyerContext(contextOf(t),filled(contextOf(t),ctx||p)):'')+(hist?'\n\n'+hist:'');
  async function sendOrder(p,refs,form,prev={tries:0},ctx=null){const t=await orders(p.agent).catch(()=>null);if(!t?.chatId)return {state:'none'};
-  const mid=await post(p.agent,t,orderText(p,refs,form,t,ctx)).catch(()=>false);if(mid){log('paid orders: '+p.agent+' order of '+p.total+' posted');
-   const c=contextOf(t),v=filled(c,ctx||p),gap=c.fields.filter(f=>!v[f.key]);if(gap.length)await failed(p.agent,'order-context|'+p.at,'A paid order went to the Orders topic without buyer context','Order of '+money(p.total,t.currency)+' from …'+String(p.phone).slice(-4)+': '+gap.map(f=>f.label).join(' and ')+' not asked. Ask the customer and send it to the team, then always pass them to create_payment.').catch(()=>{});
+  // the customer's earlier orders and their past-use answers go with the order (owner, 14 Nov 2026: a forwarded order needs the context of
+  // the customer's previous use), from the payments the install already keeps (customer-history.mjs)
+  const c0=contextOf(t),hist=await customerHistory(DATA,p.agent,p.phone,{before:Date.parse(p.at)||Infinity,currency:t.currency||'',fields:c0.fields,missing:c0.missing}).catch(()=>'');
+  const mid=await post(p.agent,t,orderText(p,refs,form,t,ctx,hist)).catch(()=>false);if(mid){log('paid orders: '+p.agent+' order of '+p.total+' posted');
+   const c=contextOf(t),v=filled(c,ctx||p),gap=c.fields.filter(f=>!v[f.key]||v[f.key].toLowerCase()===String(c.missing).toLowerCase());/* the line's own "not asked" word is a gap too */if(gap.length)await failed(p.agent,'order-context|'+p.at,'A paid order went to the Orders topic without buyer context','Order of '+money(p.total,t.currency)+' from …'+String(p.phone).slice(-4)+': '+gap.map(f=>f.label).join(' and ')+' not asked. Ask the customer and send it to the team, then always pass them to create_payment.').catch(()=>{});
    return {state:'posted',at:now()}}
   const tries=(prev.tries||0)+1;log('paid orders: '+p.agent+' could not post an order (try '+tries+')');
   if(tries>=TRIES){await failed(p.agent,'paid-order|'+p.at,'A paid order could not be posted to the Orders topic','Payment of '+money(p.total,t.currency)+' from …'+String(p.phone).slice(-4)+'. Check that the agent\'s bot is in the Orders group and may post in that topic.').catch(()=>{});return {state:'gave-up',tries}}

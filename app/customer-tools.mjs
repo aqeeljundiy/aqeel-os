@@ -193,7 +193,13 @@ export function createCustomerTools({WORK,DATA,catalogOf=async()=>null,providers
     // the same total for the same customer within 30 minutes is a repeat, unless the customer said it expired
     const recent=(await readFile(path.join(DATA,'payments.jsonl'),'utf8').catch(()=>'')).split('\n').filter(Boolean).map(l=>{try{return JSON.parse(l)}catch{return null}}).filter(Boolean)
      .find(p=>p.agent===agent&&p.phone===r.phone&&(p.orderTotal??p.total)===total&&p.ok&&!deliveryFailed(p.out)&&(p.kind==='card')===(k==='card')&&now()-Date.parse(p.at)<30*60e3);   // switching to or from card is a new payment
-    if(recent&&!args.expired)return {isError:true,text:'A payment for '+cur+total+' was already made for this customer at '+recent.at.slice(11,16)+' UTC. Only make a new one if the customer says it expired (expired true).'};
+    // still valid: it is sent again instead of refused (14 Nov 2026: the refusal left the agent no way to resend a QRIS, so it handed off;
+    // "almost every QRIS has to be escalated"). A new payment only when the customer says it expired.
+    if(recent&&!args.expired){const tags=recent.tags||[...String(recent.out||'').matchAll(/\[FOTO:[^\]]+\]/g)].map(m=>m[0]),again=recent.resend||'';
+     log('customer run '+agent+' '+r.id+': payment '+k+' '+cur+total+' for …'+r.phone.slice(-4)+' still valid; sent again');
+     if(tags.length)return {text:'This customer already has a valid '+k.toUpperCase()+' for '+cur+total+' (made '+recent.at.slice(11,16)+' UTC). Send it again: put each tag on its own line in your reply:\n'+tags.join('\n')+'\nOnly if the customer says it expired, call create_payment again with expired true.',resent:true};
+     if(again)return {text:again+'\nThis is the payment already made for this customer at '+recent.at.slice(11,16)+' UTC and still valid: give these details again exactly as shown. Only if the customer says it expired, call create_payment again with expired true.',resent:true};
+     return {isError:true,text:'A payment for '+cur+total+' was already made for this customer at '+recent.at.slice(11,16)+' UTC. Only make a new one if the customer says it expired (expired true).'}}
     // a tester pays a small test payment (QRIS, VA or card) instead of the order total: the line's payment.testAmount, else 10000. Applied HERE, by code, and only
     // while the line is in Test and the run's number is one of its testers right now; the model cannot ask for it, and no rule file can
     // (audit C2: a rule file said "test numbers always get Rp10.000" and the model charged that for orders of millions)
@@ -210,7 +216,7 @@ export function createCustomerTools({WORK,DATA,catalogOf=async()=>null,providers
     // the provider's references in the helper's answer (Tripay: T… references, or our BM-… order refs the helper keeps in tmp/)
     const out=String(x.out||''),refs=x.refs||[...new Set(out.match(/\bT\d{5,}[0-9A-Z]{4,}\b/g)||[])],orders=x.orders||[...new Set(out.match(/\b[A-Z]{2,4}-\d{9,11}-\d{1,2}\b/g)||[])],invoices=k==='card'?x.invoices||[...new Set(out.match(/\b[0-9a-f]{24}\b/g)||[])]:[];
     await payLog({agent,line:r.line,conversation:r.conversation,phone:r.phone,mode:r.mode,run:r.id,kind:k,amounts,total,products,refs,orders,name:nm,form:clip(form,3000),context:contextValues(pr,args),...(k==='card'?{invoices}:{}),...(testAmt?{testAmount:true,orderTotal}:{}),
-     priced:cat?'list':'form',by:kind==='app'?'aqeelOS':helper.path,...(q?{items:q.lines.map(l=>({id:l.id,qty:l.qty,...(l.free?{free:true}:{})})),...(q.discount?{discount:q.discount.code}:{}),...(q.shipping?{shipping:q.shipping.id}:{}),...(q.fee?{fee:q.fee}:{})}:{}),...(args.expired?{expired:true}:{}),ok:x.ok,out:clip(x.out||x.err,400)});
+     priced:cat?'list':'form',by:kind==='app'?'aqeelOS':helper.path,...(q?{items:q.lines.map(l=>({id:l.id,qty:l.qty,...(l.free?{free:true}:{})})),...(q.discount?{discount:q.discount.code}:{}),...(q.shipping?{shipping:q.shipping.id}:{}),...(q.fee?{fee:q.fee}:{})}:{}),...(args.expired?{expired:true}:{}),ok:x.ok,out:clip(x.out||x.err,400),tags:[...new Set([...String(x.out||'').matchAll(/\[FOTO:[^\]]+\]/g)].map(m=>m[0]))],...(x.ok&&(k==='va'||k==='card')?{resend:clip(k==='card'?out.split(' | ').slice(0,3).join(' | '):out,1000)}:{})});
     log('customer run '+agent+': payment '+k+' '+cur+total+' for …'+r.phone.slice(-4)+(x.ok?' made':' failed'));
     // card: the link, amount and expiry for the reply; the provider's ids stay in the log
     if(x.ok&&k==='card')return {text:out.split(' | ').slice(0,3).join(' | ').trim()+'\nPut this link in your reply exactly as given.'+(q?.fee?'\nShow the customer: order total '+money(q.total,cat.currency)+', card fee '+q.feePercent+'% '+money(q.fee,cat.currency)+', paid by card '+money(q.charge,cat.currency)+'.':'')};
@@ -270,6 +276,6 @@ export function createCustomerTools({WORK,DATA,catalogOf=async()=>null,providers
  // the QR picture tags ([FOTO: qris-….png]) the payment tool made for this customer in this run
  async function qrSince(agent,phone,since){const ph=String(phone||'').replace(/\D/g,'');const tags=[];
   for(const l of (await readFile(path.join(DATA,'payments.jsonl'),'utf8').catch(()=>'')).split('\n').filter(Boolean)){try{const p=JSON.parse(l);
-   if(p.agent===agent&&p.phone===ph&&p.ok&&Date.parse(p.at)>=since-1000)for(const m of String(p.out||'').matchAll(/\[FOTO:[^\]]+\]/g))tags.push(m[0])}catch{}}
+   if(p.agent===agent&&p.phone===ph&&p.ok&&Date.parse(p.at)>=since-1000)for(const t of p.tags||[...String(p.out||'').matchAll(/\[FOTO:[^\]]+\]/g)].map(m=>m[0]))tags.push(t)}catch{}}
   return tags.slice(-1)}
  return {begin,end,call,mcp,files,runOf,safeEq,paidSince,qrSince}}

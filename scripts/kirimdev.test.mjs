@@ -579,3 +579,9 @@ test('a customer photo: its words are asked for exactly, kept whole, and up to f
  assert.equal(read,5,'five new photos read in one reply, the oldest left');
  const q=t.asked[0][1];assert.ok(q.includes(long.slice(0,1050)),'the whole reading reaches the agent, past the old 400 characters');
  assert.match(q,/Read every word of the customer's new messages/);assert.match(q,/ask them one short question about exactly that instead of guessing/)});
+
+// the person taking over sees the customer's earlier orders (owner, 14 Nov 2026), not only the last question
+test('a HANDOFF post carries the customer\'s earlier orders and past-use answers',async()=>{const t=await make({mode:'live',agentSays:'HANDOFF: wants a dose check'});
+ await writeFile(path.join(t.DATA,'payments.jsonl'),JSON.stringify({agent:'cove-support',phone:'628123',ok:true,at:'2026-11-02T10:00:00Z',total:750000,products:['Kit A'],context:{past_use:'twice a week'}})+'\n');
+ await t.post(meta('628123','dosisnya berapa ya'));await t.settle();
+ const post=t.posts.map(x=>String(x[3])).find(x=>/HANDOFF/.test(x));assert.ok(post,'handed off');assert.match(post,/Earlier orders \(1\):\n- 2026-11-02, 750,000, Kit A/)});

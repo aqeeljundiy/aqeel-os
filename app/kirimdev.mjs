@@ -25,6 +25,8 @@
 // - brands never mix: a line takes only events for its own phoneNumberId, and whatsapp_reply refuses a number that
 //   wrote to another line and not to this one
 import {reviewPrompt,parseReview} from './kirim-review.mjs';
+import {customerHistory} from './customer-history.mjs';
+import {orderContextOf} from './paid-labels.mjs';
 import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,unlink,stat,appendFile,readdir} from 'node:fs/promises';
 import {publicUrl} from './install.mjs';   // Your address (System › Settings), read at the moment a webhook is made
@@ -496,8 +498,10 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  // a handoff is posted first; the customer hears it was passed on only once Telegram confirmed the post.
  // One open handoff per chat (audit H4, M5): a second request refreshes the team's alert and is never dropped; the customer is not told twice.
  async function postHandoff(h,line){const t=await target(h.agent),hk=h.agent+'|'+h.from;
+  // the person taking over sees the customer's earlier orders and past-use answers (owner, 14 Nov 2026), not only the last question
+  if(h.history==null){const oc=orderContextOf(line?.payment);h.history=await customerHistory(DATA,h.agent,h.from,{currency:line?.payment?.currency||'',fields:oc.fields,missing:oc.missing}).catch(()=>'')}
   const open=Object.entries(st.asked||{}).find(([,a])=>a.agent===h.agent&&a.from===h.from),again=!!open&&!h.tries;
-  const post=(again?'🔁 HANDOFF AGAIN (':'❓ HANDOFF (')+line.persona+', '+h.name+', +'+h.from+')\nCustomer asked: '+h.lastQ+'\n\nWhy: '+h.why+(h.held?'\n\nHeld text (NOT sent to the customer):\n'+String(h.held).slice(0,1200):'')+'\n\nChat: '+chatLink(line,h)+'\n\n'+(t?.mention?t.mention+' ':'')+(again?'still waiting for a person: answer the customer in Kirimdev, or reply here with the answer. '+line.persona+' stays silent in this chat until then.':'reply here with the answer and '+line.persona+' sends it to the customer.');
+  const post=(again?'🔁 HANDOFF AGAIN (':'❓ HANDOFF (')+line.persona+', '+h.name+', +'+h.from+')\nCustomer asked: '+h.lastQ+'\n\nWhy: '+h.why+(h.history?'\n\n'+h.history:'')+(h.held?'\n\nHeld text (NOT sent to the customer):\n'+String(h.held).slice(0,1200):'')+'\n\nChat: '+chatLink(line,h)+'\n\n'+(t?.mention?t.mention+' ':'')+(again?'still waiting for a person: answer the customer in Kirimdev, or reply here with the answer. '+line.persona+' stays silent in this chat until then.':'reply here with the answer and '+line.persona+' sends it to the customer.');
   const mid=t?await telegram(h.agent,t.chatId,t.threadId,post).catch(()=>false):false;h.tries++;
   if(mid){delete st.handoffs[h.id];log('kirimdev '+h.agent+': handoff '+(again?'refreshed':'posted')+(h.tries>1?' (try '+h.tries+')':''));if(h.tries>1)await solved(h.agent,'handoff|'+h.id).catch(()=>{});
    if(h.kind)countNoReply(h.agent);

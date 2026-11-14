@@ -143,3 +143,11 @@ test('a part-paid split payment: one team post and one Health line, no labels, n
  assert.equal((await P.statusFor(A,PHONE))[0].status,'PARTLY_PAID');assert.ok(asked.includes('TRIPAY_API_KEY'))});
 test('every part expired or failed with nothing paid is still closed quietly',async()=>{const s=await make();s.state.v='EXPIRED';await s.pay();await s.P.tick();
  assert.equal(s.posts.length,0);assert.equal(s.alerts.length,0);assert.equal(Object.values(JSON.parse(await readFile(path.join(s.D,'paid-labels.json'),'utf8')).done)[0].state,'closed')});
+
+// a forwarded order carries the customer's earlier orders and past-use answers (owner, 14 Nov 2026); "not asked" is a gap
+test('the order post lists the customer\'s earlier orders; the line\'s own "not asked" counts as a gap',async()=>{const s=await make();
+ await s.pay({past_use:'Widget once a day',setup:'Kit: ready made'});s.state.v='PAID';await s.P.tick();
+ const u=await make();await writeFile(path.join(u.D,'payments.jsonl'),JSON.stringify({agent:A,phone:PHONE,ok:true,at:'2026-11-01T10:00:00Z',total:300000,products:['Kit A'],context:{past_use:'Widget twice a week'}})+'\n');
+ await u.pay({past_use:'not asked',setup:'Kit: ready made'});u.state.v='PAID';await u.P.tick();
+ assert.match(u.posts.at(-1)[2],/Earlier orders \(1\):\n- 2026-11-01, [^\n]*300,000, Kit A\n  Past use: Widget twice a week/);
+ assert.ok(u.alerts.length>=1,'"not asked" raised the missing-context alert')});
