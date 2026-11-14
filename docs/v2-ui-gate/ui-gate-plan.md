@@ -21,12 +21,17 @@ Baseline: `ui-gate baseline` on `/` (routes chat, chat-search, chat-permission),
 | Phone menus with 44px rows | Kit bottom sheet, rows 47px | try-parts phone |
 | Toasts, errors kept in "What went wrong" | Kit toasts, `Oops.add` kept | v2-page test, browser |
 | Confirm box: title, words, Cancel, named button, X, Escape | Kit confirm with `closeButton` | try-parts: X shown, Escape answers no, the drawer under it stays |
+| The look of menus and the search: current choice and highlighted row in blue, 600 headings, search rows 42px at 14px, 16px field with a magnifier, search 620px wide at 14% from the top, menus as wide as their words | v2.css, kit parts styled with the app's values (owner: "Adjust Chat first") | measured on / and /v2 (same sizes and colours), side-by-side screenshots light and dark |
 
 ## Added in v2
 
 - Toasts stack, pause on hover and swipe away on a phone.
 - Menus open as a bottom sheet on phones.
 - Side panels can keep a button row at the bottom while they scroll (kit 0.27.0; used on later pages).
+
+## Differences kept on purpose
+
+- Menu headings in sentence case instead of small spaced capitals (ui-gate: tracked capitals read as a template).
 
 ## Removed
 
