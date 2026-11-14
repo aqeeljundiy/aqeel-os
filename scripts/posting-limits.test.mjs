@@ -86,3 +86,14 @@ test('allowNow: the gate\'s decision as numbers for a script that posts without 
  a=await x.pl.allowNow('ct');assert.equal(a.allow,false);assert.match(a.reason,/min ago/);assert.equal(a.today,1);assert.equal(a.sinceMin,0);
  x.tick((R.gapMin+1)*60e3);assert.equal((await x.pl.allowNow('ct')).allow,true,'after the gap');
  assert.equal((await x.pl.view('ct')).lastGate,null,'no gate call was logged')});
+
+test('the same post answered twice is told to the agent and shown under Bottlenecks; their new reply is not a repeat',async()=>{
+ const a='oh iya, 3 hari di suhu ruang masih aman kak',b='iya kak, disimpan di kulkas aja biar awet';
+ const x=await rig({pages:['p\n'+a+'\n'+b]});await x.pl.set('ct',{rules:R});const u='https://www.threads.com/@farra1717/post/Dfuk5wZkvpy';
+ let r=await x.pl.record('ct',{post_url:u,text:a});assert.doesNotMatch(r.text,/REPEAT/);assert.equal(x.events.length,0);
+ x.tick(11*60e3);r=await x.pl.record('ct',{post_url:u,text:b});
+ assert.match(r.text,/REPEAT: this post already had our answer at 10:00/);assert.match(r.text,/Do not send to this post again/);
+ const ev=x.events.find(e=>e[0]==='repeat');assert.ok(ev,'a Bottlenecks item');assert.match(ev[1],/answered the same post twice/);assert.match(ev[2],/Dfuk5wZkvpy/);assert.match(ev[2],/delete the extra reply/);assert.equal(ev[3].agent,'ct');
+ assert.ok(x.tg.some(t=>/answered the same post twice/.test(t[3])),'the alert chat is told');
+ x.tick(15*60e3);r=await x.pl.record('ct',{post_url:'https://www.threads.com/@farra1717/post/NEWreply1',text:a});assert.doesNotMatch(r.text,/REPEAT/);
+ x.tick(25*3600e3);const n=x.events.length;r=await x.pl.record('ct',{post_url:u,text:b});assert.doesNotMatch(r.text,/REPEAT/,'a day later is a new conversation');assert.equal(x.events.length,n)});
