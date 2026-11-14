@@ -429,6 +429,13 @@ const Chat={
  async readStream(r,on){const rd=r.body.getReader();const dec=new TextDecoder();let buf='';
   for(;;){const {value,done}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
    while((i=buf.search(/\r?\n\r?\n/))>=0){const raw=buf.slice(0,i);buf=buf.slice(i).replace(/^\r?\n\r?\n/,'');let ev='message',data='';for(const line of raw.split(/\r?\n/)){if(line.startsWith(':'))continue;if(line.startsWith('event:'))ev=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trimStart()}if(!data)continue;let d;try{d=JSON.parse(data)}catch{d={text:data}}on({type:d.type||ev,...d})}}},
+ // The reply's text once the turn ends. A streamed reply (assistant.delta) was shown as written; the engine's final text (c) is the
+ // last step's answer after its reply checks (transform_llm_output: a held-back traceback, a rewrite), so it replaces what streamed
+ // after the last tool step and the steps before it stay. A last step that streamed exactly the final text keeps the streamed text,
+ // and a final text that only repeats the step before (no text after the last tool) is not added twice.
+ // Without deltas the longer of the two wins, as before (14 Nov 2026, Claude replies now stream).
+ settle(ai,c){const t=ai.text||'';if(!ai.streamed||!t)return !t||c.length>=t.length?c:t;const at=ai.segAt||0,seg=t.slice(at).trim(),fin=c.trim();
+  if(seg===fin)return t;const head=t.slice(0,at).replace(/\s+$/,'');return !head?c:!seg&&head.endsWith(fin)?head:head+'\n\n'+c},
  onEvent(id,e){const s=this.live[id];if(!s)return;const ai=s.ai;if(!ai)return;s.lastAct=Date.now();
   if(e.tool_name==='todo_list')RunStatus.readTodos(ai,{args:e.args,result:e.result||e.output});
   // The engine slips a steer in right before the agent's next model call (once the step it is on finishes) and
@@ -439,9 +446,9 @@ const Chat={
    else if(/^(assistant\.(delta|commentary|reasoning)|reasoning\.delta|tool\.started)$/.test(e.type)||e.type==='tool.progress'&&e.tool_name==='_thinking'){for(const t of s.turns)if(t.steer==='sent'&&t.afterStep)t.steer='delivered'}}
   switch(e.type){
    case 'run.started':Secrets.start();s.runId=e.run_id;if(s.stopWanted){s.stopWanted=false;post(G,'/v1/runs/'+s.runId+'/stop').catch(()=>{});setTimeout(()=>s.abort?.abort(),1500)}ai.model=e.runtime?.model||'';if(ai.model&&s.runModel!==ai.model){s.runModel=ai.model;if(this.id===id)this.paintComposerBar()}break;
-   case 'assistant.delta':ai.text+=e.delta||e.text||'';break;
+   case 'assistant.delta':{const d=e.delta||e.text||'';if(d){ai.text+=d;ai.streamed=true}break}
    case 'assistant.commentary':if(!e.already_streamed&&e.text)ai.text+=(ai.text?'\n\n':'')+e.text;break;
-   case 'tool.started':ai.steps.push({tool:e.tool_name||'tool',args:e.args||{},sum:e.preview||this.summary(e.tool_name,e.args),out:'',done:false,t0:Date.now(),at:Date.now()/1000,callId:e.tool_call_id||e.call_id||''});break;
+   case 'tool.started':ai.steps.push({tool:e.tool_name||'tool',args:e.args||{},sum:e.preview||this.summary(e.tool_name,e.args),out:'',done:false,t0:Date.now(),at:Date.now()/1000,callId:e.tool_call_id||e.call_id||''});ai.segAt=ai.text.length;break;
    case 'tool.completed':case 'tool.failed':{const x=[...ai.steps].reverse().find(t=>!t.done&&t.tool===e.tool_name)||[...ai.steps].reverse().find(t=>!t.done);if(x){x.done=true;x.failed=e.type==='tool.failed';x.secs=((Date.now()-x.t0)/1000).toFixed(1);if(e.result||e.output)x.out=this.toolOut(e.result||e.output)}break}
    case 'tool.progress':if(e.tool_name==='_thinking'){if(!ai.t0think)ai.t0think=Date.now();ai.think+=e.delta||'';ai.thinkSecs=Math.max(1,Math.round((Date.now()-ai.t0think)/1000))}break;
    case 'reasoning.delta':case 'assistant.reasoning':ai.think+=e.delta||e.text||'';break;
@@ -449,7 +456,7 @@ const Chat={
     // this chat is set to Allow all: answer it right away (the engine's block list still applies)
     if(this.allowAll(id)&&s.runId){const pick=(e.choices||['once']).includes('session')?'session':'once';post(G,'/v1/runs/'+s.runId+'/approval',{choice:pick,...(e.request_id?{request_id:e.request_id}:{})}).then(()=>{ai.approval.resolved=pick;ai.approval.auto=true;if(this.id===id)this.paint()}).catch(()=>{})}break;
    case 'approval.responded':if(ai.approval)ai.approval.resolved=e.choice;break;
-   case 'assistant.completed':{let c=this.contentText(e.content||'');const prev=(s.runTurns||[]).filter(t=>t!==ai).map(t=>t.text).join('');if(prev&&c.startsWith(prev))c=c.slice(prev.length).trim();if(c&&(!ai.text||c.length>=ai.text.length))ai.text=c}ai.model=e.runtime?.model||ai.model;break;
+   case 'assistant.completed':{let c=this.contentText(e.content||'');const prev=(s.runTurns||[]).filter(t=>t!==ai).map(t=>t.text).join('');if(prev&&c.startsWith(prev))c=c.slice(prev.length).trim();if(c)ai.text=this.settle(ai,c)}ai.model=e.runtime?.model||ai.model;break;
    case 'run.completed':this.refreshUsage();if(!e.pending_steer)for(const t of s.turns){if(t.steer==='sent')t.steer='delivered'}   // nothing left unread: the agent took every steer in
    if(e.pending_steer){/* the reply ended before the agent read it: send it as the next message instead */const u=[...s.turns].reverse().find(t=>t.steer&&t.steer!=='delivered');if(u){const i=s.turns.indexOf(u);const nx=s.turns[i+1];s.turns.splice(i,nx&&nx.role==='ai'&&!nx.text&&!(nx.steps||[]).length?2:1);if(s.ai===nx)s.ai=s.turns[s.turns.length-1];(s.queue??=[]).unshift({text:u.text,images:[]})}}if(e.messages){/* fill tool outputs from the final transcript */const t=this.toTurns(e.messages.map(m=>({...m,active:1})));const last=t[t.length-1];if(last?.role==='ai'){last.steps.forEach((x,k)=>{if(ai.steps[k]&&!ai.steps[k].out)ai.steps[k].out=x.out});if(!ai.text)ai.text=last.text}}const u=e.usage;if(u)ai.usage=u;break;
    case 'run.failed':ai.error=e.error?.message||e.error||AGENT()+' stopped with an error.';Oops.add('chat',AGENT()+': '+ai.error);break;
