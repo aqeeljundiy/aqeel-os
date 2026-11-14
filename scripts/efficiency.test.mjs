@@ -25,8 +25,8 @@ test('every home gets a fixed shortening point and the auto cache, once',async()
 test('a value set by hand is kept; one this module set follows a new default',async()=>{
  const {E,cfg,DATA}=await make({default:{},sales:{compression:{threshold_tokens:400000},prompt_caching:{cache_ttl:'1h'}}});
  await E.apply();assert.equal(cfg.sales.compression.threshold_tokens,400000);assert.equal(cfg.sales.prompt_caching.cache_ttl,'1h');
- assert.equal(cfg.default.compression.threshold_tokens,200000);
- const saved=JSON.parse(await readFile(path.join(DATA,'efficiency.json'),'utf8'));assert.equal(saved.set.default['compression.threshold_tokens'],200000);assert.equal(saved.set.sales,undefined);
+ assert.equal(cfg.default.compression.threshold_tokens,DEFAULTS['compression.threshold_tokens']);
+ const saved=JSON.parse(await readFile(path.join(DATA,'efficiency.json'),'utf8'));assert.equal(saved.set.default['compression.threshold_tokens'],DEFAULTS['compression.threshold_tokens']);assert.equal(saved.set.sales,undefined);
  const E2=createEfficiency({HERMES_HOME:path.join(path.dirname(DATA),'.hermes'),DATA,log:()=>{},defaults:{...DEFAULTS,'compression.threshold_tokens':150000},
   readConfig:async a=>cfg[a],setKey:async(a,k,v)=>{const ks=k.split('.');let o=cfg[a];for(const x of ks.slice(0,-1))o=o[x]??={};o[ks.at(-1)]=v},pick:(c,k)=>k.split('.').reduce((o,x)=>o?.[x],c)});
  assert.deepEqual(await E2.apply(),['default']);assert.equal(cfg.default.compression.threshold_tokens,150000);assert.equal(cfg.sales.compression.threshold_tokens,400000)});

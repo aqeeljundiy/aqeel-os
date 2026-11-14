@@ -7,12 +7,14 @@
 //    (the engine's own rule; machine-paced runs do not collect the longer retention)
 // A value someone set by hand is kept: only a missing value, or one this module set before, is written. Every write is
 // remembered in DATA/efficiency.json, so a later change of the default reaches the homes it set and nothing else.
+// 14 Nov 2026 (owner, "why is ur respond slow"): 200k -> 100k. Chats carried 115-145k tokens into every call (median 14 s a call
+// over 100k against 8 s under 40k); 100k keeps a long working chat whole and halves what the long ones resend.
 // Model-agnostic: both keys are engine settings; a model without prompt caching simply ignores the second.
 import {writeStore,readStore} from './store.mjs';
 import {readFile,writeFile,readdir,stat,mkdir,rename} from 'node:fs/promises';
 import path from 'node:path';
 
-export const DEFAULTS=Object.freeze({'compression.threshold_tokens':200000,'prompt_caching.cache_ttl':'auto'});
+export const DEFAULTS=Object.freeze({'compression.threshold_tokens':100000,'prompt_caching.cache_ttl':'auto'});
 // what the engine ships, treated like a missing value (nobody chose it)
 const ENGINE_DEFAULT={'compression.threshold_tokens':[null,undefined],'prompt_caching.cache_ttl':[null,undefined,'5m']};
 

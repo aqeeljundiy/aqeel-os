@@ -52,3 +52,6 @@ test('savings: read from the running proxy, cached a minute; waiting when none r
  const v=await B.savings({ports:async()=>[41000],fetch0});assert.deepEqual(v,{state:'on',version:BILI_VERSION,chats:4,live:1,requests:30,tokensSent:900000,tokensSaved:100000,usdSaved:1.25,folds:7});
  assert.equal(calls[0],'http://127.0.0.1:41000/__bili/overview');await B.savings({ports:async()=>[41000],fetch0});assert.equal(calls.length,1,'cached');
  tick(61e3);await writeFile(path.join(H,'.aqeelos-billion-context-off'),'');assert.equal((await B.savings({ports:async()=>[41000],fetch0})).state,'off')});
+
+test('the proxy folds before the engine shortens (FOLD_AT below the efficiency default)',async()=>{
+ const {DEFAULTS}=await import('../app/efficiency.mjs');assert.ok(FOLD_AT<DEFAULTS['compression.threshold_tokens'],FOLD_AT+' must stay below '+DEFAULTS['compression.threshold_tokens'])});
