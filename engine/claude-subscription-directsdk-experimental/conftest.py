@@ -24,6 +24,14 @@ collect_ignore = ["__init__.py", "directsdk.py", "directsdk_setup.py", "admissio
                   "inert_mcp.py", "evals"]
 
 
+@pytest.fixture(autouse=True)
+def _one_native_per_call(monkeypatch):
+    """Warm standbys are on by default in production. The contract tests count spawns, pids, cwds and
+    upstream calls of exactly one native per call, which a standby started alongside would add to;
+    tests/test_directsdk_warm.py turns them on and checks the warm path against the cold one."""
+    monkeypatch.setenv("CLAUDE_SUBSCRIPTION_DIRECTSDK_WARM", "0")
+
+
 @pytest.fixture
 def profile(tmp_path, monkeypatch):
     import providers
