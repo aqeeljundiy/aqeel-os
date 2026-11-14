@@ -37,6 +37,9 @@ export function overdue(jobs,now=Date.now(),grace=20*60e3){return (jobs||[]).fil
  .map(j=>({id:j.id,name:j.name||j.id,agent:j.profile||'default',due:j.next_run_at}))}
 // a new message aqeelOS sent ("ours" in kirimdev-state.json) after the test began
 export const replied=(ours,since)=>Object.values(ours||{}).some(t=>Number(t)>=since);
+// the Kirimdev check writes as a tester: the line's first reset word, then a short request in the line's language
+export const resetWord=line=>String((line?.resetWords||[]).find(w=>String(w||'').trim())||'reset').trim();
+export const kirimTestText=line=>/indones|bahasa/i.test(String(line?.language||''))?'Cek deploy aqeelOS: tolong balas dengan satu kalimat singkat ya.':'aqeelOS deploy check: please reply with one short line.';
 // the reply proves the agent read the message: it carries the nonce
 // the AI provider was not available (rate limit, account used up, no model reachable: "I couldn't reach any of my models just now"): the test says nothing about the deploy. Skipped, not failed, so no rollback; the result says when to try again.
 export function providerPause(reply,body,nonce,now=Date.now()){if(answered(reply,nonce))return null;const lim=providerUnavailable(String(reply||'').trim()?reply:body,{now,strict:!!String(reply||'').trim()});
@@ -92,8 +95,15 @@ async function checkKirimdev(){const lines=(await readJson(path.join(DATA,'kirim
  // a line in Test mode with a webhook and a tester with a phone (only testers can be written to, never a customer)
  let pick=null;for(const [a,l] of Object.entries(lines)){if((l.mode||'test')!=='test'||!(secrets[a]?.secrets||[])[0])continue;try{pick={a,l,t:pickTester(l)};break}catch{}}
  if(!pick)return {skipped:true,why:'no Test-mode line with a webhook and a tester with a phone'};
- const since=Date.now(),w=testWebhook({line:pick.l,tester:pick.t,text:'aqeelOS deploy check: please reply with one short line.'});
- const r=await fetch(UI+'/kirimdev/'+pick.a,{method:'POST',headers:{'content-type':'application/json','x-kirim-event':'message.received','x-kirim-event-id':w.eid,'x-kirim-signature':sign(w.raw,secrets[pick.a].secrets[0],w.ts)},body:w.raw}).catch(e=>({ok:false,status:e.message}));
+ const post=text=>{const w=testWebhook({line:pick.l,tester:pick.t,text});return fetch(UI+'/kirimdev/'+pick.a,{method:'POST',headers:{'content-type':'application/json','x-kirim-event':'message.received','x-kirim-event-id':w.eid,'x-kirim-signature':sign(w.raw,secrets[pick.a].secrets[0],w.ts)},body:w.raw}).catch(e=>({ok:false,status:e.message}))};
+ const ours=async()=>(await readJson(path.join(DATA,'kirimdev-state.json'),{})).ours;
+ // 14 Nov 2026: start from a clean test chat. A failed check hands the tester's chat to the team, and that pause held every
+ // later check's reply ("Outbound held by current line policy"), so it could never pass again. The line's own reset word
+ // clears the pause and the handoff (app/kirimdev.mjs); its confirmation is waited for so it is not taken for the answer.
+ const t0=Date.now(),rr=await post(resetWord(pick.l));if(!rr.ok)return {ok:false,why:pick.a+' did not take the reset ('+rr.status+')'};
+ for(let i=0;i<12&&!replied(await ours(),t0);i++)await sleep(2500);
+ // in the line's own language: the exit guard holds a reply whose language differs from the customer's (kirim-guard.mjs)
+ const since=Date.now(),r=await post(kirimTestText(pick.l));
  if(!r.ok)return {ok:false,why:pick.a+' did not take the test message ('+r.status+')'};
  const wait=Math.max(60,Number(pick.l.debounceSec)||0)+240;
  for(let i=0;i<wait/5;i++){await sleep(5000);if(replied((await readJson(path.join(DATA,'kirimdev-state.json'),{})).ours,since))return {ok:true,why:pick.a+' replied to '+(pick.t.who||'the tester')}}
