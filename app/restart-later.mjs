@@ -14,8 +14,14 @@ export const QUIET={from:1,to:5};
 export function hourIn(date,tz){try{return Number(new Intl.DateTimeFormat('en-GB',{timeZone:tz||undefined,hour:'2-digit',hourCycle:'h23'}).format(date))%24}catch{return date.getHours()}}
 export const inQuiet=(date,tz)=>{const h=hourIn(date,tz);return h>=QUIET.from&&h<QUIET.to};
 
+// a one-time schedule due soon (14 Nov 2026: a test-cleanup schedule was lost to the window restart). The engine deletes a one-time
+// job that is more than two minutes late, and before a restart aqeelOS holds new scheduled runs for up to ten minutes, so a one-time
+// job due in that stretch never ran. The window restart now waits while one is due within `minutes` (or just past due, still to run).
+export const isOneShot=j=>{const e=String(j?.schedule?.expr??j?.schedule??'').trim();return j?.schedule?.kind==='once'||/^(once\b|\d{4}-\d\d-\d\d)/i.test(e)||j?.repeat?.times===1};
+export function oneShotDueSoon(jobs,at,minutes=15){const t=+at;return (jobs||[]).find(j=>isOneShot(j)&&j.enabled!==false&&j.state!=='paused'&&j.state!=='completed'&&(()=>{const n=Date.parse(j.next_run_at||'');return Number.isFinite(n)&&n>=t-5*60e3&&n<=t+minutes*60e3})())||null}
+
 // inWindow/label: the install's maintenance window (maintenance.mjs) instead of the fixed hours above (12 Nov 2026)
-export function createRestartLater({DATA,restart,tz=()=>'',now=()=>new Date(),log=m=>console.log(m),inWindow=d=>inQuiet(d,tz()),label=()=>'the quiet hours ('+QUIET.from+':00-'+QUIET.to+':00)'}){
+export function createRestartLater({DATA,restart,dueSoon=async()=>null,tz=()=>'',now=()=>new Date(),log=m=>console.log(m),inWindow=d=>inQuiet(d,tz()),label=()=>'the quiet hours ('+QUIET.from+':00-'+QUIET.to+':00)'}){
  const FILE=path.join(DATA,'restart-later.json'),REQ=path.join(DATA,'restart-request.json');let st=null;
  const load=async()=>st||=await readFile(FILE,'utf8').then(JSON.parse).catch(()=>({whys:[],since:0}));
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(st))};
@@ -27,7 +33,10 @@ export function createRestartLater({DATA,restart,tz=()=>'',now=()=>new Date(),lo
  // a script's request file (scripts/services.sh): queued like any other reason, then deleted
  async function take(){let t='';try{t=await readFile(REQ,'utf8')}catch{return false}await unlink(REQ).catch(()=>{});let w='';try{w=JSON.parse(t).why}catch{w=t.trim()}await add(String(w||'requested by a script').replace(/\s+/g,' ').slice(0,160));return true}
  // every few minutes: in the quiet hours, one restart for everything waiting
- async function tick(){await take();await load();if(!st.whys.length||!inWindow(now()))return false;const whys=st.whys;st={whys:[],since:0};await save();
+ async function tick(){await take();await load();if(!st.whys.length||!inWindow(now()))return false;
+  // a one-time schedule due within 15 minutes runs first; the restart is tried again at the next tick (every 5 minutes)
+  const due=await dueSoon().catch(()=>null);if(due){if(st.heldFor!==due.id){st.heldFor=due.id;await save();log('window restart waits: the one-time schedule "'+String(due.name||due.id).slice(0,60)+'" is due at '+String(due.next_run_at||'').slice(11,16)+' UTC')}return false}
+  const whys=st.whys;st={whys:[],since:0};await save();
   await restart('quiet-hours restart: '+whys.join('; ').slice(0,300));return true}
  const pending=async()=>{await load();return {whys:[...st.whys],since:st.since}};
  return {add,covered,tick,take,pending}}

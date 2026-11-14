@@ -28,3 +28,16 @@ test('server: agents, defaults, plugin, tool lists, n8n and app sharing wait; no
  assert.ok(s.includes("restartLater(why+' (asked by '"));assert.ok(s.includes('later.covered()'));
  assert.ok(s.includes("for(const a of to)await optins.setApp(a,name,true)"),'sharing switches the app on for those agents');
  assert.ok(s.includes('keepNewApp(a,n)'),'a new sign-in app stays only where wanted')});
+
+// 14 Nov 2026: a one-time test-cleanup schedule was lost to the window restart (the engine drops a one-time job more than two
+// minutes late, and the restart holds new runs for up to ten): the window restart waits while one is due within 15 minutes
+test('a one-time schedule due within 15 minutes holds the window restart; recurring ones, paused or far-off ones do not',async()=>{
+ const {oneShotDueSoon,isOneShot}=await import('../app/restart-later.mjs');const at=Date.parse('2026-11-14T17:05:00Z'),iso=m=>new Date(at+m*60e3).toISOString();
+ assert.ok(isOneShot({schedule:{kind:'once'}})&&isOneShot({schedule:{expr:'2026-11-14T17:10'}})&&isOneShot({schedule:'once at 2026-11-14 17:10'})&&isOneShot({repeat:{times:1}}));
+ assert.ok(!isOneShot({schedule:{kind:'cron',expr:'0 8 * * *'}}));
+ assert.equal(oneShotDueSoon([{id:'a',schedule:{kind:'once'},next_run_at:iso(10)}],at)?.id,'a');
+ assert.equal(oneShotDueSoon([{id:'b',schedule:{kind:'cron',expr:'*/5 * * * *'},next_run_at:iso(3)},{id:'c',schedule:{kind:'once'},next_run_at:iso(40)},{id:'d',schedule:{kind:'once'},state:'paused',next_run_at:iso(2)}],at),null);
+ const dir=await (await import('node:fs/promises')).mkdtemp(path.join((await import('node:os')).tmpdir(),'rl-'));const restarts=[];let due={id:'x',name:'Clean test data',next_run_at:iso(5)};
+ const L=createRestartLater({DATA:dir,restart:async w=>restarts.push(w),dueSoon:async()=>due,inWindow:()=>true,log:()=>{}});
+ await L.add('settings');assert.equal(await L.tick(),false);assert.equal(restarts.length,0,'held while the one-time job is due');
+ due=null;assert.equal(await L.tick(),true);assert.equal(restarts.length,1,'restarted once it ran')});
