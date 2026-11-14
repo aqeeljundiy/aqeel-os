@@ -20,6 +20,9 @@ test('verifyProvider: HMAC-SHA256 hex (Tripay style), token (Xendit style), wron
  assert.equal(verifyProvider({header:'x-callback-token',scheme:'token'},{},raw,key),false);
  const h=resign('s3',raw,1700000000);assert.equal(h['x-webhook-signature-v2'],createHmac('sha256','s3').update('1700000000.'+raw.toString()).digest('hex'))});
 
+test('rollbackPlan: a rollback never undoes what an earlier automatic rollback did',()=>{
+ const p=rollbackPlan([{id:'1623',at:10,state:'done',by:'Pixel Agent'},{id:'1624',at:20,state:'done',by:'aqeelOS (automatic rollback)'},{id:'1625',at:30,state:'done',by:'aqeelOS (automatic rollback)'}],{since:0,now:50});
+ assert.deepEqual(p.map(x=>x.id),['1623'])});
 test('rollbackPlan: only done, undoable changes in the window, newest first',()=>{
  const p=rollbackPlan([{id:'1',at:10,state:'done'},{id:'2',at:20,state:'undone'},{id:'3',at:30,state:'done'},{id:'4',at:40,state:'done',undoable:false},{id:'5',at:5,state:'done'}],{since:10,now:50});
  assert.deepEqual(p.map(x=>x.id),['3','1'])});

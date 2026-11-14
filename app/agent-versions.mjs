@@ -47,7 +47,9 @@ const safeEq=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));ret
 export function resign(secret,raw,t=Math.floor(Date.now()/1000)){return {'x-webhook-timestamp':String(t),'x-webhook-signature-v2':createHmac('sha256',secret).update(String(t)+'.').update(raw).digest('hex')}}
 
 // which changes an automatic rollback undoes: the agent's own, made in the window, not undone yet, newest first
-export function rollbackPlan(items,{since,now=Date.now()}={}){return items.filter(x=>x.at>=since&&x.at<=now&&x.state==='done'&&x.undoable!==false).sort((a,b)=>b.at-a.at||(+b.id)-(+a.id))}
+// never the changes an automatic rollback made itself (15 Nov 2026, Pixel and Profit 11-12 Nov: while the engine was down every ping
+// timed out, and each rollback undid the one before it, 1,624 times for one agent, each filed as an issue)
+export function rollbackPlan(items,{since,now=Date.now()}={}){return items.filter(x=>x.at>=since&&x.at<=now&&x.state==='done'&&x.undoable!==false&&x.by!=='aqeelOS (automatic rollback)').sort((a,b)=>b.at-a.at||(+b.id)-(+a.id))}
 
 // the "what you can do" list from real config (pure: the caller reads the files)
 export function capabilityLines(c){const L=[];const tools=c.toolsByChannel||{};
