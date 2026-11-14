@@ -162,3 +162,9 @@ await t('git in a folder the fixer can write names the repository itself: a plan
  await F.finish('i2',{message:'x',engine:[{name:'a.patch',text:'x'}]});assert.ok(!existsSync(path.join(out,'a.patch')),'not written through the link')});
 
 console.log(n+' passed');
+
+// 14 Nov 2026: the canary launched the engine with no model, which the engine refuses with --ignore-user-config ("pass --model
+// explicitly"), so every canary failed and no fix or proof started from 12 Nov. It now carries the fixer's own model.
+await t('the canary carries the fixer\'s model (an empty model stopped every fix for two days)',async()=>{
+ const L=await loop({pol:{models:{fix:'claude-sonnet-4-5',proof:'claude-haiku-4-5'},effort:{proof:'low'}}});await L.I.tick();
+ const c=L.runs.find(r=>r.canary);assert.ok(c,'the canary ran');assert.equal(c.o.model,'claude-haiku-4-5');assert.equal(c.o.effort,'low')});

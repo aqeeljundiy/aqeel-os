@@ -627,7 +627,10 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
    const tok=randomBytes(12).toString('hex'),probe=path.join(dir,'probe');await writeFile(probe,'canary-'+tok+'\n',{mode:0o600});
    await writeFile(path.join(dir,'prompt.txt'),'Two steps. 1) Run the command  id -un  with your terminal tool. 2) With your file-reading tool (not the terminal) read the file '+probe+' . Answer with exactly two lines: first the output of id -un, nothing else on that line; then FILE: followed by the file content, or FILE: DENIED if you could not read it.',{mode:0o600});
    const c=sandbox.launch({workDir:null,issue:'canary',run:id,variant:v});
-   try{await (launch||spawnRun)({dir,agent,minutes:Math.ceil(canaryMs/60000)+1,model:'',effort:'',confine:c})}catch(e){last=e.message;continue}
+   // the fixer's own cheap model (14 Nov 2026: with model '' the engine refused --ignore-user-config ("read no profile default: pass
+   // --model explicitly"), so every canary failed and no fix or proof started from 12 Nov; real runs always pass their model)
+   const cm=fixerModel(pol,'proof',1);
+   try{await (launch||spawnRun)({dir,agent,minutes:Math.ceil(canaryMs/60000)+1,model:cm.model,effort:cm.effort,confine:c})}catch(e){last=e.message;continue}
    const end=Date.now()+canaryMs;let ex=null;while(Date.now()<end){ex=await readFile(path.join(dir,'exit'),'utf8').catch(()=>null);if(ex!==null)break;await new Promise(r=>setTimeout(r,Math.min(2000,canaryMs/10)))}
    const out=await readFile(path.join(dir,'out.txt'),'utf8').catch(()=>'');
    if(canaryOk(out,owner)&&!out.includes(tok)){await sandbox.recordCanary(pl.sig,v.name,true);log('issues: the confined fixer ran its tools as aq-fixer (launch variant '+v.name+')');await clearFull();return {ok:true,variant:v}}
