@@ -223,6 +223,11 @@ profile = ClaudeOAuthDirectSDKProfile(
     # A dataclass field (Hermes >= 0.21.4), so a method on the subclass would be shadowed by its None default.
     classify_api_error=classify_api_error,
 )
+# Opt in to Hermes' streaming dispatch (core >= 81a55437f3, 21 Oct 2026; upstream plugin does the same). Without it core treats an
+# external-process provider as non-streaming: directsdk already yields each native text_delta, but core buffered the whole call, so
+# the web chat's assistant.delta events never came and a reply appeared all at once at the end (aqeelOS, 14 Nov 2026).
+# Attribute assignment keeps the plugin loadable on a host that predates the field.
+profile.supports_streaming = True
 register_provider(profile)
 
 # The provider stays registered when Claude Code is missing so `hermes model` can show the
