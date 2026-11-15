@@ -1,5 +1,5 @@
 import {spawn} from 'node:child_process';
-import {EFFORTS} from './models.mjs';
+import {EFFORTS,modelIdOk} from './models.mjs';
 import {readFile,access,appendFile,readdir,stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {taskInstructions,RESULT_TYPES} from './outputs.mjs';
@@ -372,7 +372,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
   if(paths.length)text+='\n\nAttached file'+(paths.length>1?'s are':' is')+' saved outside the project folder; you may read '+(paths.length>1?'them':'it')+' (read-only) with your file tools or a command: '+paths.map(x=>x.name+' ('+x.path+')').join(', ');return {text,paths}}
  async function resolveMentions(projectId,prompt){const names=[...String(prompt).matchAll(/(?:^|\s)@([\w./-]+)/g)].map(m=>m[1]);if(!names.length)return [];const files=new Set(await store.listFiles(projectId));return [...new Set(names.filter(n=>files.has(n)))]}
  const checkPrompt=data=>{if(typeof data.prompt!=='string'||!data.prompt.trim()||data.prompt.length>12000)throw Error('Enter a request up to 12,000 characters.')}
- const checkModel=data=>{if(data.model&&!/^[a-zA-Z0-9._:/-]{1,80}$/.test(data.model))throw Error('Invalid model name.');if(data.effort&&!EFFORTS[data.provider]?.includes(data.effort))throw Error('Invalid effort level.')}
+ const checkModel=data=>{if(data.model&&!modelIdOk(data.model))throw Error('Invalid model name.');if(data.effort&&!EFFORTS[data.provider]?.includes(data.effort))throw Error('Invalid effort level.')}
 ;
  async function build(job){
   try{
@@ -382,7 +382,7 @@ const shorten=(t,n)=>{t=String(t).replace(/\s+/g,' ').trim();if(t.length<=n)retu
    const history=chat.messages.slice(-12).map(m=>m.role+': '+m.text).join('\n');
    const prompt='You are the website builder inside code by aqeel. Return ONLY an object matching the supplied JSON schema: reply is your concise response; files is an array of {path,content}, containing complete file contents for changes. For questions without code changes return files: []. Build functional static websites using HTML, CSS, JS and SVG. Use index.html as the entry point, relative asset paths, responsive layouts, accessible controls, and no build step. Never run tools or shell commands. Never include secrets or fabricate customer claims. Preserve existing files unless changes are requested. Each path must be relative and use HTML/CSS/JS/JSON/Markdown/text/SVG.\nCurrent files:\n'+context+'\nConversation:\n'+history;
    const args=job.provider==='codex'?['exec','--ignore-user-config','--sandbox','read-only','--skip-git-repo-check','--ephemeral','--json','--output-schema',path.join(root,'build-schema.json'),'-']:['-p','--output-format','json','--json-schema',JSON.stringify(buildSchema),'--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--setting-sources','','--settings','{"disableAllHooks":true}','--no-session-persistence'];
-   const extra=[];if(job.model){if(!/^[a-zA-Z0-9._:/-]{1,80}$/.test(job.model))throw Error('Invalid model name.');extra.push('--model',job.model)}if(job.effort){if(!EFFORTS[job.provider]?.includes(job.effort))throw Error('Invalid effort level.');extra.push(...(job.provider==='codex'?['-c','model_reasoning_effort="'+job.effort+'"']:['--effort',job.effort]))}if(job.provider==='codex')args.splice(args.length-1,0,...extra);else args.push(...extra);
+   const extra=[];if(job.model){if(!modelIdOk(job.model))throw Error('Invalid model name.');extra.push('--model',job.model)}if(job.effort){if(!EFFORTS[job.provider]?.includes(job.effort))throw Error('Invalid effort level.');extra.push(...(job.provider==='codex'?['-c','model_reasoning_effort="'+job.effort+'"']:['--effort',job.effort]))}if(job.provider==='codex')args.splice(args.length-1,0,...extra);else args.push(...extra);
    if(job.cancelled)throw Error('Build stopped. No generated files applied.');
    const result=await execute(provider.path,args,prompt,240000,{env:job.provider==='codex'?accounts.env(provider.profileId):env,onSpawn:child=>{job.cancel=()=>child.kill()}});
    if(job.cancelled)throw Error('Build stopped. No generated files applied.');
