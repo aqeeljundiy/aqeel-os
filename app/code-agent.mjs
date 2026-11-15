@@ -5,19 +5,23 @@
 // (CODE_KEEP), no connected apps but aqeelOS's code bridge (how the engine reaches a project on the person's computer,
 // app/code-bridge.mjs), one plain line of instructions and the main agent's model as its default (Code names the model of each turn).
 // Like Help (help.mjs) it is made by the live app, checked again at every start, and kept out of every agent list (agentops.mjs).
-import {readFile,writeFile} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,cp,access} from 'node:fs/promises';
 import path from 'node:path';
-import {CODE_AGENT,isAgent,setKey,homeOf} from './agentops.mjs';
+import {CODE_AGENT,isAgent,setKey,homeOf,hermes as engineCmd} from './agentops.mjs';
 
 const CODE_NAME='Code';
 // what building and checking a project needs; everything else (memory, skills, past chats, connected apps, schedules, messaging,
 // computer use, other agents) stays off
 export const CODE_KEEP=['web','browser','terminal','file','code_execution','vision','image_gen','todo','clarify'];
 export const CODE_SOUL='You are Code, the agent aqeelOS uses for a Code project when the person picks no agent. You have no memory, skills or connected apps of anyone. Do what the person asks, in their project, the way they ask.';
+// the model sign-ins it needs: every plugin the main agent has on whose manifest says kind: model-provider (the Claude sign-in,
+// Antigravity for Gemini). Made from nothing, it had none: every turn stopped at "Could not find the
+// 'claude-subscription-directsdk-experimental' CLI command" before a model was asked, whichever model Code named (15 Nov 2026).
+export const providerPlugins=(enabled,manifest)=>(Array.isArray(enabled)?enabled:[]).filter(p=>/^[a-z0-9][a-z0-9_-]{0,80}$/.test(String(p))&&/^kind:\s*model-provider\s*$/m.test(manifest(p)||''));
 // which tool groups to switch off: every one the engine lists that is not kept
 export const codeOff=list=>list.map(x=>x?.name||x).filter(n=>n&&!CODE_KEEP.includes(n));
 
-export function createCodeAgent({DASH,DASH_TOKEN,API_KEY,live=true,codeBridge,readConfig,pick,log=m=>console.log(m)}){
+export function createCodeAgent({DASH,DASH_TOKEN,API_KEY,live=true,codeBridge,readConfig,pick,hermes=engineCmd,restart=null,log=m=>console.log(m)}){
  const dash=(p,opt={})=>fetch(DASH+'/api'+p,{...opt,headers:{'x-hermes-session-token':DASH_TOKEN,...(opt.body?{'content-type':'application/json'}:{}),...(opt.headers||{})},signal:opt.signal||AbortSignal.timeout(30000)});
  const json=async r=>{try{return await r.json()}catch{return {}}};
  const mcp=(a,m,p,b)=>dash('/mcp/servers'+p+'?profile='+encodeURIComponent(a),{method:m,body:b?JSON.stringify(b):undefined}).then(r=>{if(!r.ok&&r.status!==404)throw Error('MCP '+m+' '+r.status)});
@@ -37,6 +41,15 @@ export function createCodeAgent({DASH,DASH_TOKEN,API_KEY,live=true,codeBridge,re
   if(codeBridge)await codeBridge.ensure(CODE_AGENT,await cfg(),mcp);
   const cur=await dash('/profiles/'+CODE_AGENT+'/soul').then(json).catch(()=>({}));
   if(cur.content!==CODE_SOUL){const r=await dash('/profiles/'+CODE_AGENT+'/soul',{method:'PUT',body:JSON.stringify({content:CODE_SOUL})});if(!r.ok)throw Error('could not write its instructions ('+r.status+')')}
+  // the main agent's model sign-ins (copied as accounts.mjs does for a new agent, then switched on in this profile)
+  const main0=await readConfig('default').catch(()=>null),mainDir=homeOf('default'),dir=homeOf(CODE_AGENT);const manifests={};
+  for(const p of pick(main0||{},'plugins.enabled')||[])manifests[p]=await readFile(path.join(mainDir,'plugins',String(p),'plugin.yaml'),'utf8').catch(()=>'');
+  const have=pick(await readConfig(CODE_AGENT).catch(()=>null)||{},'plugins.enabled')||[];let switched=0;
+  for(const p of providerPlugins(pick(main0||{},'plugins.enabled'),n=>manifests[n])){const to=path.join(dir,'plugins',p);
+   if(!await access(path.join(to,'plugin.yaml')).then(()=>1,()=>0)){await mkdir(path.join(dir,'plugins'),{recursive:true});await cp(path.join(mainDir,'plugins',p),to,{recursive:true});await cp(path.join(mainDir,'plugins','.install-metadata.json'),path.join(dir,'plugins','.install-metadata.json')).catch(()=>{})}
+   if(!have.includes(p)){const r=await hermes(CODE_AGENT,['plugins','enable',p],{timeout:150000,retries:3});if(!r.ok)throw Error('could not switch on '+p+': '+String(r.err||r.out||'').slice(-160));log('code agent: '+p+' switched on');switched++}}
+  // a plugin switched on applies when the agents restart (as for any agent, access.mjs); the restart waits until nobody is mid-reply
+  if(switched&&restart)await restart('code agent: its model sign-ins switched on');
   // a default model, the main agent's, so "Default" in Code works; Code names the model of each turn anyway
   const mine=await readConfig(CODE_AGENT).catch(()=>null),main=await readConfig('default').catch(()=>null);
   if(!pick(mine||{},'model.default')&&pick(main||{},'model.default')){await setKey(CODE_AGENT,'model.default',pick(main,'model.default'));if(pick(main,'model.provider'))await setKey(CODE_AGENT,'model.provider',pick(main,'model.provider'))}

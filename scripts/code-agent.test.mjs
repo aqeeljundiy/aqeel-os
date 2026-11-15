@@ -25,3 +25,20 @@ test('it is never in an agent list, wherever agents are listed',async()=>{
 test('its instructions say what it is and steer nothing',()=>{
  assert.match(CODE_SOUL,/no memory, skills or connected apps/);assert.match(CODE_SOUL,/the way they ask/);
  assert.doesNotMatch(CODE_SOUL,/HTML|design|style|summary/i)});
+
+// 15 Nov 2026: made from nothing, the Code agent had no model sign-in plugin, so every Code turn with no agent picked stopped with
+// "Could not find the 'claude-subscription-directsdk-experimental' CLI command" before any model (Gemini, Claude) was asked
+test('it gets the main agent\'s model sign-ins (model-provider plugins), and only those',async()=>{
+ const {providerPlugins,createCodeAgent}=await import('../app/code-agent.mjs');const {access,readFile:rf}=await import('node:fs/promises');
+ assert.deepEqual(providerPlugins(['sub-x','live-x','../evil'],n=>n==='sub-x'||n==='../evil'?'name: x\nkind: model-provider\n':'name: y\n'),['sub-x']);
+ for(const [p,kind] of [['sub-x','kind: model-provider'],['live-x','']]){await mkdir(path.join(HH,'plugins',p),{recursive:true});await writeFile(path.join(HH,'plugins',p,'plugin.yaml'),'name: '+p+'\n'+kind+'\n')}
+ const cfg={default:{plugins:{enabled:['sub-x','live-x']},model:{default:'m',provider:'sub-x'}},'aqeelos-code-agent':{plugins:{enabled:['live-x']}}};
+ const calls=[];const hermes=async(a,args)=>{calls.push([a,...args]);if(args[0]==='plugins'&&args[1]==='enable')cfg[a].plugins.enabled.push(args[2]);return {ok:true}};
+ const pick=(o,k)=>k.split('.').reduce((x,y)=>x?.[y],o);const was=globalThis.fetch;globalThis.fetch=async()=>({ok:true,status:200,json:async()=>({})});
+ try{const ca=createCodeAgent({DASH:'http://dash.invalid',DASH_TOKEN:'t',API_KEY:'',codeBridge:null,readConfig:async a=>cfg[a],pick,hermes,restart:async why=>calls.push(['restart',why]),log:()=>{}});
+  assert.equal(await ca.ensure(),true);
+  assert.ok(await access(path.join(HH,'profiles','aqeelos-code-agent','plugins','sub-x','plugin.yaml')).then(()=>true,()=>false),'the plugin is copied into its profile');
+  assert.deepEqual(calls.filter(c=>c[1]==='plugins'),[['aqeelos-code-agent','plugins','enable','sub-x']],'only the model-provider plugin is switched on');
+  assert.equal(calls.filter(c=>c[0]==='restart').length,1,'the agents restart once so the engine loads it');
+  calls.length=0;assert.equal(await ca.ensure(),true);assert.equal(calls.length,0,'nothing again once it is on, and no restart')}
+ finally{globalThis.fetch=was}});

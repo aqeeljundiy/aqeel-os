@@ -850,7 +850,7 @@ const teamFolders=createTeamFolders({DATA,names:uid=>{const x=users.byId(uid);re
 const codeAgents=createCodeAgents({HERMES_HOME,DATA,sign,readIds,outboxAccess:(a,d)=>agentDefaults.outboxAccess(a,d)});
 // every aqeelOS model for Code projects on a person's computer: the engine reaches the project through this bridge only
 const codeBridge=createCodeBridge({PORT,DATA,sign:v=>createHmac('sha256',relayKeys.cur).update(v).digest('base64url'),sigOk:(given,a)=>relayKeys.ok(given,'code-bridge:',a),code,mayUse:(uid,a)=>{const w=users.byId(uid);return !!w&&!users.gate(w,'/gapi/api/model/options','GET',new URLSearchParams(),a)},workspaces:a=>path.join(homedir(),'workspaces',a),access:(a,d)=>agentDefaults.outboxAccess(a,d)});
-const codeAgent=createCodeAgent({DASH:DASH.origin,DASH_TOKEN,API_KEY,live:LIVE_APP,codeBridge,readConfig,pick});setTimeout(()=>void codeAgent.ensure(),20000).unref?.();   // the plain agent for Code turns with no agent picked
+const codeAgent=createCodeAgent({DASH:DASH.origin,DASH_TOKEN,API_KEY,live:LIVE_APP,codeBridge,readConfig,pick,restart:why=>restartGateway(why).catch(()=>{})});setTimeout(()=>void codeAgent.ensure(),20000).unref?.();   // the plain agent for Code turns with no agent picked
 /* A Code run asks one of its attached agents (aqeelos_ask in Code, code_ask_agent on the engine): one chat turn for
    that agent, as the person who sent the run (their daily limit and the models they may use, as in Chat), with a
    folder of its own to save files in. The answer's text and files come back; where the files go is the caller's. */
