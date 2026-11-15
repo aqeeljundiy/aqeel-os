@@ -1734,3 +1734,12 @@ dialog.team-side:not([open]){display:none}
 .publish-dialog .kit-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:2px}.publish-dialog .kit-actions button{min-width:96px;min-height:40px}
 @media (prefers-reduced-motion:reduce){.publish-dialog[open]{animation:none}}
 .publish-dialog .pub-l,.publish-dialog .pub-vis label,.publish-dialog .pub-db{margin:0}
+
+/* a live run's "now" line (15 Nov 2026): what it is doing, a spinner, the seconds since it started; quiet without motion when asked */
+.live-now{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12.5px;line-height:1.4;color:var(--muted);min-width:0}.live-now[hidden]{display:none}
+.live-spin{flex:none;width:12px;height:12px;border-radius:50%;border:2px solid var(--blue-soft);border-top-color:var(--blue);animation:live-spin .8s linear infinite}
+.live-now-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;background:linear-gradient(90deg,var(--muted) 20%,var(--ink) 50%,var(--muted) 80%) 0 0/250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:live-shine 2.2s linear infinite}
+.live-now-text.swap{animation:live-shine 2.2s linear infinite,live-swap .28s ease-out}
+.live-now-time{flex:none;font-variant-numeric:tabular-nums;color:var(--muted);opacity:.85}
+@keyframes live-spin{to{transform:rotate(360deg)}}@keyframes live-shine{from{background-position:100% 0}to{background-position:-150% 0}}@keyframes live-swap{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.live-spin,.live-now-text,.live-now-text.swap{animation:none}.live-now-text{color:var(--ink-2);background:none}}
