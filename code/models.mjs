@@ -3,6 +3,14 @@ import {spawn} from 'node:child_process';
 // Effort levels each CLI accepts; the build request is validated against these.
 export const EFFORTS={codex:['none','minimal','low','medium','high','xhigh','max','ultra'],claude:['low','medium','high','xhigh','max'],gemini:[],aqeelos:['none','minimal','low','medium','high','xhigh','max','ultra']};   // aqeelos: the chat's effort levels (engine runs)
 
+// A model id: letters, digits and . _ : / -, plus the context suffix the engine's Claude sign-in names its models with
+// (claude-sonnet-5-5[1m]). Code's checks had no brackets, so every such model was left out of the list and refused as a run's model:
+// with the Claude sign-in only Haiku 4.5 was offered (15 Nov 2026).
+export const modelIdOk=id=>/^[a-zA-Z0-9._:/-]{1,80}(\[[0-9]{1,4}[km]\])?$/.test(String(id));
+// claude-opus-4-5-20251101 → Opus 4.5, gpt-5.1-codex-max → GPT-5.1 Codex Max, claude-sonnet-5-5[1m] → Sonnet 5.5 1M (a model Code has no name for)
+export const niceModel=id=>{const s=String(id),x=/\[(\d+)([km])\]$/i.exec(s),b=x?s.slice(0,x.index):s;
+ return b.replace(/^claude-/,'').replace(/-\d{8}$/,'').replace(/-(\d+)-(\d+)(?=-|$)/g,' $1.$2').split(/[-\s]+/).map(w=>/^gpt$/i.test(w)?'GPT':w.charAt(0).toUpperCase()+w.slice(1)).join(' ').replace(/^GPT (\d)/,'GPT-$1')+(x?' '+x[1]+x[2].toUpperCase():'')};
+
 // Claude Code takes aliases that always resolve to the newest model of each family.
 export const CLAUDE_MODELS=[
  {id:'',name:'Default',description:'Claude Code’s default model for your plan.',efforts:EFFORTS.claude,defaultEffort:''},

@@ -95,7 +95,7 @@ export function createCodeDeviceRoutes({API_KEY,GATE,NAMES,accountsApi,agentDefa
      // the other agents attached to this message: the engine may ask them (code_ask_agent) while the turn goes on
      const attached=[a,...new Set((Array.isArray(b.agents)?b.agents:[]).map(String).filter(x=>x!==a))].slice(0,6);for(const x of attached.slice(1))if(!may.includes(x)||await isTestAgent(x))return send(res,403,{error:'You can’t use one of the attached agents.'}),true;
      // a member: within their daily limit (Chat and Code together) and only on models they may use, as in Chat
-     let provider=String(b.provider||''),model=String(b.model||'');if(!/^[\w.:/@+-]{0,120}$/.test(provider+model))return send(res,400,{error:'Invalid model name.'}),true;
+     let provider=String(b.provider||''),model=String(b.model||'');if(!/^[\w.:/@+-]{0,120}(\[[0-9]{1,4}[km]\])?$/.test(provider+model))return send(res,400,{error:'Invalid model name.'}),true;   // [1m]: the Claude sign-in's context suffix (15 Nov 2026)
      if(!users.isAdmin(who)){const lim=users.limitOf(who);if(lim?.tokens){const t=await usage.today(await listAllProfiles(),who.id,users.ownerOf);if(t.tokens+await code.usedToday(who.id)>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'}),true}
       const allowed=users.allowedModels(who);if(allowed){const d=await agentModel(a),isDef=!model||model===d.model&&(!provider||provider===d.provider);
        if(!isDef){if(!users.modelOk(who,provider,model))return send(res,403,{error:'You can\'t use that model. Ask the owner.'}),true}
