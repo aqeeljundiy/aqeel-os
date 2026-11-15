@@ -183,7 +183,8 @@ node $A/scripts/apply-skill-patches.mjs || echo "! skill patches: see the messag
 # engine loads the update at its next restart and System › Health shows what waits or still differs (app/plugin-sync.mjs). Never fails the deploy.
 (cd $A && UI_DATA_DIR=${UI_DATA_DIR:-$HOME/apps/hermes-ui-data} node $( [ -f $HOME/apps/hermes-ui.env ] && echo --env-file=$HOME/apps/hermes-ui.env ) scripts/plugin-sync.mjs) || echo "! plugin sync: see the message above (exit $?)"
 C=~/apps/aqeel-code; mkdir -p $C; before=$(md5sum $C/package-lock.json 2>/dev/null)
-if tar -xzf $CT -C $C --strip-components=1; then rm -f $CT; echo "$CODE_V" > $C/VERSION; else echo "! unpacking Code failed; the Code files may be mixed. aqeelOS itself is live and tested."; rm -f $CT; fi
+# .deploy-files: what this deploy unpacked; aqeelOS sends installed apps only these (app/code.mjs sourceFiles), never VERSION or a deleted file left behind
+if tar -xzf $CT -C $C --strip-components=1; then tar -tzf $CT | sed 's#^code/##' | grep -v '/$' > $C/.deploy-files.new && mv $C/.deploy-files.new $C/.deploy-files; rm -f $CT; echo "$CODE_V" > $C/VERSION; else echo "! unpacking Code failed; the Code files may be mixed. aqeelOS itself is live and tested."; rm -f $CT; fi
 # Online Code is off unless this install switched it on (12 Nov 2026): the Code files above stay (the Build app downloads and Live are made from
 # them), but their npm packages are only for the workspace that runs on the server, so they are installed only while it is on.
 AQ_OC=$(cd $A && UI_DATA_DIR=${UI_DATA_DIR:-$HOME/apps/hermes-ui-data} node $( [ -f $HOME/apps/hermes-ui.env ] && echo --env-file=$HOME/apps/hermes-ui.env ) scripts/online-code.mjs 2>/dev/null || echo off)

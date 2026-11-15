@@ -22,8 +22,16 @@ const SKIP=/^(\.git|node_modules|data|outputs|projects|\.claude|launcher|.*\.exe
 async function walk(dir,base=''){const out=[];for(const f of await readdir(dir).catch(()=>[])){if(SKIP.test(f))continue;const p=path.join(dir,f),rel=base?base+'/'+f:f;const s=await stat(p).catch(()=>null);if(!s)continue;
  if(s.isDirectory())out.push(...await walk(p,rel));else if(s.size<5e6)out.push([rel,await readFile(p)])}return out}
 
+// the app's own files as the last deploy unpacked them. The box's copy also holds VERSION (written by box-live.sh) and files
+// a later commit deleted (a tar only adds): an installed app refuses an update with any file GitHub does not list for that
+// version (update-verify.mjs), so from 12 Nov to 15 Nov 2026 no computer could update. Only the files the deploy listed in
+// .deploy-files go out; a copy without that list (an installer's, a developer's) sends what it has, minus those two.
+async function sourceFiles(SRC){const files=(await walk(SRC)).filter(([n])=>!/^(VERSION|\.deploy-files)$/.test(n));
+ const list=await readFile(path.join(SRC,'.deploy-files'),'utf8').catch(()=>null);if(list===null)return files;
+ const keep=new Set(list.split('\n').map(l=>l.trim().replace(/^(\.\/)?code\//,'')).filter(l=>l&&!l.endsWith('/')));return files.filter(([n])=>keep.has(n))}
 // the GitHub repository an installed Code app checks its updates against (code/update-verify.mjs): this install's source
 const UPDATE_REPO=repoSlug(process.env.AQ_REPO||DEFAULT_REPO);
+export {sourceFiles};
 export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  const FILE=path.join(DATA,'code-devices.json');let db=null;
  const load=async()=>{if(db)return db;db=await readStore(FILE);db.devices||={};return db};
@@ -63,9 +71,9 @@ export function createCode({DATA,SRC,PUBLIC_URL,ROOT}){
  const version=async()=>{const v=(await readFile(path.join(SRC,'VERSION'),'utf8').catch(()=>'')).trim();if(v)return v.slice(0,12);try{const head=(await readFile(path.join(SRC,'.git','HEAD'),'utf8')).trim();if(!head.startsWith('ref:'))return head.slice(0,12);const ref=head.slice(4).trim();
    const sha=await readFile(path.join(SRC,'.git',ref),'utf8').catch(async()=>((await readFile(path.join(SRC,'.git','packed-refs'),'utf8')).split('\n').find(l=>l.endsWith(' '+ref))||'').split(' ')[0]);return String(sha).trim().slice(0,12)||'0'}catch{return '0'}};
  // what an installed app fetches to update itself: the source, and this install's address and version
- async function update(){const v=await version();const files=await walk(SRC);files.push(['aqeelos.json',Buffer.from(JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:v,...(UPDATE_REPO?{repo:UPDATE_REPO}:{})}},null,1))]);return {version:v,zip:zip(files.map(f=>[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}}
+ async function update(){const v=await version();const files=await sourceFiles(SRC);files.push(['aqeelos.json',Buffer.from(JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:v,...(UPDATE_REPO?{repo:UPDATE_REPO}:{})}},null,1))]);return {version:v,zip:zip(files.map(f=>[f[0],f[1],/\.(command|sh)$/.test(f[0])]))}}
  // the download for one kind of computer
- async function download(os){const files=(await walk(SRC)).map(([n,b])=>['aqeelOS Code/'+n,b]);
+ async function download(os){const files=(await sourceFiles(SRC)).map(([n,b])=>['aqeelOS Code/'+n,b]);
   const cfg=JSON.stringify({aqeelos:{base:PUBLIC_URL,origins:[PUBLIC_URL],version:await version(),brand:globalThis.AQ_BRAND||'aqeelOS',...(UPDATE_REPO?{repo:UPDATE_REPO}:{})}},null,1);files.push(['aqeelOS Code/aqeelos.json',Buffer.from(cfg)]);
   const tpl=f=>readFile(path.join(ROOT,'code-installer',f));
   if(os==='windows'){files.push(['aqeelOS Code/Install aqeelOS Code.cmd',await tpl('install.cmd')],['aqeelOS Code/install.ps1',await tpl('install.ps1')],['aqeelOS Code/uninstall.ps1',await tpl('uninstall.ps1')])}
