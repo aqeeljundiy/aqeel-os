@@ -856,7 +856,11 @@ const IMG_FRIENDLY={'OpenAI (Codex auth)':'ChatGPT, with your sign-in (GPT Image
    registration (Slack, Google…) first needs its own app's Client ID and Secret, asked for here. ---------- */
 const OAUTH_APP_HELP={slack:['Slack','https://api.slack.com/apps','Create New App › From scratch. Under OAuth & Permissions add the Redirect URL below and the scopes the Slack MCP needs, then copy the Client ID and Client Secret from Basic Information.'],
  google:['Google','https://console.cloud.google.com/apis/credentials','Create an OAuth client (Web application) and add the Redirect URL below as an authorised redirect URI.'],
- github:['GitHub','https://github.com/settings/developers','New OAuth App, with the Redirect URL below as the callback URL.']};
+ github:['GitHub','https://github.com/settings/developers','New OAuth App, with the Redirect URL below as the callback URL.'],
+ 'meta-ads':['Meta','https://developers.facebook.com/apps','Create an app and add the use case "Create & manage ads with ads MCP server". Under Facebook Login for Business › Settings add the Redirect URL below to Valid OAuth Redirect URIs and press Save changes, then paste the App ID and App Secret (App settings › Basic) here.'],
+ facebook:['Meta','https://developers.facebook.com/apps','Create an app and add the use case "Create & manage ads with ads MCP server". Under Facebook Login for Business › Settings add the Redirect URL below to Valid OAuth Redirect URIs and press Save changes, then paste the App ID and App Secret (App settings › Basic) here.']};
+// the same test as NEEDS_OWN_APP in notify-tools-routes.mjs (15 Nov 2026: Meta's "Dynamic registration is not available for this client" was missed)
+const NEEDS_OWN_APP=/client registration|client_id|client id|dynamic(ally)?[ _-]?(client[ _-]?)?regist|registration[ _-]?(is[ _-]?)?not[ _-]?(supported|available|allowed)|registration[ _-]?endpoint/i;
 async function mcpClientDrawer(name,reason,agent=agentProfile()||'default'){let redirect='';try{redirect=(await UI('/ui/mcp/oauth-redirect?name='+encodeURIComponent(name))).redirect}catch{}
  const key=Object.keys(OAUTH_APP_HELP).find(k=>name.toLowerCase().includes(k));const [who,link,how]=OAUTH_APP_HELP[key]||[pretty(name),'','Create an OAuth app with this service, add the Redirect URL below to it, then paste its Client ID and Secret.'];
  const d=drawer('Connect '+pretty(name),`<p class="hint" style="margin:0 0 10px"><b>Set up your own app.</b> ${esc(who)} does not let apps register themselves, so it needs an app of your own (one time). ${esc(how)}${link?` <a href="${esc(link)}" target="_blank" rel="noopener">Open ${esc(who)}’s app page</a>`:''}</p>
@@ -869,7 +873,7 @@ ACT['mcp-auth']=async a=>{const name=a.dataset.name,agent=a.dataset.agent||agent
  // a tab opened right away (popup blockers allow it only now); it is pointed at the sign-in page once known
  const win=window.open('about:blank','_blank');
  try{const f=await post(UI,'/ui/mcp/start-signin',{agent,name});const url=f.authorization_url||f.auth_url||f.url;
-  if(!url){win?.close();const err=f.error||'';if(/client registration|client_id|client id/i.test(err))return mcpClientDrawer(name,err,agent);return fail(new Error(err||'The service did not offer a sign-in.'))}
+  if(!url){win?.close();const err=f.error||'';if(NEEDS_OWN_APP.test(err))return mcpClientDrawer(name,err,agent);return fail(new Error(err||'The service did not offer a sign-in.'))}
   if(!/^https:\/\//i.test(String(url||''))){win?.close();return toast('That sign-in link does not look right, so it was not opened.','err')}
   if(win){win.opener=null;win.location=url}else window.open(url,'_blank','noopener');
   const d=drawer('Sign in to '+pretty(name),`<p style="color:var(--ink-2);margin:0 0 12px">Finish signing in in the tab that opened, then come back here.</p><p><a href="${esc(url)}" target="_blank" rel="noopener">Open the sign-in page again</a></p><p class="hint" id="mcpSt">Waiting for you to sign in…</p>`);
