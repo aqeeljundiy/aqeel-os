@@ -123,3 +123,11 @@ test('Live: its own manifest icon is the real mark; an inline SVG logo in the pa
  const none=zipOf({'index.html':'<!doctype html><html><head><title>A</title></head><body>hi</body></html>'});const q=brandApp(none,{name:'Plain'});assert.equal(q.needsLogo,true);assert.equal(q.source,'');assert.ok(names(q.zip).includes('favicon.svg'),'still gets the plain tile as a temporary icon');
  const mono=brandApp(none,{name:'Plain',mono:true});assert.equal(mono.needsLogo,false)});
 test('Live: a damaged or unusual zip comes back untouched',()=>{const junk=Buffer.from('not a zip at all');assert.equal(brandApp(junk,{name:'x'}).zip,junk)});
+// 15 Nov 2026: publishing a one-page site (index.html only) failed on the server with "ADM-ZIP: CRC32 checksum failed favicon.svg":
+// favicon.svg is text, and its checksum was taken over the string's characters, not its bytes. Every entry's checksum must match its bytes.
+test('Live: every file in the zip that goes to the server carries the right checksum, the added favicon.svg included',async()=>{
+ const {crc32}=await import('../app/png.mjs');
+ const z=zipOf({'index.html':'<!doctype html><html><head><title>Kopi — Lembah</title></head><body><h1>Kopi Lembah</h1></body></html>'});
+ const r=brandApp(z,{name:'Kopi — Lembah'});assert.ok(names(r.zip).includes('favicon.svg'),'favicon.svg is added');
+ for(const e of readZip(r.zip)){const d=dataOf(e);assert.equal(e.crc>>>0,crc32(d),e.name+' checksum');assert.equal(e.us,d.length,e.name+' size')}
+ const svg=readZip(r.zip).find(e=>e.name==='favicon.svg');assert.match(dataOf(svg).toString('utf8'),/^<svg [^>]*><title>Kopi — Lembah<\/title>/)});

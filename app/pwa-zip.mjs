@@ -19,7 +19,9 @@ export function readZip(buf){let e=-1;for(let i=buf.length-22;i>=Math.max(0,buf.
  void cdSize;return out}
 export const dataOf=en=>en.data||(en.method===0?en.raw:zlib.inflateRawSync(en.raw));
 export function writeZip(entries){const parts=[],cd=[];let off=0;const now=new Date(),dosT=(now.getHours()<<11)|(now.getMinutes()<<5)|(now.getSeconds()>>1),dosD=((now.getFullYear()-1980)<<9)|((now.getMonth()+1)<<5)|now.getDate();
- for(const en of entries){let raw=en.raw,method=en.method,crc=en.crc,us=en.us;if(en.data){raw=zlib.deflateRawSync(en.data);method=8;crc=crc32(en.data);us=en.data.length;if(raw.length>=us){raw=en.data;method=0}}
+ // text (favicon.svg comes from icons.mjs as a string) is made bytes first: the checksum of a string's characters was wrong, the server's
+ // unzip refused it ("ADM-ZIP: CRC32 checksum failed favicon.svg") and no project without its own favicon could be published (15 Nov 2026)
+ for(const en of entries){let raw=en.raw,method=en.method,crc=en.crc,us=en.us;if(en.data!=null){const d=Buffer.isBuffer(en.data)?en.data:Buffer.from(en.data);raw=zlib.deflateRawSync(d);method=8;crc=crc32(d);us=d.length;if(raw.length>=us){raw=d;method=0}}
   const nm=Buffer.from(en.name,'utf8'),lh=Buffer.alloc(30);lh.writeUInt32LE(0x04034b50,0);lh.writeUInt16LE(20,4);lh.writeUInt16LE(0x800,6);lh.writeUInt16LE(method,8);lh.writeUInt16LE(en.time??dosT,10);lh.writeUInt16LE(en.date??dosD,12);lh.writeUInt32LE(crc>>>0,14);lh.writeUInt32LE(raw.length,18);lh.writeUInt32LE(us,22);lh.writeUInt16LE(nm.length,26);
   const ch=Buffer.alloc(46);ch.writeUInt32LE(0x02014b50,0);ch.writeUInt16LE(en.madeBy??0x031e,4);ch.writeUInt16LE(20,6);ch.writeUInt16LE(0x800,8);ch.writeUInt16LE(method,10);ch.writeUInt16LE(en.time??dosT,12);ch.writeUInt16LE(en.date??dosD,14);ch.writeUInt32LE(crc>>>0,16);ch.writeUInt32LE(raw.length,20);ch.writeUInt32LE(us,24);ch.writeUInt16LE(nm.length,28);ch.writeUInt32LE(en.ext??(en.dir?(0o40755<<16)>>>0:(0o100644<<16)>>>0),38);ch.writeUInt32LE(off,42);
   parts.push(lh,nm,raw);cd.push(ch,nm);off+=30+nm.length+raw.length}
