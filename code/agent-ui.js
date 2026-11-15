@@ -13,6 +13,24 @@ export function nextBox(next,send,extra=[]){const box=el('div','next-box');box.a
  if(next.actions?.length||extra.length){const row=el('div','next-actions');(next.actions||[]).forEach((a,i)=>{const b=el('button',i?'':'primary',a.label);b.type='button';b.title=a.message;b.addEventListener('click',()=>{for(const x of row.querySelectorAll('button'))x.disabled=true;send(a.message)});row.append(b)});
   for(const [label,run] of extra){const b=el('button','',label);b.type='button';b.addEventListener('click',run);row.append(b)}box.append(row)}return box}
 
+// What a live run is doing right now, in words, under its timeline (owner, 15 Nov 2026: "in Claude Code you could visually see
+// you're doing something ... Code looks too static"). An aqeelOS model can take 5 to 17 s per call with nothing new to show, so a
+// quiet run says it is waiting for that model, and the line carries a spinner and the seconds since the run started.
+const base=p=>String(p||'').split(/[\\/]/).pop();
+export function nowDoing(v,events,now=Date.now()){
+ if(v.state==='waiting')return 'Waiting for your approval';
+ const model=v.actualModel||(v.engine&&v.engine.model)||String(v.model||'').split('::').pop()||label(v.provider);
+ const open=[...events].reverse().find(e=>['command','file','tool'].includes(e.type)&&e.status==='running'),last=events[events.length-1];
+ if(open&&open.type==='command')return 'Running '+String(open.command||'').replace(/\s+/g,' ').slice(0,60);
+ if(open&&open.type==='file')return 'Editing '+((open.paths||[]).map(base).join(', ')||'files');
+ if(open&&open.type==='tool')return 'Using '+String(open.name||'a tool').slice(0,60);
+ if(!last)return 'Starting '+model;
+ if(now-(last.time||now)>8000)return 'Waiting for '+model;
+ if(last.type==='thinking')return 'Thinking';
+ if(last.type==='message'&&!last.final)return 'Writing';
+ return 'Working with '+model}
+export const elapsed=ms=>{const s=Math.max(0,Math.floor(ms/1000));return s<60?s+' s':Math.floor(s/60)+' min '+String(s%60).padStart(2,'0')+' s'};
+
 export function createAgentUI(ctx){
  const runs=new Map(); // runId -> {view, panel, nodes: Map(key->node), terminalSeen:Set}
 
@@ -66,7 +84,12 @@ export function createAgentUI(ctx){
   if(run.panel)return run.panel;
   const a=el('article','message assistant live');a.setAttribute('aria-live','polite');
   const head=el('div','live-head');run.title=el('span','speaker');run.state=el('span','live-state');head.append(run.title,run.state);
-  run.list=el('div','timeline');a.append(head,run.list);run.panel=a;return a}
+  run.list=el('div','timeline');run.now=el('div','live-now');run.now.setAttribute('aria-hidden','true');run.nowText=el('span','live-now-text');run.nowTime=el('span','live-now-time');
+  run.now.append(el('span','live-spin'),run.nowText,run.nowTime);a.append(head,run.list,run.now);run.panel=a;return a}
+ // the line under the timeline: refreshed on every poll and every second (the clock), text swapped with a short fade
+ function paintNow(run){const v=run.view;if(!run.now)return;const on=v.state==='running'||v.state==='waiting';run.now.hidden=!on;if(!on)return;
+  const t=nowDoing(v,[...run.events.values()]);if(run.nowText.textContent!==t){run.nowText.textContent=t;run.nowText.classList.remove('swap');void run.nowText.offsetWidth;run.nowText.classList.add('swap')}
+  run.nowTime.textContent=elapsed(Date.now()-(v.startedAt||run.seen))}
 
  function paint(run){
   const v=run.view;ensurePanel(run);
@@ -75,8 +98,7 @@ export function createAgentUI(ctx){
   run.title.textContent=(v.team?speaker(v):(v.draft?'Compare draft · ':'')+[HARNESS[v.provider]||label(v.provider),v.actualModel||v.model||'Default',v.accountNote||v.account||''].filter(Boolean).join(' · '));   // the harness, model and account (whose sign-in a run for an agent uses)
   const waiting=v.state==='waiting';run.state.textContent=waiting?'Needs your approval':v.state==='running'?'Working…':v.state==='complete'?'Finished':v.state==='stopped'?'Stopped':'Failed';
   run.panel.classList.toggle('waiting',waiting);
-  if(!run.list.childElementCount&&v.state==='running'){run.list.append(run.placeholder??=el('div','ev ev-thinking','Starting '+label(v.provider)+'…'))}
-  if(run.list.childElementCount>1)run.placeholder?.remove();
+  paintNow(run);
  }
 
  async function poll(run){
@@ -88,11 +110,12 @@ export function createAgentUI(ctx){
 
  async function follow(view){
   if(runs.has(view.id))return;
-  const run={view,after:0,nodes:new Map(),events:new Map(),terminal:new Set()};runs.set(view.id,run);paint(run);ctx.attach();
+  const run={view,after:0,nodes:new Map(),events:new Map(),terminal:new Set(),seen:Date.now()};runs.set(view.id,run);paint(run);ctx.attach();
+  const clock=setInterval(()=>paintNow(run),1000);
   // a failed poll is retried a few times before the run is treated as gone (a blip shouldn't drop a live run)
   try{let fails=0;while(true){let v;try{v=await poll(run);fails=0}catch(err){if(++fails<5){await new Promise(r=>setTimeout(r,1500));continue}throw err}if(v.state!=='running'&&v.state!=='waiting')break;await new Promise(r=>setTimeout(r,v.state==='waiting'?900:650))}}
   catch(err){ctx.notify(err.message)}
-  runs.delete(view.id);run.panel?.remove();ctx.onFinish(run.view);
+  clearInterval(clock);runs.delete(view.id);run.panel?.remove();ctx.onFinish(run.view);
  }
 
  return {
