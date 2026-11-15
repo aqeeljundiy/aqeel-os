@@ -39,7 +39,10 @@ export function overdue(jobs,now=Date.now(),grace=20*60e3){return (jobs||[]).fil
 export const replied=(ours,since)=>Object.values(ours||{}).some(t=>Number(t)>=since);
 // the Kirimdev check writes as a tester: the line's first reset word, then a short request in the line's language
 export const resetWord=line=>String((line?.resetWords||[]).find(w=>String(w||'').trim())||'reset').trim();
-export const kirimTestText=line=>/indones|bahasa/i.test(String(line?.language||''))?'Cek deploy aqeelOS: tolong balas dengan satu kalimat singkat ya.':'aqeelOS deploy check: please reply with one short line.';
+// what an ordinary customer would write: the check before sending (kirim-review) judges whether the reply answers the customer,
+// and a support line cannot answer "Cek deploy aqeelOS" (15 Nov 2026: the reply was held twice, the chat handed to the team, every
+// later send cancelled, and a deploy whose code was fine rolled back). Nothing about aqeelOS or a deploy in it.
+export const kirimTestText=line=>/indones|bahasa/i.test(String(line?.language||''))?'Halo kak, boleh tanya-tanya dulu?':'Hi, can I ask you a quick question?';
 // the reply proves the agent read the message: it carries the nonce
 // the AI provider was not available (rate limit, account used up, no model reachable: "I couldn't reach any of my models just now"): the test says nothing about the deploy. Skipped, not failed, so no rollback; the result says when to try again.
 export function providerPause(reply,body,nonce,now=Date.now()){if(answered(reply,nonce))return null;const lim=providerUnavailable(String(reply||'').trim()?reply:body,{now,strict:!!String(reply||'').trim()});

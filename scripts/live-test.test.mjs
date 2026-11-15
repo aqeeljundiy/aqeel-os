@@ -48,5 +48,7 @@ test('OPS-6: a miss that rests on the model is reported, never counted',()=>{
 test('the Kirimdev check resets the test chat and writes in the line language (14 Nov 2026)',async()=>{
  const {resetWord,kirimTestText}=await import('./live-test.mjs');
  assert.equal(resetWord({resetWords:['','mulai ulang','reset']}),'mulai ulang');assert.equal(resetWord({}),'reset');
- assert.match(kirimTestText({language:'Indonesian'}),/^Cek deploy aqeelOS/);assert.match(kirimTestText({language:'Bahasa Indonesia'}),/balas/);
- assert.match(kirimTestText({language:'English'}),/please reply/);assert.match(kirimTestText({}),/please reply/)});
+ assert.match(kirimTestText({language:'Indonesian'}),/^Halo kak/);assert.match(kirimTestText({language:'Bahasa Indonesia'}),/tanya/);
+ assert.match(kirimTestText({language:'English'}),/quick question/);assert.match(kirimTestText({}),/quick question/);
+ // 15 Nov 2026: a question a support agent can answer, so the check before sending never holds the reply
+ for(const l of [{language:'Indonesian'},{language:'English'}])assert.doesNotMatch(kirimTestText(l),/deploy|aqeelOS|check|cek/i)});
