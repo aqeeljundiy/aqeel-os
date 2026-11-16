@@ -117,7 +117,7 @@ out=[m.tag_of(N(text="check @MadeUpBot",entities=[E("mention",6,10)]),7,"MadeUpB
  m.tag_of(N(text="x"),None,None), m.tag_of(None,7,"MadeUpBot")]
 print(json.dumps(out))`),['mention','none','mention','mention','mention','reply','mention','none','','']);
  const plugin=src('engine/aqeelos-live/__init__.py');
- assert.match(plugin,/chat\["tagged"\] = _tags\.get\(/);assert.match(plugin,/_note_tag\(event, gateway\)/);
+ assert.match(plugin,/tag = _tags\.get\(str\(get_session_env\("HERMES_SESSION_KEY"\)/);assert.match(plugin,/chat\["tagged"\] = tag\[0\]/);assert.match(plugin,/_note_tag\(event, gateway\)/);
  assert.match(plugin,/\n    ctx\.register_tool\("group_replies", "aqeelos-group-replies", GROUP_REPLIES_SCHEMA, _group_replies\)/,'registered for every agent, not inside the main-agent branch');
  assert.match(plugin,/_post\("\/group-replies", \{"session": str\(session_id or ""\), "sender": turn\.get\("sender", ""\), "tagged": turn\.get\("tagged", ""\)/,'the chat comes from the engine session, not from the model');
  assert.doesNotMatch(plugin.slice(plugin.indexOf('GROUP_REPLIES_SCHEMA = {'),plugin.indexOf('def _group_replies')),/chat_id/,'the tool takes no chat id from the model');
