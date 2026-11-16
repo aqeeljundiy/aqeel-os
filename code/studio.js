@@ -191,7 +191,7 @@ function ensureArtifacts(){if(artifactsUI)return artifactsUI;artifactsUI=createA
   reveal:()=>{if($('artifacts-view').hidden)switchView('artifacts');mobile?.showWork()},badge:n=>{const b=$('artifacts-badge');b.hidden=!n;b.textContent=n?String(n):''}});
  artifactsUI.designSystems().then(list=>{dsNames=Object.fromEntries(list.map(d=>[d.id,d.name]));paintKind()}).catch(()=>{});return artifactsUI}
 function switchView(view){if(view==='preview')view='browser';
- if(view==='browser'){browserUI??=createBrowserUI({attach:files=>composer.attach(files),insert:text=>insertMessage(text),container:()=>$('browser-view'),api:(r,b)=>api(r,b),token:()=>token,notify:t=>notify(t),visible:()=>!$('browser-view').hidden,onAiActivity:()=>{if($('browser-view').hidden)$('browser-badge').hidden=false}});$('browser-badge').hidden=true}
+ if(view==='browser'){browserUI??=createBrowserUI({attach:files=>composer.attach(files),insert:text=>insertMessage(text),container:()=>$('browser-view'),api:(r,b)=>api(r,{...(b||{}),chatId}),token:()=>token,notify:t=>notify(t),visible:()=>!$('browser-view').hidden,onAiActivity:()=>{if($('browser-view').hidden)$('browser-badge').hidden=false}});$('browser-badge').hidden=true}
  if(view==='artifacts'){ensureArtifacts();$('artifacts-badge').hidden=true}
  for(const name of ['preview','artifacts','files','history','browser'])$(name+'-view').hidden=name!==view;for(const b of document.querySelectorAll('[data-view]')){b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-current',b.dataset.view===view?'page':'false')}}
 async function refreshFiles(){void gitUI.refresh();void devUI.refresh();for(const [n,b] of buffers)if(n!==selectedFile&&b.value===b.saved)buffers.delete(n); // reload clean tabs from disk (the AI may have changed them)
@@ -530,7 +530,7 @@ if(document.body.classList.contains('embed'))for(const [v,t,d] of [['ask','Ask m
  let shownFor=null,lastDev=devUrl;const autoOpen=()=>{if(!hasApp||!projectId||shownFor===projectId||!web||$('browser-view').hidden)return;shownFor=projectId;Promise.resolve(ensureBrowser().show()).then(()=>openProject()).catch(()=>{})};
  {const rp=refreshPreview;refreshPreview=(...a)=>{rp(...a);if(devUrl!==lastDev){lastDev=devUrl;if(devUrl){hasApp=true;shownFor=null;autoOpen()}}}}
  {const rf=refreshFiles;refreshFiles=async(...a)=>{const r=await rf(...a);checkApp();return r}}
- const ensureBrowser=()=>{if(!browserUI){browserUI=createBrowserUI({attach:files=>composer.attach(files),insert:text=>insertMessage(text),container:()=>$('browser-view'),api:(r,b)=>api(r,b),token:()=>token,notify:t=>notify(t),visible:()=>!$('browser-view').hidden,watchWhenHidden:()=>true,
+ const ensureBrowser=()=>{if(!browserUI){browserUI=createBrowserUI({attach:files=>composer.attach(files),insert:text=>insertMessage(text),container:()=>$('browser-view'),api:(r,b)=>api(r,{...(b||{}),chatId}),token:()=>token,notify:t=>notify(t),visible:()=>!$('browser-view').hidden,watchWhenHidden:()=>true,
    lead:paintLead,leadActive:()=>!web,onTabOpen:()=>{if(!web)openWeb()},
    onAiActivity:()=>{if(!primed)return;if(!$('preview-view').hidden||!$('browser-view').hidden)openWeb();else $('preview-badge').hidden=false}});bar.append(browserUI.strip)}return browserUI};
  const mark=()=>{const on=!$('preview-view').hidden||!$('browser-view').hidden;bar.hidden=!on;for(const b of document.querySelectorAll('[data-view="preview"]')){b.classList.toggle('active',on);b.setAttribute('aria-current',on?'page':'false')}};

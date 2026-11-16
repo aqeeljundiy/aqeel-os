@@ -45,7 +45,7 @@ const ROBOT_JS=`(()=>{const t=(document.title+' '+(document.body?document.body.i
  if([...document.querySelectorAll('iframe')].some(f=>/recaptcha|hcaptcha|challenges\\.cloudflare|turnstile|arkoselabs|funcaptcha/.test(f.src||'')))return 'captcha';
  if(/just a moment|verify you are human|are you a robot|i'm not a robot|unusual traffic|press and hold|security check/.test(t))return 'check';return ''})()`;
 export class SideBrowser{
- constructor(dataDir){this.guardFile=path.join(dataDir,'browser-guard.json');this.guard={sites:[],paused:false};readFile(this.guardFile,'utf8').then(t=>{const g=JSON.parse(t);this.guard.sites=Array.isArray(g.sites)?g.sites:[]}).catch(()=>{});this.dataDir=dataDir;this.profile=path.join(dataDir,'browser-profile');this.pidFile=path.join(dataDir,'browser.pid');this.perms={};this.downloads=null;process.on('exit',()=>killTree(this.child));this.frame=null;this.frameSeq=0;this.waiters=[];this.log=[];this.state='stopped';this.preset='desktop';this.view={...PRESETS.desktop};this.scheme='light';this.tabs=[]}
+ constructor(dataDir){this.chat='';this.owner=new Map();this.lastTab=new Map();this.aiTargets=new Map();this.guardFile=path.join(dataDir,'browser-guard.json');this.guard={sites:[],paused:false};readFile(this.guardFile,'utf8').then(t=>{const g=JSON.parse(t);this.guard.sites=Array.isArray(g.sites)?g.sites:[]}).catch(()=>{});this.dataDir=dataDir;this.profile=path.join(dataDir,'browser-profile');this.pidFile=path.join(dataDir,'browser.pid');this.perms={};this.downloads=null;process.on('exit',()=>killTree(this.child));this.frame=null;this.frameSeq=0;this.waiters=[];this.log=[];this.state='stopped';this.preset='desktop';this.view={...PRESETS.desktop};this.scheme='light';this.tabs=[]}
  status(){return {guard:{sites:this.guard.sites,paused:this.guard.paused,reason:this.guard.reason||'',ask:this.guard.ask?{host:this.guard.ask.host}:null,perm:this.guard.perm?{origin:this.guard.perm.origin,what:this.guard.perm.kinds.map(k=>PERM_NAME[k]||k)}:null,file:this.guard.file?{origin:this.guard.file.origin}:null},state:this.state,url:this.url||'',title:this.title||'',width:this.view.width,height:this.view.height,preset:this.preset,scheme:this.scheme,tabs:this.tabs,tab:this.target||null,aiTab:this.aiTarget||null,native:Boolean(this.ctlUrl),error:this.error||null,log:this.log.slice(-40)}}
  // may the AI open this address? This computer's own pages and the sites the person allowed
  allowed(u){try{const x=new URL(u);return /^(https?|about):$/.test(x.protocol)}catch{return false}}   // any website; microphone, camera and files still ask
@@ -72,7 +72,7 @@ export class SideBrowser{
  async useProject(folder,downloads){if(downloads&&downloads!==this.downloads){this.downloads=downloads;await mkdir(downloads,{recursive:true}).catch(()=>{});if(this.state==="running")await this.send("Page.setDownloadBehavior",{behavior:"allow",downloadPath:downloads}).catch(()=>{})}
   const prof=folder&&!process.env.CBA_ONLINE?path.join(folder,'.aqeelos','browser'):path.join(this.dataDir,'browser-profile');if(prof===this.profile)return false;
   const was=this.state==='running';if(was||this.starting){try{await this.starting}catch{}this.stop();await new Promise(r=>setTimeout(r,700))}
-  this.profile=prof;this.pidFile=path.join(path.dirname(prof),'browser.pid');this.aiTarget=null;this.aiWs=null;this.tabs=[];this.perms={};this.guard.perm=null;this.guard.file=null;
+  this.profile=prof;this.pidFile=path.join(path.dirname(prof),'browser.pid');this.aiTarget=null;this.aiWs=null;this.tabs=[];this.owner=new Map();this.lastTab=new Map();this.aiTargets=new Map();this.perms={};this.guard.perm=null;this.guard.file=null;
   if(folder){await mkdir(path.dirname(prof),{recursive:true}).catch(()=>{});// keep it out of git (only this computer's copy of the repo knows)
    const ex=path.join(folder,'.git','info','exclude');try{await fsAccess(path.join(folder,'.git'));const cur=await readFile(ex,'utf8').catch(()=>'');if(!/^\.aqeelos\/?$/m.test(cur)){await mkdir(path.dirname(ex),{recursive:true});await appendFile(ex,(cur&&!cur.endsWith('\n')?'\n':'')+'.aqeelos/\n')}}catch{}}
   if(was)this.note({by:'page',action:'profile',detail:'Switched to this project’s browser'});return was}
@@ -149,12 +149,15 @@ export class SideBrowser{
  send(method,params={}){const ai=this.inAi(),ws=ai?this.aiWs:this.ws,pending=ai?this.aiPending:this.pending;if(!ws||ws.readyState!==1)return Promise.reject(Error('The side browser is not running.'));const id=ai?++this.aiN:++this.id;ws.send(JSON.stringify({id,method,params}));
   return new Promise((resolve,reject)=>{pending.set(id,{resolve,reject});setTimeout(()=>{if(pending.delete(id))reject(Error(method+' timed out.'))},30000)})}
  // the AI's own tab: the tab on screen if it is empty, else a new one (the person stays where they are)
- async aiTab(){await this.ensure();await this.refreshTabs();
-  if(this.aiTarget&&this.tabs.some(t=>t.id===this.aiTarget)){if(this.aiTarget!==this.target&&(!this.aiWs||this.aiWs.readyState!==1))await this.connectAi(this.aiTarget);return}
-  const cur=this.tabs.find(t=>t.id===this.target);if(!cur||!cur.url||cur.url==='about:blank'){this.aiTarget=this.target;return}
-  const t=await this.devtools('new?about:blank','PUT');this.aiTarget=t.id;await this.devtools('activate/'+this.target).catch(()=>{});await this.connectAi(t.id);this.note({by:'ai',action:'new tab',detail:'The AI’s own tab'});await this.refreshTabs()}
+ // chat: the chat whose AI is acting (it may not be the one the person has open)
+ async aiTab(chat=this.chat){chat=String(chat||'');await this.ensure();await this.refreshTabs();
+  const mine=this.aiTargets.get(chat);
+  if(mine&&this.pages?.has(mine)){this.aiTarget=mine;if(mine!==this.target&&(!this.aiWs||this.aiWs.readyState!==1||this.aiWsId!==mine))await this.connectAi(mine);return}
+  // the AI of the open chat may use a blank tab the person is looking at
+  const cur=chat===this.chat&&this.tabs.find(t=>t.id===this.target);if(cur&&(!cur.url||cur.url==='about:blank')){this.aiTarget=this.target;this.aiTargets.set(chat,this.target);return}
+  const t=await this.devtools('new?about:blank','PUT');this.owner.set(t.id,chat);this.aiTargets.set(chat,t.id);this.aiTarget=t.id;await this.devtools('activate/'+this.target).catch(()=>{});await this.connectAi(t.id);this.note({by:'ai',action:'new tab',detail:'The AI’s own tab'});await this.refreshTabs()}
  connectAi(id){return new Promise(async(resolve,reject)=>{const page=(await this.devtools('list')).find(t=>t.id===id);if(!page)return reject(Error('The AI’s tab is closed.'));
-  const old=this.aiWs;const ws=new WebSocket(page.webSocketDebuggerUrl);this.aiWs=ws;this.aiPending=new Map();this.aiN=0;this.aiUrl=page.url;this.aiTitle=page.title;try{old?.close()}catch{}
+  const old=this.aiWs;const ws=new WebSocket(page.webSocketDebuggerUrl);this.aiWs=ws;this.aiWsId=id;this.aiPending=new Map();this.aiN=0;this.aiUrl=page.url;this.aiTitle=page.title;try{old?.close()}catch{}
   const s=(method,params={})=>new Promise((res,rej)=>{const n=++this.aiN;this.aiPending.set(n,{resolve:res,reject:rej});ws.send(JSON.stringify({id:n,method,params}))});
   ws.onopen=async()=>{try{await s('Page.enable');await s('Runtime.enable');await s('Page.addScriptToEvaluateOnNewDocument',{source:ONE_VIEW}).catch(()=>{});await s('Runtime.addBinding',{name:'__cbaPerm'}).catch(()=>{});await s('Page.addScriptToEvaluateOnNewDocument',{source:PERM_JS}).catch(()=>{});await s('Runtime.evaluate',{expression:PERM_JS}).catch(()=>{});await s('Page.setDownloadBehavior',this.downloads?{behavior:'allow',downloadPath:this.downloads}:{behavior:'deny'}).catch(()=>{});if(!this.ctlUrl)await s('Page.setInterceptFileChooserDialog',{enabled:true}).catch(()=>{});
    const {width,height,mobile}=this.view;await s('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:this.dpr||1,mobile}).catch(()=>{});resolve()}catch(e){reject(e)}};
@@ -189,10 +192,17 @@ export class SideBrowser{
    if(route.startsWith('new?')){const {id}=await this.ctl('new',{url:decodeURI(route.slice(4))});return {id}}
    if(route.startsWith('activate/'))return this.ctl('show',{id:route.slice(9)});if(route.startsWith('close/'))return this.ctl('close',{id:route.slice(6)})}
   const r=await fetch('http://127.0.0.1:'+this.port+'/json/'+route,{method});if(!r.ok)throw Error('The browser refused: '+(await r.text()).slice(0,120));return r.headers.get('content-type')?.includes('json')?r.json():r.text()}
- async refreshTabs(){try{const list=await this.devtools('list');this.tabs=list.filter(t=>t.type==='page').reverse().map(t=>({id:t.id,title:t.id===this.target?this.title||t.title:t.title,url:t.id===this.target?this.url||t.url:t.url}));
-  if(this.target&&!this.tabs.some(t=>t.id===this.target)&&this.tabs[0])await this.switchTab(this.tabs[0].id)}catch{}return this.tabs}
+ /* Each chat has its own tabs (owner, 15 Nov 2026: "per session needs to have different browser ... should be like claude code"). One browser
+    per project stays (its sign-ins and cookies are the project's), but a tab belongs to the chat it was opened in: the person sees only the open
+    chat's tabs, comes back to the tab they left there, and each chat's AI works in a tab of its own chat, never moving the person's view. */
+ async useChat(chat){chat=String(chat||'');if(chat===this.chat)return;if(this.target)this.lastTab.set(this.chat,this.target);this.chat=chat;if(this.state==='running')await this.refreshTabs()}
+ async refreshTabs(){try{const list=(await this.devtools('list')).filter(t=>t.type==='page');for(const t of list)if(!this.owner.has(t.id))this.owner.set(t.id,this.chat);   // a tab no one claimed is the open chat's
+  this.pages=new Set(list.map(t=>t.id));
+  this.tabs=list.filter(t=>this.owner.get(t.id)===this.chat).reverse().map(t=>({id:t.id,title:t.id===this.target?this.title||t.title:t.title,url:t.id===this.target?this.url||t.url:t.url}));
+  if(!this.tabs.some(t=>t.id===this.target)){const back=this.lastTab.get(this.chat),to=this.tabs.find(t=>t.id===back)||this.tabs[0];
+   if(to)await this.switchTab(to.id,'user',true);else{const t=await this.devtools('new?about:blank','PUT');this.owner.set(t.id,this.chat);await this.switchTab(t.id,'user',true)}}}catch{}return this.tabs}
  async newTab(url='about:blank',by='user'){if(by==='ai')return this.navigate(url,'ai');await this.ensure();const u=normalizeUrl(url);
-  const t=await this.devtools('new?'+encodeURI(u),'PUT');this.note({by,action:'new tab',detail:u});await this.switchTab(t.id,by,true);if(u!=='about:blank')await this.waitLoad();return this.status()}
+  const t=await this.devtools('new?'+encodeURI(u),'PUT');this.owner.set(t.id,this.chat);this.note({by,action:'new tab',detail:u});await this.switchTab(t.id,by,true);if(u!=='about:blank')await this.waitLoad();return this.status()}
  async switchTab(id,by='user',quiet=false){if(by==='ai')throw Error('This browser keeps you in one view: open the address you need instead of switching tabs.');await this.ensure();const list=await this.devtools('list');const page=list.find(t=>t.id===id&&t.type==='page');if(!page)throw Error('That tab is closed.');
   if(!quiet)this.note({by,action:'switch tab',detail:page.title||page.url});await this.devtools('activate/'+id).catch(()=>{});await this.connect(page);this.state='running';await this.refreshTitle();await this.refreshTabs();return this.status()}
  async closeTab(id,by='user'){if(by==='ai')throw Error('This browser keeps you in one view; there are no tabs to close.');await this.ensure();await this.refreshTabs();if(this.tabs.length<=1)return this.newTab('about:blank',by).then(()=>this.closeTab(id,by));
