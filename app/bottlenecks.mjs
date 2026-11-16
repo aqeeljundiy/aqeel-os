@@ -44,6 +44,8 @@ export function personNeed(x){const k=x?.kind,t=[x?.title,x?.missing,x?.text].fi
   case 'design':return 'For each schedule: apply the better design, or keep it as it is.';
   case 'instructions':return 'Read the new instructions and approve or decline them.';
   // the fixer's fixes wait as branches until it has a GitHub token (issues.mjs, fixer-git.mjs)
+  // a Google Cloud project with its APIs off (google-tools.mjs offSeen): only someone who owns that project can switch them on
+  case 'google_api':return 'Switch on the Google APIs in your Google Cloud project: open the link, press Enable, wait a few minutes.';
   case 'github_token':return 'Paste a GitHub token for the fixer: only the aqeel-os repository, pull requests and contents, no admin.';
   case 'ticket':return 'Answer the waiting help tickets.';
   case 'accounts':return 'Keep it if you meant it; otherwise disconnect it.';

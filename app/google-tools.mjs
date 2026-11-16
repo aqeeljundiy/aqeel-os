@@ -12,6 +12,7 @@
 import {readFile,writeFile,rename,readdir,chmod,stat} from 'node:fs/promises';
 import path from 'node:path';
 import {Ask,SHEET_ACTIONS,NEEDS_RANGE,DELETE_REFUSED,checkBatch,buildRequests} from './google-sheet-ops.mjs';
+import {SERVICES} from './google-connect.mjs';
 
 const TOKEN='https://oauth2.googleapis.com/token';
 const GMAIL='https://gmail.googleapis.com/gmail/v1/users/me/',SHEETS='https://sheets.googleapis.com/v4/spreadsheets',DOCS='https://docs.googleapis.com/v1/documents',
@@ -35,9 +36,19 @@ export function endOf(start){const s=String(start||'').trim();
  if(m[3]){const d=new Date(s);return isNaN(d)?null:new Date(d.getTime()+3600e3).toISOString().replace(/\.000Z$/,'Z')}
  const d=new Date(m[1]+'Z');return isNaN(d)?null:new Date(d.getTime()+3600e3).toISOString().slice(0,19)}
 // Google answers 403 when an API (Sheets, Docs, Drive...) is not enabled in the Google Cloud project behind the install's Google sign-in
-const isOff=m=>/has not been used|is disabled|accessNotConfigured/i.test(m);
-export const apiOff=m=>{const api=/([\w-]+\.googleapis\.com)/.exec(m)?.[1],link=/(https:\/\/console\.(?:developers|cloud)\.google\.com\/[^\s"')]+)/.exec(m)?.[1];
- return 'The Google '+(api?api.replace('.googleapis.com','')+' ':'')+'API is switched off in this install\'s Google Cloud project, so '+(api?'it':'this tool')+' cannot work yet. Retrying will not help. Only the owner or an admin of that Google Cloud project can switch it on (Google Cloud console > APIs & Services > Library > the API > Enable'+(link?'; Google\'s own link: '+link:'')+'). Tell the person this and report it with report_bottleneck; it works a few minutes after it is enabled.'};
+const isOff=m=>/has not been used|is disabled|accessNotConfigured|SERVICE_DISABLED/i.test(m);
+// the Google Cloud project behind a sign-in: an OAuth client id starts with that project's number
+export const projectOf=cid=>(/^(\d+)-/.exec(String(cid||''))||[])[1]||'';
+// one link that switches on every API these tools and Connect Google use (google-connect.mjs SERVICES); one already on stays on
+export const enableLink=project=>'https://console.cloud.google.com/flows/enableapi?apiid='+Object.values(SERVICES).map(v=>v.api).join(',')+(project?'&project='+e(project):'');
+// noted: aqeelOS already put it in front of the owner (Needs you), so the agent does not report it again (16 Nov 2026);
+// others: the agent's accounts made with another Google Cloud project, which this does not touch
+export const apiOff=(m,{project='',noted=false,others=[]}={})=>{const api=/([\w-]+\.googleapis\.com)/.exec(m)?.[1],link=/(https:\/\/console\.(?:developers|cloud)\.google\.com\/[^\s"')]+)/.exec(m)?.[1];
+ project=/project (\d{6,})/.exec(m)?.[1]||project;
+ return 'The Google '+(api?api.replace('.googleapis.com','')+' ':'')+'API is switched off in this install\'s Google Cloud project'+(project?' ('+project+')':'')+', so '+(api?'it':'this tool')+' cannot work yet. Retrying will not help, and nothing is wrong with the account or the file. Only the owner or an admin of that Google Cloud project can switch it on'+
+  (noted?'. aqeelOS has already asked the owner to do it (System › Needs you, with one link that switches on every Google API it uses), so do not report it again with report_bottleneck. Tell the person it waits on the owner switching on the Google APIs, and that it works a few minutes after that.'
+   :' (one link for every API aqeelOS uses: '+enableLink(project)+(link?'; Google\'s own link: '+link:'')+'). Tell the person this and report it with report_bottleneck; it works a few minutes after it is enabled.')+
+  (others.length?' Your other Google account'+(others.length>1?'s':'')+' '+others.map(x=>(x.name||'main')+' ('+x.email+')').join(', ')+(others.length>1?' use':' uses')+' another Google Cloud project: if '+(others.length>1?'one':'it')+' can open this file, use it with account.':'')};
 const NEED_WORDS={draft:'save mail drafts',edit:'change Sheets, Docs or Drive files',send:'send mail or change calendars'};
 
 /* ---------- the tools agents see ---------- */
@@ -91,8 +102,23 @@ export function docText(doc){const out=[];const els=c=>{for(const x of c||[]){if
 /* ---------- the factory ---------- */
 // deps: HERMES_HOME; homeOf(agent); policy file in HERMES_HOME (aqeelos-accounts.json); sharedKey(email,agent) -> a fresh key
 // for a share; locked(agent) and filesCall(agent,req) from google-files.mjs; connectLink(agent,name) -> {url,how}; labels(agent,name)
-export function createGoogleTools({HERMES_HOME,homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),sharedKey=null,locked=async()=>false,filesCall=null,connectLink=async()=>null,labels=async()=>({}),fetchImpl=fetch,now=()=>Date.now(),log=()=>{}}){
+export function createGoogleTools({HERMES_HOME,homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),sharedKey=null,locked=async()=>false,filesCall=null,connectLink=async()=>null,labels=async()=>({}),needs=()=>null,fetchImpl=fetch,now=()=>Date.now(),log=()=>{}}){
  const readJson=async f=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return null}};
+ // 16 Nov 2026 (P&P, a sheet sync for a team member): the Google Cloud project of the install's own client had no API
+ // switched on, so every sign-in made with it failed on Sheets, Drive, Gmail... Each agent reported it on its own and
+ // told its person to find "an admin", and it came back with each new sign-in. Now it is one owner item (Needs you, kind
+ // google_api, needs() = Bottlenecks) per project with the one link, the agent is told it waits on that, and the item
+ // goes away by itself at the first call of that project that works. Connect Google checks a new sign-in at once (probe).
+ const okAt=new Map();
+ async function offSeen(project,api,email){const b=needs();if(!b||!project)return false;okAt.delete(project);const topic='google_api|'+project;
+  if(!(await b.events().catch(()=>[])).some(x=>x.topic===topic))await b.event('google_api','Google APIs are switched off in your Google Cloud project '+project,
+   'Agents cannot use Google'+(api?' ('+api.replace('.googleapis.com','')+(email?' for '+email:'')+')':'')+' until they are on: every Google sign-in made with this project\'s client is refused. Open the link with a Google account that owns the project, check the project at the top is '+project+', press Enable, wait a few minutes. This goes away by itself at the first Google call that works.',
+   {topic,data:{project,link:enableLink(project),...(api?{api}:{})}});log('google tools: Google APIs off in project '+project+(api?' ('+api+')':''));return true}
+ async function worked(project){const b=needs();if(!b||!project||now()-(okAt.get(project)||0)<10*60e3)return;okAt.set(project,now());await b.resolve('google_api|'+project).catch(()=>{})}
+ async function offAnswer(agent,acc,m){const project=/project (\d{6,})/.exec(m)?.[1]||projectOf(acc?.data?.client_id);const api=/([\w-]+\.googleapis\.com)/.exec(m)?.[1]||'';
+  const noted=await offSeen(project,api,acc?.email).catch(()=>false);
+  const others=acc?(await accounts(agent)).list.filter(x=>x.file!==acc.file&&projectOf(x.data?.client_id)!==project):[];
+  return apiOff(m,{project,noted,others})}
  const put=async(f,v)=>{const t=f+'.'+process.pid+'.'+Math.random().toString(36).slice(2,8)+'.tmp';const mode=((await stat(f).catch(()=>null))?.mode??0o600)&0o777;
   await writeFile(t,JSON.stringify(v,null,2),{mode});await chmod(t,mode).catch(()=>{});await rename(t,f)};
  class Say extends Error{}   // an answer for the agent, not a crash
@@ -135,16 +161,16 @@ export function createGoogleTools({HERMES_HOME,homeOf=a=>a==='default'?HERMES_HO
  async function api(agent,acc,method,url,body,{raw=false,ctype='application/json'}={}){let tok=await key(agent,acc);
   for(let n=0;;n++){const r=await fetchImpl(url,{method,headers:{authorization:'Bearer '+tok,...(body!==undefined?{'content-type':ctype}:{})},body:body===undefined?undefined:typeof body==='string'||Buffer.isBuffer(body)?body:JSON.stringify(body),signal:AbortSignal.timeout(60000)}).catch(x=>({ok:false,status:0,text:async()=>x.message,json:async()=>({error:{message:x.message}})}));
    if(r.status===401&&n===0){tok=await key(agent,acc,true);continue}
-   if(r.ok)return raw?await r.text():await r.json().catch(()=>({}));
+   if(r.ok){worked(projectOf(acc.data?.client_id)).catch(()=>{});return raw?await r.text():await r.json().catch(()=>({}))}
    const t=await r.text().catch(()=>'');let j={};try{j=JSON.parse(t)}catch{}const m=j.error?.message||j.error_description||(typeof j.error==='string'?j.error:'')||t.slice(0,200);
    if(r.status===403&&/insufficient|scope/i.test(m+' '+JSON.stringify(j.error?.details||'')))say(acc.managed?acc.email+' is shared with you at a level that does not allow this (Abilities › Connections). Do not retry; tell the person what you would have done.':'The sign-in for '+acc.email+' does not include this Google service. '+await notConnected(agent,'(Connect it again with that service ticked.)'));
    if(r.status===404)say('Not found, or not shared with '+acc.email+'. Check the id or link, or ask the person to share it with '+acc.email+'.');
-   if(r.status===403&&isOff(m))say(apiOff(m));
+   if(r.status===403&&isOff(m+' '+JSON.stringify(j.error?.details||'')))say(await offAnswer(agent,acc,m));
    say('Google said '+(r.status||'no answer')+': '+m)}}
  // an agent locked to its own files: the call goes through google-files.mjs (its file list and level), never with a key here
  async function viaFiles(agent,account,key2,params,body){if(!filesCall)say('aqeelOS keeps you to your own Google files and cannot reach them right now. Try again later.');
   const [service,...rest]=key2.split('.');const r=await filesCall(agent,{service,method:rest.join('.'),params,body,account:account||undefined});
-  const em=typeof r.json?.error==='string'?r.json.error:JSON.stringify(r.json?.error||'');if(r.status===403&&isOff(em))say(apiOff(em));
+  const em=typeof r.json?.error==='string'?r.json.error:JSON.stringify(r.json?.error||'');if(r.status===403&&isOff(em))say(await offAnswer(agent,null,em));
   if(r.status!==200)say(typeof r.json?.error==='string'?r.json.error:'Google said '+r.status+': '+JSON.stringify(r.json?.error||r.json).slice(0,300));return r.json}
  const filesOnly=async(agent,acc)=>!acc&&await locked(String(agent).split('--')[0]).catch(()=>false);
  const lockedSay='aqeelOS keeps you to your own Google files (Abilities › Connections): only reading and changing those Sheets and Docs is possible. Do not retry; tell the person what you needed.';
@@ -254,4 +280,11 @@ export function createGoogleTools({HERMES_HOME,homeOf=a=>a==='default'?HERMES_HO
   if(acts&&!acts.includes(args?.action))return {isError:true,text:'action is one of: '+acts.join(', ')+'.'};
   try{const text=await f(agent,args&&typeof args==='object'?args:{});return {text:String(text)}}
   catch(x){if(x instanceof Say)return {isError:true,text:x.message};log('google tools: '+agent+' '+name+' failed: '+x.message);return {isError:true,text:'The Google call failed: '+x.message}}}
- return {call,accounts,pick,TOOLS:GOOGLE_TOOLS}}
+ // a new sign-in (google-connect.mjs finish): one cheap read per service it was given, so an API that is off is the owner's
+ // item before any agent meets it; a made-up spreadsheet or document id answers 404 when the API is on, 403 when it is off
+ const PROBE={gmail:GMAIL+'profile',calendar:CAL.replace(/calendars\/$/,'users/me/calendarList?maxResults=1'),drive:DRIVE+'?pageSize=1&fields=files(id)',sheets:SHEETS+'/aqeelos-probe-0000000000?fields=spreadsheetId',docs:DOCS+'/aqeelos-probe-0000000000',contacts:'https://people.googleapis.com/v1/people/me?personFields=names'};
+ async function probe({token,client_id,services=[],email=''}){const off=[];
+  for(const k of services){if(!PROBE[k]||!token)continue;const r=await fetchImpl(PROBE[k],{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(15000)}).catch(()=>null);if(!r||r.ok||r.status!==403)continue;
+   const t=await r.text().catch(()=>'');if(isOff(t))off.push(k)}
+  const project=projectOf(client_id);if(off.length)await offSeen(project,SERVICES[off[0]].api,email);else if(services.length)await worked(project);return {off,project}}
+ return {call,accounts,pick,probe,TOOLS:GOOGLE_TOOLS}}

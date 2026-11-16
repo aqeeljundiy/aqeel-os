@@ -33,6 +33,7 @@ const SAMPLES={
  question:[{kind:'question',id:'question|q',qid:'q',title:'Which way?',options:[{key:'a',label:'Wait',effect:'Nothing changes',recommended:false},{key:'b',label:'Roll back',effect:'Back to Monday',recommended:true}],allowOther:true}],
  instructions:[{kind:'instructions',id:'instr|a|p',agent:'a',pid:'p',title:'x'}],
  github_token:[{kind:'github_token',id:'event|e',title:'The fixer needs a GitHub token'}],
+ google_api:[{kind:'google_api',id:'event|e',title:'Google APIs are switched off in your Google Cloud project 111',data:{project:'111',link:'https://console.cloud.google.com/flows/enableapi?apiid=sheets.googleapis.com&project=111'}}],
  ticket:[{kind:'ticket',id:'ticket|waiting',title:'x'}],
  accounts:[{kind:'accounts',id:'event|e',data:{account:'k',label:'L'},title:'x'},{kind:'accounts',id:'event|e2',title:'x'}],
  alerts:[{kind:'alerts',id:'event|e',title:'Needs a person',text:'issue i0a1b2c3d'},{kind:'alerts',id:'event|e',title:'Needs a person',text:'What is needed: do it'}],
@@ -62,7 +63,7 @@ test('every sample has exactly one primary button, with a plain label (verb + ob
 test('the labels say what the button does',()=>{
  const lab=x=>B.actions(x).filter(r=>r[2]).map(r=>r[0])[0];
  assert.equal(lab(acct('signedout')),'Sign in again');assert.equal(lab(acct('rejected')),'Paste a new key');assert.equal(lab(acct('exhausted')),'Add an account');
- assert.equal(lab(SAMPLES.signin[0]),'Sign in to Higgsfield');assert.equal(lab(SAMPLES.github_token[0]),'Paste the token');assert.equal(lab(SAMPLES.question[0]),'Roll back');
+ assert.equal(lab(SAMPLES.signin[0]),'Sign in to Higgsfield');assert.equal(lab(SAMPLES.google_api[0]),'Switch on the Google APIs');assert.equal(lab(SAMPLES.github_token[0]),'Paste the token');assert.equal(lab(SAMPLES.question[0]),'Roll back');
  assert.equal(lab(SAMPLES.apps[0]),'Sign in to Notion');assert.equal(lab(SAMPLES.channel[0]),'Link again');assert.equal(lab(SAMPLES.channel[1]),'Reconnect it');
  assert.equal(lab(SAMPLES.instructions[0]),'Read the changes');assert.equal(lab(SAMPLES.ticket[0]),'Answer the tickets');assert.equal(lab(SAMPLES.schedule[0]),'Run again');
  assert.equal(lab({kind:'report',id:'r',agent:'a',agentName:'Sesa',title:'x',missing:'x'}),'Ask Sesa to retry');

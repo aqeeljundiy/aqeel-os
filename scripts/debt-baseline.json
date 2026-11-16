@@ -1,13 +1,13 @@
 {
  "about": "Recorded debt, 12 Nov 2026 (audit 06 action 4). scripts/debt.test.mjs fails when a measured number is higher than here. Never raise a number; lower it in the same commit that reduces the debt: node scripts/lib/debt.mjs --lower. How each is counted: scripts/lib/debt.mjs.",
  "counts": {
-  "serverBytes": 372333,
+  "serverBytes": 372331,
   "serverLines": 2569,
   "modulesSavingJsonWithoutStore": 18,
   "inlineAgentHomePaths": 92,
   "timersTotal": 74,
   "timersInServer": 48,
-  "exportsNothingImports": 181,
+  "exportsNothingImports": 180,
   "envReadButNotInEnvExample": 0
  }
 }

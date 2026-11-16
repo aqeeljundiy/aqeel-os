@@ -60,6 +60,8 @@ const Bottlenecks={items:[],
   if(x.kind==='account'){const s=x.account.state;if(s==='exhausted'||s==='credit')return [['Add an account',()=>{closeLayers();Connect.add();return new Promise(()=>{})},true],['Not now',later]];
    return [[s==='rejected'?'Paste a new key':'Sign in again',()=>{closeLayers();Pages.reconnect(x.account.key,x.account.name);return new Promise(()=>{})},true],['Not now',later]]}
   // the fixer needs its GitHub token (issues.mjs): a field right here, saved on the server
+  // Google APIs off in the install's Google Cloud project (google-tools.mjs): one link switches all of them on; the item goes by itself once a call works
+  if(x.kind==='google_api')return [['Switch on the Google APIs',()=>{if(x.data?.link)window.open(x.data.link,'_blank','noopener');return Promise.resolve(false)},true],['Not now',later]];
   if(x.kind==='github_token')return [['Paste the token',c=>this.field(c,{ph:'github_pat_…',go:'Save token',secret:true},async v=>{await post(UI,'/ui/health/fixer-token',{token:v});toast('Saved · the fixer opens its pull requests')}),true],['Not now',later]];
   // a need the server worked out a direct button for (a sign-in to an app or account, Google, the agent's screen): that is the primary
   if(x.acts?.length&&['report','alerts','apps'].includes(x.kind)){const rest=x.kind==='report'?[['Ask '+(x.agentName||'the agent')+' to retry',()=>this.retryReport(x,done),false]]:[];return [...this.needBtns(x.acts,x),...rest,['Not now',later]]}

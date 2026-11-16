@@ -907,10 +907,10 @@ async function patientFetch(url,opt={}){for(const ms of [5000,20000]){try{return
 const install=createInstallRoutes({recentLookups:n=>teamView.recent(n),send,readBody,isAdmin:u=>users.isAdmin(u),listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,engineProbe:async()=>{const d=await patientFetch(DASH.origin+'/api/status',{headers:{'x-hermes-session-token':DASH_TOKEN}});if(!d)return 'down';if(d.status===401||d.status===403)return 'auth';const g=await patientFetch(GATE.origin+'/api/model/options',{headers:{authorization:'Bearer '+API_KEY}});return !g?'down':g.status===401||g.status===403?'auth':'ok'},claudeOn:async()=>(pick(await readConfig('default')||{},'plugins.enabled')||[]).includes('claude-subscription-directsdk-experimental'),onTz:z=>{tzNow=z;SR_TZ=z}});
 if(LIVE_APP){setTimeout(()=>install.tick(),120000).unref();setInterval(()=>install.tick(),15*60e3).unref()}
 const homeOfAggent=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
-const gconnect=createGoogleConnect({HERMES_HOME,DATA,PUBLIC_URL:()=>String(PUBLIC_URL),homeOf:homeOfAggent,log:m=>console.log(m)});
-// Google tools in aqeelos-notify (google-tools.mjs, 11 Nov 2026): Gmail, Sheets, Drive, Docs and Calendar with the agent's own
-// sign-in, for agents with no terminal. A share gets a fresh key at the agent's level; a file-locked agent goes through googleFiles.
-const googleTools=createGoogleTools({HERMES_HOME,homeOf:homeOfAggent,log:m=>console.log(m),locked:a=>googleFiles.locked(a),filesCall:(a,r)=>googleFiles.call(a,r),
+const gconnect=createGoogleConnect({HERMES_HOME,DATA,PUBLIC_URL:()=>String(PUBLIC_URL),homeOf:homeOfAggent,afterConnect:x=>googleTools.probe(x),log:m=>console.log(m)});
+// Google tools (11 Nov 2026): Gmail, Sheets, Drive, Docs, Calendar with the agent's sign-in, no terminal.
+// Shares: a key at the agent's level; a file-locked agent: googleFiles; APIs off: Needs you.
+const googleTools=createGoogleTools({HERMES_HOME,homeOf:homeOfAggent,needs:()=>bottlenecks,log:m=>console.log(m),locked:a=>googleFiles.locked(a),filesCall:(a,r)=>googleFiles.call(a,r),
  sharedKey:async(email,a)=>{const l=await gfLevel(email,String(a).split('--')[0]);if(!l||l==='none')throw Error('it is not shared with you any more');return googleShares.keyFor(email,l)},
  labels:async(a,n)=>{const L=await googleLabels();return L[a+'|'+n]||L[String(a).split('--')[0]+'|'+n]||{}},
  // a Web-application client: Google's sign-in for this agent at once (20 minutes); otherwise, or for a reconnect, the Connections page

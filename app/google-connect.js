@@ -52,7 +52,7 @@ const GC={
    <p class="err-line" id="gcWErr" hidden></p><button class="link-btn gc-back" id="gcBack">Back</button></div>`);
   const b=this.body(),stop=()=>{clearTimeout(this._t);this._t=null};
   b.querySelector('#gcBack').onclick=()=>{stop();this.paint()};
-  const done=x=>{stop();toast((x.email||'The account')+' is connected to '+ident(x.agent).name);this.opt.onDone?.(x);this.refresh(x)};
+  const done=x=>{stop();toast((x.email||'The account')+' is connected to '+ident(x.agent).name+(x.apisOff?.length?'. '+x.apisOff.join(', ')+(x.apisOff.length>1?' are':' is')+' switched off in Google Cloud: see Needs you':''));this.opt.onDone?.(x);this.refresh(x)};
   const bad=m=>{const e=b.querySelector('#gcWErr');if(e){e.textContent=m;e.hidden=false}b.querySelector('.gc-wait-h .spinner')?.remove();if(!r.paste){const h=b.querySelector('.gc-wait-h b');if(h)h.textContent='Not connected';b.querySelector('.gc-wait-h .hint')?.remove();const a=b.querySelector('.gc-again');if(a)a.hidden=true;const k=b.querySelector('#gcBack');if(k)k.textContent='Try again'}};
   b.querySelector('#gcFin')?.addEventListener('click',async ev=>{const v=b.querySelector('#gcAddr').value.trim();if(!v)return bad('Paste the address first.');ev.target.disabled=true;
    try{done(await post(UI,'/ui/google/finish',{address:v}))}catch(e){ev.target.disabled=false;bad(e.message)}});

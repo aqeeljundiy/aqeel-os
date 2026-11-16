@@ -74,7 +74,7 @@ export function emailOf(idToken){try{return String(JSON.parse(Buffer.from(String
 export function codeFrom(input){const s=String(input||'').trim();let q;try{q=new URL(s).searchParams}catch{q=new URLSearchParams(s.replace(/^[^?]*\?/,''))}
  return {code:q.get('code')||'',state:q.get('state')||'',error:q.get('error')||'',scope:q.get('scope')||''}}
 
-export function createGoogleConnect({HERMES_HOME,DATA,PUBLIC_URL,homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),fetchImpl=fetch,now=()=>Date.now(),log=()=>{}}){
+export function createGoogleConnect({HERMES_HOME,DATA,PUBLIC_URL,homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),afterConnect=null,fetchImpl=fetch,now=()=>Date.now(),log=()=>{}}){
  const CLIENT=path.join(HERMES_HOME,'google_client_secret.json'),PEND=path.join(DATA,'google-connect.json');
  // the address is read each time (it can be an app setting, or an object that reads as the current address)
  const redirectUri=()=>String(typeof PUBLIC_URL==='function'?PUBLIC_URL():PUBLIC_URL).replace(/\/$/,'')+'/google-oauth/callback';
@@ -136,7 +136,10 @@ export function createGoogleConnect({HERMES_HOME,DATA,PUBLIC_URL,homeOf=a=>a==='
    scopes:granted,expiry:new Date(now()+(Number(j.expires_in)||3600)*1000).toISOString().replace(/\.\d+Z$/,'.000000Z'),aqeelos_connected:now()};
   await mkdir(home,{recursive:true});await put(path.join(home,fileFor(name)),tok);
   log('google: '+(email||'an account')+' connected to '+p.agent+' as '+fileFor(name)+(p.reconnect?' (reconnect)':''));
-  return done({ok:true,agent:p.agent,name,file:fileFor(name),email,services:servicesOf(granted),renewed:!!same})}
+  // the Google APIs it was given are tried once (google-tools.mjs probe): one that is off is said here and is the owner's item
+  // at once (16 Nov 2026: a project with no API on was found only when an agent's sheet sync failed)
+  const off=afterConnect?(await afterConnect({agent:p.agent,email,token:j.access_token,client_id:c.client_id,services:servicesOf(granted)}).catch(x=>(log('google: API check failed: '+x.message),null)))?.off||[]:[];
+  return done({ok:true,agent:p.agent,name,file:fileFor(name),email,services:servicesOf(granted),renewed:!!same,...(off.length?{apisOff:off.map(k=>SERVICES[k].label),project:c.project}:{})})}
  // the dialog asks until the sign-in is done (the tab with Google is another window)
  async function result(state){const p=(await load())[state];if(!p)return {ok:false,error:'This sign-in expired. Press Connect again.'};return p.result||{waiting:true}}
  // a sign-in still works: Google gives a new access token from it (nothing is written)
