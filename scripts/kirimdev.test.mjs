@@ -76,7 +76,7 @@ const sentEv=(to,source,id='msg_'+Math.random(),conv='cnv_A',pid='111')=>JSON.st
 
 // an Indonesian line, as the owner runs it: these are settings (kirimdev.json), not code
 const LOCALE={language:'Indonesian',localPrefix:{country:'62',local:'0'},resetText:'✅ Test reset. Chat dari awal ya, anggap kamu customer baru.',handoff:{customerText:'Baik kak, untuk pertanyaan ini saya bantu teruskan ke tim kami dulu ya 🙏 Mohon ditunggu sebentar.'}};
-async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin,extra={},paidSince=null,bridge={self:async()=>'',send:async()=>{},result:async()=>null},probs=[],oks=[],health=false,docLinks=null,reviewReply=null,qrSince=null,describeImage=null,chat=null}={}){
+async function make({kd={},mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',conversationId:'cnv_A'}],postOk=true,team={chatId:-100,topics:{questions:3},mention:'@team'},pauseMin,extra={},paidSince=null,bridge={self:async()=>'',send:async()=>{},result:async()=>null},probs=[],oks=[],health=false,docLinks=null,reviewReply=null,qrSince=null,describeImage=null,chat=null}={}){
  const DATA=await mkdtemp(path.join(tmpdir(),'kd-')),WORK=path.join(DATA,'work');
  await mkdir(path.join(WORK,'cove-support','media','staff'),{recursive:true});
  await writeFile(path.join(WORK,'cove-support','media','staff','urls.txt'),'https://media.kirimdev.com/x/Kit.jpeg\n');
@@ -96,7 +96,7 @@ async function make({mode='test',agentSays='Halo kak 😊',testers=[{who:'Ari',c
   return {ok:false,status:404,json:async()=>({})}};
  // fake timers: the burst window only closes when the test calls settle(), never because the box was slow
  const due=new Map(),delays=[];let tid=0;const setTimer=(fn,ms)=>{const i=++tid;due.set(i,fn);delays.push(ms);return i},clearTimer=i=>{due.delete(i)};
- const k=createKirimdev({DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,paidSince,reviewReply,qrSince,describeImage,bridge,docLinks,...(health?{problem:async(...x)=>{probs.push(x)},solved:async(...x)=>{oks.push(x)}}:{}),
+ const k=createKirimdev({...kd,DATA,WORK,setTimer,clearTimer,apiKey:async()=>'kdv_test',PUBLIC_URL:'https://ai.example',fetchImpl,wait:async()=>{},log:m=>process.env.KDLOG&&console.log(m),now:()=>clock,echoWait:0,paidSince,reviewReply,qrSince,describeImage,bridge,docLinks,...(health?{problem:async(...x)=>{probs.push(x)},solved:async(...x)=>{oks.push(x)}}:{}),
   teamGroup:async a=>a==='cove-support'?team:null,
   runAgent:async(a,q,context)=>{asked.push([a,q,context]);return typeof agentSays==='function'?agentSays(q,context):agentSays},telegram:async(...x)=>{posts.push(x);return tg.ok?4242:false},tell:async t=>{told.push(t)}});
  const post=(raw,h={},agent='cove-support')=>k.receive(agent,{'x-kirim-signature':sign(raw,Math.floor(clock/1000)),'x-kirim-event':'message.received',...h},Buffer.from(raw));
@@ -405,6 +405,14 @@ test('a used-up provider is not the chat fault: the chat waits for the reset, on
  // the provider is back and the hold is over
  down=false;t.later(31*60e3);await t.post(meta('628123','halo lagi','m3'));await t.settle();
  assert.ok(runs>=2);assert.ok(t.sent.some(b=>/Halo kak/.test(b.text?.body||'')),'answered');assert.deepEqual(t.oks.map(x=>x[1]),['kirimdev|provider'])});
+// 16 Nov 2026: continue-support failed on GPT ("resets in ~44h") and was moved back to Claude minutes later, but the hold kept every customer
+// of the line waiting 30 minutes (the deploy's live test failed twice on it). The hold is for the model it failed on: moved since = answered now.
+test('the wait is for the model that failed: an agent moved to another model since is answered at once',async()=>{
+ let runs=0,route='openai-codex/gpt-6.1-sol';const t=await make({health:true,kd:{routeOf:async()=>route},agentSays:async()=>{runs++;if(route.startsWith('openai'))throw Error("the agent stopped (1): HTTP 429: You've hit your usage limit · resets 10pm (UTC)");return 'Halo kak'}});
+ await t.post(meta('628123','tolong','m1'));await t.settle();assert.equal(runs,1);assert.equal(t.sent.length,0,'held');
+ await t.post(meta('628777','halo','m2','cnv_X'));await t.settle();assert.equal(runs,1,'still on the model that failed: held without a run');
+ route='claude-subscription-directsdk-experimental/claude-sonnet-5-5[1m]';await t.post(meta('628777','halo lagi','m3','cnv_X'));await t.settle();
+ assert.ok(runs>=2,'moved to Claude: run at once, no 30-minute wait');assert.ok(t.sent.some(b=>/Halo kak/.test(b.text?.body||'')),'answered');assert.deepEqual(t.oks.map(x=>x[1]),['kirimdev|provider'],'the Health item clears')});
 test('a stop that is not the provider keeps the breaker, and its reason reaches the Health problem (12 Nov 2026)',async()=>{
  let runs=0;const t=await make({health:true,agentSays:async()=>{runs++;throw Error('the agent stopped (1): Gateway did not answer session.create')}});
  await t.post(meta('628123','tolong','m1'));await t.settle();assert.equal(runs,3);assert.ok(t.probs.some(x=>x[1].startsWith('stopped|')&&/Gateway did not answer session.create/.test(x[3])),'the reason is in the problem');assert.ok(!t.probs.some(x=>x[1]==='kirimdev|provider'))});

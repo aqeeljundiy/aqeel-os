@@ -1536,7 +1536,7 @@ const teamGroups=createTeamGroups({DATA,tell:async(a,before,g)=>{const t=x=>x?.c
  await bottlenecks.event('team-group',(NAMES[a]||a)+'’s team group changed','By '+(g.by||'?')+'.\nBefore: '+t(before)+'\nNow: '+t(g),{info:true}).catch(()=>{});if(LIVE_APP)writeAgentContext().catch(()=>{})}});
 const docLinks=createDocLinks({DATA,PUBLIC_URL:()=>String(PUBLIC_URL)});
 const teamPost=createTeamPost({HERMES_HOME,live:LIVE_APP,python:enginePython});
-const kirimdev=createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev),DATA,docLinks,WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
+const kirimdev=createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev),DATA,docLinks,routeOf:async a=>{const c=await readConfig(a).catch(()=>null);return c?String(pick(c,'model.provider')||'')+'/'+String(pick(c,'model.default')||''):''},WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
  // kind "customer" (a customer left without a reply, an unanswered handoff, a stopped message): shown and counted on Health, for the
  // team; agent-health.mjs never gives it to the agent or the code fixer, neither can answer a customer (audit H7)
  problem:(a,topic,title,detail)=>health.problem(a,String(topic).startsWith('kirimdev|')?'kirimdev':/^(customer|unanswered)\|/.test(String(topic))?'customer':'handoff',title,{topic,fix:detail}),solved:(a,topic)=>health.ok(a,topic),

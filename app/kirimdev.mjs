@@ -144,7 +144,7 @@ export const BRIDGE={url:process.env.WHATSAPP_BRIDGE_URL||'http://127.0.0.1:3000
   // the running bridge loaded probe_watch.js: the file is there and the bridge started after it was written
  async ready(){try{const f=await stat(path.join(HH(),'hermes-agent','scripts','whatsapp-bridge','probe_watch.js'));const h=await (await fetch(BRIDGE.url+'/health',{signal:AbortSignal.timeout(5000)})).json();return Date.now()-Number(h.uptime||0)*1000>f.mtimeMs}catch{return false}},
  async result(id){try{return JSON.parse(await readFile(path.join(HH(),'platforms','whatsapp','probes',id+'.json'),'utf8'))}catch{return null}}};
-export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,reviewReply=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,mediaLink=null,receiptFinal=()=>{},echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout}){
+export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,reviewReply=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,mediaLink=null,receiptFinal=()=>{},echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout,routeOf=async()=>''}){
  const pub=()=>String(PUBLIC_URL??publicUrl()).replace(/\/+$/,'');   // the address given (tests) or the install's current one
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
@@ -368,14 +368,18 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    if(p.waited&&p.conversationId){const l=((await api(line.phoneNumberId+'/messages?'+new URLSearchParams({conversation_id:p.conversationId,limit:'5'}))).data||[]).filter(m=>m.type!=='reaction').sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
     if(l[0]?.direction==='outbound'&&Date.parse(l[0].created_at)>p.at){log('kirimdev '+p.agent+': the team answered '+tail(p.from)+' during the pause; nothing more to send');if(st.pending[key]?.token===p.token)delete st.pending[key];delete st.turns[key];await saveState();return}}
    // the provider is used up or throttled (hold set by a run that said so): nothing is started until its reset time, not even a try that cannot work (12 Nov 2026)
-   const ph=st.provider?.[p.agent];if(ph&&ph.until>now()){later=true;delete st.turns[key];schedule(key,{debounceSec:Math.ceil((ph.until-now())/1000)});return}
+   // the hold is for the model the agent was on when it failed (16 Nov 2026: continue-support's run failed on GPT, "resets in ~44h", the agent
+   // was moved back to Claude minutes later, yet every customer of the line waited the full 30 minutes, and the deploy's live test failed twice)
+   const ph=st.provider?.[p.agent];if(ph&&ph.until>now()){const r=ph.route?await routeOf(p.agent).catch(()=>''):'';
+    if(r&&r!==ph.route){log('kirimdev '+p.agent+': moved from '+ph.route+' to '+r+' since its provider failed; the wait is over');delete st.provider[p.agent];await solved?.(p.agent,'kirimdev|provider').catch(()=>{});await saveState()}
+    else{later=true;delete st.turns[key];schedule(key,{debounceSec:Math.ceil((ph.until-now())/1000)});return}}
    const epoch=st.cut[key]||'';
    try{await answer(p.agent,line,p,key);
     if(p.superseded){later=true;delete st.turns[key];await saveState();if(st.pending[key])schedule(key,{debounceSec:quietWait(line,st.pending[key])});return}}
    catch(e){const lim=providerUnavailable(e.message,{now:now()});
     // ROOT CAUSE of the 'agent stopped' loops (12 Nov 2026): the engine run exits 1 because the Claude/GPT account is used up or throttled (HTTP 429 'session limit'), for every chat of the line at once; the two
     // always-active tester chats showed it. That is not the chat's fault: it waits for the reset time (30 min at most, else 2/5/10/15 min), the customer's message stays, ONE Health problem names the reason, and the first good answer clears it
-    if(lim){const h=(st.provider||={})[p.agent],n=(h?.n||0)+1,until=retryAt(lim,{now:now(),fallback:PROV_WAIT[Math.min(n,PROV_WAIT.length)-1]*1000,max:30*60e3,pad:30e3});st.provider[p.agent]={n,until,why:lim.why,kind:lim.kind,since:h?.since||now()};later=true;await saveState();
+    if(lim){const h=(st.provider||={})[p.agent],n=(h?.n||0)+1,until=retryAt(lim,{now:now(),fallback:PROV_WAIT[Math.min(n,PROV_WAIT.length)-1]*1000,max:30*60e3,pad:30e3});st.provider[p.agent]={n,until,why:lim.why,kind:lim.kind,since:h?.since||now(),route:await routeOf(p.agent).catch(()=>'')};later=true;await saveState();
      log('kirimdev '+p.agent+': the AI provider is not available ('+lim.kind+': '+lim.why.slice(0,120)+'); '+tail(p.from)+' waits until '+new Date(until).toISOString().slice(11,16)+' UTC');schedule(key,{debounceSec:Math.ceil((until-now())/1000)});
      if(!h)await problem?.(p.agent,'kirimdev|provider','Kirimdev line ('+line.persona+'): the AI provider is not available','Customers are not answered while it is down; their messages wait and are answered by themselves when it works. Reason from the engine: '+lim.why+(lim.resetAt?' It resets at '+new Date(lim.resetAt).toISOString().slice(11,16)+' UTC.':'')+' Fix: use another account for this agent (Accounts), or wait.').catch(()=>{});return}
     const f=(st.fails||={})[key],n=(f&&now()-f.at<FAIL_WINDOW?f.n:0)+1;st.fails[key]={n,at:now()};
