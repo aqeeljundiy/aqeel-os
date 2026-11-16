@@ -6,8 +6,11 @@
 // free_response_chats or the chat:topic pair is in free_response_topics; it reads them when the gateway starts.
 // This module: where the engine reads those lists, what they say for the chat a turn is in (told to the agent on every
 // group message by agent-live.mjs), and the change the agent makes through its group_replies tool (engine plugin
-// aqeelos-live): only the chat the engine says the turn is in (never an id from the model), only when the owner or a
-// team member asked there, written as an agent version (undo), confirmed after it reads back, then a graceful reload.
+// aqeelos-live): only the chat the engine says the turn is in (never an id from the model), the whole group, asked by a
+// person who tagged the agent there; written as an agent version (undo), saved only once it reads back, then applied at once
+// by a graceful engine restart, after which aqeelOS posts the confirmation in the chat with the agent's bot.
+// Not an engine patch that reads the list live: one gateway serves every profile, so which config.yaml an adapter should
+// re-read is not safe to guess, and a wrong patch would stop every deploy at engine-sim.
 import {execFile} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
@@ -53,14 +56,23 @@ r=c.execute('select source,chat_type,chat_id,thread_id,user_id from sessions whe
 print(json.dumps(dict(zip(('source','chat_type','chat_id','thread_id','uid'),r)) if r else None))
 `;
 
-export function createGroupReplies({readConfig,setKey,versions,restartLater,python,nameOf=a=>a,run=null,readEnv=null,log=m=>console.log(m)}){
+export function createGroupReplies({readConfig,setKey,versions,restartNow,pid=async()=>0,python,mirror=null,nameOf=a=>a,run=null,readEnv=null,fetchFn=(...x)=>fetch(...x),later=f=>{Promise.resolve().then(f)},log=m=>console.log(m)}){
  const envOf=readEnv||(async a=>envLines(await readFile(path.join(homeOf(a),'.env'),'utf8').catch(()=>'')));
  // the chat a turn is in, from the engine's own session row, never from the model's arguments
  const sessionOf=run||(async(a,id)=>{const p=await python();if(!p)throw Error('no engine python');return new Promise((res,rej)=>execFile(p,['-I','-c',PY,JSON.stringify({db:path.join(homeOf(a),'state.db'),id})],{timeout:20000},(e,o,er)=>e?rej(Error(String(er||e.message).slice(-200))):res(JSON.parse(o||'null'))))});
  async function status(a,chat,thread){const [conf,env]=await Promise.all([readConfig(a).catch(()=>null),envOf(a)]);return mode(conf||{},env,chat,thread)}
- // args: {action: status|add|remove, scope: chat|topic, why}; who: the person whose message started this turn, checked
- // against the team policy by the caller (agent-live.mjs who()), null when not the owner or a team member
- async function call(a,{session,who},args={}){const action=String(args.action||'status'),scope=args.scope==='topic'?'topic':'chat';
+ // the confirmation, posted with the agent's own bot once the restart is done and the list still says so (kept in the topic's
+ // conversation through the engine's mirror, so the agent knows it was said)
+ async function confirm(a,chat,thread,on){const m=await status(a,chat,thread);if(m.chat!==on){log('group-replies: '+a+' '+chat+' not confirmed: the list changed again');return false}
+  const tok=(await envOf(a)).TELEGRAM_BOT_TOKEN;if(!tok)return false;
+  const text=on?'Done: I now answer everyone in this group without being tagged. To switch back, tag me and ask.':'Done: in this group I answer again only when someone tags me or replies to me.';
+  const r=await fetchFn('https://api.telegram.org/bot'+tok+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chat,...(thread&&thread!=='1'?{message_thread_id:Number(thread)}:{}),text}),signal:AbortSignal.timeout(30000)}).then(x=>x.json()).catch(()=>null);
+  if(!r?.ok){log('group-replies: confirmation for '+a+' in '+chat+' not sent');return false}if(mirror)mirror(a,chat,thread||null,text);return true}
+ // args: {action: status|add|remove, why}. turn: what the plugin saw of the message this turn answers: session (the engine's),
+ // tagged (mention / reply / none), bot (the sender is a bot), who (the sender as the team policy knows them, or null).
+ // Owner's rule (16 Nov 2026): a new group needs a tag; any person who tags the agent there may switch THE WHOLE GROUP to
+ // answer without a tag, for everyone, at once (not at the night restart); switching back works the same way.
+ async function call(a,{session,tagged='',bot=false,who=null},args={}){const action=String(args.action||'status');
   if(!['status','add','remove'].includes(action))return {error:'action is status, add or remove.'};
   if(!session)return {error:'This run has no chat behind it, so there is no group to change.'};
   const s=await sessionOf(a,String(session)).catch(()=>null);if(!s)return {error:'aqeelOS cannot find this chat in your sessions, so it changed nothing.'};
@@ -70,20 +82,26 @@ export function createGroupReplies({readConfig,setKey,versions,restartLater,pyth
   const here={chat_id:chat,topic_id:thread||null};
   let m=await status(a,chat,thread);const said=()=>({...here,...m,words:modeWords(m,{topic:!!thread})});
   if(action==='status')return {ok:true,...said()};
-  if(!who)return {error:'Only the owner or a team member can ask for this, in this group. The person who sent this message is not verified, so nothing changed.',...here};
+  if(bot)return {error:'This message is from a bot; only a person can switch this. Nothing changed.',...here};
+  if(action==='add'&&!['mention','reply'].includes(String(tagged)))return {error:'Only a person who tags you (or replies to you) in this group can switch it to answer without a tag. This message did not, so nothing changed.',...here};
   if(!m.allowed)return {error:'This group is not on your allowed_chats list; a person adds it there first (Edit agent › Channels). Nothing changed.',...here};
-  if(scope==='topic'&&!thread)return {error:'This group has no topic id in this chat; use scope "chat" for the whole group. Nothing changed.',...here};
-  if(m[scope==='topic'?'envTopics':'envChats'])return {error:'Your list is set in your .env file ('+ENV[scope]+'), which wins over config.yaml; a person changes it there. Nothing changed.',...here};
+  if(m.envChats)return {error:'Your list is set in your .env file ('+ENV.chat+'), which wins over config.yaml; a person changes it there. Nothing changed.',...here};
   const conf=await readConfig(a).catch(()=>null);if(!conf)return {error:'Your config.yaml could not be read, so nothing changed.',...here};
-  const cur=freeList(conf,scope),entry=scope==='topic'?topicEntry(chat,thread):chat,has=cur.list.includes(entry);
+  const cur=freeList(conf,'chat'),has=cur.list.includes(chat);
   if(action==='add'&&has||action==='remove'&&!has)return {ok:true,unchanged:true,...said(),text:'Already '+(has?'on':'off')+' the list ('+cur.key+'). Nothing changed.'};
-  const next=action==='add'?[...cur.list,entry]:cur.list.filter(x=>x!==entry);
+  const next=action==='add'?[...cur.list,chat]:cur.list.filter(x=>x!==chat);
   const r=await setKey(a,cur.key,next).catch(e=>({ok:false,out:e.message}));if(!r?.ok)return {error:'Could not save it: '+String(r?.out||r?.err||'').trim().slice(-200)+'. Nothing changed.',...here};
-  // confirmed only once the file reads back with it
-  const back=freeList(await readConfig(a).catch(()=>null)||{},scope);if(back.list.includes(entry)!==(action==='add'))return {error:'The change did not read back from config.yaml, so it is not in effect. Tell the owner (report_bottleneck).',...here};
-  const what=(action==='add'?'Answer without a tag in ':'Need a tag again in ')+(scope==='topic'?'topic '+(thread||'1')+' of ':'')+'Telegram group '+chat;
-  const v=await versions.record(a,{kind:'setting',target:cur.key,what,why:String(args.why||'asked by '+who.name).slice(0,200),by:nameOf(a),before:{value:cur.raw??null},after:{value:next}}).catch(e=>{log('group-replies: version for '+a+': '+e.message);return null});
-  restartLater(a+': '+what.toLowerCase());log('group-replies: '+a+' '+what+' (asked by '+who.name+')');
+  // saved only once the file reads back with it
+  const back=freeList(await readConfig(a).catch(()=>null)||{},'chat');if(back.list.includes(chat)!==(action==='add'))return {error:'The change did not read back from config.yaml, so it is not in effect. Tell the owner (report_bottleneck).',...here};
+  const asker=who?.name||'a person in the group';
+  const what=(action==='add'?'Answer everyone without a tag in ':'Need a tag again in ')+'Telegram group '+chat;
+  const v=await versions.record(a,{kind:'setting',target:cur.key,what,why:String(args.why||'asked by '+asker).slice(0,200),by:nameOf(a),before:{value:cur.raw??null},after:{value:next}}).catch(e=>{log('group-replies: version for '+a+': '+e.message);return null});
+  log('group-replies: '+a+' '+what+' (asked by '+asker+')');
+  // applied now: a graceful engine restart (it waits for the replies running, this one too), then the confirmation in the chat
+  // a restart that was held (a build, a restore) leaves the same engine process: then nothing is confirmed, it applies at the next one
+  later(async()=>{try{const was=await pid().catch(()=>0);await restartNow(a+': '+what.toLowerCase()+' (asked in the group)');const now=await pid().catch(()=>0);
+   if(!now||now===was)return log('group-replies: '+a+' engine not restarted (held or down); '+chat+' applies at the next restart, nothing confirmed');
+   await confirm(a,chat,thread,action==='add')}catch(e){log('group-replies: restart for '+a+': '+e.message)}});
   m=mode(await readConfig(a).catch(()=>null)||conf,await envOf(a),chat,thread);
-  return {ok:true,saved:true,change:v?.id||null,...said(),text:'Saved in '+cur.key+(v?.id?' as change '+v.id:'')+'. It takes effect after aqeelOS reloads you, once no reply is running (usually a few minutes); until then untagged messages here still do not reach you. To reverse it, call group_replies with action "'+(action==='add'?'remove':'add')+'".'}}
- return {status,call}}
+  return {ok:true,saved:true,applied:false,change:v?.id||null,...said(),text:'Saved in '+cur.key+(v?.id?' as change '+v.id:'')+', for the whole group. aqeelOS now restarts you gracefully (once this reply and the others running are sent) and then posts the confirmation in this chat with your bot. So tell the person it is being switched '+(action==='add'?'on':'off')+' and that the confirmation follows; do not say it is already active. To switch back, call group_replies with action "'+(action==='add'?'remove':'add')+'".'}}
+ return {status,call,confirm}}

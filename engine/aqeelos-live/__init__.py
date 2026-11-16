@@ -209,11 +209,13 @@ def _note_tag(event, gateway):
         name = getattr(bot, "username", None)
     except Exception:
         name = None
-    tag = tag_of(msg, getattr(bot, "id", None), name)
-    if tag:
-        if len(_tags) > 5000:
-            _tags.clear()
-        _tags[gateway._session_key_for_source(src)] = tag
+    tag, key = tag_of(msg, getattr(bot, "id", None), name), gateway._session_key_for_source(src)
+    if not tag:
+        _tags.pop(key, None)  # unknown: never carry the last message's answer over to this one
+        return
+    if len(_tags) > 5000:
+        _tags.clear()
+    _tags[key] = (tag, bool(getattr(getattr(msg, "from_user", None), "is_bot", False)))
 
 
 def _dispatch(event=None, gateway=None, session_store=None, **_):
@@ -366,18 +368,19 @@ def _context(session_id="", platform="", sender_id="", is_first_turn=False, **_)
     try:
         with _lock:
             last = _seen.get(session_id or "", "")
-        chat = {}
+        chat, tag = {}, ("", False)
         try:
             from gateway.session_context import get_session_env
             chat = {k: str(get_session_env("HERMES_SESSION_" + k.upper()) or "") for k in ("chat_id", "thread_id", "chat_type", "chat_name")}
-            chat["tagged"] = _tags.get(str(get_session_env("HERMES_SESSION_KEY") or ""), "")
+            tag = _tags.get(str(get_session_env("HERMES_SESSION_KEY") or ""), tag)
+            chat["tagged"] = tag[0]
         except Exception:
             pass
         if session_id and sender_id:
             with _lock:
                 if len(_senders) > 5000:
                     _senders.clear()
-                _senders[session_id] = str(sender_id)
+                _senders[session_id] = {"sender": str(sender_id), "tagged": tag[0], "bot": tag[1]}
         r = _post("/context", {"platform": platform or "", "sender": sender_id or "", "session": session_id or "",
                                "first": bool(is_first_turn), "seen": last, "chat": chat}, 3)
         if r.get("hash"):
@@ -429,16 +432,15 @@ def _team_view(args=None, session_id="", **_):
 
 GROUP_REPLIES_SCHEMA = {
     "name": "group_replies",
-    "description": ("Whether you get this Telegram group's messages without being tagged, and changing that for THIS chat only. "
-                    "aqeelOS takes the chat and topic from the conversation you are in, never from you. status: what your "
-                    "settings say for this chat id now. add: answer here without a tag; remove: need a tag again here. "
-                    "scope chat = the whole group, topic = only this topic. add and remove work only when the owner or a "
-                    "team member asked in this chat; the change is saved as one of your changes (my_changes) and takes "
-                    "effect after aqeelOS reloads you. Say it is done only when the answer says saved; never claim a "
-                    "channel setting you have not checked here."),
+    "description": ("Whether you get this Telegram group's messages without being tagged, and switching that for THIS whole "
+                    "group (every topic, everyone in it). aqeelOS takes the chat from the conversation you are in, never "
+                    "from you. status: what your settings say for this chat id now. add: answer everyone here without a "
+                    "tag, when a person who tagged you here asks for it; remove: need a tag again, when a person here asks. "
+                    "The change is saved as one of your changes (my_changes); aqeelOS then restarts you gracefully and "
+                    "posts the confirmation in this chat. Until then say it is being switched, not that it is active; "
+                    "never claim a channel setting you have not checked here."),
     "parameters": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["status", "add", "remove"]},
-        "scope": {"type": "string", "enum": ["chat", "topic"], "description": "Default chat (the whole group)"},
         "why": {"type": "string", "description": "Who asked and what they said, in a few words"}}, "required": ["action"]},
 }
 
@@ -447,8 +449,9 @@ def _group_replies(args=None, session_id="", **_):
     # the chat comes from the session the engine hands this call; the asker from the message this turn answers
     try:
         with _lock:
-            sender = _senders.get(str(session_id or ""), "")
-        return json.dumps(_post("/group-replies", {"session": str(session_id or ""), "sender": sender, "args": args or {}}, 60))
+            turn = dict(_senders.get(str(session_id or ""), {}))
+        return json.dumps(_post("/group-replies", {"session": str(session_id or ""), "sender": turn.get("sender", ""), "tagged": turn.get("tagged", ""),
+                                                   "bot": bool(turn.get("bot")), "args": args or {}}, 60))
     except Exception as e:
         return json.dumps({"error": "aqeelOS did not answer, so nothing changed: " + str(e)[:160]})
 

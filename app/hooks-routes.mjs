@@ -46,11 +46,11 @@ export function createHooksRoutes({agentAccess,agentLive,customerTools,designGua
   if(p==='/agent-live/team-view'){if(req.method!=='POST')return send(res,405,{error:'POST only'}),true;let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'}),true;if(String(b.agent||'')!==agentAccess.MAIN)return send(res,403,{error:'Only the main agent has this.'}),true;
    try{return send(res,200,await teamView.call({session:String(b.session||'').slice(0,120)},b.args&&typeof b.args==='object'?b.args:{})),true}catch(e){return send(res,200,{error:e.message}),true}}
-  // group_replies (every agent): answer in the current Telegram group or topic without a tag; the chat comes from the engine's
-  // session, the asker is checked against the team policy here, the change is a version and reloads the agent gracefully
+  // group_replies (every agent): the current Telegram group answers everyone without a tag, or needs one again; the chat comes from the engine's
+  // session, the asker's tag from the platform message (plugin); the change is a version, applied by a graceful restart at once
   if(p==='/agent-live/group-replies'){if(req.method!=='POST')return send(res,405,{error:'POST only'}),true;let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
    if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'}),true;const ag=String(b.agent||'');if(!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(ag)||!(await agentLive.homes()).includes(ag))return send(res,404,{error:'no such agent'}),true;
-   try{return send(res,200,await groupReplies.call(ag,{session:String(b.session||'').slice(0,120),who:await agentLive.who('telegram',String(b.sender||'').slice(0,80))},b.args&&typeof b.args==='object'?b.args:{})),true}catch(e){return send(res,200,{error:e.message}),true}}
+   try{return send(res,200,await groupReplies.call(ag,{session:String(b.session||'').slice(0,120),tagged:String(b.tagged||'').slice(0,20),bot:b.bot===true,who:await agentLive.who('telegram',String(b.sender||'').slice(0,80))},b.args&&typeof b.args==='object'?b.args:{})),true}catch(e){return send(res,200,{error:e.message}),true}}
   if(p==='/agent-live/schedule-review'){if(req.method!=='POST')return send(res,405,{error:'POST only'}),true;let b={};try{b=JSON.parse(await readBody(req,65536))}catch{}
    if(!await agentLive.keyOk(b.key))return send(res,403,{error:'bad key'}),true;const ag=String(b.agent||'');if(!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(ag)||!(await agentLive.homes()).includes(ag))return send(res,404,{error:'no such agent'}),true;
    return send(res,200,{block:await designGuard.engineCall(ag,b.args&&typeof b.args==='object'?b.args:{}).catch(()=>null)}),true}

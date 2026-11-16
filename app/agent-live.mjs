@@ -74,7 +74,7 @@ export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,p
  async function whereWords(agent,pf,chat){const id=String(chat.chat_id),t=String(chat.thread_id||''),tn=String(chat.chat_name||'').split(' / ')[1]||'',tag=TAG[String(chat.tagged||'')];
   let s='[aqeelOS] Where you are answering: '+(pf||'a channel')+' group, chat id '+id+(t?', topic id '+t+(tn?' ("'+clip(tn,60)+'")':''):'')+'.'+(tag?' This message: '+tag+'.':'');
   if(pf==='telegram'){const m=mode(await readConfig(agent).catch(()=>null)||{},envLines(await readFile(path.join(home(agent),'.env'),'utf8').catch(()=>'')),id,t);
-   s+=' Without a tag: '+modeWords(m,{topic:!!t})+' Checked in your settings for this chat id just now. When a person here asks you to answer without a tag, or to need one again, use group_replies: it changes this chat only.'}
+   s+=' Without a tag: '+modeWords(m,{topic:!!t})+' Checked in your settings for this chat id just now. When a person here asks you to answer without a tag, or to need one again, use group_replies: it switches this whole group, for everyone in it.'}
   return s+' Use these ids for this chat. Never take a chat id from your settings, memory or another chat for this one, and never say a channel setting is on, off or saved unless you checked it against this chat id.'}
  // the sender as the team policy knows them (for tools that act only when the owner or a team member asked)
  async function who(pf,sender){const r=senderRole(await policy().catch(()=>null),pf,sender);return r?{name:r.name,role:r.role}:null}
