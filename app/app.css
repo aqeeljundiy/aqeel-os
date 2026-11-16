@@ -3291,6 +3291,6 @@ button.sf-more:focus-visible{outline:2px solid var(--blue-2);outline-offset:0}
 /* an agent's own model order (Models › Which agent uses what, 16 Nov 2026) */
 .use-ctl{display:flex;gap:8px;align-items:center;min-width:0}.use-ctl select{flex:1;min-width:0}.ord-btn{flex:none;white-space:nowrap}.ord-btn.own{color:var(--blue-deep);background:var(--blue-soft);border-color:transparent}
 .ord-own{align-items:flex-start;gap:10px;margin-bottom:12px}.ord-own small{display:block;margin-top:2px}
-.ord-list{display:grid;gap:6px;transition:opacity .2s}.ord-list.off{opacity:.55}
-.ord-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);transition:opacity .2s,background .2s}
+.ord-list{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;transition:opacity .2s}.ord-list.off{opacity:.55}
+.ord-row{min-width:0;display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);transition:opacity .2s,background .2s}
 .ord-row.is-off{opacity:.55}.ord-row.is-off .ord-t{text-decoration:line-through}.ord-n{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--blue-soft);color:var(--blue-deep);font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}.ord-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
