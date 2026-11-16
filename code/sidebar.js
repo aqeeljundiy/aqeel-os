@@ -62,10 +62,19 @@ export function createSidebar(ctx){
   {label:'Delete chat…',danger:true,action:async()=>{if(await confirmDialog({title:'Delete “'+c.title+'”?',message:'The conversation is removed. Project files and saved versions stay.',confirm:'Delete chat',danger:true}))act(async()=>{const r=await ctx.api('/chat/delete',{projectId:p.id,chatId:c.id});if(c.id===ctx.chatId())await ctx.openChat(p.id,r.chatId)},'Chat deleted.')}},
  ]}
 
+ // each fork right under the chat it came from (forks of forks under theirs); a fork whose source is not in this list stays where it was
+ function forkOrder(chats){const ids=new Set(chats.map(c=>c.id)),kids=new Map(),top=[];
+  for(const c of chats){if(c.forkedFrom&&c.forkedFrom!==c.id&&ids.has(c.forkedFrom)){if(!kids.has(c.forkedFrom))kids.set(c.forkedFrom,[]);kids.get(c.forkedFrom).push(c)}else top.push(c)}
+  const out=[],seen=new Set(),add=(c,under,d)=>{if(seen.has(c.id))return;seen.add(c.id);out.push(under?{...c,nestedUnder:under,forkDepth:d}:c);for(const k of kids.get(c.id)||[])add(k,c.id,d+1)};
+  for(const c of top)add(c,'',0);for(const c of chats)add(c,'',0);return out}
  function chatRow(p,c){
   const li=el('li','tree-chat');li.dataset.chat=c.id;const s=status(p,c);
   const b=el('button','chat-row'+(c.id===ctx.chatId()?' current':''));b.type='button';b.title=c.title+(lastTime(c)?' · '+new Date(lastTime(c)).toLocaleString():'');if(c.id===ctx.chatId())b.setAttribute('aria-current','true');
-  b.append(dot(s),el('span','chat-title',c.title));if(c.shared)b.append(el('span','pin from','from '+c.shared.fromName));if(c.pinned)b.append(el('span','pin','Pinned'));if(c.temporary){b.classList.add('temporary');b.append(el('span','pin','Temporary'))}
+  // a fork sits under the chat it came from with a branch mark, named without the "Fork of" its title starts with (owner, 15 Nov 2026:
+  // "hard to identify what's a fork"); one whose source is not listed keeps a small Fork label instead
+  const fork=c.forkedFrom?((p.chats||[]).find(x=>x.id===c.forkedFrom)||null):undefined,nested=Boolean(fork&&!fork.archived&&c.nestedUnder);
+  if(nested){li.classList.add('fork');li.style.setProperty('--fork-depth',String(Math.min(3,c.forkDepth||1)));const m=el('span','fork-mark');m.setAttribute('aria-hidden','true');m.innerHTML='<svg viewBox="0 0 16 16"><path d="M4 2v5a4 4 0 0 0 4 4h4M9 8l3 3-3 3"/></svg>';b.append(m);b.title='Fork of '+fork.title+(lastTime(c)?' · '+new Date(lastTime(c)).toLocaleString():'')}
+  b.append(dot(s),el('span','chat-title',nested?String(c.title).replace(/^(Fork of )+/,''):c.title));if(c.forkedFrom&&!nested)b.append(el('span','pin','Fork'));if(c.shared)b.append(el('span','pin from','from '+c.shared.fromName));if(c.pinned)b.append(el('span','pin','Pinned'));if(c.temporary){b.classList.add('temporary');b.append(el('span','pin','Temporary'))}
   b.addEventListener('click',()=>ctx.openChat(p.id,c.id));
   b.addEventListener('dblclick',e=>{e.preventDefault();inlineRename(b.querySelector('.chat-title'),c.title,title=>ctx.api('/chat/update',{projectId:p.id,chatId:c.id,title}))});
   const more=el('button','tree-more','⋯');more.type='button';more.setAttribute('aria-label','Chat actions for '+c.title);more.setAttribute('aria-haspopup','menu');
@@ -89,7 +98,7 @@ export function createSidebar(ctx){
   row.addEventListener('drop',e=>{row.classList.remove('drop-target');const chat=e.dataTransfer.getData('application/x-cba-chat'),proj=e.dataTransfer.getData('application/x-cba-project');e.preventDefault();
    if(chat){const c=JSON.parse(chat);if(c.projectId!==p.id)act(async()=>{await ctx.api('/chat/move',{projectId:c.projectId,chatId:c.chatId,toProjectId:p.id})},'Chat moved to '+p.name+'.')}
    else if(proj&&proj!==p.id){const order=ctx.projects().map(x=>x.id).filter(id=>id!==proj);order.splice(order.indexOf(p.id),0,proj);act(()=>ctx.api('/project/order',{order}))}});
-  if(open){const ul=el('ul','tree-chats');ul.setAttribute('role','group');ul.setAttribute('aria-label','Chats in '+p.name);for(const c of chats)ul.append(chatRow(p,c));if(!chats.length)ul.append(el('li','tree-empty',filter==='all'?'No chats':'Nothing here'));wrap.append(ul);
+  if(open){const ul=el('ul','tree-chats');ul.setAttribute('role','group');ul.setAttribute('aria-label','Chats in '+p.name);for(const c of forkOrder(chats))ul.append(chatRow(p,c));if(!chats.length)ul.append(el('li','tree-empty',filter==='all'?'No chats':'Nothing here'));wrap.append(ul);
    const outs=p.id===ctx.projectId()?(ctx.outputs?.()||[]):[];if(outs.length){const ol=el('ul','tree-outputs');ol.setAttribute('aria-label','Outputs in '+p.name);ol.append(el('li','tree-section-mini','Outputs'));if(outs.length>12){const all=el('li');const b=el('button','link-button tree-all','Show all '+outs.length+' in Artifacts');b.type='button';b.onclick=()=>ctx.openOutput?.(outs[12].slug);all.append(b);queueMicrotask(()=>ol.append(all))}
    for(const o of outs.slice(0,12)){const li=el('li');const ob=el('button','output-row');ob.type='button';ob.dataset.kind=o.kind;ob.append(el('span','output-dot'),el('span','chat-title',o.title));ob.title=o.title;ob.addEventListener('click',()=>ctx.openOutput?.(o.slug));const om=el('button','tree-more','⋯');om.type='button';om.setAttribute('aria-label','Actions for '+o.title);om.setAttribute('aria-haspopup','menu');withMenu(ob,()=>[{label:'Open',action:()=>ctx.openOutput?.(o.slug)},'separator',{label:'Delete…',danger:true,action:()=>ctx.deleteOutput?.(o.slug)}],{button:om,label:'Output actions'});li.className='output-item';li.append(ob,om);ol.append(li)}wrap.append(ol)}}
   return wrap}

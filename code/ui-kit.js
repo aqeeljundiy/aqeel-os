@@ -1,6 +1,10 @@
 // Shared interface pieces: context menu (right-click and ⋯ buttons) and confirm / text dialogs.
 const el=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e};
 let open=null;
+// was the last thing the person did a key press (not a click or tap)? Only then does a menu start on its first item (owner, 15 Nov 2026:
+// a project menu opened with the mouse showed "New chat" ringed and grey before anything was pointed at)
+let byKey=false;
+addEventListener('keydown',e=>{if(!['Shift','Control','Alt','Meta'].includes(e.key))byKey=true},true);addEventListener('pointerdown',()=>{byKey=false},true);
 
 export function closeMenu(focusBack=true){if(!open)return;const {menu,anchor}=open;open=null;menu.classList.remove('shown');menu.classList.add('closing');setTimeout(()=>menu.remove(),170);anchor?.setAttribute?.('aria-expanded','false');if(focusBack)anchor?.focus?.()}
 
@@ -20,9 +24,10 @@ export function openMenu(at,items,{anchor,label='Actions'}={}){
  menu.style.left=Math.max(8,Math.min(x,vw-r.width-8))+'px';menu.style.top=Math.max(8,y+r.height>vh-8?y-r.height-(at instanceof Element?at.getBoundingClientRect().height+8:0):y)+'px';
  void menu.offsetWidth;menu.classList.add('shown');
  anchor?.setAttribute?.('aria-expanded','true');open={menu,anchor};
- menu.querySelector('.ctx-item:not(:disabled)')?.focus({preventScroll:true});
+ // from the keyboard: the first item has focus; from a click: the menu itself does (no item lit up), so the arrows and Escape still work
+ menu.tabIndex=-1;if(byKey)menu.querySelector('.ctx-item:not(:disabled)')?.focus({preventScroll:true});else menu.focus({preventScroll:true});
  menu.addEventListener('keydown',e=>{const items=[...menu.querySelectorAll('.ctx-item:not(:disabled)')],i=items.indexOf(document.activeElement);
-  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();items[(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus()}
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();items[i<0?(e.key==='ArrowDown'?0:items.length-1):(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus()}
   else if(e.key==='Home'||e.key==='End'){e.preventDefault();(e.key==='Home'?items[0]:items.at(-1))?.focus()}
   else if(e.key==='Escape'){e.preventDefault();closeMenu(true)}else if(e.key==='Tab'){e.preventDefault();closeMenu(true)}});
 }
