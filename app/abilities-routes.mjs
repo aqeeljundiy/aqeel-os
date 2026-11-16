@@ -13,7 +13,7 @@ import {onlineCodeOn,ONLINE_CODE_MSG} from './install-routes.mjs';
 import path from 'node:path';
 import {homedir} from 'node:os';
 import {readdir,stat} from 'node:fs/promises';
-export function createAbilitiesRoutes({agentDefaults,channelIdentity,code,codeAgents,codeBridge,codeOnline,displayName,envOf,isTestAgent,listAgents,listAllProfiles,live,lockedAgent,lockTools,MCP_OAUTH_BASE,n8n,NAMES,readBody,restartGateway,send,sharing,slackClientChannels,slackQuiet,users}){
+export function createAbilitiesRoutes({agentReload=null,agentDefaults,channelIdentity,code,codeAgents,codeBridge,codeOnline,displayName,envOf,isTestAgent,listAgents,listAllProfiles,live,lockedAgent,lockTools,MCP_OAUTH_BASE,n8n,NAMES,readBody,restartGateway,send,sharing,slackClientChannels,slackQuiet,users}){
 // the other way (Unlock): terminal, files, code and computer use back on for this agent, where its owner may have them
 async function unlockTools(a){const c=await readConfig(a);if(!c)throw new Error('the settings could not be read');
  const cur=pick(c,'agent.disabled_toolsets')||[];const list=Array.isArray(cur)?cur.map(String):String(cur).split(',').map(x=>x.trim()).filter(Boolean);
@@ -43,7 +43,7 @@ async function unlockTools(a){const c=await readConfig(a);if(!c)throw new Error(
     let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const ag=String(b.agent||'');if(!await isAgent(ag)||ag==='default'||ag.includes('--'))return send(res,400,{error:'Unknown agent'}),true;
     if(b.trusted&&users.tierOf(ag)!=='admin')return send(res,400,{error:'Only agents of admins can run as the main user.'}),true;
     await agentDefaults.setTrusted(ag,!!b.trusted);console.log('agent',ag,b.trusted?'trusted: runs as the main user':'runs as its own user','(by '+u.id+')');
-    agentDefaults.added(ag).then(async n=>{if(n&&!await isTestAgent(ag).catch(()=>false))Promise.resolve(restartGateway('Trusted changed for '+ag)).catch(()=>{})}).catch(e=>console.warn('agent defaults',ag,e.message));return send(res,200,{ok:true,trusted:!!b.trusted}),true}
+    agentDefaults.added(ag).then(async n=>{if(n&&!await isTestAgent(ag).catch(()=>false))Promise.resolve(agentReload?agentReload.agent(ag,'Trusted changed for '+ag):restartGateway('Trusted changed for '+ag)).catch(()=>{})}).catch(e=>console.warn('agent defaults',ag,e.message));return send(res,200,{ok:true,trusted:!!b.trusted}),true}
    // Abilities › Skills › Only these agents (admins): one skill's rule in skills-policy.json
    if(p==='/ui/skills-policy'){if(req.method==='GET')return send(res,200,skillRules()),true;if(!users.isAdmin(u))return send(res,403,{error:'Only admins decide which agents get a skill.'}),true;
     let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}

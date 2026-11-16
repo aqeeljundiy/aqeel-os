@@ -47,7 +47,7 @@ export function createCodeAgent({DASH,DASH_TOKEN,API_KEY,live=true,codeBridge,re
   const have=pick(await readConfig(CODE_AGENT).catch(()=>null)||{},'plugins.enabled')||[];let switched=0;
   for(const p of providerPlugins(pick(main0||{},'plugins.enabled'),n=>manifests[n])){const to=path.join(dir,'plugins',p);
    if(!await access(path.join(to,'plugin.yaml')).then(()=>1,()=>0)){await mkdir(path.join(dir,'plugins'),{recursive:true});await cp(path.join(mainDir,'plugins',p),to,{recursive:true});await cp(path.join(mainDir,'plugins','.install-metadata.json'),path.join(dir,'plugins','.install-metadata.json')).catch(()=>{})}
-   if(!have.includes(p)){const r=await hermes(CODE_AGENT,['plugins','enable',p],{timeout:150000,retries:3});if(!r.ok)throw Error('could not switch on '+p+': '+String(r.err||r.out||'').slice(-160));log('code agent: '+p+' switched on');switched++}}
+   if(!have.includes(p)){const r=await hermes(CODE_AGENT,['plugins','enable',p],{timeout:150000,retries:3});if(!r.ok)throw Error('could not switch on '+p+': '+String(r.err||r.out||'').slice(-160));log('code agent: '+p+' switched on');if(!/Gateway reloaded plugins/i.test(String(r.out||'')))switched++}}
   // a plugin switched on applies when the agents restart (as for any agent, access.mjs); the restart waits until nobody is mid-reply
   if(switched&&restart)await restart('code agent: its model sign-ins switched on');
   // a default model, the main agent's, so "Default" in Code works; Code names the model of each turn anyway

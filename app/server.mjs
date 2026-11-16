@@ -159,6 +159,7 @@ import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
 import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';import {createSchedulesRoutes} from './schedules-routes.mjs';import {createIdentitiesRoutes} from './identities-routes.mjs';import {createHooksRoutes} from './hooks-routes.mjs';import {createOAuthCallbackRoutes} from './oauth-callback-routes.mjs';import {createBoxRoutes} from './box-routes.mjs';   // the routes that used to sit in this file (one module each)
 import {createScreenLink,createScreenTickets} from './screen-link.mjs';import {appPage} from './v2-page.mjs';import {createTeamPost} from './team-post.mjs';   // the screen viewer's own connection, ticket per connection (AUD-15)
+import {createAgentReload} from './agent-reload.mjs';
 
 delete Object.prototype.__proto__;   // a key named __proto__ from a request is an ordinary key: no lookup reaches Object.prototype (security audit, 12 Nov 2026)
 const here=path.dirname(fileURLToPath(import.meta.url));
@@ -575,7 +576,7 @@ async function slackClientChannels(){const st=await getStatus().catch(()=>({}));
    if(!/kept up to date by aqeelOS/.test(s))s=s.replace(/^SLACK_IGNORED_CHANNELS=/m,'# quiet channels (names starting with the prefix set for this Slack workspace under Channels): never answered, kept up to date by aqeelOS\nSLACK_IGNORED_CHANNELS=');return s});
   await setStatus(a,{...(marked?{}:{slackOpen:Date.now()}),slackQuietPre:pre});
   console.log('slack:',a,'in',team.name||team.id+':',add.length?'quiet now: '+add.length+' channel(s)':'',remove.length?'answering again: '+remove.length+' channel(s)':'',!marked?'answers in every channel it is invited to':'');
-  restartGateway('Slack channel settings updated for '+a).catch(()=>{})}catch(e){console.warn('slack channels',a,e.message)}}}
+  agentReload.agent(a,'Slack channel settings updated for '+a).catch(()=>{})}catch(e){console.warn('slack channels',a,e.message)}}}
 if(LIVE_APP){setTimeout(()=>slackClientChannels(),60000).unref();setInterval(()=>slackClientChannels(),900000).unref()}
 /* Dictation spells your names right: the speech model gets the names it should expect (agents, schedule folders,
    the app itself), kept up to date as they change. */
@@ -723,6 +724,7 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
 // restarts that can wait: in the maintenance window, after a due one-time schedule (restart-later.mjs)
 const later=createRestartLater({DATA,dueSoon:cronDueSoon(DASH.origin,DASH_TOKEN),restart:why=>restartGateway(why,{wait:true,waitMax:restartWaitPolls(restartGraceMs(installSettings()))}),tz:()=>installTz()||process.env.TZ||'',inWindow:d=>inWindow(d,windowOf(installSettings())),label:()=>{const w=windowOf(installSettings());return 'the maintenance window ('+w.from+'-'+w.to+' '+w.tz+')'}});
 const restartLater=why=>later.add(why).catch(e=>console.warn('restart later',e.message));
+const agentReload=createAgentReload({python:enginePython,root,engine:path.join(HERMES_HOME,'hermes-agent'),HERMES_HOME,homeOf:a=>homeOfAg(a),restartGateway:why=>restartGateway(why),restartLater:why=>restartLater(why)});   // one agent, not the whole engine (16 Nov 2026)
 if(LIVE_APP)setInterval(()=>later.tick().catch(e=>console.warn('quiet-hours restart',e.message)),5*60e3).unref();
 // a minute after aqeelOS restarted the engine, every tool server is checked and fixed (automation-guard.mjs); an engine
 // update runs its own check after its restarts
@@ -837,7 +839,7 @@ const googleFiles=createGoogleFiles({HERMES_HOME,WORK:path.join(homedir(),'works
 const googleShares=createGoogleShares({HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),agents:()=>agentNames(),levelOf:gfLevel,held:a=>googleFiles.locked(a)});
 if(LIVE_APP){const t=()=>googleFiles.ensureClients().catch(e=>console.warn('google files',e.message));setTimeout(t,30e3).unref();setInterval(t,5*60e3).unref()}
 if(LIVE_APP){const t=()=>googleShares.renew().then(r=>{if(r.renewed||r.removed)console.log('google shares: renewed',r.renewed,'removed',r.removed)}).catch(e=>console.warn('google shares',e.message));setInterval(t,5*60e3).unref();setTimeout(t,60e3).unref()}
-const access=createAccess({googleShares,HERMES_HOME,DATA,listAgents:()=>listAgents(),readConfig,setKey,hermes:hcmd,editEnv,names:a=>agentName(a),writeJson:(f,v)=>writeJsonAtomic(f,v),restart:why=>restartGateway(why).catch(()=>{}),
+const access=createAccess({googleShares,HERMES_HOME,DATA,listAgents:()=>listAgents(),reload:(a,why)=>agentReload.plugins([a].flat(),why),readConfig,setKey,hermes:hcmd,editEnv,names:a=>agentName(a),writeJson:(f,v)=>writeJsonAtomic(f,v),restart:why=>restartGateway(why).catch(()=>{}),
  own:{n8n:{owner:'aqeelOS',note:'every agent has its own n8n user',grant:a=>n8n.ensure(a)}},
  dash:(method,p)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>r.json().catch(()=>({})))});
 const accessAsk=createAccessRequests({DATA,access,listAgents:()=>listAgents(),names:a=>agentName(a)});
@@ -1047,7 +1049,7 @@ const shareLevels=createSharing({DATA,listAgents:()=>agentNames({copies:false}),
 // agents as a shared resource (agent-access.mjs): manage_agent checks the caller's level on the target agent on every call;
 // changes go to the agent-versions hook (agent-versions.mjs, when it exports recordAgentChange) so they are attributed and undoable
 const cronApi=(t,p,o={})=>fetch(DASH.origin+'/api/cron/jobs'+p+(p.includes('?')?'&':'?')+'profile='+encodeURIComponent(t),{...o,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},signal:AbortSignal.timeout(60000)}).then(async r=>{const j=await r.json().catch(()=>null);if(!r.ok)throw new Error(j?.detail||'HTTP '+r.status);return j});
-const agentAccess=createAgentAccess({guard:()=>designGuard,sharing:shareLevels,HERMES_HOME,MAIN:env.MAIN_AGENT||'default',
+const agentAccess=createAgentAccess({guard:()=>designGuard,sharing:shareLevels,HERMES_HOME,restartAgent:(a,why)=>agentReload.agent(a,why),MAIN:env.MAIN_AGENT||'default',
  // F (lead agents): a lead's power is its person's role, read live: an admin's lead acts as the main agent; any other agent
  // may only manage agents its own person owns (never someone else's, whatever level was shared), and never change sharing
  mainLike:a=>users.leadPerson(a)!==null&&users.tierOf(a)==='admin',
@@ -1941,13 +1943,13 @@ const agentLive=createAgentLive({HERMES_HOME,DATA,chatInfo:(a,pf,id)=>pf==='tele
  topicName:async(a,chatId,thread)=>{const g=await teamGroups.get(a).catch(()=>null);if(!g||String(g.chatId)!==String(chatId))return null;const r=Object.entries(g.topics||{}).find(([,v])=>String(v)===String(thread));return r?pretty0(r[0])+' (topic '+thread+')':null},listAgents:()=>listAgents(),readConfig,setKey,pick,capabilities:a=>versions.capabilities(a),policy:()=>issues.policy(),nameOf:a=>NAMES[a]||a,engineDir:path.join(here,'..','engine','aqeelos-live')});
 // shipped engine plugins stay current in every home; the engine reloads after an update (plugin-sync.mjs)
 const pluginSync=createPluginSync({DATA,engineDir:path.join(root,'engine'),readConfig,pick,restartLater,isTest:isTestAgent,nameOf:agentName,enginePid:gatewayPid,bottlenecks});
-if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(typeof a==='string'?a:a?.agent||'').catch(()=>false))c.push(a);if(c.length)restartLater('aqeelos-live plugin for '+(c.length||'all')+' agent(s)')}).catch(e=>{console.warn('agent-live install',e.message);throw e});
+if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(typeof a==='string'?a:a?.agent||'').catch(()=>false))c.push(a);if(c.length)agentReload.plugins(c.map(a=>typeof a==='string'?a:a?.agent).filter(Boolean),'aqeelos-live plugin installed').catch(()=>{})}).catch(e=>{console.warn('agent-live install',e.message);throw e});
  rec.add('aqeelos-live plugin',{run:liveInstall,reads:['cfg','plugins'],why:'was every 10 min'}).add('plugin sync',{run:()=>pluginSync.tick(),reads:['plugins']})}
 // billion-context (fewer tokens in long chats) in every agent's home, same rhythm; the engine reloads once no reply runs
 const billion=createBillionContext({HERMES_HOME,readConfig,setKey,pick});
 // Efficiency on System › Health (efficiency-view.mjs): where model use goes and what drifts back, read only, kept a minute
 const effView=createEfficiencyView({loops:()=>rec.stats(),HERMES_HOME,DATA,python:enginePython,nameOf:a=>a===HELP_AGENT?'Help':agentName(a),savings:()=>billion.savings(),accountLabels:async()=>{const d=await accountsApi.backup.load();return Object.fromEntries(accountsApi.backup.all(d).map(a=>[a.id,a.label]))}});
-if(LIVE_APP){const biliInstall=()=>billion.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)restartLater('billion-context plugin for '+c.length+' agent(s)')}).catch(e=>{console.warn('billion-context install',e.message);throw e});
+if(LIVE_APP){const biliInstall=()=>billion.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(a).catch(()=>false))c.push(a);if(c.length)agentReload.plugins(c,'billion-context plugin installed').catch(()=>{})}).catch(e=>{console.warn('billion-context install',e.message);throw e});
  rec.add('billion-context',{run:biliInstall,reads:['cfg','plugins'],why:'was every 10 min'})}
 // efficient by default (11 Nov 2026): every agent's home, new ones too, shortens chats at a fixed size and keeps the
 // cache for an hour in chats a person types into; same rhythm, the engine reloads once no reply runs
@@ -2390,7 +2392,7 @@ const channelsRoutes=createChannelsRoutes({ADDED_FILE,DASH,DASH_TOKEN,HERMES_HOM
 const healthRoutes=createHealthRoutes({agentGraph,agentMemory,agentName,chatHistory,cloudFixer,codeChanges,effView,escalations,health,issues,listAgents,listAllProfiles,memWatch,needCtx,ownerSend,questions,readBody,relay,resume,send,teamSettings,usage,users});
 const connectedRoutes=createConnectedRoutes({DASH,DASH_TOKEN,HERMES_HOME,NAMES,PUBLIC_URL,backupModels,backups,engineUpd,gconnect,googleConnected,guard,kirimdev,kirimdevChanged,kirimdevSetup,listAgents,localAppVersions,mcpEdit,msconnect,newerApp,ownsAgent,priceCatalog,privateAddress,readBody,releaseAppVersions,secretLinks,selfRuns,send,slackc,srEligible,syncNotifyTool,teamGroups,teamSettings,tebar,users,whyOf,writeAgentContext});
 const systemRoutes=createSystemRoutes({accountsApi,addonBy,addons,agentAds,agentHealth,antigravity,appsOff,boxOps,brand,closeSolvedSignins,connectors,cookieAttrs,DATA,env,googleLabels,HERMES_HOME,links,listAllProfiles,makeCookie,makeLead,memNow,NAMES,optins,ownsAgent,platCache,PUBLIC_URL,pwa,readBody,readRaw,restartGateway,revokeSessions,security,send,SESSION_DAYS,setChannelOn,setGlabels:v=>{GLABELS=v},SSH_HOST,SSH_PORT,syncNotifyTool,sysEvents:()=>sysEvents,users,writeAgentContext,writeJsonAtomic});
-const abilitiesRoutes=createAbilitiesRoutes({agentDefaults,channelIdentity,code,codeAgents,codeBridge,codeOnline,displayName,envOf,isTestAgent,listAgents,listAllProfiles,live,lockedAgent,lockTools,MCP_OAUTH_BASE,n8n,NAMES,readBody,restartGateway,send,sharing,slackClientChannels,slackQuiet,users});
+const abilitiesRoutes=createAbilitiesRoutes({agentReload,agentDefaults,channelIdentity,code,codeAgents,codeBridge,codeOnline,displayName,envOf,isTestAgent,listAgents,listAllProfiles,live,lockedAgent,lockTools,MCP_OAUTH_BASE,n8n,NAMES,readBody,restartGateway,send,sharing,slackClientChannels,slackQuiet,users});
 const instructionsRoutes=createInstructionsRoutes({accountsApi,backupModels,bottlenecks,cfgLimit,channelAttention,code,DATA,DESKTOP_RELEASES,displayName,help,instructions,listAgents,localAppVersions,n8n,NAMES,needsFor,newerApp,readBody,releaseAppVersions,security,send,signinsDue,teamFolders,users,versions});
 const accessRoutes=createAccessRoutes({access,accessAsk,agentAccess,bottlenecks,conflicts,connAccounts,connections,DATA,keysId,labels,listAgents,NAMES,questions,readBody,send,shareLevels,users});
 const mcpSecretsRoutes=createMcpSecretsRoutes({access,browserAsks,channelList,displayName,freshSignins,HERMES_HOME,listAgents,localBrowser,MCP_OAUTH_BASE,memberSecretName,NAMES,optins,ownsAgent,readBody,saveSecret,screens,secretAsks,secretDir,secretHow,security,send,sharing,signinsAt:()=>signinsAt,signinsDue,slackClientFor,startSignin,users,whyOf});
@@ -2481,6 +2483,12 @@ const server=createServer(async(req,res)=>{
     if(url.searchParams.has('peek'))return send(res,200,{live:true,since:rec.t});
     res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no',...security});res.socket?.setNoDelay(true);
     for(const c of rec.chunks)res.write(c);rec.subs.add(res);res.on('close',()=>rec.subs.delete(res));return}
+   // one agent (16 Nov 2026): that agent alone; the main agent is the engine, so for it every agent restarts. An admin, or the agent's owner
+   if(p==='/ui/agent/restart'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}const ag=String(b.agent||'');
+    if(!users.isAdmin(u)&&(!ag||ag==='default'||users.level(u,ag)!=='owner'))return send(res,403,{error:'Only an admin or the owner of this agent can restart it.'});   // rights first, whatever was sent
+    if(!/^[a-z0-9][a-z0-9_-]{0,63}(--[a-z0-9_-]{1,64})?$/.test(ag)||!(await agentNames({copies:true})).includes(ag))return send(res,400,{error:'Unknown agent.'});
+    if(backups.busy())return send(res,409,{error:'A restore is running. The agents start again by themselves when it finishes.'});
+    const r=await agentReload.agent(ag,'restart of '+ag+' from the app ('+(u.name||u.id)+')');return send(res,200,{ok:true,whole:!!r.whole})}
    if(p==='/ui/gateway/restart'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can restart the gateway.'});if(backups.busy())return send(res,409,{error:'A restore is running. The agents start again by themselves when it finishes.'});
     const waiting=await waitingNow();restartGateway('restart from the app ('+(u.name||u.id)+')').catch(()=>{});return send(res,200,{ok:true,waiting})}
    // each agent's setup result, for the Agents page (what failed, so it can be finished with one click)

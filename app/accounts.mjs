@@ -12,7 +12,7 @@ import {allowed,trim,setRule,ownerOf} from './skills-policy.mjs';
 import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
 import {providerUnavailable} from './provider-limits.mjs';
-import {providerPlugins} from './code-agent.mjs';
+import {providerPlugins} from './code-agent.mjs';import {enableReloaded} from './agent-reload.mjs';
 import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';
 import {accountStates} from './account-state.mjs';
 import {groupEntries,planGroups,normalise,nextPick,rankMembers,moves24,stepAgent,pinState,afterMove,pinFromEvents,upGate,movesToday,singleFlight,DAY_MAX} from './account-pools.mjs';
@@ -428,7 +428,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    if(!await access(path.join(plug,'plugin.yaml')).then(()=>1,()=>0)){await mkdir(path.join(dir,'plugins'),{recursive:true});await cp(path.join(HERMES_HOME,'plugins',p),plug,{recursive:true});
     await cp(path.join(HERMES_HOME,'plugins','.install-metadata.json'),path.join(dir,'plugins','.install-metadata.json')).catch(()=>{})}
    if(have.includes(p))continue;const r=await hq(name,['plugins','enable',p],{timeout:150000,retries:3});if(!r.ok)throw new Error('could not switch on '+p+': '+String(r.err||r.out||'').slice(-160));
-   if(!(pick(await readConfig(name)||{},'plugins.enabled')||[]).includes(p))throw new Error('the engine did not keep '+p+' switched on');on.push(p)}
+   if(!(pick(await readConfig(name)||{},'plugins.enabled')||[]).includes(p))throw new Error('the engine did not keep '+p+' switched on');if(!enableReloaded(r.out))on.push(p)}   // only one the running engine did not load waits for a restart (agent-reload.mjs)
   return on}
  function setupAgent(name){if(!setups.has(name))setups.set(name,doSetup(name).finally(()=>setups.delete(name)));return setups.get(name)}
  async function doSetup(name){

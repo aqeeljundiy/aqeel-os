@@ -17,7 +17,7 @@ const readJson=async f=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{r
 
 // own: connections where every agent has its own account instead of a shared sign-in (n8n): turning one on makes
 // that agent's own account, and there is no owner agent to pick (the label says who owns the service itself)
-export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,hermes,editEnv,names,writeJson,restart,dash,own={},googleShares=null}){
+export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,hermes,editEnv,names,writeJson,restart,reload=null,dash,own={},googleShares=null}){
  // each agent's settings, kept for 30 s: reading them starts a small program per agent (1-2 s each), and the box
  // that offers "use another agent's" has just read them, so the click goes straight to saving
  const cfgCache=new Map();const readConfigRaw=readConfig;readConfig=async a=>{const c=cfgCache.get(a);if(c&&Date.now()-c.at<30000)return c.v;const v=await readConfigRaw(a);cfgCache.set(a,{v,at:Date.now()});return v};
@@ -91,7 +91,7 @@ export function createAccess({HERMES_HOME,DATA,listAgents,readConfig,setKey,herm
    if(!await stat(path.join(home(to),'google_client_secret.json')).catch(()=>null))await copyFile(path.join(home(from),'google_client_secret.json'),path.join(home(to),'google_client_secret.json')).catch(()=>{});
    return {changed:true}}
   if(kind==='plugin'){const d=path.join(home(to),'plugins',id);const s0=path.join(home(from),'plugins',id);if(!await stat(d).catch(()=>null)&&await stat(s0).catch(()=>null))await cp(s0,d,{recursive:true});
-   const r=await hermes(to,['plugins','enable',id],{timeout:150000});if(!r.ok)throw new Error(r.out?.slice(-200)||'Could not turn it on');restart('access: plugin '+id+' on '+names(to));return {changed:true}}
+   const r=await hermes(to,['plugins','enable',id],{timeout:150000});if(!r.ok)throw new Error(r.out?.slice(-200)||'Could not turn it on');(reload?reload(to,'access: plugin '+id+' on '+names(to)):restart('access: plugin '+id+' on '+names(to)));return {changed:true}}
   if(kind==='key'){if(src.bot)throw new Error('A chat bot answers as one agent only. Give the other agent its own bot instead.');
    // the other agent may have its own key under the same name: never replace it silently
    {const theirs=Object.values((await holdings(to)).key).find(x=>x.name===src.name);if(theirs&&theirs.value!==src.value)throw new Error(names(to)+' already has its own '+src.name+'. Remove it there first if you want to replace it.')}

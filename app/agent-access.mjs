@@ -20,7 +20,7 @@ import {TOOL_HELP,TOOL_PROPS} from './design-guard.mjs';
 import {rank,base,AGENT} from './sharing.mjs';import {hideSigned} from './relay-keys.mjs';import {ownSettingProblem,ownSettingKey} from './agent-settings.mjs';
 
 // the least level each part of manage_agent needs on the target agent
-export const AGENT_NEEDS={show:'viewer',logs:'viewer',instructions:'editor',skill:'editor',schedule:'editor',settings:'manager',share:'manager'};
+export const AGENT_NEEDS={show:'viewer',logs:'viewer',instructions:'editor',skill:'editor',schedule:'editor',settings:'manager',share:'manager',restart:'manager'};
 // settings that are about keys, permissions or aqeelOS itself: the main agent only, whatever the level
 export const MAIN_ONLY_SETTING=/(^|\.)(env|headers|auth|api_key|apikey|token|tokens|secret|secrets|password|credentials?|oauth|client_secret)(\.|$)|key$|^mcp_servers\b|^approvals\b|^security\b|^terminal\b|^platforms?\b|^plugins\b|^gateway\b|^providers?\b|^model\.(base_url|api_key)/i;
 const SECRETISH=/(key|token|secret|password|passwd|credential|bearer|cookie|session|auth|sig)/i;
@@ -51,7 +51,7 @@ export function redact(v,k=''){if(v==null)return v;if(SECRETISH.test(k)&&typeof 
 export const redactText=t=>hideSigned(t).replace(/\b(sk|xox[abpr]|ghp|gho|ya29|AIza)[-_A-Za-z0-9.]{8,}/g,'(hidden)').replace(/((?:key|token|secret|password|authorization|bearer)["']?\s*[:=]\s*["']?)[^\s"',]+/gi,'$1(hidden)').replace(/\b[A-Za-z0-9_-]{40,}\b/g,'(hidden)');
 
 export function createAgentAccess({guard=()=>null,sharing,HERMES_HOME,listAgents=async()=>[],MAIN='default',instructions=null,readConfig=async()=>null,setKey=async()=>({ok:false,out:'no settings'}),
- cron=null,versions=null,reload=async()=>{},names=a=>a,
+ cron=null,versions=null,reload=async()=>{},names=a=>a,restartAgent=null,
  mainLike=()=>false,   // F: agents acting with main-agent power (the lead of an admin person), read live on every call
  scope=()=>null,
  ownerLike=()=>false}={}){   // F: (caller,target) -> true when the caller is the lead of the person who owns target (Owner level)   // F: (caller,target,part) -> null, or why a caller's person may not do this (their role decides)
@@ -111,6 +111,11 @@ export function createAgentAccess({guard=()=>null,sharing,HERMES_HOME,listAgents
   const c=await check(me,t,part);if(!c.ok){console.log('agent-access: refused',me,'->',t,part,'('+c.level+')');return {isError:true,text:c.why}}
   const by={agent:me,name:names(me),level:c.level};const other=me!==t;const say=r=>({...r,text:r.text+(other&&isMain(me)&&!r.isError&&['instructions','skill','schedule'].includes(part)?'\n\n'+MAIN_RULE_NOTE:'')});
   try{
+   // restart one agent (owner, 16 Nov 2026: "I want Donna to have control of it"): that agent alone, the others keep answering; the main
+   // agent is the engine itself, so restarting it restarts every agent (agent-reload.mjs). Manager level, like its settings; itself always.
+   if(part==='restart'){if(!restartAgent)return {isError:true,text:'Restarting cannot be reached right now.'};const r=await restartAgent(t,'asked by '+names(me)+(args.why?': '+String(args.why).slice(0,120):''));
+    await record({agent:t,kind:'restart',by,why:args.why});
+    return {text:r?.whole?'Restarting the engine: '+names(t)+' is the main agent, so every agent stops for one to three minutes and comes back by itself. Replies in progress finish first.':names(t)+' was restarted on its own in a few seconds; every other agent kept answering.'}}
    if(part==='show')return {text:await show(t)};
    if(part==='logs')return {text:await logs(t,args)};
    if(part==='instructions'){if(!instructions)return {isError:true,text:'Instructions cannot be reached right now.'};const r=await instructions.change(t,args,{by:names(me)+(other?' (for '+names(t)+', '+c.level+')':'')});
@@ -132,7 +137,7 @@ export function createAgentAccess({guard=()=>null,sharing,HERMES_HOME,listAgents
   }catch(e){return {isError:true,text:e.message}}}
 
  // the tool as agents see it
- const TOOL={name:'manage_agent',description:'Look after another agent you have access to (or yourself): read its setup or logs, change its instructions, skills or schedules, change its settings, or share it with another agent. What you may do depends on your level on that agent: viewer reads its setup and logs; editor also changes its instructions, skills and schedules; manager also changes its settings and shares it as editor or viewer; owner can do everything. Its keys are never shown. Every change is kept in its history with your name and can be undone. For a schedule:'+TOOL_HELP,
+ const TOOL={name:'manage_agent',description:'Look after another agent you have access to (or yourself): read its setup or logs, change its instructions, skills or schedules, change its settings, or share it with another agent. What you may do depends on your level on that agent: viewer reads its setup and logs; editor also changes its instructions, skills and schedules; manager also changes its settings, restarts it (part restart: that agent alone; the main agent restarts every agent) and shares it as editor or viewer; owner can do everything. Its keys are never shown. Every change is kept in its history with your name and can be undone. For a schedule:'+TOOL_HELP,
   inputSchema:{type:'object',properties:{agent:{type:'string',description:'the agent id, like cove-support'},part:{type:'string',enum:Object.keys(AGENT_NEEDS)},
    edits:{type:'array',items:{type:'object',properties:{old_text:{type:'string'},new_text:{type:'string'}}},description:'instructions: exact old text and its replacement for each place'},rewrite:{type:'string',description:'instructions: the whole new text (applies at once, can be undone)'},why:{type:'string',description:'what changes and why (kept in its history)'},said_by:{type:'string'},
    name:{type:'string',description:'skill: its name'},category:{type:'string',description:'skill: its folder, like productivity'},content:{type:'string',description:'skill: the whole SKILL.md'},remove:{type:'boolean'},
