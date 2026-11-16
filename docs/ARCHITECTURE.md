@@ -50,6 +50,7 @@ All in `app/` unless noted. Names are file names without `.mjs`.
 | **Fixers and issues** | `issues` `cloud-fixer` `fixer-git` `fixer-watch` `bottlenecks` `rule-conflicts` `automation-guard` |
 | **Insight** | `usage` `usage-extra` `efficiency` `efficiency-view` `chat-history` `news` `explain` `why` `starters` (empty-chat prompts) `morning` `graphify` `billion-context` `team-view` `team-folders` `team-group` `team-settings` |
 | **Look** | `brand` `icons` `icons-off` `pwa` `pwa-zip` `png` `raster` (`pwa` → `pwa-zip` → `icons-off` is the one import cycle) |
+| **Restarts** | `agent-reload` (one agent: reload its plugins, or unserve and serve it again through `scripts/engine-agent.py`; the main agent and a failed verb restart the engine), `restart-later` (the maintenance window) |
 | **Code app glue** | `code` `code-agent` (the plain agent for Code turns with no agent picked) `code-agents` `code-bridge` `code-changes` `code-online` |
 
 ## 3. How a request flows
@@ -81,6 +82,7 @@ Some of those blocks have moved out of the dispatcher into route modules (BACKLO
 | `abilities-routes` | `/ui/agent-approvals`, `/ui/agent-safe`, `/ui/slack-quiet`, `/ui/agent-trust`, `/ui/skills-policy`, `/ui/agent-locks`, `/ui/share`, `/ui/mcp/oauth-client`, `/ui/n8n/status`, `/ui/code/handoff`, `/ui/code/pair`, `/ui/code/online`, `/ui/files/*`, `/ui/code/usage`, `/ui/code/connected` | inside the `/ui/` gate, before `connected-routes` |
 | `instructions-routes` | `/ui/agent-versions/*`, `/ui/instructions/*`, `/ui/bottlenecks`, `/ui/team-folders`, `/ui/code/devices`, `/ui/code/unpair`, `/ui/code/download/*`, `/ui/n8n/*`, `/ui/models/agents`, `/ui/models/fallbacks` | inside the `/ui/` gate, after `health-routes` |
 | `access-routes` | `/ui/agent-access`, `/ui/sharing/*`, `/ui/connected-accounts/*`, `/ui/connections/*`, `/ui/access/*`, `/ui/conflicts/decide`, `/ui/health/fixer-token`, `/ui/questions/answer` | inside the `/ui/` gate |
+| `restart-routes` | `/ui/agent/restart` (one agent alone, `agent-reload.mjs`; the main agent restarts the engine), `/ui/gateway/restart` (the whole engine) | inside the `/ui/` gate, where `/ui/gateway/restart` was |
 | `mcp-secrets-routes` | `/ui/mcp/signins`, `/ui/mcp/share`, `/ui/mcp/start-signin`, `/ui/mcp/prepare-signin`, `/ui/mcp/oauth-redirect`, `/ui/share/duplicate`, `/ui/share/rename-mcp`, `/ui/channels` (GET), `/ui/secrets/*`, `/ui/local-browser/*`, `/ui/browser-choice/<id>` | inside the `/ui/` gate, before `channels-routes` |
 | `schedules-routes` | `/ui/schedules/*`, `/ui/run-rules`, `/ui/channels/job-relays` | inside the `/ui/` gate, after `channels-routes` |
 | `identities-routes` | `/ui/channels/reconnect`, `pause`, `move`, `/ui/qr`, `/ui/keys/identity`, `/ui/skills/builtin`, `/ui/labels`, `/ui/explain`, `/ui/run-gates`, `/ui/design-guard/*`, `/ui/usage`, `/ui/starters`, then the role gate, `/ui/accounts`, `/ui/connect/*`, `/ui/logo`, `/ui/identities`, `/ui/avatar` | last inside the `/ui/` gate (always answers) |

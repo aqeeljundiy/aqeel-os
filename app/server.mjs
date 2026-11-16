@@ -160,6 +160,7 @@ import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,appro
 import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';import {createSchedulesRoutes} from './schedules-routes.mjs';import {createIdentitiesRoutes} from './identities-routes.mjs';import {createHooksRoutes} from './hooks-routes.mjs';import {createOAuthCallbackRoutes} from './oauth-callback-routes.mjs';import {createBoxRoutes} from './box-routes.mjs';   // the routes that used to sit in this file (one module each)
 import {createScreenLink,createScreenTickets} from './screen-link.mjs';import {appPage} from './v2-page.mjs';import {createTeamPost} from './team-post.mjs';   // the screen viewer's own connection, ticket per connection (AUD-15)
 import {createAgentReload} from './agent-reload.mjs';
+import {createRestartRoutes} from './restart-routes.mjs';
 
 delete Object.prototype.__proto__;   // a key named __proto__ from a request is an ordinary key: no lookup reaches Object.prototype (security audit, 12 Nov 2026)
 const here=path.dirname(fileURLToPath(import.meta.url));
@@ -2401,6 +2402,7 @@ const identitiesRoutes=createIdentitiesRoutes({accountsApi,billion,builtins,chan
 const hooksRoutes=createHooksRoutes({agentAccess,agentLive,customerTools:()=>customerTools,designGuard,HOOKS,issues,kirimdev,paymentCallbacks,pressKey,proxy,readBody,readRaw,send,smokeWatch,teamView,tebar,versions,WA_CLOUD});
 const oauthCallbackRoutes=createOAuthCallbackRoutes({DASH,DASH_TOKEN,esc,gconnect,googleConnected,HERMES_HOME,listAllProfiles,msconnect,NAMES,PUBLIC_URL,security,sharing,signinFlows:()=>signinFlows,writeAgentContext});
 const boxRoutes=createBoxRoutes({agentOps,codeBridge,eventHooks,fixerSandbox,googleFiles,kirimdev,postingLimits,readBody,relayKeys,runGates,selfRuns,send,sign,srBox,srDur,srEligible,users});
+const restartRoutes=createRestartRoutes({users,send,readBody,agentNames,backups:{busy:()=>backups.busy()},agentReload,waitingNow:()=>waitingNow(),restartGateway:(w,o)=>restartGateway(w,o)});
 const server=createServer(async(req,res)=>{
  enterRequest(req);const url=new URL(req.url,'http://x');const p=url.pathname;   // the request is what the per-account sign-in limit reads the address and session cookie from
  try{
@@ -2483,14 +2485,7 @@ const server=createServer(async(req,res)=>{
     if(url.searchParams.has('peek'))return send(res,200,{live:true,since:rec.t});
     res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no',...security});res.socket?.setNoDelay(true);
     for(const c of rec.chunks)res.write(c);rec.subs.add(res);res.on('close',()=>rec.subs.delete(res));return}
-   // one agent (16 Nov 2026): that agent alone; the main agent is the engine, so for it every agent restarts. An admin, or the agent's owner
-   if(p==='/ui/agent/restart'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,2048))}catch{}const ag=String(b.agent||'');
-    if(!users.isAdmin(u)&&(!ag||ag==='default'||users.level(u,ag)!=='owner'))return send(res,403,{error:'Only an admin or the owner of this agent can restart it.'});   // rights first, whatever was sent
-    if(!/^[a-z0-9][a-z0-9_-]{0,63}(--[a-z0-9_-]{1,64})?$/.test(ag)||!(await agentNames({copies:true})).includes(ag))return send(res,400,{error:'Unknown agent.'});
-    if(backups.busy())return send(res,409,{error:'A restore is running. The agents start again by themselves when it finishes.'});
-    const r=await agentReload.agent(ag,'restart of '+ag+' from the app ('+(u.name||u.id)+')');return send(res,200,{ok:true,whole:!!r.whole})}
-   if(p==='/ui/gateway/restart'&&req.method==='POST'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can restart the gateway.'});if(backups.busy())return send(res,409,{error:'A restore is running. The agents start again by themselves when it finishes.'});
-    const waiting=await waitingNow();restartGateway('restart from the app ('+(u.name||u.id)+')').catch(()=>{});return send(res,200,{ok:true,waiting})}
+   if(await restartRoutes(req,res,p,u))return;
    // each agent's setup result, for the Agents page (what failed, so it can be finished with one click)
    if(p==='/ui/agent-setup'&&req.method==='GET'){const st=await getStatus();const out={};for(const [a,v] of Object.entries(st))if(users.isAdmin(u)||users.gate(u,'/ui/screens/'+a,'GET',new URLSearchParams(),a)===null)out[a]={ok:v.ok!==false,failed:v.failed||[],t:v.t||0};return send(res,200,{agents:out})}
    // an agent for someone who must not have terminal, files, code or computer use: locked on every channel, and kept so

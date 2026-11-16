@@ -35,8 +35,8 @@ test('manage_agent restart: the main agent restarts any agent, an agent itself, 
  assert.equal(done.length,3)});
 
 test('wired: sign-ins and the Code agent restart only when the engine did not load the plugin; Slack, Trusted and the per-agent plugins use the agent alone; a route and two buttons',async()=>{
- const src=f=>readFile(new URL('../app/'+f,import.meta.url),'utf8');const [acc,ca,srv,ab,core,more]=await Promise.all(['accounts.mjs','code-agent.mjs','server.mjs','abilities-routes.mjs','core.js','all-agents-more.js'].map(src));
+ const src=f=>readFile(new URL('../app/'+f,import.meta.url),'utf8');const [acc,ca,srv,ab,core,more,rr]=await Promise.all(['accounts.mjs','code-agent.mjs','server.mjs','abilities-routes.mjs','core.js','all-agents-more.js','restart-routes.mjs'].map(src));
  assert.match(acc,/if\(!enableReloaded\(r\.out\)\)on\.push\(p\)/);assert.match(ca,/if\(!\/Gateway reloaded plugins\/i\.test\(String\(r\.out\|\|''\)\)\)switched\+\+/);
  assert.match(srv,/agentReload\.agent\(a,'Slack channel settings updated for '\+a\)/);assert.match(srv,/agentReload\.plugins\(c,'billion-context plugin installed'\)/);
- assert.match(srv,/restartAgent:\(a,why\)=>agentReload\.agent\(a,why\)/);assert.match(srv,/p==='\/ui\/agent\/restart'&&req\.method==='POST'/);assert.match(srv,/users\.level\(u,ag\)!=='owner'/);
+ assert.match(srv,/restartAgent:\(a,why\)=>agentReload\.agent\(a,why\)/);assert.match(rr,/p==='\/ui\/agent\/restart'&&req\.method==='POST'/);assert.match(rr,/users\.level\(u,ag\)!=='owner'/);assert.match(srv,/if\(await restartRoutes\(req,res,p,u\)\)return;/);
  assert.match(ab,/agentReload\?agentReload\.agent\(ag,'Trusted changed for '\+ag\)/);assert.match(core,/async function restartAgentNow\(a\)/);assert.match(more,/ACT\['agent-restart'\]=/)});
