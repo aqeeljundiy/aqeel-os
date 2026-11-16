@@ -19,11 +19,21 @@ try:
         a = reload_gateway_plugins(home, profile_home=agent_home)
         out = {"ok": bool(a and a.get("reloaded")), "answer": a}
     elif verb == "cycle":
-        from gateway.control_socket import request_unserve_profile, request_serve_profile_hot
+        from gateway.control_socket import request_unserve_profile, request_serve_profile_hot, rescan_gateway_profiles
+        import time
         name = sys.argv[4]
         a = request_unserve_profile(home, name)
         b = request_serve_profile_hot(home, name) if a else None
-        out = {"ok": bool(a and b and name in (b.get("served_profiles") or [])), "unserve": a, "serve": b}
+        served = name in ((b or {}).get("served_profiles") or [])
+        # 16 Nov 2026 on the live box: serve-profile did its work but answered after its own 8 s limit (None), and the app restarted the
+        # whole engine. Once the agent was let go, the engine serves it again by itself (its rescan, also every 30 s): ask until it is there.
+        t = time.time()
+        while a and not served and time.time() - t < 45:
+            r = rescan_gateway_profiles(home, timeout=8.0) or {}
+            served = name in (r.get("served_profiles") or [])
+            if not served:
+                time.sleep(3)
+        out = {"ok": bool(a and served), "unserve": a, "serve": b, "waited": round(time.time() - t, 1)}
     else:
         out = {"ok": False, "error": "unknown verb"}
 except Exception as e:

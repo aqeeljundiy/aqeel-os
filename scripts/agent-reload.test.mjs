@@ -40,3 +40,8 @@ test('wired: sign-ins and the Code agent restart only when the engine did not lo
  assert.match(srv,/agentReload\.agent\(a,'Slack channel settings updated for '\+a\)/);assert.match(srv,/agentReload\.plugins\(c,'billion-context plugin installed'\)/);
  assert.match(srv,/restartAgent:\(a,why\)=>agentReload\.agent\(a,why\)/);assert.match(rr,/p==='\/ui\/agent\/restart'&&req\.method==='POST'/);assert.match(rr,/users\.level\(u,ag\)!=='owner'/);assert.match(srv,/if\(await restartRoutes\(req,res,p,u\)\)return;/);
  assert.match(ab,/agentReload\?agentReload\.agent\(ag,'Trusted changed for '\+ag\)/);assert.match(core,/async function restartAgentNow\(a\)/);assert.match(more,/ACT\['agent-restart'\]=/)});
+// 16 Nov 2026 on the live box: serve-profile did its work but answered after its own 8 s limit, and the app restarted the whole engine.
+// The script now asks the engine which agents it serves (its rescan) for up to 45 s before calling it a failure.
+test('the engine side waits for the agent to be served again before it says the restart failed',async()=>{
+ const py=await readFile(new URL('./engine-agent.py',import.meta.url),'utf8');
+ assert.match(py,/while a and not served and time\.time\(\) - t < 45:/);assert.match(py,/rescan_gateway_profiles\(home, timeout=8\.0\)/);assert.match(py,/"ok": bool\(a and served\)/)});
