@@ -12,6 +12,7 @@ import {allowed,trim,setRule,ownerOf} from './skills-policy.mjs';
 import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
 import {providerUnavailable} from './provider-limits.mjs';
+import {providerPlugins} from './code-agent.mjs';
 import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';
 import {accountStates} from './account-state.mjs';
 import {groupEntries,planGroups,normalise,nextPick,rankMembers,moves24,stepAgent,pinState,afterMove,pinFromEvents,upGate,movesToday,singleFlight,DAY_MAX} from './account-pools.mjs';
@@ -403,6 +404,22 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   const moved=await trim(path.join(root,'skills'),name,path.join(root,'skills-removed',new Date().toISOString().slice(0,10)));
   if(moved.length){const rec=await gLoad();if(rec[name]){for(const k of moved)delete rec[name][k];gKeep()}console.log('skills: moved',moved.length,'out of',name+':',moved.join(', '))}return moved.length}
  const forgetSkills=async name=>{const rec=await gLoad();if(rec[name]){delete rec[name];gKeep()}};
+ // Every model sign-in the main agent uses (each plugin it has on whose manifest says kind: model-provider: the Claude sign-in, Antigravity
+ // for Gemini, any later one), copied into the agent and switched on. 16 Nov 2026: only the Claude one was ever given, and Antigravity
+ // reached an agent only if it existed when someone signed in to Google, so 9 of 10 agents had no Gemini and fell from Claude straight
+ // to GPT, past the owner's order. Run at setup and by the fallback sync for every agent; returns what it switched on (the engine loads
+ // a plugin when the agents restart). One the main agent does not use (signed out) is never added.
+ async function signins(name){if(!/^[a-z0-9][a-z0-9_-]{0,63}(--[a-z0-9_-]{1,64})?$/.test(String(name))||name==='default')return [];
+  const dir=path.join(HERMES_HOME,'profiles',name);if(!await access(path.join(dir,'config.yaml')).then(()=>1,()=>0))return [];
+  const main=await readConfig('default').catch(()=>null)||{},c=await readConfig(name).catch(()=>null);if(!c)return [];
+  const mans={};for(const p of pick(main,'plugins.enabled')||[])mans[p]=await readFile(path.join(HERMES_HOME,'plugins',String(p),'plugin.yaml'),'utf8').catch(()=>'');
+  const have=pick(c,'plugins.enabled')||[],on=[];
+  for(const p of providerPlugins(pick(main,'plugins.enabled'),n=>mans[n])){const plug=path.join(dir,'plugins',p);
+   if(!await access(path.join(plug,'plugin.yaml')).then(()=>1,()=>0)){await mkdir(path.join(dir,'plugins'),{recursive:true});await cp(path.join(HERMES_HOME,'plugins',p),plug,{recursive:true});
+    await cp(path.join(HERMES_HOME,'plugins','.install-metadata.json'),path.join(dir,'plugins','.install-metadata.json')).catch(()=>{})}
+   if(have.includes(p))continue;const r=await hq(name,['plugins','enable',p],{timeout:150000,retries:3});if(!r.ok)throw new Error('could not switch on '+p+': '+String(r.err||r.out||'').slice(-160));
+   if(!(pick(await readConfig(name)||{},'plugins.enabled')||[]).includes(p))throw new Error('the engine did not keep '+p+' switched on');on.push(p)}
+  return on}
  function setupAgent(name){if(!setups.has(name))setups.set(name,doSetup(name).finally(()=>setups.delete(name)));return setups.get(name)}
  async function doSetup(name){
   if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name)||name==='default')throw new Error('Unknown agent');
@@ -415,12 +432,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    await step('key',()=>editEnv(path.join(dir,'.env'),cur=>/^API_SERVER_KEY=/m.test(cur)?null:cur+(cur&&!cur.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+KEY+'\n'));
   const c=await readConfig(name),main=await readConfig('default')||{};
   if(!c){failed.push('settings: could not be read');await setStatus(name,{t:Date.now(),ok:false,failed});return {ok:false,done,failed}}
-  // the main agent's model sign-ins carry over (aqeelOS works with any model; the Claude sign-in is one plugin among them)
-  const mainUses=(pick(main,'plugins.enabled')||[]).includes(PLUGIN);const plug=path.join(dir,'plugins',PLUGIN);
-  if(mainUses&&!await access(plug).then(()=>1,()=>0))await step('plugin',async()=>{await mkdir(path.join(dir,'plugins'),{recursive:true});await cp(path.join(HERMES_HOME,'plugins',PLUGIN),plug,{recursive:true});
-   await cp(path.join(HERMES_HOME,'plugins','.install-metadata.json'),path.join(dir,'plugins','.install-metadata.json')).catch(()=>{})});
-  if(mainUses&&!(pick(c,'plugins.enabled')||[]).includes(PLUGIN))await step('plugin enabled',async()=>{const r=await hq(name,['plugins','enable',PLUGIN],{timeout:150000,retries:3});if(!r.ok)return r;
-   if(!(pick(await readConfig(name)||{},'plugins.enabled')||[]).includes(PLUGIN))throw new Error('the engine did not keep the Claude plugin enabled');return r});
+  // the main agent's model sign-ins carry over, every one of them (aqeelOS works with any model; see signins below)
+  await step('model sign-ins',()=>signins(name));
   const prov=pick(c,'model.provider')||'';
   // a new agent starts on the main agent's model, whichever provider that is (GPT, Claude, OpenRouter…)
   const mp=pick(main,'model.provider'),md=pick(main,'model.default');
@@ -579,5 +592,5 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   send(res,404,{error:'Not found'});
  },{codeRoute,signedOut,known,forget,noteLimit,
   // what backup-models.mjs needs to build each agent's backup list and to move agents in an outage
-  backup:{load,all,details:a=>details(a),options,entryOf,agentRoute,useEntry,keyStatus:()=>accountHooks.keyStatus?.()||{},sameModelRoom:poolRoom,moveToPool}});
+  backup:{load,all,details:a=>details(a),options,entryOf,agentRoute,useEntry,signins:n=>signins(n),keyStatus:()=>accountHooks.keyStatus?.()||{},sameModelRoom:poolRoom,moveToPool}});
 }

@@ -90,9 +90,15 @@ export function judge(rec,now,R=RULES){const ev=rec?.ev||[],n=(k,ms,from=0)=>ev.
  if(now-rec.since<holdOf(rec,R))return null;
  return n('fail',R.clean)===0&&n('drop',R.clean)<=1&&n('ok',R.clean,rec.since)>=R.oks?'end':null}
 
+// before an outage moves anyone (16 Nov 2026): Claude's replies failed with upstream 502s for a few minutes while the box's own
+// connection was failing too (Telegram timeouts from 00:00). It counted as "Claude kept dropping" and nine agents sat on GPT for half
+// an hour. So the switch looks first, through the engine (the app itself cannot reach the providers): the provider answers a one-word
+// question now = a blip, nobody moves; it fails and so does the next provider of the owner's order = the box's own network, nobody
+// moves (moving would not help); only a provider that fails while the next one answers is an outage.
+export const outageCheck=({answers,other})=>answers?'blip':other===false?'box':'start';
 /* ---------- keeping the lists and the switch ---------- */
 const FIRST=1e6;   // the first look at a log reads its last 1 MB
-export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readConfig,setKey,modelOk=()=>true,tell=async()=>{},nameOf=a=>a,clock=ms=>new Date(ms).toISOString().slice(11,16),probe=async()=>false,ready=async()=>{},R=RULES}){
+export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readConfig,setKey,modelOk=()=>true,tell=async()=>{},nameOf=a=>a,clock=ms=>new Date(ms).toISOString().slice(11,16),probe=async()=>false,ready=async()=>{},signins=async()=>[],restartLater=async()=>{},R=RULES}){
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const FILE=path.join(DATA,'backup-models.json');let db=null;
  const load=async()=>{if(!db){db=await readStore(FILE);for(const k of ['offsets','p','wrote','lists','told'])db[k]||={};db.history||=[]}return db};
@@ -126,6 +132,10 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
  // every agent's list written when it differs (one at a time per agent, through the engine's own config set)
  function sync(why=''){if(syncing){again=true;return syncing}syncing=(async()=>{let r;try{do{again=false;r=await syncAll(why)}while(again);return r}finally{syncing=null}})();return syncing}
  async function syncAll(why){await load();await ready();const d=await acc.load(),det=Object.fromEntries(await Promise.all(acc.all(d).map(async a=>[a.id,await acc.details(a).catch(()=>null)])));const out=[];
+  // every model sign-in the main agent uses is on for each agent first (accounts.mjs signins, 16 Nov 2026): a fallback list can only hold
+  // what the agent is signed in to, so an agent without Antigravity skipped Gemini in the owner's order. Switched on = one agents' restart.
+  const turnedOn=[];if(live)for(const profile of await agents()){try{const on=await signins(profile);if(on.length)turnedOn.push(profile+': '+on.join(', '))}catch(e){console.warn('model sign-ins for',profile+':',e.message)}}
+  if(turnedOn.length){console.log('model sign-ins switched on:',turnedOn.join('; '));await restartLater('model sign-ins switched on for '+turnedOn.map(x=>x.split(':')[0]).join(', ')).catch(()=>{})}
   for(const profile of await agents()){try{const w=await wanted(profile,d,det);if(!w){out.push({profile,skip:'its gateway did not answer'});continue}
     await writePolicy(profile,d,det);
     const c=await readConfig(profile);if(!c){out.push({profile,skip:'its settings could not be read'});continue}
@@ -191,9 +201,18 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
  // a one-word question to the provider through the engine; a good answer counts as a call that worked, none as a failed reply
  async function tryIt(slug,now){const p=rec(slug);p.lastProbe=now;const ok=await probe({provider:slug,model:p.model||'',home:homeOf(p.home||'default')}).catch(()=>false);
   note(p,{t:Date.now(),kind:ok?'ok':'fail',sid:'probe-'+now});p.probes=[{t:now,ok},...(p.probes||[])].slice(0,12);console.log('backup models: tried',p.brand||slug,ok?'(it answered)':'(no answer)')}
+ // the look before a move (outageCheck): one try of the box's own internet, then one question to the provider; either kind of "not an
+ // outage" waits 5 minutes before the same failures are looked at again
+ async function confirmOutage(slug,now){const p=rec(slug),home=homeOf(p.home||'default');p.lastProbe=now;
+  const answers=await probe({provider:slug,model:p.lastModel||'',home}).catch(()=>false);if(answers)note(p,{t:Date.now(),kind:'ok',sid:'probe-'+now});
+  // the next provider of the owner's order, as the main agent's fallback list has it (undefined: none to ask, so it counts as an outage)
+  let other;if(!answers){const d=await acc.load(),det=Object.fromEntries(await Promise.all(acc.all(d).map(async a=>[a.id,await acc.details(a).catch(()=>null)])));
+   const next=((await wanted('default',d,det).catch(()=>null))?.list||[]).find(e=>e.provider!==slug);if(next)other=await probe({provider:next.provider,model:next.model,home}).catch(()=>false)}
+  const c=outageCheck({answers,other});if(c!=='start'){p.checkAgain=now+R.probeEvery;p.notOutage={at:now,why:c};console.log('backup models:',slug,c==='box'?'failed and so did the next provider: the box\'s own network, nobody moved':'failed, then answered: a blip, nobody moved');await save()}
+  return c}
  let ticking=null;
  function tick(now=Date.now()){if(ticking)return ticking;ticking=(async()=>{await load();await scan();
-   for(const [slug,p] of Object.entries(db.p)){const v=judge(p,now,R);if(v==='start')await start(slug,now);else if(v==='end')await end(slug,now);else if(p.on&&now-(p.lastProbe||0)>=R.probeEvery)await tryIt(slug,now)}
+   for(const [slug,p] of Object.entries(db.p)){const v=judge(p,now,R);if(v==='start'&&now<(p.checkAgain||0))continue;if(v==='start'){const c=await confirmOutage(slug,now);if(c==='start')await start(slug,now);continue}else if(v==='end')await end(slug,now);else if(p.on&&now-(p.lastProbe||0)>=R.probeEvery)await tryIt(slug,now)}
    await routeHealth(now).catch(e=>console.warn('route health:',e.message));
    db.at=now;await save()})().finally(()=>{ticking=null});return ticking}
  // one Health item per agent that has been answering on another vendor's model for the set hours; it clears when the agent is back
