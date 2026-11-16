@@ -2402,7 +2402,7 @@ const identitiesRoutes=createIdentitiesRoutes({accountsApi,billion,builtins,chan
 const hooksRoutes=createHooksRoutes({agentAccess,agentLive,customerTools:()=>customerTools,designGuard,HOOKS,issues,kirimdev,paymentCallbacks,pressKey,proxy,readBody,readRaw,send,smokeWatch,teamView,tebar,versions,WA_CLOUD});
 const oauthCallbackRoutes=createOAuthCallbackRoutes({DASH,DASH_TOKEN,esc,gconnect,googleConnected,HERMES_HOME,listAllProfiles,msconnect,NAMES,PUBLIC_URL,security,sharing,signinFlows:()=>signinFlows,writeAgentContext});
 const boxRoutes=createBoxRoutes({agentOps,codeBridge,eventHooks,fixerSandbox,googleFiles,kirimdev,postingLimits,readBody,relayKeys,runGates,selfRuns,send,sign,srBox,srDur,srEligible,users});
-const restartRoutes=createRestartRoutes({users,send,readBody,agentNames,backups:{busy:()=>backups.busy()},agentReload,waitingNow:()=>waitingNow(),restartGateway:(why,o)=>restartGateway(why,o)});
+const restartRoutes=createRestartRoutes({users,send,readBody,agentNames,backups:{busy:()=>backups.busy()},agentReload,waitingNow:()=>waitingNow(),restartGateway:(w,o)=>restartGateway(w,o)});
 const server=createServer(async(req,res)=>{
  enterRequest(req);const url=new URL(req.url,'http://x');const p=url.pathname;   // the request is what the per-account sign-in limit reads the address and session cookie from
  try{
