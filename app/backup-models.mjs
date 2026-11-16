@@ -122,7 +122,7 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
   const usable=e=>{if(so[e.key]||/^(rejected|credit)$/.test(ks[e.key]?.state||''))return null;
    if(e.key.startsWith('claude:')){if(e.key.slice(7)!==assigned||!det[assigned]?.signedIn)return null;const p=provs.find(x=>x.slug===PLUGIN);return p?{provider:PLUGIN,models:p.models||[]}:null}
    const p=provs.find(x=>x.slug===e.key.slice(2));return p&&(p.models||[]).length?{provider:p.slug,models:p.models}:null};
-  return {cur,route:r,list:backupList({priority:d.priority||[],cur,curProvider:r.provider,usable,modelOk:(p,m)=>modelOk(profile,p,m),held})}}
+  return {cur,route:r,list:backupList({priority:acc.orderOf?acc.orderOf(d,profile):d.priority||[],cur,curProvider:r.provider,usable,modelOk:(p,m)=>modelOk(profile,p,m),held})}}
  // what the engine needs to keep an agent on its model (route-order.mjs); it ignores a file older than 15 minutes, and a test copy writes none
  async function writePolicy(profile,d,det){if(!live)return;
   try{const room=await acc.sameModelRoom?.(profile,d,det).catch(()=>null),set=settingsOf(JSON.parse(await readFile(path.join(DATA,'team-policy.json'),'utf8').catch(()=>'null')));

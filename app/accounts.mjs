@@ -268,6 +268,15 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  // Google AI Pro through agy's quota, usage-extra.mjs), or a provider that reports account windows now. A plain API key reports none.
  const readable=(kind,prov)=>{if(kind==='claude')return true;const p=(prov||[]).find(x=>'p:'+x.slug===kind);return !!p&&(SUBS.test(p.slug+' '+p.name)||(p.windows||[]).some(w=>w.scope!=='model'&&w.scope!=='image'))};
  const groupsOf=(d,prov)=>groupEntries(d.priority||[],d.solo,{modes:d.poolMode,readable:k=>readable(k,prov)});
+ // An agent's own model order (owner, 16 Nov 2026: "the agent could choose its own priority"). d.orders[agent] lists entries of the main
+ // order (key and model) in the agent's order, some switched off for it. Its order = those switched on, as listed, then any entry of the
+ // main order it does not mention yet (added later: there as a last resort until someone switches it off). An entry gone from the main
+ // order is gone here too. No own list = the main order. Used by every switch: auto-switch, pools, fallbacks, outage moves, move-off.
+ const entryKey=e=>e.key+'|'+(e.model||'');
+ function orderOf(d,profile){const main=d.priority||[],own=d.orders?.[profile];if(!Array.isArray(own)||!own.length)return main;
+  const out=[];for(const e of own){if(e.off)continue;const m=main.find(x=>entryKey(x)===entryKey(e));if(m&&!out.includes(m))out.push(m)}
+  for(const m of main)if(!own.some(e=>entryKey(e)===entryKey(m)))out.push(m);return out}
+ const groupsFor=(d,profile,prov)=>d.orders?.[profile]?groupEntries(orderOf(d,profile),d.solo,{modes:d.poolMode,readable:k=>readable(k,prov)}):groupsOf(d,prov);
  // an entry can answer with this model: its own model when it sets one, else what its provider offers (every Claude account has the Claude models)
  const servesModel=(e,model,prov)=>e.model?e.model===model:e.key.startsWith(PLUGIN_KEY)?isClaude(model):((prov||[]).find(x=>x.slug===e.key.slice(2))?.models||[]).includes(model);
  // one entry's reading for the ranking (account-pools.mjs): onIt = how many agents are on each entry now
@@ -295,10 +304,11 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    // Stability first (12 Nov 2026: 148 moves in a day): an agent stays on its entry. It moves when its entry passes the number (inside its
    // pool first, to the member with the most room, then down the list), goes back up as before, and between chats changes
    // member only for one that is clearly better. Each move is counted at once, so a batch of agents spreads over the members.
-   const groups=planGroups(groupsOf(d,await providers(false,'default'))),names=await agents(),curOf={},onIt=new Map();
+   const provD=await providers(false,'default'),groupsMain=planGroups(groupsOf(d,provD)),names=await agents(),curOf={},onIt=new Map();
    for(const n of names){curOf[n]=await entryOf(d,n);onIt.set(curOf[n],(onIt.get(curOf[n])||0)+1)}
    for(const profile of names){const prov=await providers(false,profile);if(!prov)continue;   // its gateway did not answer: nothing is known this tick
-    const cur=curOf[profile],model=(await agentRoute(profile)).model;const pe=d.priority.find(e=>e.key===cur&&(e.model===model||!e.model))||d.priority.find(e=>e.key===cur);
+    const ord=orderOf(d,profile),groups=d.orders?.[profile]?planGroups(groupsFor(d,profile,provD)):groupsMain;
+    const cur=curOf[profile],model=(await agentRoute(profile)).model;const pe=ord.find(e=>e.key===cur&&(e.model===model||!e.model))||ord.find(e=>e.key===cur);
     const at=pe?groups.findIndex(g=>g.members.includes(pe)):-1,g=at>=0?groups[at]:null;
     // a provider in an outage (backup-models.mjs) has no room (held), so nobody is moved back up to it before it works again
     const state=e=>reading(e,det,prov,e.model||(e.key.startsWith(PLUGIN_KEY)&&!isClaude(model)?'':model),onIt);
@@ -327,16 +337,16 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  // engine must not leave that model: the agent is moved there (auto-switch, now). Only claimed while auto-switch is on and can still move
  // this agent today, so a "yes" never leaves an agent failing with nobody to move it. Signed-out and unreadable members have no room.
  async function poolRoom(profile,d,det){const none={sameModelRoom:false,keys:[]};
-  if(!d.auto?.on||!(d.priority||[]).length||movesToday(d.moved?.[profile])>=DAY_MAX)return none;
+  if(!d.auto?.on||!orderOf(d,profile).length||movesToday(d.moved?.[profile])>=DAY_MAX)return none;
   const prov=await providers(false,profile).catch(()=>null)||[];   // the gateway did not answer: a Claude-only pool can still be read
-  const groups=planGroups(groupsOf(d,prov)),cur=await entryOf(d,profile),model=(await agentRoute(profile)).model,th=Number(d.auto?.threshold)||90;
+  const groups=planGroups(groupsFor(d,profile,prov)),cur=await entryOf(d,profile),model=(await agentRoute(profile)).model,th=Number(d.auto?.threshold)||90;
   const g=groups.find(x=>x.members.some(e=>e.key===cur));if(!g?.pool)return none;
   const mem=g.members.filter(e=>e.key===cur||servesModel(e,model,prov)).map(e=>reading(e,det,prov,e.model||(e.key.startsWith(PLUGIN_KEY)&&!isClaude(model)?'':model),new Map()));
   const keys=rankMembers(mem,{lim:th,floor:th,self:cur,skip:cur}).filter(x=>!x.unknown).map(x=>x.key);return {sameModelRoom:keys.length>0,keys}}
  // the engine refused to leave the model because of that room: the agent goes to the member with the most room now, whatever its own reading says
  // (the 5-minute check only moves an account that reads as used up). Counts as one of its automatic moves today.
  async function moveToPool(profile){const d=await load();if(!d.auto?.on)return null;
-  const det=Object.fromEntries(await Promise.all(all(d).map(async a=>[a.id,await details(a)]))),r=await poolRoom(profile,d,det),e=r.sameModelRoom&&d.priority.find(x=>x.key===r.keys[0]);
+  const det=Object.fromEntries(await Promise.all(all(d).map(async a=>[a.id,await details(a)]))),r=await poolRoom(profile,d,det),e=r.sameModelRoom&&orderOf(d,profile).find(x=>x.key===r.keys[0]);
   if(!e)return null;await useEntry(d,profile,e,'Its account failed: the account in its pool with the most room');console.log('route order:',profile,'moved to',e.key);return e.key}
 
  /* ---------- signed out: an account that stopped working until someone reconnects it (Bottlenecks, the Models banner).
@@ -485,7 +495,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   if(every)for(const a of Object.keys(rec))if(rec[a]&&src.rel in rec[a]&&!has[a]&&!gain.includes(a))delete rec[a][src.rel];   // taken off before: every agent means every agent
   gKeep();for(const a of lose)await trimSkills(a).catch(()=>0);
   console.log('skill',src.rel,every?'for every agent':'for '+want.join(', '),'· gave',gain.length,'· took from',lose.length);return {owner,holders,gain,lose}};
- accountHooks.moveOff=async(profile,key)=>{const d=await load();for(const e of d.priority||[]){if(e.key===key)continue;
+ accountHooks.moveOff=async(profile,key)=>{const d=await load();for(const e of orderOf(d,profile)){if(e.key===key)continue;
   if(e.key.startsWith(PLUGIN_KEY)){const a=all(d).find(x=>x.id===e.key.slice(PLUGIN_KEY.length));if(!a||!(await details(a)).signedIn)continue}
   try{await useEntry(d,profile,e,'Google AI Pro signed out');return e.key}catch(er){console.warn('move off',profile,e.key,er.message)}}return null};
  /* ---------- Code: a run for an agent uses the account that agent is on here ----------
@@ -543,7 +553,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const groups=groupsOf(d,prov).map(g=>({id:g.id,kind:g.kind,mode:g.mode,canRoom:g.canRoom,pool:g.pool,alone:g.alone,members:g.members,next:g.pool?nextPick(g.members.map(e=>reading(e,detNow,prov,e.model,onIt)),{lim}):null}));
    const moves=moves24((await tailOf(path.join(DATA,'model-moves.jsonl'))).split('\n'),{see});
    const so=await signedOut();
-   return send(res,200,{accounts:list,providers:prov,groups,solo:d.solo||[],moves24:moves,priority:d.priority||[],labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:so,keys:accountHooks.keyStatus?.()||{},states:statesNow(list,prov,accountHooks.keyStatus?.()||{},Object.fromEntries(so.map(x=>[x.key,1]))),allow:d.allow||[]})}
+   return send(res,200,{accounts:list,providers:prov,groups,solo:d.solo||[],moves24:moves,priority:d.priority||[],orders:Object.fromEntries(Object.entries(d.orders||{}).filter(([n])=>see(n))),labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:so,keys:accountHooks.keyStatus?.()||{},states:statesNow(list,prov,accountHooks.keyStatus?.()||{},Object.fromEntries(so.map(x=>[x.key,1]))),allow:d.allow||[]})}
   // a Needs-you button (need-action.mjs unlist-account): one account out of the priority list, the rest as it is
   if(p==='/ui/accounts/unlist'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||'');if(!(d.priority||[]).some(e=>e.key===k))return send(res,400,{error:'That account is not in the priority list.'});return send(res,200,await unlist(k))}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
@@ -553,6 +563,14 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    // pool members are kept next to each other; solo: the entries taken out of their pool ("key|model"), kept as they are when not sent
    const nz=normalise(pr,Array.isArray(b.solo)?b.solo.filter(x=>typeof x==='string'&&x.length<=200).slice(0,40):d.solo||[]);
    d.priority=nz.priority;d.solo=nz.solo;await update(x=>{x.priority=nz.priority;x.solo=nz.solo});autoTick().catch(()=>{});accountHooks.backupSync?.('priority');return send(res,200,{priority:d.priority,solo:d.solo})}
+  // one agent's own order, or back to the main order (order: null); only entries of the main order, each once
+  if(p==='/ui/accounts/order'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}const n=String(b.agent||'');
+   if(!/^[a-z0-9][a-z0-9_-]{0,63}(--[a-z0-9_-]{1,64})?$/.test(n)||!(await agents()).includes(n)||!see(n))return send(res,400,{error:'Unknown agent.'});
+   let own=null;if(Array.isArray(b.order)){const main=d.priority||[],seenE=new Set();own=b.order.filter(e=>e&&typeof e.key==='string').map(e=>({key:e.key,model:String(e.model||'').slice(0,120),...(e.off?{off:true}:{})}))
+     .filter(e=>main.some(m=>entryKey(m)===entryKey(e))&&!seenE.has(entryKey(e))&&seenE.add(entryKey(e))).slice(0,20);
+    if(!own.length||own.every(e=>e.off))return send(res,400,{error:'Keep at least one model on for this agent.'})}
+   await update(x=>{x.orders||={};if(own)x.orders[n]=own;else delete x.orders[n]});d.orders={...(d.orders||{})};if(own)d.orders[n]=own;else delete d.orders[n];
+   autoTick().catch(()=>{});accountHooks.backupSync?.('order of '+n);return send(res,200,{agent:n,order:own,effective:orderOf(d,n)})}
   // one provider's accounts: Most room first, or In my order (the page offers Most room only where usage can be read)
   if(p==='/ui/accounts/group-mode'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const kind=String(b.kind||''),mode=String(b.mode||'');
    if(!/^(claude|p:[a-z0-9_.-]+)$/.test(kind)||!['room','order'].includes(mode))return send(res,400,{error:'Unknown choice'});
@@ -592,5 +610,5 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   send(res,404,{error:'Not found'});
  },{codeRoute,signedOut,known,forget,noteLimit,
   // what backup-models.mjs needs to build each agent's backup list and to move agents in an outage
-  backup:{load,all,details:a=>details(a),options,entryOf,agentRoute,useEntry,signins:n=>signins(n),keyStatus:()=>accountHooks.keyStatus?.()||{},sameModelRoom:poolRoom,moveToPool}});
+  backup:{load,all,details:a=>details(a),options,entryOf,agentRoute,useEntry,orderOf:(d,p)=>orderOf(d,p),signins:n=>signins(n),keyStatus:()=>accountHooks.keyStatus?.()||{},sameModelRoom:poolRoom,moveToPool}});
 }
