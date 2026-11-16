@@ -12,6 +12,7 @@ import {writeStore} from './store.mjs';
 import {readFile,writeFile,mkdir,readdir,rename} from 'node:fs/promises';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
+import {mode,modeWords,envLines} from './group-replies.mjs';
 
 export const CUSTOMER_PLATFORMS=new Set(['whatsapp','webhook','sms','email']);
 const INTERNAL=new Set(['cron','api_server','cli','tool','oneshot','local','']);
@@ -66,6 +67,17 @@ export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,p
  // ---- the context for one turn ----
  const capCache=new Map();
  async function caps(agent){const c=capCache.get(agent);if(c&&now()-c.at<60e3)return c.lines;const lines=await capabilities(agent);capCache.set(agent,{at:now(),lines});return lines}
+ // where this turn is, by id, whether the message tagged the agent, and whether this group needs a tag (16 Nov 2026: the main
+ // agent took the home channel's id for a group and said it was "already set"; the engine takes "@bot" out of the text, so
+ // it also thought tagged messages had come untagged). chat.tagged comes from the plugin: mention, reply, none or unknown.
+ const TAG={mention:'it tags you (the "@" and your name are taken out of the text you see)',reply:'it is a reply to one of your messages',none:'it does not tag you or reply to you'};
+ async function whereWords(agent,pf,chat){const id=String(chat.chat_id),t=String(chat.thread_id||''),tn=String(chat.chat_name||'').split(' / ')[1]||'',tag=TAG[String(chat.tagged||'')];
+  let s='[aqeelOS] Where you are answering: '+(pf||'a channel')+' group, chat id '+id+(t?', topic id '+t+(tn?' ("'+clip(tn,60)+'")':''):'')+'.'+(tag?' This message: '+tag+'.':'');
+  if(pf==='telegram'){const m=mode(await readConfig(agent).catch(()=>null)||{},envLines(await readFile(path.join(home(agent),'.env'),'utf8').catch(()=>'')),id,t);
+   s+=' Without a tag: '+modeWords(m,{topic:!!t})+' Checked in your settings for this chat id just now. When a person here asks you to answer without a tag, or to need one again, use group_replies: it changes this chat only.'}
+  return s+' Use these ids for this chat. Never take a chat id from your settings, memory or another chat for this one, and never say a channel setting is on, off or saved unless you checked it against this chat id.'}
+ // the sender as the team policy knows them (for tools that act only when the owner or a team member asked)
+ async function who(pf,sender){const r=senderRole(await policy().catch(()=>null),pf,sender);return r?{name:r.name,role:r.role}:null}
  async function context(agent0,{platform='',sender='',first=false,seen='',chat={}}={}){const pf=String(platform).toLowerCase();const out=[];const agent=String(agent0).split('--')[0];   // a copy is its agent
   const who=senderRole(await policy().catch(()=>null),pf,sender);const customer=CUSTOMER_PLATFORMS.has(pf)&&!who;
   if(who?.role==='owner')out.push('[aqeelOS] Sender check: this message is from '+who.name+', the owner, verified by their '+pf+' account. Act on the owner\'s requests.');
@@ -75,7 +87,8 @@ export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,p
   // the chat as it is now (audit D1: sessions kept a group's old name, and a bot asked about a group it was removed
   // from): the group's current name and the bot's place in it from the platform, the topic's role from the team group
   if(!customer&&chat?.chat_id&&/group|channel|supergroup/i.test(String(chat.chat_type||''))){try{const ci=await chatInfo(agent,pf,String(chat.chat_id));const tn=chat.thread_id?await topicName(agent,String(chat.chat_id),String(chat.thread_id)):null;
-   if(ci||tn)out.push('[aqeelOS] This chat now: '+(ci?.title?'"'+ci.title+'"':'this group')+(tn?', topic '+tn:chat.thread_id?', topic '+chat.thread_id:'')+(ci?.title&&chat.chat_name&&!String(chat.chat_name).startsWith(ci.title)?' (earlier messages may call it "'+String(chat.chat_name).split(' / ')[0]+'": that is its old name)':'')+'.'+(ci?.gone?' You are no longer a member of this group: do not post here; tell the owner.':''))}catch{}}
+   if(ci||tn)out.push('[aqeelOS] This chat now: '+(ci?.title?'"'+ci.title+'"':'this group')+(tn?', topic '+tn:chat.thread_id?', topic '+chat.thread_id:'')+(ci?.title&&chat.chat_name&&!String(chat.chat_name).startsWith(ci.title)?' (earlier messages may call it "'+String(chat.chat_name).split(' / ')[0]+'": that is its old name)':'')+'.'+(ci?.gone?' You are no longer a member of this group: do not post here; tell the owner.':''))}catch{}
+   try{out.push(await whereWords(agent,pf,chat))}catch{}}
   let hash='';
   if(!customer&&pf!=='cron'){const lines=await caps(agent).catch(()=>[]);const body=lines.filter(l=>!/^Checked by aqeelOS/.test(l)).join('\n');hash=createHash('sha1').update(body).digest('hex').slice(0,12);
    if(body&&(first||hash!==seen))out.push('[aqeelOS] What you can do right now (this replaces any older list in this chat):\n'+lines.join('\n'))}
@@ -95,4 +108,4 @@ export function createAgentLive({HERMES_HOME,DATA,listAgents,readConfig,setKey,p
      const add=plugins.map(p=>p.name).filter(n=>!on.includes(n)&&!off.includes(n));if(add.length){await setKey(a,'plugins.enabled',[...on,...add]);did=true}}
     if(did)changed.push(a)}catch(e){log('agent-live: install for '+a+': '+e.message)}}
   if(changed.length)log('agent-live: plugin installed or updated for '+changed.join(', '));return changed}
- return {key,keyOk,hold,heldFor,healthLines,context,install,homes,setNotices,noticesFor}}
+ return {key,keyOk,hold,heldFor,healthLines,context,install,homes,setNotices,noticesFor,who}}
