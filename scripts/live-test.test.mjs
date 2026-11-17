@@ -52,3 +52,12 @@ test('the Kirimdev check resets the test chat and writes in the line language (1
  assert.match(kirimTestText({language:'English'}),/quick question/);assert.match(kirimTestText({}),/quick question/);
  // 15 Nov 2026: a question a support agent can answer, so the check before sending never holds the reply
  for(const l of [{language:'Indonesian'},{language:'English'}])assert.doesNotMatch(kirimTestText(l),/deploy|aqeelOS|check|cek/i)});
+
+test('the Kirimdev check leaves a tester alone who is chatting for real (i877d1a2d)',async()=>{
+ const {quietTesters}=await import('./live-test.mjs');const now=1_800_000_000_000;
+ const line={testers:[{who:'A',phone:'+62 811-111'},{who:'B',phone:'62822222'},{who:'nophone'}]};
+ const recent={'x|62811111':now-5*60e3,'x|62822222':now-45*60e3,'y|62811111':now-60e3};
+ assert.deepEqual(quietTesters('x',line,recent,now,30).map(t=>t.who),['B']);
+ assert.deepEqual(quietTesters('x',line,{'x|62811111':now-60e3,'x|62822222':now-60e3},now,30),[]);
+ assert.deepEqual(quietTesters('x',line,{},now,30).map(t=>t.who),['A','B']);
+});
