@@ -22,3 +22,23 @@ test('every icon file shows the orbit: dot and ring white, the middle and the cu
   const white=c=>c[3]>200&&c[0]>200,notWhite=c=>!white(c);
   assert.ok(white(at(43,21)),f+': the dot');assert.ok(white(at(32,45)),f+': the ring');assert.ok(white(at(19,32)),f+': the ring');
   assert.ok(notWhite(at(32,32)),f+': the middle');assert.ok(notWhite(at(37.6,22.4)),f+': the cut round the dot')}});
+// light mode (owner, 17 Nov 2026): the same drawing on a light tile, shown when the page is light; the navy one when it is dark. Neither is inverted.
+test('the light drawing is the same shapes, navy on a light tile, in both places',()=>{
+ const light=rd('assets/aqeelos-mark-light.svg').toString('utf8');assert.equal(rd('code/assets/aqeelos-mark-light.svg').toString('utf8'),light);
+ const shapes=s=>s.replace(/fill="#[0-9a-f]+"/gi,'fill=""');assert.equal(shapes(light),shapes(svg));
+ assert.match(light,/<rect[^>]*fill="#edeef2"/);assert.doesNotMatch(light,/fill="#fff"/);
+ const px=renderSvg(light,64),at=(x,y)=>[...px.slice((y*64+x)*4,(y*64+x)*4+3)];assert.ok(at(43,21).every(v=>v<60),'navy dot');assert.ok(at(32,32).every(v=>v>220),'light middle')});
+test('every page that shows the aqeelOS mark has both drawings, and CSS shows one per theme with no filter',()=>{
+ const pair=/<img class="(mark )?aq-mark aq-dark" src="\/assets\/aqeelos-mark\.svg" alt=""><img class="(mark )?aq-mark aq-light" src="\/assets\/aqeelos-mark-light\.svg" alt="">/;
+ for(const f of ['code/studio.html','code/index.html','code/usage.html','code/development.html','backlog/index.html']){const t=rd(f).toString('utf8');assert.match(t,pair,f);assert.doesNotMatch(t,/<img (class="mark" )?src="\/assets\/aqeelos-mark\.svg"/,f+' still has a single mark')}
+ const rule=/\.dark img\.aq-light,:root:not\(\.dark\) img\.aq-dark\{display:none\}/;
+ for(const f of ['app/app.css','code/theme.css','code/studio.css','backlog/index.html'])assert.match(rd(f).toString('utf8'),rule,f);
+ assert.match(rd('code/server.mjs').toString('utf8'),/aqeelos-mark\(-light\)\?\\.svg\)\$\//,'Code serves the light drawing before sign-in')});
+test('the web app shows both drawings only for the aqeelOS mark: an uploaded logo or another install mark stays one image',()=>{
+ const src=rd('app/lang.js').toString('utf8'),m=/ markImg\(\)\{return ([^\n]*)\},\n/.exec(src);assert.ok(m,'markImg');
+ const markImg=new Function('return '+m[1]);const B=o=>({mark(){return this.logo||'/ui/brand/logo'},...o});
+ assert.match(markImg.call(B({logo:null,aq:true})),/aq-dark[\s\S]*aq-light/);
+ assert.equal(markImg.call(B({logo:'/ui/brand/logo?v=1',aq:true})),'<img class="mark" src="/ui/brand/logo?v=1" alt="">');
+ assert.equal(markImg.call(B({logo:null,aq:false})),'<img class="mark" src="/ui/brand/logo" alt="">');
+ for(const f of ['app/core.js','app/people.js','app/account-setup.js'])assert.doesNotMatch(rd(f).toString('utf8'),/<img class="mark" src="\$\{Brand\.mark\(\)\}"/,f);
+ assert.match(rd('app/server.mjs').toString('utf8'),/aq:\/aqeelos-mark\/\.test\(env\.BRAND_LOGO_FALLBACK\|\|'aqeelos-mark'\)/)});

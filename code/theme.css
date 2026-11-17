@@ -27,3 +27,6 @@
  .wordmark img{width:24px;height:24px}
  .page-nav{justify-content:flex-start;flex:0 1 auto}
 }
+
+/* the aqeelOS mark: the light drawing in light mode, the navy one in dark mode, never inverted (17 Nov 2026) */
+.dark img.aq-mark,img.aq-mark{filter:none}.dark img.aq-light,:root:not(.dark) img.aq-dark{display:none}

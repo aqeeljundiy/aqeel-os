@@ -1699,6 +1699,7 @@ div.skel:not(.loading)+div.skel:not(.loading){display:none}
 /* branding: any logo is shown in black and white */
 .wordmark img.mark{filter:grayscale(1) contrast(1.05)}
 .dark .wordmark img.mark{filter:grayscale(1) invert(1)}
+.wordmark img.mark.aq-mark,.dark .wordmark img.mark.aq-mark{filter:none}.dark img.aq-light,:root:not(.dark) img.aq-dark{display:none}   /* the aqeelOS mark: its own light and dark drawings, never inverted (17 Nov 2026) */
 
 .side-foot .avatar.none{background:var(--soft);color:var(--muted)}
 /* a new version is ready */

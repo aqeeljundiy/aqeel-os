@@ -4,7 +4,7 @@
 const Acct={
  card(html,after){const box=$('.signin');if(!box)return;const old=box.querySelector('.card');const put=()=>{box.innerHTML=html;const f=box.querySelector('.card');after?.(f)};
   if(!old)return put();old.classList.add('leaving');setTimeout(put,160)},
- head(){return `<span class="wordmark"><img class="mark" src="${Brand.mark()}" alt="">${esc(Brand.name)}</span>`},
+ head(){return `<span class="wordmark">${Brand.markImg()}${esc(Brand.name)}</span>`},
  shake(f){f.classList.remove('shake');void f.offsetWidth;f.classList.add('shake')},
  async call(path,body){const r=await fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const d=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(new Error(d.error||'That did not work. Try again.'),{status:r.status});return d},
  // runs a form: the button is busy while it works, an error shakes the card and says why

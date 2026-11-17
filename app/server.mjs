@@ -2440,7 +2440,7 @@ const server=createServer(async(req,res)=>{
   if(p==='/secret'||p.startsWith('/secret/'))return await secretRoute(req,res,p);
   if(await oauthCallbackRoutes(req,res,p,url))return;
   if(await codeDeviceRoutes(req,res,p,url))return;
-  if(p==='/ui/brand'&&req.method==='GET')return send(res,200,{...await brand.get(),owner:legalOwner(),pwa:await pwa.info().catch(()=>null)});
+  if(p==='/ui/brand'&&req.method==='GET')return send(res,200,{...await brand.get(),aq:/aqeelos-mark/.test(env.BRAND_LOGO_FALLBACK||'aqeelos-mark'),owner:legalOwner(),pwa:await pwa.info().catch(()=>null)});
   if(p==='/ui/brand/logo'&&req.method==='GET'){const l=await brand.logo();if(!l){res.writeHead(302,{location:env.BRAND_LOGO_FALLBACK||'/assets/aqeelos-mark.svg'});return res.end()}res.writeHead(200,{'content-type':l.type,'cache-control':'public, max-age=86400','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'",'x-content-type-options':'nosniff'});return res.end(l.data)}
   if(p==='/aqeelos-login'&&req.method==='GET'){res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer'});return res.end(n8n.page())}
   if(p==='/aqeelos-login/go'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}

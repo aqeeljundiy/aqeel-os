@@ -66,6 +66,8 @@ const ID_PATTERNS=[
 /* The name and logo of this install (aqeelOS). The Branding page was removed on 24 Oct 2026; the stored values are still read. */
 const Brand={name:'aqeelOS',logo:null,custom:false,
  mark(){return this.logo||'/ui/brand/logo'},   // the server's choice: an uploaded logo, else BRAND_LOGO_FALLBACK, else the aqeelOS mark
+ // the logo as <img>: the aqeelOS mark (no upload, no other fallback: aq from /ui/brand) in its light and dark drawings, CSS shows the one for the theme (17 Nov 2026)
+ markImg(){return !this.logo&&this.aq?'<img class="mark aq-mark aq-dark" src="/assets/aqeelos-mark.svg" alt=""><img class="mark aq-mark aq-light" src="/assets/aqeelos-mark-light.svg" alt="">':'<img class="mark" src="'+this.mark()+'" alt="">'},
  async load(){try{const b=await (await fetch('/ui/brand',{cache:'no-store'})).json();Object.assign(this,b)}catch{}this.apply()},
  apply(){document.title=this.name;const ic=document.querySelector('link[rel="icon"]');if(ic)ic.href=this.mark();if(this.custom&&typeof Lang!=='undefined')Lang.run(document.body)}};
 const Lang={
