@@ -32,6 +32,16 @@ inbound_stays(){
   iptables -t mangle -C OUTPUT -j CONNMARK --restore-mark 2>/dev/null || iptables -t mangle -A OUTPUT -j CONNMARK --restore-mark
 }
 
+# Telegram goes out on the box's normal connection, never through Nord: through the tunnel about 1 in 10 connections to
+# Telegram timed out, in bursts (owner, 18 Nov 2026: voice notes to Donna could not be downloaded; a 10-minute probe failed
+# 12 of 117 through Nord, 0 of 117 direct). Telegram's own published ranges (core.telegram.org/resources/cidr.txt).
+# Table 100 is inbound_stays' normal route; the rules are put back on every connect and stay harmless while Nord is off.
+DIRECT_NETS="91.105.192.0/23 91.108.4.0/22 91.108.8.0/22 91.108.12.0/22 91.108.16.0/22 91.108.20.0/22 91.108.56.0/22 149.154.160.0/20 185.76.151.0/24"
+direct_routes(){
+  local n
+  for n in $DIRECT_NETS; do ip rule del to "$n" lookup 100 2>/dev/null; ip rule add to "$n" lookup 100 priority 99 || echo "nord-vpn: could not send $n around Nord" >&2; done
+}
+
 prepare(){
   local server user; server=$(val server); user=$(val user)
   [[ "$server" =~ ^[a-z]{2}[0-9]+\.nordvpn\.com$ ]] || { say "off: no valid server in $CONF"; return 1; }
@@ -48,6 +58,7 @@ check_ip(){ curl -fsS --max-time 15 https://api.ipify.org 2>/dev/null || true; }
 run_once(){
   local server; server=$(prepare) || return 1
   inbound_stays || { say "off: could not keep incoming connections on the normal route"; return 1; }
+  direct_routes
   say "connecting to $server"
   openvpn --config "$DIR/$server.ovpn" --auth-user-pass "$DIR/auth" --auth-nocache --dev tun0 --persist-key \
     --ping 10 --ping-restart 60 --connect-retry 5 30 --verb 2 --writepid /run/aq-openvpn.pid >> /var/log/aq-openvpn.log 2>&1 &
