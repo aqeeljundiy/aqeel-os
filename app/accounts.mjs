@@ -7,7 +7,7 @@ import {spawn,execFile} from 'node:child_process';
 import {readFile,writeFile,mkdir,rename,rm,readdir,cp,access,stat,copyFile,appendFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import path from 'node:path';
-import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStatus,LIVE_APP} from './agentops.mjs';
+import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStatus,LIVE_APP,homeOf} from './agentops.mjs';
 import {allowed,trim,setRule,ownerOf} from './skills-policy.mjs';
 import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
@@ -42,7 +42,10 @@ export const entryReset=(wins,full=99)=>{const t=(wins||[]).filter(w=>(w.used||0
 export const limitNote=(refused,note,now=Date.now())=>refused&&note?.until>now?{until:note.until,text:'At its limit until '+new Date(note.until).toISOString().slice(0,16).replace('T',' ')+' UTC (from its last refusal).'}:null;
 // Telegram messages sent while the engine was down (the nightly restart, a deploy) are kept and answered after the start;
 // the engine's default throws them away (owner, 18 Nov 2026: two "redo" messages at 00:16 got no answer). Only where nobody chose.
-export const keepQueueKeys=c=>{const t=c?.platforms?.telegram;return t&&typeof t==='object'&&t.extra?.drop_pending_on_cold_boot===undefined?['platforms.telegram.extra.drop_pending_on_cold_boot']:[]};
+// Telegram is on either through a settings block or only through TELEGRAM_BOT_TOKEN in the agent's .env (the support agents);
+// a block holding only extra (no "enabled") leaves the engine's own switch-on from the token as it was.
+export const keepQueueKeys=(c,env='')=>{const t=c?.platforms?.telegram,on=(t&&typeof t==='object')||/^TELEGRAM_BOT_TOKEN=\S/m.test(env);
+ return on&&c&&(t===null||t===undefined||typeof t==='object')&&t?.extra?.drop_pending_on_cold_boot===undefined?['platforms.telegram.extra.drop_pending_on_cold_boot']:[]};
 export const accountHooks={idle:null,exhausted:null,capped:null,giveSkills:null,trimSkills:null,forgetSkills:null,afterSetup:null,moveOff:null,keyStatus:null,keyCheck:null,held:null,backupSync:null};   // keyStatus/keyCheck: connect.mjs (API keys tested); held/backupSync: backup-models.mjs
 export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code')}={}){
  const FILE=path.join(DATA,'accounts.json'),LIM_FILE=path.join(DATA,'claude-limits.json');let lims=null;
@@ -475,7 +478,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
 
  setupAgentFn=setupAgent;
  accountHooks.giveSkills=giveSkills;accountHooks.trimSkills=trimSkills;accountHooks.forgetSkills=forgetSkills;
- accountHooks.keepQueue=async name=>{for(const k of keepQueueKeys(await readConfig(name)))await setKey(name,k,'false')};
+ accountHooks.keepQueue=async name=>{const env=await readFile(path.join(homeOf(name),'.env'),'utf8').catch(()=>'');
+  for(const k of keepQueueKeys(await readConfig(name),env))await setKey(name,k,'false')};
  // a provider going away (Google AI Pro signed out): the agent's first priority entry it can really use; null when none
  accountHooks.allowList=async()=>(await load()).allow||[];
  // Who has a skill, and changing that (Abilities › Skills › Access). key: "<category>/<skill>" or the skill's name.
