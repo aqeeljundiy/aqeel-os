@@ -1584,7 +1584,7 @@ const eventHooks=createEventHooks({DATA,WORK:path.join(homedir(),'workspaces'),e
 const agentKeys=createAgentKeys({DATA,WORK:path.join(homedir(),'workspaces'),log:m=>console.log(m)});
 const payProviders=createPaymentProviders({DATA,keyOf:(a,n)=>agentKeys.get(a,n),log:m=>console.log(m)});
 const priceCatalog=createCatalog({DATA,log:m=>console.log(m)});
-const agentOps=createAgentOps({WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>sign('agent-ops:'+a).slice(0,32),kirimdev,log:m=>console.log(m)});
+const agentOps=createAgentOps({PORT,sign,kirimdev,HERMES_HOME,enginePython,readConfig,googleTools,listAgents});
 const teamHookUrl=a=>`http://127.0.0.1:${PORT}/team-message/${a}/${sign('team-message:'+a).slice(0,32)}`;
 if(LIVE_APP){const t=async()=>{await agentOps.ensureClients().catch(e=>console.warn('agent ops',e.message));for(const a of Object.keys(await kirimdev.lines().catch(()=>({}))))await ensureTeamHook({HERMES_HOME,agent:a,url:teamHookUrl(a),log:m=>console.log(m)}).catch(e=>console.warn('team hook',a,e.message))};setTimeout(t,45e3).unref();setInterval(t,10*60e3).unref()}
 const paidLabels=createPaidLabels({DATA,WORK:path.join(homedir(),'workspaces'),keyOf:(a,n)=>agentKeys.get(a,n),onEvent:(a,ev)=>emitEvent(a,ev),callbackActive:(a,k)=>paymentCallbacks.active(a,k),label:(a,o)=>kirimdev.labelContact(a,o),orders:lineOrders,post:(a,t,text)=>kirimdev.teamPost(a,t.chatId,t.threadId,text),failed:(a,topic,title,detail)=>health.problem(a,/^part-paid\|/.test(String(topic))?'customer':'handoff',title,{topic,fix:detail})});

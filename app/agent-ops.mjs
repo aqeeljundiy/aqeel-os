@@ -16,9 +16,13 @@
 // for every line agent whose folder no longer holds the Kirimdev key. scripts/migrate-agent-keys.mjs takes the keys out.
 import {readFile,writeFile,rename,stat,chmod} from 'node:fs/promises';
 import path from 'node:path';
+import {createToolBridge} from './tool-bridge.mjs';
 
 const READ=/^(conversations|messages|contacts)(\/[\w.:-]+){0,3}$/;
-export function createAgentOps({WORK,PORT,sig,kirimdev,log=m=>console.log(m)}){
+export function createAgentOps({HERMES_HOME,WORK=HERMES_HOME&&path.join(path.dirname(HERMES_HOME),'workspaces'),PORT,sig,sign,kirimdev,enginePython,readConfig,googleTools,listAgents,log=m=>console.log(m)}){
+ sig||=a=>sign('agent-ops:'+a).slice(0,32);
+ // every agent's scripts call its connected tools (tool-bridge.mjs, 17 Nov 2026): /tool-call/<agent>/<sig>, helpers written with the Kirimdev ones
+ const tools=sign&&enginePython?createToolBridge({HERMES_HOME,WORK,PORT,sig:a=>sign('tool-call:'+a).slice(0,32),python:enginePython,readConfig,googleTools,log}):null;
  const url=a=>`http://127.0.0.1:${PORT}/agent-ops/${a}/${sig(a)}`;
  const fail=(status,error)=>({status,json:{error}});
  async function call(agent,req){const a=String(agent).split('--')[0],line=(await kirimdev.lines().catch(()=>({})))[a];if(!line)return fail(404,'This agent has no Kirimdev line.');
@@ -77,8 +81,9 @@ except Exception as x:print('aqeelOS could not be reached: '+str(x),file=sys.std
    for(const [name,want,mode] of [['kirim_cli.py',CLI(url(a),a),0o664],['kirim',KIRIM(a),0o775],['label',LABEL(url(a)),0o775]]){const f=path.join(dir,name);if((await readFile(f,'utf8').catch(()=>''))===want)continue;
     const t=f+'.'+process.pid+'.tmp';await writeFile(t,want);await chmod(t,mode);await rename(t,f);n++}
    if(n)log('agent ops: Kirimdev helpers set for '+a)}
+  if(tools&&listAgents)n+=await tools.ensureClients(await listAgents()).catch(e=>(log('tool bridge: '+e.message),0));
   return n}
- return {call,url,ensureClients}}
+ return {call,url,ensureClients,tools}}
 
 // ---- the engine hook that hands a person's Telegram message in the team group to aqeelOS (audit H5). The engine's gateway runs
 // hooks from <profile>/hooks/<name>/ (HOOK.yaml + handler.py) at "agent:start", with the platform, the sender's user id, the chat, the

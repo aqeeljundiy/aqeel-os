@@ -11,6 +11,7 @@
 // Tools are grouped by service with an action, so an agent sees six tools, not twenty.
 import {readFile,writeFile,rename,readdir,chmod,stat} from 'node:fs/promises';
 import path from 'node:path';
+import {AsyncLocalStorage} from 'node:async_hooks';
 import {Ask,SHEET_ACTIONS,NEEDS_RANGE,DELETE_REFUSED,checkBatch,buildRequests} from './google-sheet-ops.mjs';
 import {SERVICES} from './google-connect.mjs';
 
@@ -19,10 +20,12 @@ const GMAIL='https://gmail.googleapis.com/gmail/v1/users/me/',SHEETS='https://sh
  DRIVE='https://www.googleapis.com/drive/v3/files',UPLOAD='https://www.googleapis.com/upload/drive/v3/files',CAL='https://www.googleapis.com/calendar/v3/calendars/';
 const e=encodeURIComponent;
 const SX={get:['GET',''],batchUpdate:['POST',':batchUpdate'],'values.get':['GET',''],'values.update':['PUT',''],'values.append':['POST',':append'],'values.clear':['POST',':clear']};
-const MAX_TEXT=40000;
+const MAX_TEXT=40000,SCRIPT_TEXT=16e6;
+// a call from an agent's script (tool-bridge.mjs, 17 Nov 2026) gets the whole answer: a sync reads thousands of rows the chat never sees
+const LIMIT=new AsyncLocalStorage();
 const isTok=f=>/^google_token(?:_[\w.-]+)?\.json$/.test(f);
 const nameOf=f=>(/^google_token(?:_([\w.-]+))?\.json/.exec(f)||[])[1]||'';
-const clip=(s,n=MAX_TEXT)=>{s=String(s??'');return s.length>n?s.slice(0,n)+'\n… (cut at '+n+' characters of '+s.length+')':s};
+const clip=(s,n=LIMIT.getStore()||MAX_TEXT)=>{s=String(s??'');return s.length>n?s.slice(0,n)+'\n… (cut at '+n+' characters of '+s.length+')':s};
 // a file id from a Google link (docs.google.com/spreadsheets/d/<id>/…, drive.google.com/file/d/<id>, /drive/folders/<id>,
 // ?id=<id>) or the id itself
 export function idOf(v){const s=String(v||'').trim();const m=/\/(?:d|folders)\/([\w-]{10,})/.exec(s)||/[?&]id=([\w-]{10,})/.exec(s);return m?m[1]:s}
@@ -275,7 +278,7 @@ export function createGoogleTools({HERMES_HOME,homeOf=a=>a==='default'?HERMES_HO
   for(const p of paused)L.push('- '+(p.name||'main')+' · paused in aqeelOS');return 'Your Google accounts (use them with google_gmail, google_sheets, google_drive, google_docs, google_calendar):\n'+L.join('\n')}
  const RUN={google_accounts:listAccounts,google_gmail:gmail,google_sheets:sheets,google_drive:drive,google_docs:docs,google_calendar:calendar};
  // one tool call: {text, isError}
- async function call(agent,name,args){const f=RUN[name];if(!f)return {isError:true,text:'No such Google tool.'};
+ async function call(agent,name,args,{full=false}={}){if(full)return LIMIT.run(SCRIPT_TEXT,()=>call(agent,name,args));const f=RUN[name];if(!f)return {isError:true,text:'No such Google tool.'};
   const acts=GOOGLE_TOOLS.find(t=>t.name===name).inputSchema.properties.action?.enum;
   if(acts&&!acts.includes(args?.action))return {isError:true,text:'action is one of: '+acts.join(', ')+'.'};
   try{const text=await f(agent,args&&typeof args==='object'?args:{});return {text:String(text)}}

@@ -48,6 +48,7 @@ const SIGNED_URLS=[
  {label:'relay:',rx:()=>new RegExp('(/mcp/notify/)([\\w-]+)(/)('+SIG+')','g')},
  {label:'relay:',rx:()=>new RegExp('(/(?:run-gate|event-hook)/)([\\w-]+)(/[\\w.-]+/)('+SIG+')','g')},
  {label:'google-files:',rx:()=>new RegExp('(/google-files/)([\\w-]+)(/)('+SIG+')','g')},
+ {label:'tool-call:',rx:()=>new RegExp('(/tool-call/)([\\w-]+)(/)('+SIG+')','g')},
  {label:'self-runs:',rx:()=>new RegExp('(/mcp/self/)([\\w-]+)(/)('+SIG+')','g')},
  {label:'code-bridge:',rx:()=>new RegExp('(/mcp/code/)([\\w-]+)(/)('+SIG+')','g')}];
 const GUARD_SIG=/("sig"\s*:\s*")([^"]*)(")/;
