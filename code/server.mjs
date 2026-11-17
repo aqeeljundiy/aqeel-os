@@ -49,7 +49,7 @@ const root=path.dirname(fileURLToPath(import.meta.url));
 // inside aqeelOS (online) aqeelOS swaps them for the install's own brand. Absent (a standalone copy without app/) = nothing changes.
 const pwaLocal=await import('../app/pwa.mjs').then(({createPwa})=>{let spec=null;const mk=f=>readFile(path.join(root,...f)).catch(()=>null);
  return createPwa({brand:{iconSpec:async()=>spec||=await(async()=>{const d=await mk(['..','assets','aqeelos-mark-render.png'])||await mk(['assets','aqeelos-mark-render.png']);
-  return {name:'aqeelOS',colour:'',defaultColour:'',accent:'',mono:false,custom:null,v:1,markCands:d?[{file:'assets/aqeelos-mark.svg',type:'image/png',data:d,bg:'#111827',note:'its "a" rendered once at 2048 px in Plus Jakarta Sans 700'}]:[]}})()}})}).catch(()=>null);
+  return {name:'aqeelOS',colour:'',defaultColour:'',accent:'',mono:false,custom:null,v:1,markCands:d?[{file:'assets/aqeelos-mark.svg',type:'image/png',data:d,bg:'#111827',note:'the orbit rendered once at 2048 px by scripts/make-icons.mjs'}]:[]}})()}})}).catch(()=>null);
 const aqeelos=createAqeelos({root});
 const work=path.join(root,'scratch');
 await mkdir(work,{recursive:true});
