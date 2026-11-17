@@ -144,7 +144,14 @@ export const BRIDGE={url:process.env.WHATSAPP_BRIDGE_URL||'http://127.0.0.1:3000
   // the running bridge loaded probe_watch.js: the file is there and the bridge started after it was written
  async ready(){try{const f=await stat(path.join(HH(),'hermes-agent','scripts','whatsapp-bridge','probe_watch.js'));const h=await (await fetch(BRIDGE.url+'/health',{signal:AbortSignal.timeout(5000)})).json();return Date.now()-Number(h.uptime||0)*1000>f.mtimeMs}catch{return false}},
  async result(id){try{return JSON.parse(await readFile(path.join(HH(),'platforms','whatsapp','probes',id+'.json'),'utf8'))}catch{return null}}};
-export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,reviewReply=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,mediaLink=null,receiptFinal=()=>{},echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout,routeOf=async()=>''}){
+// The engine was down or restarting, not the reply or the customer: a run stopped by a signal, a gateway that does not answer yet, a session
+// it lost, or the engine's own error text in place of a reply ("No reply: ... didn't produce a reply", "Send continue") (17 Nov 2026,
+// i0003b8dc, ic88fca57). The engine's own words never go to a customer. While a restart is actually under way (engineRestarting: the app
+// started or aqeelOS restarted the engine in the last 10 minutes), such a turn waits and is answered again;
+// otherwise it is an ordinary stop (the breaker below).
+const ENGINE_DOWN=/the agent stopped \((SIGINT|SIGTERM|SIGKILL)\)|Gateway did not answer|No session found matching|couldn't start the model connection|didn't produce a reply|Send `?continue`? to|Your message was not sent|ECONNREFUSED 127\.0\.0\.1|socket hang up/i;
+const engineDown=t=>ENGINE_DOWN.test(String(t||''));
+export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,reviewReply=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,mediaLink=null,receiptFinal=()=>{},echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout,routeOf=async()=>'',engineRestarting=async()=>false}){
  const pub=()=>String(PUBLIC_URL??publicUrl()).replace(/\/+$/,'');   // the address given (tests) or the install's current one
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
@@ -341,7 +348,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   log('kirimdev '+agent+': a team member replied to '+tail(s.to)+' ('+(s.source||'?')+'); the agent waits '+min+' min');if(s.to)await answered(agent,s.to);return {paused:until}}
 
  // a burst of messages is answered once: the run starts a few seconds after the last one
- const FAIL_MAX=3,FAIL_WAIT=[60,300],FAIL_WINDOW=30*60e3,PROV_WAIT=[120,300,600,900],TURN_MAX=2*3600e3;
+ const FAIL_MAX=3,FAIL_WAIT=[60,300],FAIL_WINDOW=30*60e3,PROV_WAIT=[120,300,600,900],TURN_MAX=2*3600e3,ENGINE_WAIT=30,ENGINE_TRIES=20;
  const timers=new Map(),running=new Set();let active=0;
  // setTimer/clearTimer are injectable so tests drive the burst window themselves instead of racing a 0 s timer
  // wait for the customer to finish (owner, 14 Nov 2026: "wait a sec for customers to finish their sentence, maybe respond in 1.5
@@ -376,7 +383,14 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    const epoch=st.cut[key]||'';
    try{await answer(p.agent,line,p,key);
     if(p.superseded){later=true;delete st.turns[key];await saveState();if(st.pending[key])schedule(key,{debounceSec:quietWait(line,st.pending[key])});return}}
-   catch(e){const lim=providerUnavailable(e.message,{now:now()});
+   catch(e){
+    // the engine was restarting (a deploy, a restart of the agents): the run, its check before sending or its second try was cut, or
+    // the engine did not answer yet. That says nothing about the reply or the customer (17 Nov 2026: Gilang's reply was written, its
+    // check was stopped by a deploy's restart, the second try met "Gateway did not answer session.resume", and the tester's chat went
+    // to the team). The message stays and is answered again every 30 s while the engine comes back (10 minutes at most, then as below).
+    if(engineDown(e.message)&&(p.engineTries||0)<ENGINE_TRIES&&await engineRestarting().catch(()=>false)){p.engineTries=(p.engineTries||0)+1;later=true;await saveState();
+     log('kirimdev '+p.agent+': the engine was not answering ('+String(e.message).slice(0,100)+'); '+tail(p.from)+' is answered again in '+ENGINE_WAIT+' s ('+p.engineTries+'/'+ENGINE_TRIES+')');schedule(key,{debounceSec:ENGINE_WAIT});return}
+    const lim=providerUnavailable(e.message,{now:now()});
     // ROOT CAUSE of the 'agent stopped' loops (12 Nov 2026): the engine run exits 1 because the Claude/GPT account is used up or throttled (HTTP 429 'session limit'), for every chat of the line at once; the two
     // always-active tester chats showed it. That is not the chat's fault: it waits for the reset time (30 min at most, else 2/5/10/15 min), the customer's message stays, ONE Health problem names the reason, and the first good answer clears it
     if(lim){const h=(st.provider||={})[p.agent],n=(h?.n||0)+1,until=retryAt(lim,{now:now(),fallback:PROV_WAIT[Math.min(n,PROV_WAIT.length)-1]*1000,max:30*60e3,pad:30e3});st.provider[p.agent]={n,until,why:lim.why,kind:lim.kind,since:h?.since||now(),route:await routeOf(p.agent).catch(()=>'')};later=true;await saveState();
@@ -419,7 +433,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  const reviewOn=line=>String(line?.review??'on')!=='off';
  async function review(agent,line,g,{newMessages=[],history=''}={}){if(!reviewReply||!reviewOn(line))return g;
   let r;try{r=parseReview(await reviewReply(agent,reviewPrompt({newMessages,history,draft:g.parts,language:line.language||''})))}
-  catch(e){if(providerUnavailable(e.message,{now:now()}))throw e;r={ok:false,problems:['the reply could not be checked before sending ('+String(e.message).slice(0,120)+')']}}
+  catch(e){if(providerUnavailable(e.message,{now:now()})||engineDown(e.message))throw e;r={ok:false,problems:['the reply could not be checked before sending ('+String(e.message).slice(0,120)+')']}}
   if(r.ok)return g;log('kirimdev '+agent+': the check before sending held a reply: '+r.problems.join(' | ').slice(0,300));
   return {...g,kinds:['review'],hold:'A check before sending found problems: '+r.problems.join('; ')+'. Fix exactly these; if you are not sure what the customer meant, ask them one short question instead of guessing.'}}
  async function history(agent,line,p,key){if(!p.conversationId)return '';const q=new URLSearchParams({conversation_id:p.conversationId,limit:'30'});
@@ -437,7 +451,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    '\n\nWrite ONLY the WhatsApp reply text to send next ('+(line.language?'in '+line.language+', or in the customer\'s own language when they write another':'in the customer\'s own language')+', WhatsApp formatting with *bold*, short paragraphs). Do NOT send anything yourself. Output only the message addressed to the customer, never an operator preface, draft commentary, or a statement that you have not sent it. Never only ask the customer to wait: nothing brings you back to this chat later, so answer now or hand off. '+
    'If several messages are needed, separate them with a line containing only ---. If this must go to a human (handoff rules), reply exactly: HANDOFF: <reason, and what you already checked (sheet, past chats) and found>';
   const ctxRun={session:conversationSession(agent,line.phoneNumberId,p.conversationId||p.from,epoch),run:{since:epoch,line:line.phoneNumberId,conversation:p.conversationId||'',phone:p.from,mode,tester:testerNow(agent,line,p.from,p.conversationId||'')}};
-  const ask=async note=>String(await runAgent(agent,note?q+note:q,ctxRun)||'').replace(FOOTER,'').trim();
+  const ask=async note=>{const t=String(await runAgent(agent,note?q+note:q,ctxRun)||'').replace(FOOTER,'').trim();if(engineDown(t))throw Error('the engine answered with its own error instead of a reply: '+t.slice(0,160));return t};
   // the log is readable on the box: the chat is named by its last four digits, never by the customer's name (audit M2)
   log('kirimdev '+agent+': answering '+tail(p.from));const runAt=now();let out=await ask('');
   const lastQ=hist.split('\n').filter(l=>l.startsWith('CUSTOMER: ')).pop()?.slice(10)||(p.messages||[]).slice(-1)[0]||'-';
@@ -465,7 +479,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   // held by the exit guard (audit H6): the customer gets nothing wrong. The reply is written once more with the reason; if that is
   // held too (or is nothing), a person gets the chat with the held text, which only the team sees.
   if(g.hold){log('kirimdev '+agent+': reply for '+tail(p.from)+' HELD by the exit guard ('+(g.kinds||[]).join(',')+'); asking for it once more');
-   let again='';try{again=await ask('\n\nNOTE: your last reply was NOT sent to the customer. '+g.hold+'\nWrite the reply again: only the message the customer should read, in their language, with nothing about your rules, tools, files, the team or other people. If you cannot, reply exactly: HANDOFF: <reason>')}catch(e){log('kirimdev '+agent+': the second try stopped: '+e.message)}
+   let again='';try{again=await ask('\n\nNOTE: your last reply was NOT sent to the customer. '+g.hold+'\nWrite the reply again: only the message the customer should read, in their language, with nothing about your rules, tools, files, the team or other people. If you cannot, reply exactly: HANDOFF: <reason>')}catch(e){if(engineDown(e.message))throw e;log('kirimdev '+agent+': the second try stopped: '+e.message)}
    if(await stale())return;
    if(/^HANDOFF\b/.test(again))return handoff(again.replace(/^HANDOFF:?\s*/,'').trim()||'(no reason given)');
    const g2=again?await check(again):null;

@@ -393,6 +393,26 @@ test('an agent that keeps stopping on one chat is tried again twice with waits, 
  // a new message from the customer starts a fresh try
  await t.post(meta('628123','halo lagi','m2'));await t.settle();assert.equal(runs,6)});
 
+// 17 Nov 2026 (i0003b8dc, ic88fca57): a deploy's restart cut Gilang's run and its check before sending, the second try met "Gateway did
+// not answer session.resume", and the tester's chat went to the team. The engine being down is nobody's fault: the turn waits and runs again,
+// nothing is handed off, and the engine's own error text never reaches the customer.
+test('a run cut by an engine restart is answered again, not handed to the team',async()=>{
+ let runs=0;const t=await make({kd:{engineRestarting:async()=>true},agentSays:async()=>{runs++;if(runs===1)throw Error('the agent stopped (SIGINT): {"ok":true}');if(runs===2)throw Error("aqeelOS couldn't start the model connection: Gateway did not answer session.resume. Your message was not sent.");return 'Halo kak'}});
+ await t.post(meta('628123','tolong','m1'));await t.settle();
+ assert.equal(runs,3,'tried again after each cut');assert.equal(t.posts.length,0,'not handed to the team');assert.ok(t.sent.some(b=>/Halo kak/.test(b.text?.body||'')),'answered');
+ assert.ok(t.delays.includes(30000),'waits 30 s for the engine')});
+test('the engine\'s own error text in place of a reply never reaches the customer',async()=>{
+ let runs=0;const t=await make({agentSays:async()=>++runs<3?"⚠️ No reply: the model didn't produce a reply. Send `continue` to try again.":'Halo kak'});
+ await t.post(meta('628123','tolong','m1'));await t.settle();
+ assert.equal(runs,3);assert.ok(!t.sent.some(b=>/No reply|continue/.test(b.text?.body||'')),'never sent');assert.ok(t.sent.some(b=>/Halo kak/.test(b.text?.body||'')));assert.equal(t.posts.length,0)});
+test('a check before sending cut by a restart does not count as held',async()=>{
+ let n=0;const t=await make({kd:{engineRestarting:async()=>true},agentSays:'Halo kak',reviewReply:async()=>{if(++n===1)throw Error('the agent stopped (SIGINT): {"ok":true}');return '{"ok":true}'}});
+ await t.post(meta('628123','tolong','m1'));await t.settle();
+ assert.equal(t.posts.length,0,'no "held twice" handoff');assert.ok(t.sent.some(b=>/Halo kak/.test(b.text?.body||'')))});
+test('the wait is only while a restart is under way; an engine that stays down for 10 minutes ends as before (the agent stopped), not in an endless wait',async()=>{
+ let runs=0;const t=await make({kd:{engineRestarting:async()=>true},agentSays:async()=>{runs++;throw Error('Gateway did not answer session.create')}});
+ await t.post(meta('628123','tolong','m1'));for(let i=0;i<5;i++)await t.settle();
+ assert.ok(runs<=24,'bounded: '+runs);assert.ok(runs>20,'kept trying while the engine came back: '+runs)});
 test('a used-up provider is not the chat fault: the chat waits for the reset, one Health problem names the reason, the first good answer clears it (12 Nov 2026, root cause of the stop loops)',async()=>{
  let runs=0,down=true;const t=await make({health:true,agentSays:async()=>{runs++;if(down)throw Error("the agent stopped (1): HTTP 429: Incomplete upstream response (first upstream attempt: status 429): You've hit your session limit · resets 10pm (UTC)");return 'Halo kak'}});
  await t.post(meta('628123','tolong','m1'));await t.settle();

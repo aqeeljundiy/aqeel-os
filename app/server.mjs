@@ -725,7 +725,7 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
 // restarts that can wait: in the maintenance window, after a due one-time schedule (restart-later.mjs)
 const later=createRestartLater({DATA,dueSoon:cronDueSoon(DASH.origin,DASH_TOKEN),restart:why=>restartGateway(why,{wait:true,waitMax:restartWaitPolls(restartGraceMs(installSettings()))}),tz:()=>installTz()||process.env.TZ||'',inWindow:d=>inWindow(d,windowOf(installSettings())),label:()=>{const w=windowOf(installSettings());return 'the maintenance window ('+w.from+'-'+w.to+' '+w.tz+')'}});
 const restartLater=why=>later.add(why).catch(e=>console.warn('restart later',e.message));
-const agentReload=createAgentReload({python:enginePython,root,engine:path.join(HERMES_HOME,'hermes-agent'),HERMES_HOME,homeOf:a=>homeOfAg(a),restartGateway:why=>restartGateway(why),restartLater:why=>restartLater(why)});   // one agent, not the whole engine (16 Nov 2026)
+const agentReload=createAgentReload({python:enginePython,root,engine:path.join(HERMES_HOME,'hermes-agent'),HERMES_HOME,homeOf:a=>homeOfAg(a),restartGateway:why=>restartGateway(why),restartLater:why=>restartLater(why)});
 if(LIVE_APP)setInterval(()=>later.tick().catch(e=>console.warn('quiet-hours restart',e.message)),5*60e3).unref();
 // a minute after aqeelOS restarted the engine, every tool server is checked and fixed (automation-guard.mjs); an engine
 // update runs its own check after its restarts
@@ -1539,7 +1539,7 @@ const teamGroups=createTeamGroups({DATA,tell:async(a,before,g)=>{const t=x=>x?.c
  await bottlenecks.event('team-group',(NAMES[a]||a)+'’s team group changed','By '+(g.by||'?')+'.\nBefore: '+t(before)+'\nNow: '+t(g),{info:true}).catch(()=>{});if(LIVE_APP)writeAgentContext().catch(()=>{})}});
 const docLinks=createDocLinks({DATA,PUBLIC_URL:()=>String(PUBLIC_URL)});
 const teamPost=createTeamPost({HERMES_HOME,live:LIVE_APP,python:enginePython});
-const kirimdev=createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev),DATA,docLinks,routeOf:async a=>{const c=await readConfig(a).catch(()=>null);return c?String(pick(c,'model.provider')||'')+'/'+String(pick(c,'model.default')||''):''},WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
+const kirimdev=createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev),DATA,docLinks,engineRestarting:async()=>process.uptime()<600||Date.now()-lastOwnRestart<6e5,routeOf:async a=>{const c=await readConfig(a).catch(()=>null);return c?String(pick(c,'model.provider')||'')+'/'+String(pick(c,'model.default')||''):''},WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
  // kind "customer" (a customer left without a reply, an unanswered handoff, a stopped message): shown and counted on Health, for the
  // team; agent-health.mjs never gives it to the agent or the code fixer, neither can answer a customer (audit H7)
  problem:(a,topic,title,detail)=>health.problem(a,String(topic).startsWith('kirimdev|')?'kirimdev':/^(customer|unanswered)\|/.test(String(topic))?'customer':'handoff',title,{topic,fix:detail}),solved:(a,topic)=>health.ok(a,topic),
@@ -2402,7 +2402,7 @@ const identitiesRoutes=createIdentitiesRoutes({accountsApi,billion,builtins,chan
 const hooksRoutes=createHooksRoutes({agentAccess,agentLive,customerTools:()=>customerTools,designGuard,HOOKS,issues,kirimdev,paymentCallbacks,pressKey,proxy,readBody,readRaw,send,smokeWatch,teamView,tebar,versions,WA_CLOUD});
 const oauthCallbackRoutes=createOAuthCallbackRoutes({DASH,DASH_TOKEN,esc,gconnect,googleConnected,HERMES_HOME,listAllProfiles,msconnect,NAMES,PUBLIC_URL,security,sharing,signinFlows:()=>signinFlows,writeAgentContext});
 const boxRoutes=createBoxRoutes({agentOps,codeBridge,eventHooks,fixerSandbox,googleFiles,kirimdev,postingLimits,readBody,relayKeys,runGates,selfRuns,send,sign,srBox,srDur,srEligible,users});
-const restartRoutes=createRestartRoutes({users,send,readBody,agentNames,backups:{busy:()=>backups.busy()},agentReload,waitingNow:()=>waitingNow(),restartGateway:(w,o)=>restartGateway(w,o)});
+const restartRoutes=createRestartRoutes({users,send,readBody,agentNames,backups:{busy:()=>backups.busy()},agentReload,waitingNow:()=>waitingNow(),restartGateway});
 const server=createServer(async(req,res)=>{
  enterRequest(req);const url=new URL(req.url,'http://x');const p=url.pathname;   // the request is what the per-account sign-in limit reads the address and session cookie from
  try{
