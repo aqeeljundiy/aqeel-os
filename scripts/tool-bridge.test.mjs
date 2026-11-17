@@ -8,9 +8,10 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {EventEmitter} from 'node:events';
 import {PassThrough} from 'node:stream';
-import {createToolBridge,scriptServers} from '../app/tool-bridge.mjs';
+import {createToolBridge,scriptServers,SCRIPT_TOOL,scriptToolText} from '../app/tool-bridge.mjs';
 import {createAgentOps} from '../app/agent-ops.mjs';
-import {signedIn} from '../app/relay-keys.mjs';
+import {signedIn,healText,createRelayKeys} from '../app/relay-keys.mjs';
+import {readFileSync} from 'node:fs';
 import {createGoogleTools} from '../app/google-tools.mjs';
 import {writeFile} from 'node:fs/promises';
 
@@ -74,13 +75,23 @@ test('helpers in the agent\'s folder: the signed address, no key, the same each 
  if(process.platform!=='win32'){assert.equal((await stat(path.join(t.W,'bot','.tools'))).mode&0o777,0o775);assert.equal((await stat(path.join(t.W,'bot','.tools','aqtool'))).mode&0o777,0o775)}
  assert.equal(await t.b.ensureClients(['bot']),0)});
 
-test('agent-ops hosts it for every agent (signed tool-call:<agent>), and key rotation finds its address',async()=>{const H=await mkdtemp(path.join(tmpdir(),'tb-')),W=path.join(H,'workspaces');await mkdir(path.join(W,'bot'),{recursive:true});
- const ops=createAgentOps({HERMES_HOME:path.join(H,'.hermes'),WORK:W,PORT:4400,sign:s=>'S'.repeat(8)+s.replace(/\W/g,'').padEnd(40,'x'),kirimdev:{lines:async()=>({})},enginePython:async()=>'/py',readConfig:async()=>CFG,googleTools:google,listAgents:async()=>['bot'],log:()=>{}});
+test('agent-ops hosts it for every agent, signed with the relay key: the route accepts what it wrote, and healing leaves it alone',async()=>{const H=await mkdtemp(path.join(tmpdir(),'tb-')),W=path.join(H,'workspaces');await mkdir(path.join(W,'bot'),{recursive:true});
+ // 17 Nov 2026 on P&P: the helper was signed with the app secret, relay healing re-signed it with the relay key, and every call was "bad signature"
+ const rk=createRelayKeys(path.join(H,'data'),'ui-secret-for-the-test-only-0123456789');
+ const ops=createAgentOps({HERMES_HOME:path.join(H,'.hermes'),WORK:W,PORT:4400,sign:s=>'app-secret-'+s,relayKeys:rk,kirimdev:{lines:async()=>({})},enginePython:async()=>'/py',readConfig:async()=>CFG,googleTools:google,listAgents:async()=>['bot'],log:()=>{}});
  assert.ok(ops.tools);assert.equal(await ops.ensureClients(),2);
- const mod=await readFile(path.join(W,'bot','.tools','aqtools.py'),'utf8');assert.match(mod,/\/tool-call\/bot\/SSSSSSSStoolcallbot/);
- const found=signedIn(mod);assert.equal(found.length,1);assert.equal(found[0].label,'tool-call:');assert.equal(found[0].agent,'bot');
- // without the engine the old agent-ops is unchanged
+ const mod=await readFile(path.join(W,'bot','.tools','aqtools.py'),'utf8');const found=signedIn(mod);
+ assert.equal(found.length,1);assert.equal(found[0].label,'tool-call:');assert.equal(found[0].agent,'bot');
+ assert.equal(rk.ok(found[0].sig,'tool-call:','bot'),true,'the route (relayKeys.ok with tool-call:) accepts the helper aqeelOS wrote');
+ assert.equal(healText(mod,(l,ag)=>rk.sign(l,ag)).n,0,'healing finds nothing to re-sign');
+ const src=readFileSync(new URL('../app/box-routes.mjs',import.meta.url),'utf8');assert.ok(src.includes("relayKeys.ok(mt[2],'tool-call:',mt[1])"),'the route checks the relay key with the same label');
+ // without the engine or the relay key the old agent-ops is unchanged
  assert.equal(createAgentOps({WORK:W,PORT:4400,sig:a=>'sig-'+a,kirimdev:{lines:async()=>({})},log:()=>{}}).tools,null)});
+
+test('every agent learns it from aqeelos-notify: script_tools answers with the how-to, nothing is called',()=>{
+ assert.equal(SCRIPT_TOOL.name,'script_tools');assert.match(SCRIPT_TOOL.description,/before asking anyone for an API token/);
+ const t=scriptToolText();assert.ok(t.includes('.tools/aqtool list'));assert.ok(t.includes('call("airtable"'));assert.doesNotMatch(t,/^---/);
+ const src=readFileSync(new URL('../app/notify-tools-routes.mjs',import.meta.url),'utf8');assert.match(src,/GOOGLE_TOOLS,SCRIPT_TOOL/);assert.match(src,/name==='script_tools'/)});
 
 test('a long Sheets read: cut for the chat, whole for a script, and the two never mix',async()=>{const H=await mkdtemp(path.join(tmpdir(),'tb-g-')),home=path.join(H,'profiles','bot');await mkdir(home,{recursive:true});
  await writeFile(path.join(home,'google_token.json'),JSON.stringify({type:'authorized_user',account:'me@example.test',client_id:'1-x.apps.googleusercontent.com',client_secret:'s',refresh_token:'R',token:'T',expiry:'2999-01-01T00:00:00Z'}));

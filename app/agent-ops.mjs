@@ -19,10 +19,11 @@ import path from 'node:path';
 import {createToolBridge} from './tool-bridge.mjs';
 
 const READ=/^(conversations|messages|contacts)(\/[\w.:-]+){0,3}$/;
-export function createAgentOps({HERMES_HOME,WORK=HERMES_HOME&&path.join(path.dirname(HERMES_HOME),'workspaces'),PORT,sig,sign,kirimdev,enginePython,readConfig,googleTools,listAgents,log=m=>console.log(m)}){
+export function createAgentOps({HERMES_HOME,WORK=HERMES_HOME&&path.join(path.dirname(HERMES_HOME),'workspaces'),PORT,sig,sign,relayKeys,kirimdev,enginePython,readConfig,googleTools,listAgents,log=m=>console.log(m)}){
  sig||=a=>sign('agent-ops:'+a).slice(0,32);
  // every agent's scripts call its connected tools (tool-bridge.mjs, 17 Nov 2026): /tool-call/<agent>/<sig>, helpers written with the Kirimdev ones
- const tools=sign&&enginePython?createToolBridge({HERMES_HOME,WORK,PORT,sig:a=>sign('tool-call:'+a).slice(0,32),python:enginePython,readConfig,googleTools,log}):null;
+ // signed with the relay key like /google-files/ (17 Nov 2026: signed with the app secret, relay healing re-signed the helper with the relay key and every call was refused)
+ const tools=relayKeys&&enginePython?createToolBridge({HERMES_HOME,WORK,PORT,sig:a=>relayKeys.sign('tool-call:',a),python:enginePython,readConfig,googleTools,log}):null;
  const url=a=>`http://127.0.0.1:${PORT}/agent-ops/${a}/${sig(a)}`;
  const fail=(status,error)=>({status,json:{error}});
  async function call(agent,req){const a=String(agent).split('--')[0],line=(await kirimdev.lines().catch(()=>({})))[a];if(!line)return fail(404,'This agent has no Kirimdev line.');

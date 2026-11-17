@@ -19,7 +19,13 @@ import {spawn as nodeSpawn} from 'node:child_process';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {homeOf as engineHomeOf} from './agentops.mjs';
+import {readFileSync} from 'node:fs';
 
+// how an agent learns it: a tool in aqeelos-notify, which every agent has (17 Nov 2026: the repo's skills are off on installs made before
+// them, so the skill alone never reached Fakhri Agent). Its answer is the skill's text, so there is one how-to.
+const SKILL=path.join(path.dirname(fileURLToPath(import.meta.url)),'..','skills','productivity','script-tools','SKILL.md');
+export const SCRIPT_TOOL={name:'script_tools',description:'Call this BEFORE a job that moves more data than fits in the chat (hundreds or thousands of rows or records, a sync between Airtable, Google Sheets, n8n or another connected app, a diff, a schedule that copies data), and before asking anyone for an API token: your own scripts can call every tool you have connected, through aqeelOS, with no key. It returns how.',inputSchema:{type:'object',properties:{}},annotations:{readOnlyHint:true}};
+export function scriptToolText(){try{return readFileSync(SKILL,'utf8').replace(/^---[\s\S]*?---\s*/,'')}catch{return 'Your scripts call your connected tools with .tools/aqtool in your workspace (aqtool list; aqtool <server> <tool> \'<json arguments>\') or .tools/aqtools.py (call(server, tool, arguments)); the server "google" is your google_* tools.'}}
 const LOOPBACK=/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?\//i;
 const MAX_LINE=32e6;
 // the servers a script may use: enabled, not one of aqeelOS's own loopback servers

@@ -63,7 +63,7 @@ async function srMcp(req,res,ms){const ra=req.socket.remoteAddress||'';if(!/^(12
    let body;try{body=JSON.parse(await readBody(req,1e6))}catch{return send(res,400,{error:'bad json'}),true}const r=await agentOps.call(mo[1],body).catch(e=>({status:500,json:{error:e.message}}));return send(res,r.status,r.json),true}}
   // an agent's scripts call its connected tools (tool-bridge.mjs, 17 Nov 2026): from this box only, signed per agent; only what it may call in chat
   {const mt=/^\/tool-call\/([\w-]+)\/([\w-]+)$/.exec(p);if(mt){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only'),true;if(req.method!=='POST')return send(res,405,'POST only'),true;
-   const x=Buffer.from(String(mt[2])),y=Buffer.from(sign('tool-call:'+mt[1]).slice(0,32));if(x.length!==y.length||!timingSafeEqual(x,y))return send(res,403,{error:'bad signature'}),true;
+   if(!relayKeys.ok(mt[2],'tool-call:',mt[1]))return send(res,403,{error:'bad signature'}),true;
    if(!agentOps.tools)return send(res,503,{error:'aqeelOS cannot call tools from scripts here.'}),true;
    let body;try{body=JSON.parse(await readBody(req,8e6))}catch{return send(res,400,{error:'bad json'}),true}const r=await agentOps.tools.call(mt[1],body).catch(e=>({status:500,json:{ok:false,error:e.message}}));return send(res,r.status,r.json),true}}
   // the confined fixer's routes (fixer-sandbox.mjs, CR-7): from this box only, signed for one run, closed when the run ends
