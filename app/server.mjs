@@ -637,11 +637,11 @@ async function loopGuard(a,all){if(a.split('--')[0]==='default')return;const hom
 async function agentHealth(only){const h={'x-hermes-session-token':DASH_TOKEN};const st=await getStatus();await users.load();
  for(const a of only?[only]:await listAllProfiles()){try{
   if(!await isAgent(a)||(LIVE_APP&&!only&&await isTestAgent(a)))continue;const copy=a.includes('--');
-  // a failing setup is tried again every 15 minutes (a plugin enable is slow and builds an engine environment)
+  // a failed setup is retried every 15 min (plugins are slow)
   if(a!=='default'&&!copy&&setupAgentFn){const s=st[a];if(only||!s||Date.now()-(s.t||0)>(s.ok?24*60:15)*60e3)await setupAgentFn(a).catch(e=>console.warn('setup',a,e.message))}
   if(copy&&API_KEY){const envF=path.join(HERMES_HOME,'profiles',a,'.env');
    if(await editEnv(envF,cur=>/^API_SERVER_KEY=/m.test(cur)?null:cur+(cur&&!cur.endsWith('\n')?'\n':'')+'API_SERVER_KEY='+API_KEY+'\n').catch(()=>false))console.log('health',a,'added the gateway key')}
-  if(!copy){await ensureChatHint(a).catch(async e=>{if(await isAgent(a))console.warn('chat hint',a,e.message)});await screens.ensure(a).catch(()=>{})}
+  if(!copy){await ensureChatHint(a).catch(async e=>{if(await isAgent(a))console.warn('chat hint',a,e.message)});await screens.ensure(a).catch(()=>{});await accountHooks.keepQueue?.(a).catch(()=>{})}
   if(a!=='default')await loopGuard(a,await listAllProfiles()).catch(e=>console.warn('loop guard',a,e.message));
   // a copy (agent--2) is locked with its agent: the same tools stay off on it
   if(a.split('--')[0]!=='default'&&lockedAgent(a.split('--')[0],st))await lockTools(a).catch(e=>console.warn('lock tools',a,e.message));
