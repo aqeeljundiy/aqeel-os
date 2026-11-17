@@ -53,7 +53,7 @@ function applyRole(){
 /* ---------- invite link: /#invite/<code> ---------- */
 async function inviteView(root,code){
  let info=null;try{const r=await fetch('/auth/invite?code='+encodeURIComponent(code));if(r.ok)info=await r.json()}catch{}
- root.innerHTML=`<div class="signin"><form class="card" id="inv" novalidate><span class="wordmark"><img class="mark" src="${Brand.mark()}" alt="">${esc(Brand.name)}</span>
+ root.innerHTML=`<div class="signin"><form class="card" id="inv" novalidate><span class="wordmark">${Brand.markImg()}${esc(Brand.name)}</span>
   ${info?`<h1>You're invited</h1><p>Pick a password to start using aqeelOS.</p><label for="ivN">Your name</label><input id="ivN" autocomplete="name" value="${esc(info.name||'')}" placeholder="Sarah"><label for="ivE">Email</label><input id="ivE" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" value="${esc(info.email||'')}" placeholder="sarah@example.com"><p class="hint ac-hint">You sign in with this.</p>
   <label for="ivP">Password</label><input id="ivP" type="password" autocomplete="new-password" placeholder="At least 8 characters"><p class="err" id="err" role="alert"></p><button class="primary" type="submit">Join aqeelOS</button>`
   :`<h1>This link doesn't work</h1><p>It has expired or was already used. Ask for a new invite.</p><button type="button" class="primary" id="invBack" style="margin-top:14px">Go to sign in</button>`}</form></div>`;

@@ -880,10 +880,10 @@ if(LIVE_APP){const HB=path.join(DATA,'heartbeat.json');readFile(HB,'utf8').then(
   await bottlenecks.event('down','aqeelOS was off for '+mins+' min','From about '+at(last)+' to '+at(Date.now())+' ('+zoneName(tzNow)+' time). Everything started again by itself. If it happens often, check the server at your hosting provider.',{info:mins<60}).catch(()=>{});
   await relay.sendAs('default',c.owner,c.platform,'aqeelOS was off from about '+at(last)+' to '+at(Date.now())+' ('+zoneName(tzNow)+' time, '+mins+' min). It is running again.',null,{toYou:true});console.log('told the owner about '+mins+' min off')}catch(e){console.warn('downtime note:',e.message)}},120000).unref()})}
 // the real marks an install's icon may be drawn from when no logo was uploaded: the one this install's setup names (BRAND_LOGO_FALLBACK, a file in assets/),
-// and aqeelOS's own only while the install still carries aqeelOS's name (the SVG has text, so its "a" is stored as one render, assets/aqeelos-mark-render.png)
+// and aqeelOS's own only while the install still carries aqeelOS's name (the orbit since 17 Nov 2026, rendered by code/scripts/make-icons.mjs)
 const brandMarks=async({custom}={})=>{const out=[],rd=f=>readFile(path.join(root,f)).catch(()=>null),fb=String(env.BRAND_LOGO_FALLBACK||'');
  if(/^\/assets\/[\w.-]+\.(svg|png)$/.test(fb)){const d=await rd(fb.slice(1));if(d)out.push({file:fb.slice(1),type:fb.endsWith('svg')?'image/svg+xml':'image/png',data:d})}
- if(!custom){const d=await rd('assets/aqeelos-mark-render.png');if(d)out.push({file:'assets/aqeelos-mark.svg',type:'image/png',data:d,bg:'#111827',note:'its "a" rendered once from the SVG at 2048 px in Plus Jakarta Sans 700 (assets/aqeelos-mark-render.png), on the own #111827 tile of the SVG'})}return out};
+ if(!custom){const d=await rd('assets/aqeelos-mark-render.png');if(d)out.push({file:'assets/aqeelos-mark.svg',type:'image/png',data:d,bg:'#111827',note:'the orbit at 2048 px (code/scripts/make-icons.mjs), on its own #111827 tile'})}return out};
 // how an install's logo is really used when the owner has set no colours: Pixel & Profits shows its mark in green #83b271 on near-black #111 (its site's favicon and header), so its icon does too
 const BRAND_LOOK={'ai.pixelandprofits.com':{colour:'#111111',accent:'#83b271'}}[(()=>{try{return new URL(env.PUBLIC_URL||'').hostname}catch{return ''}})()]||{};
 const brand=createBrand({DATA,contactFallback:OWNER_CONTACT,fallbackMarks:brandMarks,colourDefault:env.AQEELOS_BRAND_COLOUR||BRAND_LOOK.colour||'',accentDefault:env.AQEELOS_BRAND_ACCENT||BRAND_LOOK.accent||''});
@@ -2440,7 +2440,7 @@ const server=createServer(async(req,res)=>{
   if(p==='/secret'||p.startsWith('/secret/'))return await secretRoute(req,res,p);
   if(await oauthCallbackRoutes(req,res,p,url))return;
   if(await codeDeviceRoutes(req,res,p,url))return;
-  if(p==='/ui/brand'&&req.method==='GET')return send(res,200,{...await brand.get(),owner:legalOwner(),pwa:await pwa.info().catch(()=>null)});
+  if(p==='/ui/brand'&&req.method==='GET')return send(res,200,{...await brand.get(),aq:/aqeelos-mark/.test(env.BRAND_LOGO_FALLBACK||'aqeelos-mark'),owner:legalOwner(),pwa:await pwa.info().catch(()=>null)});
   if(p==='/ui/brand/logo'&&req.method==='GET'){const l=await brand.logo();if(!l){res.writeHead(302,{location:env.BRAND_LOGO_FALLBACK||'/assets/aqeelos-mark.svg'});return res.end()}res.writeHead(200,{'content-type':l.type,'cache-control':'public, max-age=86400','content-security-policy':"default-src 'none'; style-src 'unsafe-inline'",'x-content-type-options':'nosniff'});return res.end(l.data)}
   if(p==='/aqeelos-login'&&req.method==='GET'){res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer'});return res.end(n8n.page())}
   if(p==='/aqeelos-login/go'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}

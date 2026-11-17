@@ -67,11 +67,12 @@
  @keyframes fade{from{opacity:0}}
  @media (max-width:1000px){.bboard{grid-template-columns:repeat(2,minmax(0,1fr))}}
  @media (max-width:640px){.bboard{grid-template-columns:1fr}.blist{max-height:none}}
+ .dark img.aq-mark,img.aq-mark{filter:none}.dark img.aq-light,:root:not(.dark) img.aq-dark{display:none}
 </style>
 </head>
 <body>
 <header>
- <span class="wordmark"><img class="mark" src="/assets/aqeelos-mark.svg" alt="">aqeelOS</span>
+ <span class="wordmark"><img class="mark aq-mark aq-dark" src="/assets/aqeelos-mark.svg" alt=""><img class="mark aq-mark aq-light" src="/assets/aqeelos-mark-light.svg" alt="">aqeelOS</span>
  <nav><a href="/">Open aqeelOS</a><button class="ghost icon" id="theme" aria-label="Switch light and dark">◐</button></nav>
 </header>
 <main>
