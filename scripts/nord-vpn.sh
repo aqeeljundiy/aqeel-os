@@ -34,12 +34,16 @@ inbound_stays(){
 
 # Telegram goes out on the box's normal connection, never through Nord: through the tunnel about 1 in 10 connections to
 # Telegram timed out, in bursts (owner, 18 Nov 2026: voice notes to Donna could not be downloaded; a 10-minute probe failed
-# 12 of 117 through Nord, 0 of 117 direct). Telegram's own published ranges (core.telegram.org/resources/cidr.txt).
+# 12 of 117 through Nord, 0 of 117 direct). The ranges are Telegram's own published list, fetched on every connect (before the
+# tunnel is up) and kept in $DIR, so the last good list is used when the fetch fails; no address is written in this repo.
 # Table 100 is inbound_stays' normal route; the rules are put back on every connect and stay harmless while Nord is off.
-DIRECT_NETS="91.105.192.0/23 91.108.4.0/22 91.108.8.0/22 91.108.12.0/22 91.108.16.0/22 91.108.20.0/22 91.108.56.0/22 149.154.160.0/20 185.76.151.0/24"
+DIRECT_LIST=${TELEGRAM_CIDR_URL:-https://core.telegram.org/resources/cidr.txt}
 direct_routes(){
-  local n
-  for n in $DIRECT_NETS; do ip rule del to "$n" lookup 100 2>/dev/null; ip rule add to "$n" lookup 100 priority 99 || echo "nord-vpn: could not send $n around Nord" >&2; done
+  local n got
+  got=$(curl -fsS --max-time 15 "$DIRECT_LIST" 2>/dev/null | grep -E '^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$')
+  if [ -n "$got" ]; then printf '%s\n' "$got" > "$DIR/telegram-nets"; else echo "nord-vpn: could not fetch Telegram's list, using the last one" >&2; fi
+  [ -s "$DIR/telegram-nets" ] || return 0
+  while read -r n; do ip rule del to "$n" lookup 100 2>/dev/null; ip rule add to "$n" lookup 100 priority 99 || echo "nord-vpn: could not send $n around Nord" >&2; done < "$DIR/telegram-nets"
 }
 
 prepare(){
