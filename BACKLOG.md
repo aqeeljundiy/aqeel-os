@@ -70,6 +70,7 @@ The board shows the same list by status. `[~]` = fixed or doing, to check live. 
 - [x] **TH-8** P3 · Elkiya · Threads reply schedule reports a missing tool. No missing tool in the last 40 runs; one-off. [iea5a7e6a]
 
 **Engine and agents**
+- [ ] **DEPLOY-8** P2 · P&P · Deploy latest main to P&P. Parked by the owner on 19 Nov. Checked 19 Nov: Elkiya already runs b1e9fd9 (all code in main), P&P runs 9869b9a and misses 4 code commits: 91d14ab, 8ef2e4b (Kirimdev prices and after-payment), 2be9229 (agent users after a restart), b1e9fd9 (WhatsApp groups). Deploy only when the box is idle, via scripts/deploy.sh.
 - [ ] **EN-1** P1 · Elkiya · Telegram replies and Donna's voice notes **(waiting on you)**. See TH-2: the Telegram route needs the box container restarted (OW-10). [i02fd3fa8]
 - [~] **EN-17** P1 · Elkiya · WhatsApp groups: read everything, reply only when tagged (fixed, to check live). Built and deployed 19 Nov (b1e9fd9): engine patch keeps untagged messages of an allowed group (reply-only-when-tagged) as context; aqeelos-group-context shows the last 72 h before a reply there. Loads at the next engine restart: press Restart agents on System › Health, or tonight's quiet-hours restart. To see: Donna in the Remoruy.id group answers a tagged message knowing what was said before. [i874dba65]
 - [ ] **EN-2** P2 · Elkiya · Donna's Meta Ads tools don't start **(waiting on you)**. 19 Nov: Donna's Meta Ads connection was never signed in (no saved sign-in). Sign in on Connections › Meta Ads (OW-11). [i76088b47]
@@ -96,6 +97,43 @@ The board shows the same list by status. `[~]` = fixed or doing, to check live. 
 - [x] **RO-4** P2 · Both · Keys and Health tabs on each agent. Live on both (fae9596, 19 Nov): Keys and Health for an agent's owner or editor. Checked on P&P's test copy: Health lists their agent and the Fixer's items about it, keys listed but never shown in full, engine settings refused, main agent refused (58/58).
 - [x] **RO-5** P3 · Both · Webhooks, Memory, agent Files, Activity for Builders. Live on both (fae9596, 19 Nov): Memory, Webhooks, agent workspace Files and Activity for an agent's owner or editor; Activity checked on P&P's test copy.
 - [x] **RO-6** P3 · Both · Menu from scopes; Creator becomes Builder; move people. Live on both: menu from what a person owns, Creator is Builder, nobody lost a right (19 Nov).
+
+**Found on the servers, not in this list before (19 Nov evening review of both Fixer lists)**
+- [ ] **SV-1** P1 · Elkiya · Threads DM and reply job: terminal refused (Permission denied (publickey)), 28 tries. Last try 17:59 WIB, before the 18:05 restart that fixed EN-16, so probably the same cause: check one run now. [ibc9c4516]
+- [ ] **SV-2** P1 · Elkiya · Payment QR or its text never reached the customer (three reports). Probably KD-4: check after KD-4 is confirmed live, then close. [id1b17621, i4717e236, i5784e2f1]
+- [ ] **SV-3** P2 · Elkiya · Daily KirimDev fee approval script failed with a connection error. Amri asked on 13 and 14 Nov for this approval to run by itself every day at 00:01 WIB. [i24e19fb5]
+- [ ] **SV-4** P2 · Elkiya · A scheduled reply check was stopped by a safety block. [i40535581]
+- [ ] **SV-5** P2 · Elkiya · Continue Threads post not visible right after publishing. [ib4a9cfce]
+- [ ] **SV-6** P2 · P&P · A content library skill points to a missing file. [i298bd1ec]
+- [ ] **SV-7** P3 · P&P · Weekday schedule shows a past next run after resuming (content-strategist). [i4bcb4963]
+- [ ] **SV-8** P3 · Both · Seven Fixer items marked fixed on 11-12 Nov never got their last check; check and close. Elkiya: i1741e41c, i53db2411, idc3af89b, ib8e61fe9, i57ba7dec, i0e5ab744. P&P: i4664a7a5.
+- Fakhri's expired Airtable sign-in (P&P, i47ddaf98) is OW-9.
+- Closed on 19 Nov from this review, already done here: i4739f042, i58e99224 (FX-1), i7768eb6f (FX-4), ib69acf62, i04f68157 (FX-5), i512d2725 (KD-6), i1b25ec10, i5db7aedb (KD-7), i52af1a58, icb4dab9c (KD-8), i28f521e1 (KD-9), i5e349bf6 (KD-12), i2043b125 (fee0f10), i29f8ce5c (TH-5), ib15104b3 (EN-10).
+
+**Testing report 19 Nov (Donna, Amri, customer support agents)** Priority: terminal first, then context, protocol tool, greeting, formatting. Checked against Git on 19 Nov: Elkiya got its last deploy at 18:13 WIB and the formatting and video reports came after it, so none of these is patched yet except the terminal (EN-16) and part of TS-6.
+- [ ] **TS-1** P1 · Elkiya · Gilang's test order T3135339505410BDMLJ not in Google Sheets or Shopify: the terminal failed (Permission denied (publickey)). Cause was EN-16 (users back at 18:05 WIB). Left: run the order recap again, merge columns I-J on every order row (now only C-F), check both systems. [ic8cd66ed, closed]
+- [ ] **TS-2** P1 · Elkiya · Randy's test order T3135339505245V4JBC (Andre S, code AMRI5, Rp2.660.000) not in Sheets or the store, same terminal error (EN-16). Left: enter the order again, check AMRI5, check the product names CJC-1295 + Ipamorelin Blend and BPC-157 10mg. [i94682cd8, closed]
+- [ ] **TS-3** P1 · Elkiya · Gilang sent a vial tutorial to a customer who bought the pen: check the product type of the order before any tutorial (KD-17 area).
+- [ ] **TS-4** P1 · Elkiya · Randy sent a mixing tutorial although the customer had confirmed premix: keep confirmed choices for the rest of the chat.
+- [ ] **TS-5** P2 · Elkiya · Randy went round in circles on one lead and sent the mixing tutorial twice: check the chat history, stop repeating the same information.
+- [ ] **TS-6** P2 · Elkiya · Randy has no tool to send a protocol to a customer or assign a protocol to a customer. Partly built already: send_protocol_pdf exists since 12 Nov (WA-1, app/customer-tools.mjs) and Randy's SOUL.md tells him to use it once the team confirms in the Orders topic. It is only offered inside a customer's WhatsApp run and only where the line has PDF rules. Check why Randy said he has none. Left to build: assigning a protocol to a customer (today the expert team sets it on the member profile).
+- [ ] **TS-7** P2 · Elkiya · Gilang did not send the new-lead greeting template; he answered with a generic hello. Randy too: his intro structure was wrong (Amri, 18 Nov 21:06). Check the greeting trigger for both.
+- [ ] **TS-8** P3 · Elkiya · Gilang's product recommendations have poor spacing: paragraphs and line breaks.
+- [ ] **TS-9** P3 · Elkiya · Randy's and Gilang's payment confirmations come as one long paragraph: add spacing and line breaks.
+
+**Found in chats, Health and dropped messages (19 Nov sweep: 7 days of Telegram, WhatsApp and Slack on both servers, Needs-you, dropped-message log)**
+- [ ] **CH-1** P1 · Elkiya · Messages still dropped for billing: in 7 days 90 for Continue Support, 85 for Biomarkers, 23 for Donna; still 7 in the last 24 h (last 20:30 WIB 19 Nov). Health says the claude-sonnet-5-5[1m] credits are exhausted. EN-5 is marked done, so find which account still fails and move these lines off it.
+- [ ] **CH-2** P2 · Elkiya · A Health report says Continue Support's Kirimdev, Tripay and Xendit keys are missing since 12 Nov. The Tripay and Xendit keys are in agent-keys; check the Kirimdev key, then clear the report if it is stale.
+- [ ] **CH-3** P2 · Elkiya · Randy said he sent a video, but no video reached the customer (Amri, 19 Nov 20:26, KD-17 area).
+- [ ] **CH-4** P2 · Elkiya · Continue Threads Manager answered the same post twice, three times (Health). Delete the extra replies **(waiting on you)**, then find why the posting-limit check (f1da7f8) tells but does not stop it.
+- [ ] **CH-5** P2 · Elkiya · Health question: Biomarkers replies wait about 2 minutes before the agent starts (humanWaitMin). Answer it on Health **(waiting on you)**. Linked to KD-1 and i0003b8dc.
+- [ ] **CH-6** P2 · Elkiya · Sesa's Higgsfield sign-in expired (HTTP 401). Reconnect it, or switch Higgsfield off for Sesa **(waiting on you)**.
+- [ ] **CH-7** P2 · Elkiya · Amri could not open aqeelOS (17 Nov 21:17). Check whether it still happens.
+- [ ] **CH-8** P3 · Elkiya · A Telegram send to the main group timed out (Health alert). 5e8a0ce (18 Nov) already moved Telegram off the VPN; check whether it repeats, then close.
+- [ ] **CH-9** P2 · P&P · Pixel Agent: a schedule woke the AI 36 times this week for nothing (Health design item).
+- [ ] **CH-10** P3 · P&P · The invite for Pandu expired. Send a new one **(waiting on you)**.
+- [ ] **CH-11** P3 · Elkiya · Not aqeelOS: member.continuelife.id login with a WhatsApp number fails, email is required (Amri, 18 Nov). Belongs in the Continue member app backlog.
+- Checked and already covered: the knowledge updates (wolverine stack, reta titration quick reply) are in both SOUL.md files; strike prices are KD-2; payment confirmation after payment is KD-17; Gilang's format and spacing are TS-8 and TS-9; orders not in Sheets or the store are TS-1 and TS-2; Slack "please accept her" is PP-7.
 
 **Owner items**
 - [ ] **OW-2** P1 · Both · GitHub settings for the Fixer (AUD-7) **(waiting on you)**. Branch rule with code-owner review and no admin bypass, remove the write deploy key, a fixer token on a non-owner account. Unblocks "Fixer can't push finished fixes" and the cloud fixer on P&P. [i34f52c6e, ic3e9e6e2]
