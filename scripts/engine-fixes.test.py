@@ -147,6 +147,12 @@ def a_short_rate_limit_is_waited_out_before_the_one_more_try():
     assert m._aq_wait_for(dict(rl, failure_resets_at=now + 3600), now=now) == m._AQ_RETRY_WAIT  # a long limit: no 1 h wait
     assert m._aq_wait_for(dict(rl, failure_resets_at=now - 5), now=now) == m._AQ_RETRY_WAIT
     assert m._aq_wait_for({"failed": True, "failure_reason": "timeout", "failure_resets_at": now + 401}, now=now) == m._AQ_RETRY_WAIT
+    # 20 Nov 2026: no reset time stamped, only the error text (the Claude connector's words, or the relay's hold)
+    txt = {"failed": True, "failure_reason": "rate_limit", "error": "HTTP 429: Rate limit: the AI service asked to wait, try again in 585 seconds. ..."}
+    assert abs(m._aq_wait_for(txt, now=now) - 588) < 0.01, m._aq_wait_for(txt, now=now)
+    hold = {"failed": True, "failure_reason": "rate_limit", "error": "bili is holding outbound sends until 2026-11-19T13:37:09.465Z (~519s)"}
+    assert abs(m._aq_wait_for(hold, now=1795095029.0) - (1795095429.465 - 1795095029.0 + 3)) < 0.01, m._aq_wait_for(hold, now=1795095029.0)
+    assert m._aq_wait_for({"failed": True, "failure_reason": "rate_limit", "error": "try again in 7200 seconds"}, now=now) == m._AQ_RETRY_WAIT
     out, n, drops = _retry(m, rl, {"failed": False, "final_response": "Halo"})
     assert n == 1 and drops[0]["reason"] == "rate_limit" and drops[0]["recovered"] is True, (n, drops)
 

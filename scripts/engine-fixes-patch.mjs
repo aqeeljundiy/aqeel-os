@@ -23,6 +23,7 @@
 //    19 Nov 2026 (CH-1, its own tag aqeelos:retry-waits-limit so engines patched before get it too): when the AI service
 //    asked to wait a short while (a rate limit with its reset time, up to 15 min), the one more try waits until then
 //    instead of 8 s, which only failed a second time while the hold lasted.
+//    20 Nov 2026 (aqeelos:retry-wait-from-text): the turn often carries no reset time, so the wait is read from its error text.
 // 5) aqeelos:clone-no-bot-tokens (6 Nov 2026). A cloned agent dropped the channel keys the engine knows by prefix
 //    (TELEGRAM_..., SLACK_...), but kept bot tokens saved under another name (COVE_SUPPORT_BOT_TOKEN), so two agents
 //    polled one Telegram bot and kicked each other off. Every ..._BOT_TOKEN / ..._APP_TOKEN key now counts as a channel
@@ -516,6 +517,35 @@ def _aq_wait_for(agent_result, now=None):
   {why:'the wait itself',
    from:'    await asyncio.sleep(_AQ_RETRY_WAIT if wait is None else wait)\n',
    to:'    await asyncio.sleep(_aq_wait_for(agent_result) if wait is None else wait)\n'}]},
+ {tag:'aqeelos:retry-wait-from-text',name:'the one more try reads the wait from the error when no reset time came with it',file:'gateway/run_turn.py',edits:[
+  {why:'the wait when the turn carries no reset time',
+   from:'    at = (agent_result or {}).get("failure_resets_at")\n',
+   to:`    at = (agent_result or {}).get("failure_resets_at")
+    if not isinstance(at, (int, float)):  # aqeelos:retry-wait-from-text (20 Nov 2026: the reset was not stamped, so the try came after 8 s)
+        at = _aq_reset_from_text((agent_result or {}).get("error"), time.time() if now is None else now)
+`},
+  {why:'reading it',
+   from:'def _aq_wait_for(agent_result, now=None):\n',
+   to:`def _aq_reset_from_text(text, now):
+    """The reset time a rate limit's text names: "try again in N seconds" (the Claude connector's wording) or the relay's
+    "holding outbound sends until <ISO time>"; None when it names none."""
+    import re as _re
+    from datetime import datetime as _dt
+    t = str(text or "")
+    m = _re.search(r"try again in (\\d+) seconds", t)
+    if m:
+        return now + int(m.group(1))
+    m = _re.search(r"holding outbound sends until (\\d{4}-\\d\\d-\\d\\dT[\\d:.]+)Z", t)
+    if m:
+        try:
+            return _dt.fromisoformat(m.group(1) + "+00:00").timestamp()
+        except ValueError:
+            return None
+    return None
+
+
+def _aq_wait_for(agent_result, now=None):
+`}]},
  {tag:'aqeelos:phone-redaction-setting',name:'phone-number masking is its own per-agent setting',file:'agent/redact.py',edits:[
   {why:'the per-agent switch',
    from:'    with _REDACT_ENABLED_LOCK:\n        _REDACT_ENABLED_BY_HOME[home_key] = enabled\n    return enabled\n',
