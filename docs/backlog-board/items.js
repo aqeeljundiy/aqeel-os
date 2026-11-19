@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 08:30 UTC",
+ "updated": "19 Nov 2026, 08:51 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -439,7 +439,7 @@ window.BOARD = {
    "status": "check",
    "server": "P&P",
    "title": "Pixel answers team members in Slack",
-   "detail": "Done 19 Nov: team list filled (owner + 6). To see: Pixel answers Aldillah. Before: Done 19 Nov: P&P's team list was empty, so every Slack sender was unverified. Filled from the Slack member list (owner Aqeel + 6 members, guests out). Still to see: Pixel answering Aldillah.",
+   "detail": "Team list filled 19 Nov. No Slack message has reached Pixel since (last one 02:32 UTC, before the fix). To see: Aldillah asks Pixel again.",
    "refs": [
     "i9b077056"
    ]
@@ -448,10 +448,10 @@ window.BOARD = {
    "id": "PP-8",
    "area": "pnp",
    "p": 2,
-   "status": "check",
+   "status": "done",
    "server": "Both",
    "title": "Alert when an install's team list is empty",
-   "detail": "Built 19 Nov (6275127), live on both servers.",
+   "detail": "Built and live 19 Nov (6275127): tested (agent-live.test.mjs); it cannot fire now because both installs have a team list.",
    "refs": []
   },
   {
@@ -931,10 +931,10 @@ window.BOARD = {
    "id": "EN-13",
    "area": "engine",
    "p": 2,
-   "status": "you",
+   "status": "check",
    "server": "Elkiya",
    "title": "Telegram messages stored twice; one dropped when two arrive at once",
-   "detail": "19 Nov: the doubles were old copies the engine keeps when it shortens a long chat (only one copy is live; the model never saw doubles). Three aqeelOS readers counted every copy (team view, resume, escalations): fixed (bf70aed). Left, your call: \"not processed\" comes from the engine when a second message interrupts the first (it is set to interrupt). Switch messaging to queue (a second message waits its turn; you could no longer cut a long answer short by writing), or keep interrupt?",
+   "detail": "19 Nov: the doubles were old copies the engine keeps when it shortens a chat; aqeelOS readers fixed (bf70aed). Decided: messaging queues (d0b434b, live on both servers): a second message waits its turn instead of interrupting, so no more \"not processed\". To see: no \"not processed\" in tomorrow's daily chat review (EN-12).",
    "refs": []
   },
   {
