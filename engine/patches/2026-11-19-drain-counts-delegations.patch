@@ -1,0 +1,47 @@
+diff --git a/gateway/run_shutdown.py b/gateway/run_shutdown.py
+index 9dca064..67c43ce 100644
+--- a/gateway/run_shutdown.py
++++ b/gateway/run_shutdown.py
+@@ -198,6 +198,7 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
+             + self._active_cron_job_count()
+             + self._active_api_run_count()
+             + self._active_deferred_agent_worker_count()
++            + self._active_async_delegation_count()
+         )
+ 
+     @staticmethod
+@@ -280,6 +281,16 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
+             return 0
+         return sum(1 for future in list(workers) if not future.done())
+ 
++    @staticmethod
++    def _active_async_delegation_count() -> int:
++        """Live background-delegation units (aqeelos:drain-delegations). Their children run on the delegation
++        executor, outside ``_running_agents``, so without this the drain saw 0 and a restart killed them mid-run."""
++        try:
++            from tools.async_delegation import active_count
++            return int(active_count())
++        except Exception:
++            return 0
++
+     def _track_deferred_agent_worker(self, future: asyncio.Future, agent: Any) -> None:
+         """Expose an executor worker to drain/interrupt until it really exits."""
+         workers = getattr(self, "_deferred_agent_workers", None)
+@@ -805,7 +816,8 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
+         """``(agents, cron, api, deferred)`` the drain waits on; a managed-worker turn is a chat turn."""
+         return (
+             self._running_agent_count() + managed_turn_count(self), self._active_cron_job_count(),
+-            self._active_api_run_count(), self._active_deferred_agent_worker_count(),
++            self._active_api_run_count(),
++            self._active_deferred_agent_worker_count() + self._active_async_delegation_count(),
+         )
+ 
+     async def _drain_active_agents(
+@@ -1559,6 +1571,7 @@ class GatewayShutdownMixin(GatewaySessionEndMixin):
+             + managed_turn_count(self)
+             + self._active_api_run_count()
+             + self._active_deferred_agent_worker_count()
++            + self._active_async_delegation_count()
+         )
+         return (
+             max(0, non_cron - self._wedged_chat_agent_count())

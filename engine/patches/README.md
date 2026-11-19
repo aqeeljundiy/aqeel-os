@@ -152,3 +152,17 @@ schedule / fixer). The app reads them (backup-models.mjs) for Health (System ›
 `team-policy.json`: `route.waitMinutes` (default 15, 0 = never wait) and `route.fallbackHours`. Tests: `tests/agent/test_aqeelos_route.py`
 (12 cases, run on Elkiya's Python in memory: 12 passed) and `scripts/route-order.test.mjs`. Not covered: auxiliary calls (title
 generation) still walk `fallback_providers` in `agent/auxiliary_client.py`.
+
+## 2026-11-19-drain-counts-delegations.patch (EN-11, issue i90830fb0, applied by step 17b)
+
+Background delegations (`delegate_task` with async children) were killed by every engine restart: their children run on the
+delegation executor, outside `_running_agents`, and the gateway's work totals did not count them (Elkiya, 11 Nov: two overnight
+delegations of 4 children each ended "interrupted" after 12-28 min; the drain logged `active_at_start=0`). The patch
+(`gateway/run_shutdown.py`, marked `aqeelos:drain-delegations`) adds `_active_async_delegation_count()` (the engine's own
+`tools.async_delegation.active_count()`, 0 if it cannot be read) to `_active_work_count` (the `active_agents` in `/api/status`, which
+aqeelOS's `engineAgents()` waits on before it restarts the engine, and the idle exit), to the drain's "deferred" figure and to
+`_awaitable_work_count` (the engine's after-turn restart wait). Every wait keeps its own cap, so a stuck delegation cannot hold a
+restart for ever (the engine's stale-delegation monitor also ends stalled ones). From the Fixer's `fixer-patches/i90830fb0-try2.patch`
+(only the paths changed, `hermes-agent/` dropped). Checked 19 Nov, read-only: `git apply --check` clean on the live engines of Elkiya and
+P&P (commit bf0203a794) and `--cached` on that clean commit; the patched file compiles with the engine's Python. Takes effect after the
+engine restarts. Not covered by an engine test yet.
