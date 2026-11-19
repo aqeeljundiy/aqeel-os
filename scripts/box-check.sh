@@ -36,7 +36,9 @@ else
 aq_private $D; chmod -R go-rwx $D 2>/dev/null || true
 if [ ! -f $D/env ]; then rm -rf $D/data; cp -a ~/apps/hermes-ui-data $D/data; chmod -R go-rwx $D/data
  # the test copy signs in with its own password: on an install whose owner set one in the app, that one would win and every check would be signed out
- node -e "const fs=require('fs'),f=process.argv[1];const d=JSON.parse(fs.readFileSync(f,'utf8'));delete d.ownerPw;fs.writeFileSync(f,JSON.stringify(d,null,1))" $D/data/users.json 2>/dev/null || true
+ # and with the password alone: once the owner has an email, sign-in wants it, and every check that signs in with the password
+ # only (pages, fast page switching, controls, actions) was refused, "Enter your email." (EN-10, 19 Nov 2026: the night check failed on it)
+ node -e "const fs=require('fs'),f=process.argv[1];const d=JSON.parse(fs.readFileSync(f,'utf8'));delete d.ownerPw;delete d.ownerEmail;fs.writeFileSync(f,JSON.stringify(d,null,1))" $D/data/users.json 2>/dev/null || true
  PW=$(head -c 12 /dev/urandom | base64 | tr -d "/+="); echo "$PW" > $D/pw
  printf "UI_PASSWORD_HASH=%s\nUI_INSECURE_COOKIE=1\nUI_DATA_DIR=%s\nUI_PORT=4402\nUI_HOST=127.0.0.1\nAQEELOS_LIVE=0\n" "$(node /tmp/aq-stage/app/server.mjs hash "$PW")" "$D/data" > $D/env; fi
 grep -q "^AQEELOS_LIVE=" $D/env || echo "AQEELOS_LIVE=0" >> $D/env   # a test copy never runs the live jobs
