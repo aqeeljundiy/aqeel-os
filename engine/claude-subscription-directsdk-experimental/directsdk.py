@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import copy
+import datetime
 from collections import deque
 import hashlib
 import inspect
@@ -62,6 +63,29 @@ NATIVE_ERROR_STATUS = {
     'overloaded': 529,
     'server_error': 503,  # native's code for capacity, 5xx and OAuth-refresh races: transient
 }
+
+
+_HOLD_UNTIL = re.compile(r'holding outbound sends until (\d{4}-\d\d-\d\dT[\d:.]+Z)')
+
+
+def rate_limit_wording(message, status, now=None):
+    """A short rate limit worded so the engine reads it as one (CH-1, 19 Nov 2026). Anthropic's 429 says "Server is temporarily
+    limiting requests (not your usage limit)", and the engine's classifier took the words "usage limit" for an empty account:
+    reason billing, never retried, the line held. 197 support and Donna messages were dropped that way in 7 days on Elkiya.
+    The relay's hold time ("holding outbound sends until <ISO>") becomes "try again in N seconds", so the turn waits it out."""
+    text = str(message or '')
+    if status != 429 and 'upstream rate-limited' not in text and 'temporarily limiting requests' not in text:
+        return text
+    wait = 60
+    holds = _HOLD_UNTIL.findall(text)
+    if holds:
+        try:
+            until = max(datetime.datetime.fromisoformat(h.replace('Z', '+00:00')).timestamp() for h in holds)
+            wait = max(1, math.ceil(until - (time.time() if now is None else now)))
+        except ValueError:
+            pass
+    text = re.sub(r'not your usage limit', 'a short limit, the account is fine', text, flags=re.I)
+    return f'Rate limit: the AI service asked to wait, try again in {wait} seconds. ' + text
 
 
 CARRIER = 'claude-subscription-directsdk-experimental.native_assistant'
@@ -1053,7 +1077,7 @@ class Client:
                         first += ', upstream said: ' + admission.error_text()[:500]
                     # The first attempt's real HTTP status; a 200 cut short or a relay failure has none.
                     status = admission.status if isinstance(admission.status, int) and admission.status >= 400 else None
-                    raise ClaudeAPIError(f'Incomplete upstream response ({first})' + (': ' + native_error if native_error else ''), status)
+                    raise ClaudeAPIError(rate_limit_wording(f'Incomplete upstream response ({first})' + (': ' + native_error if native_error else ''), status), status)
                 assistants = [admission.capture.message]
                 stopped = True
             native_failure_handled = admission.denied or (admission.used and assistants[0].get('stop_reason') == 'refusal')

@@ -139,6 +139,19 @@ def a_turn_that_failed_before_anything_ran_is_tried_once_more():
 
 
 @test
+def a_short_rate_limit_is_waited_out_before_the_one_more_try():
+    m = _run_turn()
+    now = 1795095029.0
+    rl = {"failed": True, "failure_reason": "rate_limit", "failure_retryable": True, "failure_resets_at": now + 401}
+    assert abs(m._aq_wait_for(rl, now=now) - 404) < 0.01, m._aq_wait_for(rl, now=now)
+    assert m._aq_wait_for(dict(rl, failure_resets_at=now + 3600), now=now) == m._AQ_RETRY_WAIT  # a long limit: no 1 h wait
+    assert m._aq_wait_for(dict(rl, failure_resets_at=now - 5), now=now) == m._AQ_RETRY_WAIT
+    assert m._aq_wait_for({"failed": True, "failure_reason": "timeout", "failure_resets_at": now + 401}, now=now) == m._AQ_RETRY_WAIT
+    out, n, drops = _retry(m, rl, {"failed": False, "final_response": "Halo"})
+    assert n == 1 and drops[0]["reason"] == "rate_limit" and drops[0]["recovered"] is True, (n, drops)
+
+
+@test
 def a_turn_where_something_already_ran_is_never_repeated():
     m = _run_turn()
     first = {"failed": True, "failure_reason": "timeout", "failure_retryable": True}
