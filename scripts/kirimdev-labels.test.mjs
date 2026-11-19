@@ -21,9 +21,9 @@ const lid=n=>'lbl_'+n.replace(/\W/g,'').toUpperCase().padEnd(26,'0').slice(0,26)
 const sign=(raw,t=Math.floor(Date.now()/1000))=>'t='+t+',v1='+createHmac('sha256',SECRET).update(t+'.'+raw).digest('hex');
 const meta=(from,text,conv='cnv_A')=>JSON.stringify({object:'whatsapp_business_account',entry:[{changes:[{field:'messages',value:{metadata:{phone_number_id:'111111'},contacts:[{wa_id:from,profile:{name:'Rania'}}],messages:[{from,id:'wamid.'+Math.random(),timestamp:String(Math.floor(Date.now()/1000)),type:'text',text:{body:text}}]}}]}],kirim:{conversation_id:conv}});
 
-async function make({mode='test',allowed=['New Leads','Consult','Checkout','I-Reta','I-NAD'],agentSays='Halo kak'}={}){
+async function make({mode='test',allowed=['New Leads','Consult','Checkout','I-Reta','I-NAD'],agentSays='Halo kak',afterPaid=undefined}={}){
  const DATA=await mkdtemp(path.join(tmpdir(),'kdl-'));
- await writeFile(path.join(DATA,'kirimdev.json'),JSON.stringify({lines:{'cove-support':{phoneNumberId:'111111',persona:'Sam',business:'Cove',mode,debounceSec:0,testers:[{who:'Team',phone:'628123'}],labels:{allowed}}}}));
+ await writeFile(path.join(DATA,'kirimdev.json'),JSON.stringify({lines:{'cove-support':{phoneNumberId:'111111',persona:'Sam',business:'Cove',mode,debounceSec:0,testers:[{who:'Team',phone:'628123'}],labels:{allowed},...(afterPaid?{afterPaid}:{})}}}));
  await writeFile(path.join(DATA,'kirimdev-secrets.json'),JSON.stringify({'cove-support':{id:'wbs_1',secrets:[SECRET]}}));
  const has={ctc_A:new Set(),ctc_B:new Set()},calls=[],posts=[],acts=[];
  const fetchImpl=async(url,o)=>{const p=url.replace('https://api.kirimdev.com/v1/',''),m=o.method||'GET';calls.push(m+' '+p);const ok=d=>({ok:true,status:200,json:async()=>d});
@@ -148,3 +148,12 @@ test('Line settings: the highest card amount is saved, kept when not mentioned, 
  await assert.rejects(t.k.saveLine('cove-support',{phoneNumberId:P,payment:{...base,cardMax:'abc'}}),/whole number/);
  await assert.rejects(t.k.saveLine('cove-support',{phoneNumberId:P,payment:{...base,cardMax:'5000'}}),/below the lowest/);
  await t.k.saveLine('cove-support',{phoneNumberId:P,payment:{...base,cardMax:''}});assert.equal((await pay()).cardMax,undefined,'empty: the default')});
+
+test('after a confirmed payment the line own messages go out once: the confirmation, and what fits the order (pen, or no pen) (19 Nov 2026)',async()=>{
+ const t=await make({afterPaid:{parts:['Pembayaran diterima'],byLabel:[{match:'S-Pen',parts:['Cara pakai pen','[VIDEO: pen.mp4]']},{unless:'S-Pen',parts:['Cara mixing']}]}});
+ await t.post(meta('628123','halo'));await t.settle();const sent=()=>t.calls.filter(c=>c==='POST 111111/messages').length,n=sent();
+ await L(t.k,{add:['Customer','S-Reta','S-Pen'],remove:['Checkout'],source:'payment',run:'pay1'});
+ assert.equal(sent()-n,2,'the confirmation and the pen text (the video has no file on this line, so it is skipped)');
+ await L(t.k,{add:['Customer','S-Reta','S-Pen'],source:'payment',run:'pay1'});assert.equal(sent()-n,2,'the same payment never sends them again');
+ const u=await make();await u.post(meta('628123','halo'));await u.settle();const m=u.calls.filter(c=>c==='POST 111111/messages').length;
+ await L(u.k,{add:['Customer','S-Reta'],source:'payment',run:'pay2'});assert.equal(u.calls.filter(c=>c==='POST 111111/messages').length,m,'a line with no list sends nothing')});

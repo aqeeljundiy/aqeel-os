@@ -898,7 +898,21 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   for(const n of remove){const lid=id.get(n);if(!have.has(lid))continue;await api(line.phoneNumberId+'/contacts/'+encodeURIComponent(cid)+'/labels/'+encodeURIComponent(lid),null,{method:'DELETE'});done.push('−'+n)}
   log('kirimdev '+agent+': labels on '+who+': '+(done.join(', ')||'already so')+' ('+source+(run?', run '+run:'')+')');
   if(done.length)await activity(agent,(line.persona||agent)+' labelled '+(phone?'+'+phone:'a contact')+': '+done.join(', '),(source==='payment'?'A confirmed payment':source==='approved'?'A sent draft':'The agent in a customer chat')+(run?' (run '+run+')':'')+'. Kirimdev contact '+cid+'.').catch(()=>{});
+  if(source==='payment'&&add.includes('Customer'))await afterPaid(agent,line,{phone,run,products:add.filter(x=>/^S-/.test(x))}).catch(e=>log('kirimdev '+agent+': after-payment messages: '+e.message));
   return {set:true,changed:done}}
+ // after a confirmed payment (19 Nov 2026, Amri: Randy never sent the payment confirmation, the pen tutorial, the cartridge change or the
+ // calibration, although the SOP says so): the line's own list, sent by code, no AI, once per payment, inside WhatsApp's 24 hours.
+ // kirimdev.json lines.<agent>.afterPaid = {parts:[text or [FOTO:/VIDEO:/TEMPLATE: x]], byLabel:[{match:'S-Pen', unless:'', parts:[...]}]}:
+ // parts always; each byLabel entry when an S- label of the order matches `match` and none matches `unless`. Nothing set = nothing sent.
+ async function afterPaid(agent,line,{phone,run,products=[]}){const a=line.afterPaid;if(!a||!phone||modeOf(line)==='draft')return;
+  const k=agent+'|'+phone+'|'+(run||'');st.afterPaid||={};if(st.afterPaid[k])return;
+  const hit=(re,on)=>{try{return !!re&&on.some(x=>new RegExp(re,'i').test(x))}catch{return false}};
+  const list=[...(a.parts||[]),...(a.byLabel||[]).filter(r=>(!r?.match||hit(r.match,products))&&!hit(r?.unless,products)).flatMap(r=>r.parts||[])].map(x=>String(x||'').trim()).filter(Boolean).slice(0,PARTS_MAX);
+  if(!list.length)return;if(!within24h(agent,phone)){log('kirimdev '+agent+': after-payment messages not sent to …'+String(phone).slice(-4)+': outside WhatsApp\'s 24 hours');return}
+  for(const [x,t] of Object.entries(st.afterPaid))if(now()-t>30*86400e3)delete st.afterPaid[x];st.afterPaid[k]=now();await saveState();
+  const ids=[];for(const part of withCaptions(list)){const id=await prepare(agent,line,phone,part);if(id)ids.push(id)}
+  for(const id of ids){await deliver(id);await wait(2500)}
+  log('kirimdev '+agent+': after the payment, '+ids.length+' message(s) sent to …'+String(phone).slice(-4)+(run?' (run '+run+')':''))}
  // the line for an agent: a new one (Connect: Test mode, delivery set up, first check) or changes to its settings
  async function saveLine(agent,b={}){if(!AGENT.test(String(agent||'')))throw Error('Pick the agent that answers this number.');
   const c=await readStore(CONF,{lines:{}});c.lines||={};const cur=c.lines[agent]||null,isNew=!cur;
