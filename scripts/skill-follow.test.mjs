@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,cp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {folderSig,follow} from '../app/skill-follow.mjs';
+import {folderSig,follow,BIG} from '../app/skill-follow.mjs';
 
 async function setup(){const d=await mkdtemp(path.join(tmpdir(),'sf-')),src=path.join(d,'main','writing-kit'),dst=path.join(d,'agent','writing-kit');
  await mkdir(path.join(src,'references'),{recursive:true});await writeFile(path.join(src,'SKILL.md'),'---\nname: writing-kit\n---\nRead references/gone-file.md first.\n');
@@ -25,3 +25,9 @@ test('a skill given before fingerprints existed is only adopted when it is the s
 test('a content change changes the fingerprint; a missing folder has none',async()=>{const {src,dst}=await setup();const a=await folderSig(src);
  await writeFile(path.join(src,'references','ideas.md'),'more ideas');assert.notEqual(await folderSig(src),a);
  await rm(dst,{recursive:true});assert.equal(await folderSig(dst),null);assert.equal((await follow({src,dst,was:a})).copy,false)});
+
+test('runtime folders are not content and a big file counts by its size (AU-9, 20 Nov 2026)',async()=>{const {src}=await setup();const a=await folderSig(src);
+ for(const d of ['.venv/lib','node_modules/x','ms-playwright/chromium']){await mkdir(path.join(src,d),{recursive:true});await writeFile(path.join(src,d,'f.bin'),'runtime '+d)}
+ assert.equal(await folderSig(src),a,'a Python environment, packages or a bundled browser leave the fingerprint alone');
+ const big=Buffer.alloc(BIG+10,1);await writeFile(path.join(src,'big.dat'),big);const b=await folderSig(src);assert.notEqual(b,a,'a new big file counts');
+ big[5]=2;await writeFile(path.join(src,'big.dat'),big);assert.equal(await folderSig(src),b,'by its size: the same size is the same')});

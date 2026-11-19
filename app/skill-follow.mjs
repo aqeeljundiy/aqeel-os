@@ -9,10 +9,14 @@ import path from 'node:path';
 
 // every file under dir (relative path, size, time); the content is read only when that list changed since last time
 const memo=new Map();
-async function files(dir,rel=''){const out=[];for(const e of await readdir(path.join(dir,rel),{withFileTypes:true}).catch(()=>null)??[]){if(e.name==='__pycache__'||e.name==='.usage.json')continue;
+// runtime folders a skill installs for itself (a Python environment, packages, a bundled browser) are not its content and are left out,
+// and a big file counts by its size: 20 Nov 2026, a skill that carries a 1.5 GB browser and environment made every app start read about
+// 9 GB to fingerprint the main copy and nine agent copies (AU-9)
+const RUNTIME=new Set(['__pycache__','.venv','venv','node_modules','site-packages','ms-playwright','.hub','.git','.cache']);export const BIG=4e6;
+async function files(dir,rel=''){const out=[];for(const e of await readdir(path.join(dir,rel),{withFileTypes:true}).catch(()=>null)??[]){if(RUNTIME.has(e.name)||e.name==='.usage.json')continue;
  const r=rel?rel+'/'+e.name:e.name;if(e.isDirectory())out.push(...await files(dir,r));else if(e.isFile()){const s=await stat(path.join(dir,r)).catch(()=>null);if(s)out.push([r,s.size,Math.round(s.mtimeMs)])}}return out}
 export async function folderSig(dir){const l=(await files(dir)).sort((a,b)=>a[0]<b[0]?-1:1);if(!l.length)return null;const k=JSON.stringify(l),m=memo.get(dir);if(m&&m.k===k)return m.v;
- const h=createHash('sha1');for(const [r] of l){h.update(r+'\0');h.update(await readFile(path.join(dir,r)).catch(()=>Buffer.alloc(0)));h.update('\0')}
+ const h=createHash('sha1');for(const [r,size] of l){h.update(r+'\0');h.update(size>BIG?'size:'+size:await readFile(path.join(dir,r)).catch(()=>Buffer.alloc(0)));h.update('\0')}
  const v=h.digest('hex').slice(0,16);memo.set(dir,{k,v});return v}
 // was: the fingerprint recorded when the agent last got this skill (undefined for skills given before 19 Nov 2026).
 // Returns {copy: give the main copy again, sig: what to record now (undefined = leave the record as it is)}
