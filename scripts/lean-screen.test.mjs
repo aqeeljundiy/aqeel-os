@@ -113,7 +113,7 @@ test('a wake that comes up is logged with its time and clears the failure count'
  const d=tmp();screen(d,'lean-fluxbox');mkdirSync(d+'/rst',{recursive:true});writeFileSync(d+'/rst/a1.wakefails','1');
  const sd=d+'/workspaces/a1/.screen';writeFileSync(sd+'/waking','1');
  const r=sh(`${STUBS}; screen_ready(){ return 0; }; wake_verify a1 ag-a1 $(( $(now_ms) - 3500 )) wake`,d);
- const e=events(d);assert.equal(e.length,1,r.err);assert.equal(e[0].event,'wake');assert.equal(e[0].ok,true);assert.ok(e[0].ms>=3500&&e[0].ms<8000,'took '+e[0].ms);
+ const e=events(d);assert.equal(e.length,1,r.err);assert.equal(e[0].event,'wake');assert.equal(e[0].ok,true);assert.ok(e[0].ms>=3500&&e[0].ms<60000,'took '+e[0].ms);   // the upper bound only rules out nonsense: a busy test runner's shell start alone passed 8 s (19 Nov 2026)
  assert.ok(!existsSync(d+'/rst/a1.wakefails'));assert.ok(!existsSync(sd+'/waking'))});
 
 test('a lean start that does not come up falls back to the old desktop once, and that is not a failed wake',()=>{

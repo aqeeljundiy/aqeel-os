@@ -8,6 +8,9 @@ const OWN={phones:['6281200001111','6281200003333'],names:['Rania','Rory','Cove'
 const CTX={appHost:'https://ai.example.com',own:OWN,secrets:['kdv_live_0123456789abcdef']};
 const LEAK={
  L1_reasoning_id:'Dari rules: paket 1 itu pen, jadi saya jawab dulu.\nHalo kak, pen itu...',
+ // Randy, 11 Nov 2026 round 7 (KD-12): the reply that reached a tester, and the same thought in other words
+ L1b_reasoning_randy:'Dari rules: Paket 1 = Basic Kit, Paket 2 = Premium Reusable Pen. Pertanyaan pertama adalah soal produk, jadi saya jawab dulu.',
+ L1c_my_rules_id:'Menurut aturan saya, saya harus tanya profil Kakak dulu.\nBoleh tahu usianya?',
  L2_reasoning_mid:'Halo kak!\nSesuai SOP, saya harus tanya dulu riwayat produk.\nBoleh tahu sebelumnya pernah pakai?',
  L3_reasoning_en:'The user is asking about price. I should check the sheet first.\nHarga paket 1 Rp 3.040.000 kak',
  L4_tool_error:'Maaf kak, {"error":"Kirimdev answered 500"} mohon tunggu',
@@ -34,7 +37,7 @@ const LEAK={
 // what only the turn's own check can see (the customer's language, a reply that only says "wait"): not a property of the text alone
 const TURN_ONLY=new Set(['L19_empty_promise','L20_wrong_lang']);
 test('the 24 leaks of the audit never reach a customer: the turn check stops every one, the exit check every one that is in the text itself',()=>{
- assert.equal(Object.keys(LEAK).length,24);
+ assert.equal(Object.keys(LEAK).length,26);   // the audit's 24, plus Randy's two of KD-12 (19 Nov 2026)
  for(const [k,t] of Object.entries(LEAK)){const g=guardReply(splitReply(t),{paid:true,ctx:CTX,customerText:'halo kak, berapa harga paketnya ya?'});
   // stopped = held, or (L1) the leaking line dropped and only the clean rest kept
   assert.ok(g.hold||g.dropped.length&&leaks(g.parts.join('\n'),CTX).length===0,k+' passed the turn check');

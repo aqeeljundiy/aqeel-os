@@ -26,7 +26,7 @@ export const RULES=[
  ['note',INTERNAL[0],'a note for the team'],['note',INTERNAL[1],'a note for the team'],['note',INTERNAL[2],'an internal remark'],['note',INTERNAL[3],'a backup-model note'],['note',INTERNAL[4],'a bare file name'],
  ['note',REPLY_NOTE,'a preface to the operator'],
  ['reasoning',REASON,'the agent quoting its rules or its plan'],
- ['reasoning',/\b(sesuai|menurut|berdasarkan|dari)\s+(sop|rules?|briefing|decisions?|knowledge\s*sheet|aturan\s+internal)\b/i,'the agent citing its rules'],
+ ['reasoning',/\b(sesuai|menurut|berdasarkan|dari)\s+(sop|rules?|briefing|decisions?|knowledge\s*sheet|aturan\s+internal|(?:aturan|panduan|sop|rules?)\s+(?:saya|aku|internal))\b/i,'the agent citing its rules'],
  ['reasoning',/\b(the|this)\s+(user|customer)\s+(is|was|wants?|asked|asks|needs?|said|says|has|sent|wrote|seems|might|may)\b/i,'the agent talking about the customer'],
  ['reasoning',/^\s*(the\s+)?(customer|user|pelanggan)\s+(wants?|asks?|asked|is\s+asking|needs?|said|sent|minta|menanyakan|bertanya)\b/i,'the agent talking about the customer'],
  ['reasoning',/\bI\s+should\s+(check|ask|hand|look|read|search|call|use|reply|respond|verify|first|not|now)\b/i,'the agent planning aloud'],

@@ -193,6 +193,12 @@ test('with the line\'s provider set, aqeelOS makes the payment itself with keys 
  assert.match(va.text,/BCA Virtual Account \| nomor VA 8077700012345678 \| Rp300\.000 \| berlaku sampai 11\.00 WIB/);assert.equal(calls[1][2].method,'BCAVA');
  const cd=await C.call('cove-support',t2,'create_payment',{kind:'card',name:'Budi',items:[{id:'reta-10mg',qty:1}],order_form:FORM3('Rp3.200.000'),expired:true});
  assert.match(cd.text,/^https:\/\/checkout\.xendit\.co\/web\/6aefe9edcc1f71c06def4151 \| Rp3\.280\.000[\s\S]*card fee 2\.5% Rp80\.000/);assert.equal(calls[2][2].amount,3280000);assert.equal(calls[2][1],'Basic '+Buffer.from('xnd-key:').toString('base64'));
+ // a tester in Test pays the test amount by VA and by card too, not the order total (KD-9, 19 Nov 2026: only QRIS was covered)
+ {const t3=C.begin({agent:'cove-support',line:'140',conversation:'cnv_3',phone:'6281234567892',mode:'test',tester:true}),n=calls.length;
+  const tv=await C.call('cove-support',t3,'create_payment',{kind:'va',bank:'bca',name:'Tes',items:[{id:'reta-10mg',qty:1}],order_form:FORM3('Rp3.200.000')});
+  assert.equal(!!tv.isError,false,tv.text);assert.equal(calls[n][2].method,'BCAVA');assert.equal(calls[n][2].amount,10000,'a tester\'s VA is the test amount');
+  const tc=await C.call('cove-support',t3,'create_payment',{kind:'card',name:'Tes',items:[{id:'reta-10mg',qty:1}],order_form:FORM3('Rp3.200.000'),expired:true});
+  assert.equal(!!tc.isError,false,tc.text);assert.equal(calls.at(-1)[2].amount,10000,'a tester\'s card payment is the test amount')}
  // the keys are where the agent's user cannot go, and nowhere in its workspace
  assert.equal(await keys.where('cove-support','TRIPAY_API_KEY'),'app');assert.deepEqual(await keys.exposed(['cove-support']),[]);
  // a provider that fails: no payment, the agent hands off
