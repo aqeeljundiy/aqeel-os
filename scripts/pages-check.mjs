@@ -22,7 +22,7 @@ try{
  let tgt;for(let i=0;i<120&&!tgt;i++){await sleep(250);try{tgt=(await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find(t=>t.type==='page')}catch{}}
  if(!tgt)throw new Error('headless Chrome did not start within 30 s');
  const ws=new WebSocket(tgt.webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);let id=0;const wait=new Map();const errs=[];let crashed=false;
- ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&wait.has(m.id)){wait.get(m.id)(m);wait.delete(m.id)}if(m.method==='Inspector.targetCrashed'){crashed=true;errs.push(cur+': the browser tab crashed here')}if(m.method==='Runtime.exceptionThrown')errs.push(cur+': '+(m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text||'').split('\n')[0])};
+ ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&wait.has(m.id)){wait.get(m.id)(m);wait.delete(m.id)}if(m.method==='Inspector.targetCrashed'){crashed=true;errs.push(cur+': the browser tab crashed here')}if(m.method==='Runtime.exceptionThrown'){const x=m.params.exceptionDetails,fr=x.stackTrace?.callFrames?.[0],at=fr?fr.url.split('/').pop()+':'+(fr.lineNumber+1)+':'+(fr.columnNumber+1):'';errs.push(cur+': '+(x.exception?.description||x.text||'').split('\n')[0]+(at?' (at '+at+')':''))}};   // where it was thrown (19 Nov 2026)
  // every browser step has 30 s: a stalled one says which page and step instead of the whole run being cut off with no
  // output by the deploy's time limit (1 Nov 2026: a run stalled after Skills and printed nothing)
  const cdp=(method,params={})=>new Promise((r,j)=>{const i=++id;const t=setTimeout(()=>{wait.delete(i);j(new Error(method+' took over 30 s'))},30000);wait.set(i,m=>{clearTimeout(t);r(m)});ws.send(JSON.stringify({id:i,method,params}))});

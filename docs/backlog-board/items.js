@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 06:10 UTC",
+ "updated": "19 Nov 2026, 06:45 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -312,10 +312,10 @@ window.BOARD = {
    "id": "KD-19",
    "area": "sales",
    "p": 2,
-   "status": "check",
+   "status": "done",
    "server": "Elkiya",
    "title": "Biomarkers Support lost seven instruction lines",
-   "detail": "Waiting to be checked: compare with its last good version.",
+   "detail": "Checked 19 Nov: Gilang's instructions hold all the lost rules again (order-forward tag, tutorial videos, check_payment steps, Ask don't assume). Fixer item closed.",
    "refs": [
     "ibd8a5021"
    ]
@@ -752,10 +752,10 @@ window.BOARD = {
    "id": "OW-1",
    "area": "owner",
    "p": 1,
-   "status": "you",
+   "status": "done",
    "server": "Elkiya",
    "title": "Paste Donna's issues from this morning",
-   "detail": "Sent on Telegram, which I can't read. Most are probably already in the Fixer lists above.",
+   "detail": "Read 19 Nov from Donna's Telegram (the engine keeps every chat): your Notion backlog feedback (only tasks you own, mark finished ones done; saved as her rules) and the Master To Do views she broke and restored (PP-9). Engine problems seen there: EN-13.",
    "refs": []
   },
   {
@@ -916,6 +916,36 @@ window.BOARD = {
    "refs": [
     "i04f68157"
    ]
+  },
+  {
+   "id": "EN-12",
+   "area": "engine",
+   "p": 2,
+   "status": "todo",
+   "server": "Both",
+   "title": "Daily review of every agent's chats",
+   "detail": "Owner's idea, 19 Nov: the engine keeps every chat (Telegram, Slack, WhatsApp, schedules) and I can read them on both servers. Once a day, read what each agent was asked and how it went, and file what went wrong (dropped or doubled messages, mistakes, unhappy people) on this board or for the Fixer. Customer chats stay private: only the problem goes on the board.",
+   "refs": []
+  },
+  {
+   "id": "EN-13",
+   "area": "engine",
+   "p": 2,
+   "status": "todo",
+   "server": "Elkiya",
+   "title": "Telegram messages stored twice; one dropped when two arrive at once",
+   "detail": "Seen 19 Nov in Donna's Telegram chats: every message from the owner is saved twice in the engine, and at 11:02 WIB a second message got \"Your request was not processed\" because it arrived while the first was being answered. Find out why and fix.",
+   "refs": []
+  },
+  {
+   "id": "PP-9",
+   "area": "owner",
+   "p": 3,
+   "status": "check",
+   "server": "Elkiya",
+   "title": "Donna: Master To Do views restored after her Context change",
+   "detail": "19 Nov morning: adding the Context column made Donna hide every other column in your 5 Notion views (no data lost). She put the columns back but did not look at the result. Open Master To Do and say if a view still looks wrong. Your two rules (only tasks you own; close finished ones) are saved in her task rules.",
+   "refs": []
   }
  ]
 };
