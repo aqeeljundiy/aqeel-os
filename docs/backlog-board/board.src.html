@@ -1,0 +1,120 @@
+<title>aqeelOS Backlog</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Google+Sans+Flex:wght@500;600&display=swap">
+<style>
+/* Layout: a header with the counts that matter, a filter row, then status columns (stacked on phones). aqeelOS navy, Plus Jakarta text, Google Sans Flex digits. */
+:root{
+ --bg:#f4f5f8;--panel:#ffffff;--ink:#111827;--muted:#5b6475;--line:#e3e6ee;--soft:#eef0f5;
+ --accent:#1f3a8a;--accent-soft:#e6ebfa;
+ --todo:#5b6475;--you:#b4570f;--you-soft:#fdf0e3;--check:#1f6fb8;--check-soft:#e5f0fa;--done:#2f7d4f;--done-soft:#e5f3ea;--p1:#b42318;
+ --text:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+ --num:"Google Sans Flex","Plus Jakarta Sans",system-ui,sans-serif;
+ --r:12px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#0b0f19;--panel:#121826;--ink:#e8ebf2;--muted:#9aa3b5;--line:#232b3d;--soft:#1a2132;
+ --accent:#8ea8ff;--accent-soft:#1c2747;--todo:#9aa3b5;--you:#f0a35e;--you-soft:#33230f;--check:#6cb2f0;--check-soft:#10263b;--done:#6fcf97;--done-soft:#10291c;--p1:#ff8a80;color-scheme:dark}}
+:root[data-theme="dark"]{
+ --bg:#0b0f19;--panel:#121826;--ink:#e8ebf2;--muted:#9aa3b5;--line:#232b3d;--soft:#1a2132;
+ --accent:#8ea8ff;--accent-soft:#1c2747;--todo:#9aa3b5;--you:#f0a35e;--you-soft:#33230f;--check:#6cb2f0;--check-soft:#10263b;--done:#6fcf97;--done-soft:#10291c;--p1:#ff8a80;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--text);font-size:14px;line-height:1.5;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 48px}
+.n{font-family:var(--num);font-variant-numeric:tabular-nums}
+.wrap{max-width:1360px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px}
+h1{font-size:24px;font-weight:700;margin:0;letter-spacing:-.01em;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 0}
+.stats{display:flex;gap:8px;flex-wrap:wrap}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:92px}
+.stat b{display:block;font-size:20px;line-height:1.1;font-family:var(--num);font-weight:600}
+.stat span{color:var(--muted);font-size:12px}
+.stat.you b{color:var(--you)} .stat.check b{color:var(--check)} .stat.done b{color:var(--done)}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:inherit;font-size:12.5px;font-weight:500;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:999px;padding:5px 11px;cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.chip:hover{color:var(--ink);border-color:var(--muted)}
+.chip[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.chip:focus-visible,.card:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sep{flex:1}
+#q{font:inherit;font-size:13px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:6px 12px;width:220px;max-width:100%}
+.board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;align-items:start}
+@media (max-width:1080px){.board{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.board{grid-template-columns:minmax(0,1fr)}#q{width:100%}}
+.col{background:var(--soft);border-radius:var(--r);padding:10px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.col h2{font-size:13px;font-weight:600;margin:2px 4px 4px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.col h2 small{color:var(--muted);font-weight:500;font-size:12px}
+.col h2 .n{color:var(--muted);font-weight:500}
+.empty{color:var(--muted);font-size:12.5px;padding:10px 4px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:6px;transition:border-color .15s,transform .15s,box-shadow .15s;min-width:0}
+.card:hover{border-color:var(--muted);transform:translateY(-1px);box-shadow:0 4px 14px -8px rgba(17,24,39,.25)}
+.top{display:flex;gap:8px;align-items:flex-start}
+.ck{flex:none;width:16px;height:16px;border-radius:4px;border:1.5px solid var(--line);margin-top:2px;display:grid;place-items:center}
+.card[data-s="done"] .ck{background:var(--done);border-color:var(--done)}
+.card[data-s="check"] .ck{border-color:var(--check);background:linear-gradient(135deg,var(--check-soft) 50%,transparent 50%)}
+.card[data-s="you"] .ck{border-color:var(--you)}
+.ck svg{width:11px;height:11px;stroke:#fff}
+.t{font-weight:600;font-size:13.5px;line-height:1.4;min-width:0;overflow-wrap:anywhere}
+.card[data-s="done"] .t{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--line)}
+.meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:11.5px;color:var(--muted)}
+.id{font-family:var(--num);font-weight:600;color:var(--ink)}
+.tag{border:1px solid var(--line);border-radius:999px;padding:0 7px;line-height:18px}
+.p1{color:var(--p1);border-color:color-mix(in srgb,var(--p1) 40%,transparent)}
+.d{color:var(--muted);font-size:12.5px;overflow:hidden;max-height:0;opacity:0;transition:max-height .25s ease,opacity .2s}
+.card[aria-expanded="true"] .d{max-height:420px;opacity:1}
+.refs{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.refs code{font-family:var(--num);font-size:11px;background:var(--soft);border-radius:5px;padding:1px 6px;color:var(--ink)}
+.col[data-s="you"]{background:var(--you-soft)} .col[data-s="check"]{background:var(--check-soft)} .col[data-s="done"]{background:var(--done-soft)}
+footer{color:var(--muted);font-size:12px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+ <header>
+  <div><h1>aqeelOS Backlog</h1><p class="sub">Everything open on Elkiya and P&amp;P, updated <span id="upd"></span>. Same list as BACKLOG.md.</p></div>
+  <div class="stats" id="stats"></div>
+ </header>
+ <div class="bar">
+  <div class="chips" id="areas" role="group" aria-label="Area"></div>
+  <span class="sep"></span>
+  <div class="chips" id="servers" role="group" aria-label="Server"></div>
+  <div class="chips" id="prio" role="group" aria-label="Priority"></div>
+  <input id="q" type="search" placeholder="Search title, id or Fixer id" aria-label="Search">
+ </div>
+ <main class="board" id="board"></main>
+ <footer>Click a card for details and its Fixer ids (Health › Fixer). Statuses change as work lands; this page is republished each time.</footer>
+</div>
+
+<script>/*ITEMS*/</script>
+<script>
+(()=>{
+const B=window.BOARD,$=s=>document.querySelector(s);
+const COLS=[["todo","To do",""],["you","Waiting on you","your step"],["check","Fixed, check live","verify then close"],["done","Done",""]];
+const st={area:"all",server:"all",p:"all",q:""};
+try{Object.assign(st,JSON.parse(localStorage.getItem("aqb")||"{}"),{q:""})}catch(e){}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+$("#upd").textContent=B.updated;
+const count=s=>B.items.filter(i=>i.status===s).length;
+$("#stats").innerHTML=[["Open",B.items.filter(i=>i.status!=="done").length,""],["Priority 1",B.items.filter(i=>i.status!=="done"&&i.p===1).length,""],["Waiting on you",count("you"),"you"],["Check live",count("check"),"check"],["Done",count("done"),"done"]]
+ .map(([l,n,c])=>`<div class="stat ${c}"><b>${n}</b><span>${l}</span></div>`).join("");
+function chips(el,key,opts){el.innerHTML=opts.map(([v,l])=>`<button class="chip" data-k="${key}" data-v="${v}" aria-pressed="${st[key]===v}">${esc(l)}</button>`).join("")}
+chips($("#areas"),"area",[["all","All areas"],...Object.entries(B.areas)]);
+chips($("#servers"),"server",[["all","Both servers"],["Elkiya","Elkiya"],["P&P","P&P"]]);
+chips($("#prio"),"p",[["all","Any priority"],["1","P1 only"]]);
+document.addEventListener("click",e=>{const c=e.target.closest(".chip");if(c){st[c.dataset.k]=c.dataset.v;document.querySelectorAll(`.chip[data-k="${c.dataset.k}"]`).forEach(b=>b.setAttribute("aria-pressed",b===c));save();draw();return}
+ const k=e.target.closest(".card");if(k)k.setAttribute("aria-expanded",k.getAttribute("aria-expanded")!=="true")});
+document.addEventListener("keydown",e=>{const k=e.target.closest&&e.target.closest(".card");if(k&&(e.key==="Enter"||e.key===" ")){e.preventDefault();k.click()}});
+$("#q").addEventListener("input",e=>{st.q=e.target.value.trim().toLowerCase();draw()});
+function save(){try{localStorage.setItem("aqb",JSON.stringify({area:st.area,server:st.server,p:st.p}))}catch(e){}}
+const tick='<svg viewBox="0 0 12 12" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2l2.3 2.3 4.7-5"/></svg>';
+function show(i){return(st.area==="all"||i.area===st.area)&&(st.server==="all"||i.server===st.server||i.server==="Both")&&(st.p==="all"||String(i.p)===st.p)&&(!st.q||(i.id+" "+i.title+" "+i.detail+" "+i.refs.join(" ")).toLowerCase().includes(st.q))}
+function draw(){
+ $("#board").innerHTML=COLS.map(([s,l,h])=>{const list=B.items.filter(i=>i.status===s&&show(i)).sort((a,b)=>a.p-b.p||a.id.localeCompare(b.id,undefined,{numeric:true}));
+  return `<section class="col" data-s="${s}" aria-label="${l}"><h2><span>${l}${h?` <small>${h}</small>`:""}</span><span class="n">${list.length}</span></h2>${list.length?list.map(card).join(""):'<div class="empty">Nothing here with these filters.</div>'}</section>`}).join("")}
+function card(i){return `<article class="card" data-s="${i.status}" tabindex="0" aria-expanded="false">
+ <div class="top"><span class="ck" aria-hidden="true">${i.status==="done"?tick:""}</span><span class="t">${esc(i.title)}</span></div>
+ <div class="meta"><span class="id">${i.id}</span><span class="tag ${i.p===1?"p1":""}">P${i.p}</span><span class="tag">${esc(B.areas[i.area])}</span><span class="tag">${esc(i.server)}</span></div>
+ <div class="d">${esc(i.detail||"")}${i.refs.length?`<div class="refs">${i.refs.map(r=>`<code>${r}</code>`).join("")}</div>`:""}</div></article>`}
+draw();
+})();
+</script>

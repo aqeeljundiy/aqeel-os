@@ -8,21 +8,99 @@ This is the one list of everything still open in aqeelOS. It lives in git, so th
 - A session only stops when everything left is waiting on the owner. Those items go under **Waiting on you** with the exact step needed.
 - Each session ends by updating this file: what's done, what's still left and why.
 
-_Last updated: 19 Nov 2026 (P&P team list, Fixer state, Randy/Gilang list, Channels for members)_
+_Last updated: 19 Nov 2026 (everything open in one checklist; board in sync)_
 
 ---
 
 ## Now
 
-### 19 Nov (owner, from Donna, Amri, Aldillah and the Fixer lists)
-- [x] **TEAM-PNP** Pixel refused Aldillah ("can't verify this Slack account"): P&P's team list (hermes-ui-data/team-policy.json) had no owner and no members since setup, so every Slack sender, the owner too, was "not on the team list". Filled from the P&P Slack member list (owner Aqeel; team Pixel & Profits: Aisar, Faisal, Firdha, Rifqi, Fakhri, Aldillah, each with their own agent; guests left out); backup team-policy.json.bak-20261119-beforeslack. Checked: Aldillah = member, Aqeel = owner, a guest = not verified. Still to see: Pixel answering Aldillah in Slack.
-- [ ] **TEAM-ALERT** An install with Slack (or another team channel) connected and an empty team list gets one Needs-you item, so this can't stay unseen again.
-- [~] **ROLES-2** (was CH-MEMBER) Aldillah has no Channels page because the menu gives it to admins only; every employee who owns an agent hits the same wall. Owner (19 Nov): a long-term model, not a patch for one person. Design in `docs/roles-design.md`: what you own decides what you can do (your agent / the whole install / guards), Member, Builder, Admin, Owner. **Waits for the owner's review and 4 open questions** before any building.
-- [ ] **FIX-HOLD** The Fixer is held on both servers: its last isolation check did not see the engine run tools as aq-fixer ("Execution outcome is unknown", a cut session). Nothing in the Fixer lists is worked on until this clears.
-- [ ] **ROLLBACK-LOOP** P&P: every agent shows "Automatic rollback" up to 221 times: the graphify SKILL.md copied into each agent counts as a self change, the agent does not answer within 120 s on the busy box, aqeelOS undoes it, and it repeats.
-- [ ] **PAY-1** Elkiya Fixer items waiting to be checked: QRIS made but not delivered (Gilang to tester 3124), QRIS expiry shown 1 h late, card links missing, "no payment" said wrongly, paid orders without the buyer's details, a test transfer charged the wrong amount, a reply leaking internal notes (again).
-- [ ] **KIRIM-LIST** Randy and Gilang (Continue, Amri's list): (1) one answer per burst of messages, 2-4 min quiet wait: check the line's quietSec and that a new message supersedes a reply being written; (2) false handoffs: tighten from Donna's logged cases; (3) Gilang's combination = main recommendation + add-on; (4) Gilang's I-<pep> labels; (5) "not a doctor's service" wording: compound research, guided by an experienced team; (6) free pen vs 5% code: price-catalog checks the free item before the discount, the business rule is one or the other, explained up front; (7) Gilang can't take any payment; (8) don't let a lost lead go, offer the best deal; (9) Randy sends payment confirmation, pen tutorial, cartridge change and calibration after payment.
-- [ ] **FIXER-OWNER** Waiting on you from the Fixer lists: Higgsfield sign-in for Threads and Continue Support, Donna's KirimDev sign-in, the fixer's GitHub token (AUD-7), the one Telegram group = one session decision, Fakhri's read-only Airtable key and n8n Google sign-in.
+### 19 Nov: everything open, one checklist (owner, from Amri, Donna, Aldillah and both Fixer lists)
+The board shows the same list by status. `[~]` = fixed or doing, to check live. Priority 1 first. Fixer ids in brackets (Health › Fixer).
+
+**Fixer**
+- [ ] **FX-1** P1 · Both · Unblock the Fixer: its isolation check fails. Held on both servers since its last check did not see the engine run tools as aq-fixer (the check's session was cut: "Execution outcome is unknown"). Nothing below gets fixed by itself until this clears. Find why the check session is cut, make the check survive it, see a code fix run as aq-fixer. [i4739f042, i58e99224, i32f78955, i9acabc70]
+- [~] **FX-2** P2 · Elkiya · Quick fixes made live could be lost on the next update (fixed, to check live). Fixed by the Fixer, waiting to be checked (reported 277 times). Check no live-only change is left on the box that main lacks. [i9530ba20]
+- [~] **FX-3** P3 · Elkiya · New issues wrongly marked urgent for two agents (fixed, to check live). Waiting to be checked. [i5b45a23c]
+- [ ] **FX-4** P3 · Elkiya · Health check flags separate background helpers as duplicate work. False alarm on Continue Threads. [i7768eb6f]
+- [ ] **FX-5** P3 · Both · Clean out Fixer items with no title. "Health check (schedule / update / report / fixer_full_rights)", "Parallel research delegation": read each, close or give it a real title. [i73d2e707, i427ff007, ib69acf62, i04f68157]
+- [ ] **FX-6** P3 · Both · Give unnamed keys a plain name and purpose. The design app's key, a Slack bot key on P&P, elkiya-creative's unnamed items. [i3783c4a3, i54c9d693, i160b59d0]
+
+**Customer lines (Kirimdev)**
+- [ ] **KD-1** P1 · Elkiya · One answer per burst of customer messages. Amri #1: replies come per bubble, 3-5 min late, and miss the last question. The quiet wait already exists (90 s default, resets on each message): check Randy's and Gilang's quietSec, set 2-4 min, and make sure a new message replaces a reply already being written so one reply answers everything. Biomarkers also 4-6 min slow. [i0003b8dc]
+- [ ] **KD-2** P1 · Elkiya · Fewer false handoffs to the team. Amri #2: chats the AI could handle go to human CS and replies are held. Go through the false alarms Donna logged, tighten kirim-review and the handoff rules so only real cases go to people. Includes a chat that stopped after a hold message and kit photos re-sent until the customer is stuck on hold. [ic17c5666, i5026fc4a]
+- [ ] **KD-3** P1 · Elkiya · Gilang can't take any payment. Amri #7. Check Gilang's line: payment tool, price list and limits. Biomarkers also hands off payments it should create itself, and can't create them from the team topic. [i03cf9999]
+- [~] **KD-4** P1 · Elkiya · Payment QR made but not delivered to the customer (fixed, to check live). QR never reached the customer, or the text after the QR image was dropped, or the reply went out without the QR. Round 17: Gilang's QRIS never reached tester 3124. Fixes waiting to be checked; the needs-human one includes the expiry shown 1 hour late (KD-5). [i10e323ba, i2043b125, i5784e2f1, i4717e236, id1b17621]
+- [ ] **KD-5** P1 · Elkiya · QRIS expiry time shown 1 hour later than real. Time zone in the expiry text (WIB vs the provider's time). [i10e323ba]
+- [~] **KD-6** P1 · Elkiya · Card payment links, not only QRIS (fixed, to check live). Waiting to be checked. [i512d2725]
+- [~] **KD-7** P1 · Elkiya · Payment status: paid orders confirmed, no false "no payment" (fixed, to check live). Biomarkers can't confirm a payment the provider marked paid; Continue Support says no payment was made when listing options. Waiting to be checked. [i5db7aedb, i1b25ec10]
+- [~] **KD-8** P1 · Elkiya · Paid orders reach the team with the buyer's order details (fixed, to check live). Two reports, waiting to be checked. [i52af1a58, icb4dab9c]
+- [ ] **KD-10** P1 · Elkiya · Bundle price: approved Rp3.900.000 and a custom price link. The quote still uses the old bundle price; a bundle payment link can't be made without a custom price option. Update the price list (no prices from the model). [i4168befc, if04e2b00]
+- [ ] **KD-11** P1 · Elkiya · Free pen or 5% code: one or the other, said up front. Amri #6: Randy offered the free pen at 5.2 jt, then after the 5% code (4.94 jt) didn't, and the customer felt lied to. price-catalog checks the free item before the discount; the rule is one or the other. Fix the check, and Randy explains the choice before the code is used.
+- [~] **KD-12** P1 · Elkiya · A customer reply leaked internal planning notes again (fixed, to check live). Second time. Waiting to be checked; add the case to the exit guard's leak tests. [i5e349bf6]
+- [ ] **KD-17** P1 · Elkiya · After payment: confirmation, pen tutorial, cartridge, calibration. Amri #9: Randy skips what the SOP says to send after a payment. Make it a fixed step after a paid status. Also: protocol PDFs couldn't be sent after setting protocols. [i19b649d9]
+- [ ] **KD-21** P1 · Elkiya · Donna can't sign back in to KirimDev. type_secret says the agent's screen is not running while her browser is open on the KirimDev sign-in page. Stuck. [ia9525300]
+- [~] **KD-9** P2 · Elkiya · Test bank transfer charged the wrong amount (fixed, to check live). Waiting to be checked. [i28f521e1]
+- [ ] **KD-13** P2 · Elkiya · Gilang's combination = main recommendation + add-on. Amri #3: the combination option gives only the added product.
+- [ ] **KD-14** P2 · Elkiya · Gilang labels interested customers (I-<pep>). Amri #4: labels still often missed. Also: labels can't all be cleared from a test contact after a reset. [i98eb0fad]
+- [ ] **KD-15** P2 · Elkiya · "Not a doctor's service" wording. Amri #5: Randy and Gilang say it badly. Say: compound research; we can't name a doctor, but customers are guided by an experienced team in research peptides.
+- [ ] **KD-16** P2 · Elkiya · Don't let a lost lead go. Amri #8: Randy apologised and let Kak Helen go. Apologise, then offer the best deal.
+- [~] **KD-18** P2 · Elkiya · Randy reads his full instructions and the website quiz answers (fixed, to check live). Waiting to be checked. [id051b007, i77296280]
+- [~] **KD-19** P2 · Elkiya · Biomarkers Support lost seven instruction lines (fixed, to check live). Waiting to be checked: compare with its last good version. [ibd8a5021]
+- [~] **KD-20** P2 · Elkiya · Tester safety on deploys (fixed, to check live). Deploy check no longer writes into a real tester's chat (done 17 Nov, 7f8a6e7); keep the tester pause after a restart; test chats got an engine error instead of a reply (08baebe). Check live and close. [i877d1a2d, i87c8beb0, ic88fca57]
+
+**P&P agents**
+- [ ] **PP-1** P1 · P&P · Stop the rollback loop on every agent. Each agent shows "Automatic rollback" up to 221 times: the graphify SKILL.md copied in counts as the agent changing itself, it doesn't answer within 120 s on the busy box, aqeelOS undoes it, and it repeats. Copies made by aqeelOS must not count as self changes. [i6e684c36, i7ee9c6c6, i0fd55239, if2adf215, i14fb4524, ic21ba295, i91b9b9be, iac0f63e7, i2516b3d8, i601b92f2]
+- [ ] **PP-2** P1 · P&P · Fakhri's Wood Origins Airtable to Sheet sync. Tool bridge signature still rejected after the 17 Nov fix, so the sheet sync stopped and the daily 06:00 WIB lead sync keeps failing. Fix the signature, run the sync once, watch the next morning's run. [i6c13dcf5, i0772eb6f, i20f9b25b, i9cda9d1a, i1c6ea691]
+- [~] **PP-7** P1 · P&P · Pixel answers team members in Slack (fixed, to check live). Done 19 Nov: P&P's team list was empty, so every Slack sender was unverified. Filled from the Slack member list (owner Aqeel + 6 members, guests out). Still to see: Pixel answering Aldillah. [i9b077056]
+- [ ] **PP-3** P2 · P&P · Fakhri signs in to Google Sheets in n8n **(waiting on you)**. Open n8n on Fakhri Agent's screen so Fakhri signs in. Possibly not needed once PP-2 works through the tool bridge; close it then. [ibad82e9f]
+- [ ] **PP-5** P2 · P&P · SDR and Content assistant read uploaded files. Fixes made (state: deploy). Ship and check both open their uploaded PDF and company profiles. [i3a7a4cb6, i03f117e5]
+- [~] **PP-6** P2 · P&P · Automatic update failed its final check (fixed, to check live). The old version was kept. Find which check failed; both servers now run 7e6e757. [i46105c3e]
+- [ ] **PP-8** P2 · Both · Alert when an install's team list is empty. Slack or another team channel connected and nobody on the team list = one Needs-you item.
+- [ ] **PP-4** P3 · P&P · Read-only Airtable key for Wood Origins **(waiting on you)**. Not needed if the tool bridge works (it uses the agent's own Airtable sign-in). Close after PP-2. [i9c3f0be5]
+- [x] **DN-1** P1 · P&P · P&P team list filled. Owner Aqeel + Aisar, Faisal, Firdha, Rifqi, Fakhri, Aldillah by Slack id; guests left out; checked by the rule.
+
+**Continue Threads**
+- [ ] **TH-1** P1 · Elkiya · Restore the Threads runners. Own-post runner 738e7a2cea4f, comment + DM runner 198bc372ee48, outbound DM runner 2ea603717676. Without messaging the owner or customers. [i042a5d9d, i2264ae15, i72e2e9f9, i00664cc8]
+- [ ] **TH-2** P2 · Elkiya · Threads Manager's Telegram connection. Unstable; check after the 18 Nov VPN change first. [i9bee39e2, i70899556]
+- [ ] **TH-3** P2 · Elkiya · n8n tool server won't start (Threads, SEO specialist) [i76f30eaf, i4682773e]
+- [ ] **TH-4** P2 · Elkiya · A post may have gone live without being recorded. Posting limits count recorded posts; find it and record it. [i0200628e]
+- [~] **TH-5** P2 · Elkiya · Schedules still run old instructions (fixed, to check live). Waiting to be checked. [i29f8ce5c]
+- [ ] **TH-6** P2 · Elkiya · Posting gate script can't be checked. Stuck: unknown posting-gate script on the comment runner. [i2b72c1c4]
+- [ ] **TH-7** P2 · Elkiya · Label and video tool folders unreachable. Stuck: continue-vial-labels skill's generator files. [i7a41d501]
+- [ ] **TH-8** P3 · Elkiya · Threads reply schedule reports a missing tool [iea5a7e6a]
+
+**Engine and agents**
+- [~] **EN-1** P1 · Elkiya · Telegram replies and Donna's voice notes (fixed, to check live). Proxy errors; 18 Nov sends Telegram outside the VPN and keeps messages during restarts. Check a voice note downloads, then close. [i02fd3fa8]
+- [ ] **EN-2** P2 · Elkiya · Donna's Meta Ads tools don't start [i76088b47]
+- [ ] **EN-3** P2 · Elkiya · Agent stuck loading the same skill, no reply [icf43ba65]
+- [ ] **EN-5** P2 · Elkiya · AI account moves: spare quota failing, daily cap hit. Accounts with quota keep failing; Sesa made eight automatic moves. [ibf0203b5, i2cf129b0]
+- [ ] **EN-4** P3 · Elkiya · Maps skill points to a missing script [i13138cea]
+- [~] **EN-6** P3 · Elkiya · Pep Club chat uses a different model than selected (fixed, to check live). Waiting to be checked. [i4731c443]
+- [ ] **EN-7** P3 · Elkiya · Code: project tools reject the chat as outside a run [i0895fcb3]
+- [~] **EN-8** P3 · Elkiya · Browser choice prompt expires before the owner answers (fixed, to check live). Waiting to be checked. [i26680424]
+- [ ] **EN-9** P3 · Elkiya · Schedule wake-up card only offers Keep as it is [i3ca9594f]
+- [ ] **EN-10** P3 · Elkiya · Night page check: switching pages quickly [ib15104b3]
+- [~] **EN-11** P3 · Elkiya · Overnight AdmissionSight build (fixed, to check live). Waiting to be checked. [i90830fb0]
+
+**Roles**
+- [ ] **RO-1** P1 · Both · Review the roles design and answer 4 questions **(waiting on you)**. docs/roles-design.md: what you own decides what you can do. Questions: Kirimdev for agent owners; is "anyone may message" inside the P&P Slack a guard; Builder agent limit; can admins approve guards.
+- [ ] **RO-2** P2 · Both · Agent-scope rule, guards and the role checks. agentScope(u, agent) in users.mjs, one guard() for open doors / spending / owner's accounts, people-check matrix for Member, Builder, Admin. On the test copy.
+- [ ] **RO-3** P2 · Both · Channels for Builders. Their agents only; admin-only rows hidden; a change restarts one agent, never everyone.
+- [ ] **RO-4** P2 · Both · Keys and Health tabs on each agent. Its own keys (never shown in full); its status, held errors, Fixer items, restarts. Needs-you about the agent goes to its owner.
+- [ ] **RO-5** P3 · Both · Webhooks, Memory, agent Files, Activity for Builders
+- [ ] **RO-6** P3 · Both · Menu from scopes; Creator becomes Builder; move people. Nothing taken away. P&P first, checked with a test account, then Elkiya.
+- [x] **DN-2** P1 · Both · Roles design written. docs/roles-design.md.
+
+**Owner items**
+- [ ] **OW-1** P1 · Elkiya · Paste Donna's issues from this morning **(waiting on you)**. Sent on Telegram, which I can't read. Most are probably already in the Fixer lists above.
+- [ ] **OW-2** P1 · Both · GitHub settings for the Fixer (AUD-7) **(waiting on you)**. Branch rule with code-owner review and no admin bypass, remove the write deploy key, a fixer token on a non-owner account. Unblocks "Fixer can't push finished fixes" and the cloud fixer on P&P. [i34f52c6e, ic3e9e6e2]
+- [ ] **OW-5** P1 · Both · Security rotations (AUD-9) **(waiting on you)**. GitHub password, two-step seed and token from Elkiya's engine env; member-app admin password; continue-threads Telegram bot token; old repo history and Cloudflare-only origins.
+- [ ] **OW-3** P2 · Elkiya · Higgsfield sign-in for Threads and Continue Support **(waiting on you)** [ibfcada63, i2ef45d64]
+- [ ] **OW-4** P2 · Both · Telegram group topics: one group = one session? **(waiting on you)**. Your decision: 1 group = 1 session, 1 topic = sub-session, for all agents. [i7b21f234]
+- [ ] **OW-6** P2 · Elkiya · Swap on the Elkiya host (OPS-17) **(waiting on you)**. 16 GB swap; 154 GB free.
+- [ ] **OW-7** P2 · Both · Review aqeelOS v2 on the live servers **(waiting on you)**. v2 is the UI everywhere since 14 Nov, v1 at /v1.
+- [ ] **OW-8** P3 · P&P · Sheets API in P&P's Google Cloud project **(waiting on you)**. One link from the Needs-you item when it shows.
+- [x] **DN-3** P3 · Both · Backlog brought up to 18 Nov. 16-18 Nov work recorded; both servers on 7e6e757.
 
 ### Night of 17–18 Nov: Telegram (live on both servers in 7e6e757)
 - [x] **TG-1** Messages sent to a Telegram agent during a restart are kept and answered, no longer dropped by the engine's cold boot (nightly restart). The health pass sets `drop_pending_on_cold_boot: false` for every agent with Telegram, also agents that only have `TELEGRAM_BOT_TOKEN` in .env (the support agents), unless a value was already chosen (0e1ecbc, 7ed3282).
