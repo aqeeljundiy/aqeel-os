@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 09:10 UTC",
+ "updated": "19 Nov 2026, 08:10 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -255,10 +255,10 @@ window.BOARD = {
    "id": "KD-14",
    "area": "sales",
    "p": 2,
-   "status": "todo",
+   "status": "check",
    "server": "Elkiya",
    "title": "Gilang labels interested customers (I-<pep>)",
-   "detail": "Gilang's interest labels are live (d23aca4). Left: the Fixer's \"clear a tester's labels\" tool (i98eb0fad) never reached main; to reapply with a test.",
+   "detail": "19 Nov (6b36704): the Fixer's change reapplied with tests: `label clear <chat>` removes every label from a TESTER's chat (refused for anyone else). Gilang's interest labels live since d23aca4.",
    "refs": [
     "i98eb0fad"
    ]
@@ -324,10 +324,10 @@ window.BOARD = {
    "id": "KD-20",
    "area": "sales",
    "p": 2,
-   "status": "todo",
+   "status": "check",
    "server": "Elkiya",
    "title": "Tester safety on deploys",
-   "detail": "Tester chats never pause and the engine's fallback text never reaches a customer (in main, tested). Left: the Fixer's live-test change that treats a tester with an open turn as busy (i877d1a2d try 2) never reached main; to reapply.",
+   "detail": "19 Nov: tester chats never pause, the engine's fallback text never reaches a customer, and now the deploy's live test also leaves alone a tester whose turn is still open (6b36704, tested).",
    "refs": [
     "i877d1a2d",
     "i87c8beb0",
@@ -644,10 +644,10 @@ window.BOARD = {
    "id": "EN-8",
    "area": "engine",
    "p": 3,
-   "status": "todo",
+   "status": "check",
    "server": "Elkiya",
    "title": "Browser choice prompt expires before the owner answers",
-   "detail": "Not fixed in main: the browser-choice prompt still waits 270 s. The Fixer's patch (answer at once when nobody has the web chat open) is on the box; to reapply outside server.mjs.",
+   "detail": "Fixed 19 Nov (69bb042): when nobody has the agent's web chat open, the browser-choice question answers at once and the agent asks in the chat instead of waiting 270 s. To see: an agent needing a browser while you're on Telegram.",
    "refs": [
     "i26680424"
    ]
@@ -680,10 +680,10 @@ window.BOARD = {
    "id": "EN-11",
    "area": "engine",
    "p": 3,
-   "status": "todo",
+   "status": "check",
    "server": "Elkiya",
    "title": "Overnight AdmissionSight build",
-   "detail": "Not fixed: a restart does not wait for background delegations. The Fixer's engine patch (i90830fb0) is on the box; to add as an engine patch.",
+   "detail": "Fixed 19 Nov (b4d0ecd): an engine patch counts background delegations as busy, so aqeelOS waits for them before an engine restart. Applies at deploy; to see at the next restart with a delegation running.",
    "refs": [
     "i90830fb0"
    ]
@@ -921,20 +921,20 @@ window.BOARD = {
    "id": "EN-12",
    "area": "engine",
    "p": 2,
-   "status": "todo",
+   "status": "check",
    "server": "Both",
    "title": "Daily review of every agent's chats",
-   "detail": "Owner's idea, 19 Nov: the engine keeps every chat (Telegram, Slack, WhatsApp, schedules) and I can read them on both servers. Once a day, read what each agent was asked and how it went, and file what went wrong (dropped or doubled messages, mistakes, unhappy people) on this board or for the Fixer. Customer chats stay private: only the problem goes on the board.",
+   "detail": "Built 19 Nov (31da442): once a day at 04:00 WIB, plain code (no AI cost) reads every agent's chats of the last 24 h and files one Health item per agent for the Fixer: direct messages nobody answered, \"not processed\" replies, people saying something is wrong, messages stored twice. Customer chats are counted, never quoted. Tried on Donna's real chats: 9 chats, 4 unanswered, 3 not processed, 1 unhappy. Tomorrow morning's Health is the proof.",
    "refs": []
   },
   {
    "id": "EN-13",
    "area": "engine",
    "p": 2,
-   "status": "todo",
+   "status": "you",
    "server": "Elkiya",
    "title": "Telegram messages stored twice; one dropped when two arrive at once",
-   "detail": "Seen 19 Nov in Donna's Telegram chats: every message from the owner is saved twice in the engine, and at 11:02 WIB a second message got \"Your request was not processed\" because it arrived while the first was being answered. Find out why and fix.",
+   "detail": "19 Nov: the doubles were old copies the engine keeps when it shortens a long chat (only one copy is live; the model never saw doubles). Three aqeelOS readers counted every copy (team view, resume, escalations): fixed (bf70aed). Left, your call: \"not processed\" comes from the engine when a second message interrupts the first (it is set to interrupt). Switch messaging to queue (a second message waits its turn; you could no longer cut a long answer short by writing), or keep interrupt?",
    "refs": []
   },
   {
@@ -951,10 +951,10 @@ window.BOARD = {
    "id": "EN-14",
    "area": "engine",
    "p": 3,
-   "status": "todo",
+   "status": "check",
    "server": "Both",
    "title": "Keys page: the list jumps down about half a second after it opens",
-   "detail": "Found 19 Nov by the deploy's flicker check on P&P (System › Keys, every agent): the part under the list (the hint lines and the secret links box) moves 150-172 px about 0.2-0.5 s after the page opens, so P&P's full-check deploys are refused. Find what grows the list after it is drawn and draw it once at full size.",
+   "detail": "Fixed 19 Nov (c57c12f): on a quick second visit the Keys list grew from zero height and pushed everything under it down. Measured on P&P's test copy: moves 0 now, fast-switching check passes. Next full-check deploy on P&P is the proof.",
    "refs": []
   }
  ]
