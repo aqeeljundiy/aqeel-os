@@ -98,15 +98,22 @@ export const QUIET_MIN=Number(process.env.LIVE_TEST_QUIET_MIN)||30;
 const testersOf=l=>(l?.testers||[]).filter(t=>/\d{6,}/.test(String(t.phone||'').replace(/\D/g,'')));
 export function quietTesters(agent,line,recent={},now=Date.now(),min=QUIET_MIN){
  return testersOf(line).filter(t=>{const n=String(t.phone).replace(/\D/g,''),at=Number((recent||{})[agent+'|'+n])||0;return now-at>min*60e3})}
+// KD-20 (issue i877d1a2d try 2): a tester with a turn still open (st.pending / st.turns, app/kirimdev.mjs) is writing now, whatever
+// the clock says; a turn holding only the reset word does not count. Returns a copy of recent with those testers stamped `now`.
+export function withOpenTurns(recent={},pending={},turns={},now=Date.now()){const r={...(recent||{})};
+ for(const m of [pending,turns])for(const p of Object.values(m||{})){const ms=p?.messages||[];
+  if(!p?.agent||!p?.from||(ms.length&&ms.every(x=>/^reset$/i.test(String(x).trim()))))continue;
+  const k=p.agent+'|'+String(p.from).replace(/\D/g,'');r[k]=Math.max(Number(r[k])||0,now)}
+ return r}
 async function checkKirimdev(){const lines=(await readJson(path.join(DATA,'kirimdev.json'),{})).lines||{},secrets=await readJson(path.join(DATA,'kirimdev-secrets.json'),{});
  const {testWebhook,sign}=await import('./kirimdev-test-message.mjs');
  // a line in Test mode with a webhook and a tester with a phone (only testers can be written to, never a customer)
  // 17 Nov 2026 (issue i877d1a2d): a tester's number is also a real person's phone. The reset and the test message went into
  // the tester's live chat while they were testing the agent by hand, and their real reply waited behind it. A tester who wrote
  // in the last QUIET_MIN minutes (real inbound, not our own aqtest messages) is left alone; with none quiet the check is skipped.
- const st0=await readJson(path.join(DATA,'kirimdev-state.json'),{});let pick=null,busy=0;
+ const st0=await readJson(path.join(DATA,'kirimdev-state.json'),{});let pick=null,busy=0;const recent=withOpenTurns(st0.recent,st0.pending,st0.turns);
  for(const [a,l] of Object.entries(lines)){if((l.mode||'test')!=='test'||!(secrets[a]?.secrets||[])[0])continue;
-  for(const t of quietTesters(a,l,st0.recent)){pick={a,l,t};break}if(pick)break;if(testersOf(l).length)busy++}
+  for(const t of quietTesters(a,l,recent)){pick={a,l,t};break}if(pick)break;if(testersOf(l).length)busy++}
  if(!pick)return busy?{skipped:true,inconclusive:true,why:'every tester wrote to the line in the last '+QUIET_MIN+' min (a real chat in progress), so no test message was sent'}:{skipped:true,why:'no Test-mode line with a webhook and a tester with a phone'};
  const post=text=>{const w=testWebhook({line:pick.l,tester:pick.t,text});return fetch(UI+'/kirimdev/'+pick.a,{method:'POST',headers:{'content-type':'application/json','x-kirim-event':'message.received','x-kirim-event-id':w.eid,'x-kirim-signature':sign(w.raw,secrets[pick.a].secrets[0],w.ts)},body:w.raw}).catch(e=>({ok:false,status:e.message}))};
  const ours=async()=>(await readJson(path.join(DATA,'kirimdev-state.json'),{})).ours;

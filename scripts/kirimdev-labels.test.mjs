@@ -80,6 +80,17 @@ test('a confirmed payment sets Customer and S- labels and removes Checkout, and 
  await assert.rejects(L(t.k,{add:['I-Reta'],source:'payment'}),/Customer and S- labels and removes Checkout only/);
  await assert.rejects(L(t.k,{remove:['Customer'],source:'payment'}),/only/)});
 
+test('a tester\'s chat is cleared of every label, Customer and S- included, past the cap; a chat that is not a tester is refused (KD-14)',async()=>{
+ for(const mode of ['test','live']){const t=await make({mode});
+  const all=['New Leads','Consult','Checkout','Customer','S-Reta','S-Pen','I-Reta','Internal'];for(const n of all){t.has.ctc_A.add(lid(n));t.has.ctc_B.add(lid(n))}
+  const r=await t.k.clearTesterLabels('cove-support',{conversationId:'cnv_A',phone:'628123',run:'r1'});
+  assert.equal(r.set,true);assert.equal(r.changed.length,all.length);assert.ok(r.changed.includes('−Customer'));assert.deepEqual(t.names('ctc_A'),[],mode);
+  assert.deepEqual((await t.k.clearTesterLabels('cove-support',{conversationId:'cnv_A',phone:'628123'})).changed,[],'already clean');
+  await assert.rejects(t.k.clearTesterLabels('cove-support',{conversationId:'cnv_B',phone:'628100000001'}),/not one of this line's testers/);
+  assert.equal(t.names('ctc_B').length,all.length,'the customer kept every label');
+  await assert.rejects(t.k.clearTesterLabels('nobody',{conversationId:'cnv_A',phone:'628123'}),/no Kirimdev line/);
+  assert.equal(t.acts.length,1);assert.match(t.acts[0][1],/cleared a tester's labels/)}});
+
 test('Line settings: the allowlist is saved and shown; Customer, S-, Internal are refused',async()=>{const t=await make();
  await t.k.saveLine('cove-support',{phoneNumberId:'111111',labels:['New Leads','I-Reta','I-Reta']});
  assert.deepEqual((await t.k.status()).find(l=>l.agent==='cove-support').settings.labels,['New Leads','I-Reta']);

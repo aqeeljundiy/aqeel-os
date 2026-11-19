@@ -30,7 +30,9 @@ export function createAgentOps({HERMES_HOME,WORK=HERMES_HOME&&path.join(path.dir
   const pid=String(line.phoneNumberId),op=String(req?.op||'');
   if(op==='whoami')return {status:200,json:{line:pid,persona:line.persona||a,mode:line.mode||'test',note:'aqeelOS makes this agent\'s Kirimdev calls; the agent holds no key'}};
   if(op==='label'){try{const r=await kirimdev.labelContact(a,{conversationId:String(req.conversationId||''),phone:String(req.phone||'').replace(/\D/g,''),add:req.add,remove:req.remove,source:'agent',run:'ops'});return {status:200,json:r}}catch(e){return fail(403,e.message)}}
-  if(op!=='kirim')return fail(400,'aqeelOS offers kirim (read your own line, send a text through the guards), label and whoami here. Payments are made only with create_payment in a customer chat.');
+  // KD-14: every label off a tester's chat so a test run starts clean; a chat that is not a tester is refused (kirimdev.clearTesterLabels)
+  if(op==='clear_labels'){try{const r=await kirimdev.clearTesterLabels(a,{conversationId:String(req.conversationId||''),phone:String(req.phone||'').replace(/\D/g,''),run:'ops'});return {status:200,json:r}}catch(e){return fail(403,e.message)}}
+  if(op!=='kirim')return fail(400,'aqeelOS offers kirim (read your own line, send a text through the guards), label, clear_labels (a tester\'s chat only) and whoami here. Payments are made only with create_payment in a customer chat.');
   const method=String(req.method||'GET').toUpperCase(),raw=String(req.path||'').replace(/^\/+/,''),[p,qs='']=raw.split('?'),parts=p.replace(/\/+$/,'').split('/');
   if(method==='GET'){
    if(p==='labels'){}else if(parts[0]!==pid)return fail(403,/^\d+$/.test(parts[0])?'That is another Kirimdev line. You read only your own line ('+pid+'); another brand\'s chats are never yours.':'You can read your own line only: '+pid+'/conversations, '+pid+'/messages, '+pid+'/contacts, and labels.');
@@ -67,11 +69,13 @@ exec python3 -I "$(dirname "$0")/kirim_cli.py" ${a} "$@"
  const LABEL=u=>`#!/usr/bin/env python3
 # aqeelOS: labels through aqeelOS (no key in this folder). Written by aqeelOS; edits are replaced.
 # usage: label attach|detach <conversation id cnv_...> "<Label Name>"   (the line's allowed labels only)
+#        label clear <conversation id cnv_...>                         (a tester's chat only: removes every label)
 import json,sys,urllib.request,urllib.error
 U=${JSON.stringify(u)}
 a=sys.argv[1:]
-if len(a)<3 or a[0] not in('attach','detach'):print('usage: label attach|detach <conversation id> "<Label Name>"');sys.exit(1)
-req={"op":"label","conversationId":a[1],("add" if a[0]=='attach' else "remove"):[a[2]]}
+if len(a)==2 and a[0]=='clear':req={"op":"clear_labels","conversationId":a[1]}
+elif len(a)<3 or a[0] not in('attach','detach'):print('usage: label attach|detach <conversation id> "<Label Name>" | label clear <conversation id> (a tester only: removes every label)');sys.exit(1)
+else:req={"op":"label","conversationId":a[1],("add" if a[0]=='attach' else "remove"):[a[2]]}
 try:print(urllib.request.urlopen(urllib.request.Request(U,json.dumps(req).encode(),{"content-type":"application/json"}),timeout=90).read().decode())
 except urllib.error.HTTPError as x:print(x.read().decode(),file=sys.stderr);sys.exit(1)
 except Exception as x:print('aqeelOS could not be reached: '+str(x),file=sys.stderr);sys.exit(1)

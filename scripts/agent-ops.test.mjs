@@ -8,7 +8,8 @@ import {createAgentKeys,MOVED} from '../app/agent-keys.mjs';
 async function make(){const W=await mkdtemp(path.join(tmpdir(),'ao-'));await mkdir(path.join(W,'cove-support','.tools'),{recursive:true});await mkdir(path.join(W,'cove-support','.secrets'),{recursive:true});
  const read=[],sent=[],labels=[];
  const kirimdev={lines:async()=>({'cove-support':{phoneNumberId:'111',persona:'Rory',mode:'live'},'bay-sales':{phoneNumberId:'222',persona:'Gino',mode:'test'}}),_api:async p=>{read.push(p);return {data:[{id:'cnv_1'}]}},
-  reply:async(a,to,text)=>{if(/Dari rules/.test(text))throw Error('Held: this was not sent to the customer');sent.push([a,to,text]);return [{id:'msg_1',status:'queued'}]},labelContact:async(a,o)=>{labels.push([a,o]);return {set:true}}};
+  reply:async(a,to,text)=>{if(/Dari rules/.test(text))throw Error('Held: this was not sent to the customer');sent.push([a,to,text]);return [{id:'msg_1',status:'queued'}]},labelContact:async(a,o)=>{labels.push([a,o]);return {set:true}},
+  clearTesterLabels:async(a,o)=>{if(o.conversationId!=='cnv_tester')throw Error('Only a tester\'s labels can be cleared this way. This chat is not one of this line\'s testers.');labels.push([a,{...o,clear:true}]);return {set:true,changed:['−Customer']}}};
  return {W,read,sent,labels,ops:createAgentOps({WORK:W,PORT:4400,sig:a=>'sig-'+a,kirimdev,log:()=>{}})}}
 
 test('a script reads its own line only, and a send is a text through the guards; another line, another method and payments are refused',async()=>{const t=await make();const call=(req,a='cove-support')=>t.ops.call(a,req);
@@ -21,6 +22,9 @@ test('a script reads its own line only, and a send is a text through the guards;
  assert.equal((await call({op:'kirim',method:'POST',path:'111/messages',body:{to:'628123',type:'text',text:{body:'Halo kak'}}})).json.sent,1);assert.deepEqual(t.sent,[['cove-support','628123','Halo kak']]);
  const held=await call({op:'kirim',method:'POST',path:'111/messages',body:{to:'628123',type:'text',text:{body:'Dari rules: x'}}});assert.equal(held.status,403);assert.match(held.json.error,/not sent to the customer/);
  await call({op:'label',conversationId:'cnv_1',add:['New Leads']});assert.equal(t.labels[0][1].source,'agent');
+ // KD-14: clear_labels on a tester's chat clears it; on any other chat it is a 403
+ const cl=await call({op:'clear_labels',conversationId:'cnv_tester'});assert.equal(cl.status,200);assert.deepEqual(cl.json.changed,['−Customer']);assert.equal(t.labels[1][1].clear,true);
+ const no=await call({op:'clear_labels',conversationId:'cnv_1'});assert.equal(no.status,403);assert.match(no.json.error,/not one of this line's testers/);assert.equal(t.labels.length,2);
  assert.equal((await call({op:'whoami'})).json.line,'111');assert.equal((await call({op:'whoami'},'nobody')).status,404)});
 test('the helper scripts are written only once the key has left the agent\'s folder, and hold an address, never a key',async()=>{const t=await make();
  await writeFile(path.join(t.W,'cove-support','.secrets','KIRIMDEV_API_KEY'),'kdv_old\n');await writeFile(path.join(t.W,'cove-support','.tools','kirim_cli.py'),'old script');

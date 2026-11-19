@@ -61,3 +61,13 @@ test('the Kirimdev check leaves a tester alone who is chatting for real (i877d1a
  assert.deepEqual(quietTesters('x',line,{'x|62811111':now-60e3,'x|62822222':now-60e3},now,30),[]);
  assert.deepEqual(quietTesters('x',line,{},now,30).map(t=>t.who),['A','B']);
 });
+
+test('a tester with a turn still open is busy, whatever the clock says; a lone reset is not (KD-20, i877d1a2d)',async()=>{
+ const {quietTesters,withOpenTurns}=await import('./live-test.mjs');const now=1_800_000_000_000;
+ const line={testers:[{who:'A',phone:'62811111'},{who:'B',phone:'62822222'}]},old={'x|62811111':now-60*60e3,'x|62822222':now-60*60e3};
+ const r=withOpenTurns(old,{'x|62811111':{agent:'x',from:'62811111',messages:['halo, ada stok?']}},{'x|62822222':{agent:'x',from:'62822222',messages:['reset']}},now);
+ assert.deepEqual(quietTesters('x',line,r,now,30).map(t=>t.who),['B']);
+ assert.deepEqual(quietTesters('x',line,withOpenTurns(old,{},{'k':{agent:'x',from:'+62 822-222',messages:['mau tanya']}},now),now,30).map(t=>t.who),['A'],'a running turn counts too');
+ assert.deepEqual(withOpenTurns(old,undefined,undefined,now),old);assert.equal(old['x|62811111'],now-60*60e3,'recent is not changed in place');
+ assert.equal(withOpenTurns({'y|1':now+5},{a:{agent:'y',from:'1',messages:['x']}},{},now)['y|1'],now+5,'a later stamp is kept');
+});
