@@ -7,7 +7,7 @@
  PAGES.health=async(p,el,r)=>{const tok=S._htok=(S._htok||0)+1,stale=()=>tok!==S._htok,admin=S.me?.admin!==false,V={};
   const sk=h=>'<div class="skel" style="height:'+h+'px;border-radius:var(--r-md);margin-bottom:14px"></div>',hist=admin&&S.tab.health==='History';
   setActions('');el.innerHTML=admin?'<div id="hVerdict">'+sk(104)+'</div>'+tabs('health',['Now','History'],hist?'History':'Now')+'<div id="hNow"'+(hist?' hidden':'')+'><div id="hNeed"></div><div id="hFixer"></div><div id="hCode"></div><h2 class="ach-cat">Agents</h2><div id="hAgents">'+sk(120)+'</div><div id="hStatus">'+sk(110)+'</div><div id="hCost"></div><div id="hEff"></div><div id="hEsc"></div><h2 class="ach-cat">The AI box</h2><div id="hHost">'+sk(160)+'</div></div><div id="hHist"'+(hist?'':' hidden')+'></div>'
-   :'<h2 class="ach-cat" style="margin-top:0">Agents</h2><div id="hStatus">'+sk(110)+'</div><h2 class="ach-cat">The AI box</h2><div id="hHost">'+sk(160)+'</div>';
+   :'<h2 class="ach-cat" style="margin-top:0">Your agents</h2><div id="hMine">'+sk(120)+'</div><h2 class="ach-cat">The engine</h2><div id="hStatus">'+sk(110)+'</div><h2 class="ach-cat">The AI box</h2><div id="hHost">'+sk(160)+'</div>';
   const q=s=>el.querySelector(s),sBox=q('#hStatus'),hBox=q('#hHost'),aBox=q('#hAgents'),vBox=q('#hVerdict');
   // Now and History switch in place (the tab bar's pill slides; the page is not drawn again)
   q('[data-tabs=health]')?.addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if(!b)return;const h=b.dataset.tab==='History';
@@ -34,7 +34,9 @@
    // the 15-second refresh swaps in new cards: only the first draw plays the entrance animation
    if(!sBox.querySelector('.skel'))b.querySelectorAll('.stat,.row,.card,.panel').forEach(x=>x.style.animation='none');b.hidden=false;sBox.replaceChildren(b)};
   const hb=document.createElement('div');hb.hidden=true;document.body.append(hb);
-  drawIssues();drawCode();drawCost();drawEff();await Promise.all([drawAgents(),drawStatus(),oldHost(p,hb,r).then(()=>{if(stale()){hb.remove();return}hb.hidden=false;hBox.replaceChildren(hb)},e=>{hb.remove();hBox.innerHTML=alertBox(esc(e.message))})]);
+  // an agent's owner (RO-4): their own agents' rows and the Fixer's items about them (/ui/health/mine)
+  const mBox=q('#hMine');const drawMine=async()=>{if(!mBox)return;let d;try{d=await UI('/ui/health/mine')}catch(e){if(!stale()&&mBox.isConnected)mBox.innerHTML=alertBox(esc(e.message));return}if(stale()||!mBox.isConnected)return;MyHealth.draw(mBox,d,drawMine)};
+  drawMine();drawIssues();drawCode();drawCost();drawEff();await Promise.all([drawAgents(),drawStatus(),oldHost(p,hb,r).then(()=>{if(stale()){hb.remove();return}hb.hidden=false;hBox.replaceChildren(hb)},e=>{hb.remove();hBox.innerHTML=alertBox(esc(e.message))})]);
   if(stale())return;
   // Report an issue and the engine console (1 Nov 2026: Restart is in Start and stop agents, Check again in the engine updates card)
   setActions(admin?`<button data-act="issue-report">${icon('plus',16)}Report an issue</button><button data-act="console-open" title="Type the engine’s own commands">${icon('terminal',16)}Engine console</button>`:'');
@@ -79,6 +81,17 @@ const HealthVerdict={
 /* ---------- Each agent's health (agent-health.mjs, 5 Nov 2026): working, or what is wrong with the fix for it (the same
    items and buttons as Bottlenecks), and its failed messages this week when there were any. Broken ones first.
    11 Nov 2026 (HEALTH-6): the memory each agent's programs hold, its last 7 days, and a warning when it keeps growing. ---------- */
+/* ---------- Health for an agent's owner (roles design RO-4, 19 Nov 2026): their agents with the same rows admins see, then
+   what the Fixer does about them, what needs them first. Fix buttons stay with admins: an owner reads, the Fixer acts. ---------- */
+const MyHealth={
+ draw(box,d,again){const A=d.agents||[],F=d.fixer||[],first=!box.dataset.drawn;box.dataset.drawn='1';
+  if(!A.length){box.innerHTML='<div class="card"><div class="empty">'+icon('user',22)+'<b>No agents of yours yet</b><span>Agents you own or can edit show here, with what is wrong and what the Fixer does about it.</span></div></div>';return}
+  const need=F.filter(i=>i.needsYou),rest=F.filter(i=>!i.needsYou);
+  const row=(i,k)=>'<div class="row act-row"'+(first?' style="animation-delay:'+Math.min(k,8)*30+'ms"':' style="animation:none"')+'><div class="main-c"><span class="ic '+(i.needsYou?'warn':i.ended?'ok':'blue')+'">'+icon(i.needsYou?'alert':i.ended?'check':'clock',15)+'</span><div class="txt"><b>'+esc(i.title||'Untitled item')+'</b>'+(i.needsYou&&i.need?'<span>'+esc(i.need)+'</span>':'')+'<small>'+esc(i.agentName)+' · '+esc(i.stateText)+(i.updated?' · '+esc(ago(i.updated/1000)):'')+'</small></div></div></div>';
+  box.innerHTML='<div id="myAg"></div>'+(F.length?'<h2 class="ach-cat">The Fixer on your agents</h2><div class="card list">'+[...need,...rest].map(row).join('')+'</div>':'<p class="hint ah-hint">The Fixer has nothing open about your agents this week.</p>');
+  AgentHealth.draw(box.querySelector('#myAg'),{agents:A},again);
+  if(S.me?.admin===false)box.querySelectorAll('#myAg .bn-acts').forEach(b=>b.remove())}};
+
 const AgentHealth={
  dropLine(d){if(!d||!d.n)return '';const saved=d.recovered?', '+d.recovered+' answered after trying again by itself':'';
   return d.n+' failed message'+(d.n===1?'':'s')+' this week'+saved+(d.failed&&d.top?'. Mostly: '+(AgentHealth.REASON[d.top]||String(d.top).replace(/_/g,' ')):'')},
