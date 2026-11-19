@@ -37,6 +37,7 @@ await t('store: saves keep other keys and a .prev copy; pause and alerts; quiet 
  await T.setAlerts({channel:'telegram',chat:'-100777',name:'Telegram (main)'});assert.equal((await T.infoTarget()).chat,'-100777','no info target: the alert target');
  assert.deepEqual(await T.setInfo({channel:'telegram',chat:'-100777:2',name:'Notifications'}),{channel:'telegram',chat:'-100777:2',name:'Notifications'});
  assert.equal((await T.infoTarget()).chat,'-100777:2');assert.equal((await T.alertTarget()).chat,'-100777','alerts that need the owner stay where they were');
+ assert.deepEqual((await T.view()).info,{channel:'telegram',chat:'-100777:2',name:'Notifications'},'the Teams page shows it');
  assert.equal(await T.setInfo({channel:''}),null);assert.equal((await T.infoTarget()).chat,'-100777');await T.setAlerts({channel:''});
  const q=createQuiet({DATA:D,HERMES_HOME:H,now:()=>clock,every:0});assert.equal(q('a1'),null);
  const ps=await T.setPause({until:clock+3600e3,why:'build'});assert.equal(ps.why,'build');assert.equal(q('a1'),'hold');assert.equal((await T.view()).pause.why,'build');

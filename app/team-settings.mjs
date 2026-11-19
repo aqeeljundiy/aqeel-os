@@ -63,7 +63,7 @@ export function createTeamSettings({DATA,HERMES_HOME,listAgents=async()=>[],now=
  async function view(){const p=await policy(),agents=await listAgents().catch(()=>[]),tests=await testAgents();
   const hold=await readJson(HOLD,null),until=holdUntil(hold);
   return {owner:p.owner||{},teams:p.teams||[],fixer:{...FIXER_DEFAULTS,...(p.fixer||{})},agents,tests:[...tests],
-   alerts:(await readJson(ALERTS,{})).target||null,pause:until>now()?{until,why:hold?.why||''}:null}}
+   alerts:(await readJson(ALERTS,{})).target||null,info:(await readJson(ALERTS,{})).info||null,pause:until>now()?{until,why:hold?.why||''}:null}}
 
  // owner and teams in one save; unknown keys (notes, _about) stay as they were
  const setTeams=b=>queue(async()=>{const p=await policy(),known=await listAgents().catch(()=>[]);

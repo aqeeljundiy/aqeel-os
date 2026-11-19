@@ -49,7 +49,8 @@ export function createHealthRoutes({agentGraph,agentMemory,agentName,chatHistory
      return send(res,200,{chats:await relay.recipients(c.owner,c.platform)}),true}
     if(p==='/ui/alerts'&&req.method==='PUT'){const id=String(b.channel||'');let name=null;
      if(id){const c=(await relay.channelsFor('default')).find(x=>x.id===id);if(!c)return send(res,400,{error:'That channel is not connected.'}),true;name=c.name+(b.chatName?', '+String(b.chatName).slice(0,60):'')}
-     return send(res,200,{alerts:await teamSettings.setAlerts({channel:id,chat:b.chat,name})}),true}
+     // kind 'info': reports and model changes (i42d84784, 19 Nov 2026); else the alerts that need the owner
+     const o={channel:id,chat:b.chat,name};return send(res,200,b.kind==='info'?{info:await teamSettings.setInfo(o)}:{alerts:await teamSettings.setAlerts(o)}),true}
     if(p==='/ui/alerts/test'&&req.method==='POST'){const r=await ownerSend('Test from '+(globalThis.AQ_BRAND||'aqeelOS')+': alerts for you arrive here. Sent by '+(u.name||'an admin')+' from System › Teams.','telegram');return send(res,200,r),true}
     if(p==='/ui/alerts/pause'&&req.method==='PUT')return send(res,200,{pause:await teamSettings.setPause(b)}),true;
    }catch(e){return send(res,400,{error:e.message}),true}
