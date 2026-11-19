@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 03:55 UTC",
+ "updated": "19 Nov 2026, 04:48 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -18,7 +18,7 @@ window.BOARD = {
    "status": "check",
    "server": "Both",
    "title": "Unblock the Fixer: its isolation check fails",
-   "detail": "Fixed 19 Nov (a75c37d): the engine took the terminal from the profile config and ignored the fixer's settings, so every check since 13 Nov ran as claude. The fixer now has its own profile aqeelos-fixer pinned to aq-fixer. Elkiya: check passed 03:51 UTC, fixer running again. P&P: deploying. Before: Held on both servers since its last check did not see the engine run tools as aq-fixer (the check's session was cut: \"Execution outcome is unknown\"). Nothing below gets fixed by itself until this clears. Find why the check session is cut, make the check survive it, see a code fix run as aq-fixer.",
+   "detail": "Fixed 19 Nov in three steps: the fixer has its own profile pinned to aq-fixer (a75c37d); a reused run folder no longer ends a new run after 5 s (a790ed2); the check makes its own work folder (dc78812, P&P had none). Elkiya: proofs run to the end again. P&P: deploying the last step.",
    "refs": [
     "i4739f042",
     "i58e99224",
@@ -54,10 +54,10 @@ window.BOARD = {
    "id": "FX-4",
    "area": "fixer",
    "p": 3,
-   "status": "todo",
+   "status": "done",
    "server": "Elkiya",
    "title": "Health check flags separate background helpers as duplicate work",
-   "detail": "False alarm on Continue Threads.",
+   "detail": "Fixed 19 Nov (e25809e): the engine's code kernels (one per session) are never counted as a script running twice.",
    "refs": [
     "i7768eb6f"
    ]
@@ -66,10 +66,10 @@ window.BOARD = {
    "id": "FX-5",
    "area": "fixer",
    "p": 3,
-   "status": "todo",
+   "status": "done",
    "server": "Both",
    "title": "Clean out Fixer items with no title",
-   "detail": "\"Health check (schedule / update / report / fixer_full_rights)\", \"Parallel research delegation\": read each, close or give it a real title.",
+   "detail": "19 Nov: untitled items read and handled one by one (closed with evidence, or fixed below).",
    "refs": [
     "i73d2e707",
     "i427ff007",
@@ -81,10 +81,10 @@ window.BOARD = {
    "id": "FX-6",
    "area": "fixer",
    "p": 3,
-   "status": "todo",
+   "status": "done",
    "server": "Both",
    "title": "Give unnamed keys a plain name and purpose",
-   "detail": "The design app's key, a Slack bot key on P&P, elkiya-creative's unnamed items.",
+   "detail": "19 Nov: descriptions set for the Elkiya Creative bot token, the PnP Design key and Pixel's Slack bot token.",
    "refs": [
     "i3783c4a3",
     "i54c9d693",
@@ -151,7 +151,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "QRIS expiry time shown 1 hour later than real",
-   "detail": "Fixed 19 Nov (daae2a4): the expiry told is Tripay's own time; Randy's rule no longer says a fixed 30 minutes. Deploying. Before: Time zone in the expiry text (WIB vs the provider's time).",
+   "detail": "Fixed 19 Nov (daae2a4), live on Elkiya.",
    "refs": [
     "i10e323ba"
    ]
@@ -258,7 +258,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "Gilang labels interested customers (I-<pep>)",
-   "detail": "Built 19 Nov (712925d, d23aca4): with autoInterest on (set on both lines), aqeelOS adds the I- label of each product the customer names. Deploying. Before: Amri #4: labels still often missed. Also: labels can't all be cleared from a test contact after a reset.",
+   "detail": "Live on Elkiya 19 Nov (d23aca4); switched on for both lines.",
    "refs": [
     "i98eb0fad"
    ]
@@ -338,10 +338,10 @@ window.BOARD = {
    "id": "KD-21",
    "area": "sales",
    "p": 1,
-   "status": "todo",
+   "status": "you",
    "server": "Elkiya",
    "title": "Donna can't sign back in to KirimDev",
-   "detail": "type_secret says the agent's screen is not running while her browser is open on the KirimDev sign-in page. Stuck.",
+   "detail": "19 Nov: Donna is the main agent, so aqeelOS cannot wake her screen; it wakes when she browses. Ask Donna to open the KirimDev sign-in page, then use Type a secret. Her daily fee-approval schedule uses the same session (from 12 Nov).",
    "refs": [
     "ia9525300"
    ]
@@ -411,10 +411,10 @@ window.BOARD = {
    "id": "PP-5",
    "area": "pnp",
    "p": 2,
-   "status": "todo",
+   "status": "done",
    "server": "P&P",
    "title": "SDR and Content assistant read uploaded files",
-   "detail": "Fixes made (state: deploy). Ship and check both open their uploaded PDF and company profiles.",
+   "detail": "Checked 19 Nov: every uploaded file is readable and both agents have folder access, also for new files (OPS-18).",
    "refs": [
     "i3a7a4cb6",
     "i03f117e5"
@@ -424,10 +424,10 @@ window.BOARD = {
    "id": "PP-6",
    "area": "pnp",
    "p": 2,
-   "status": "check",
+   "status": "done",
    "server": "P&P",
    "title": "Automatic update failed its final check",
-   "detail": "The old version was kept. Find which check failed; both servers now run 7e6e757.",
+   "detail": "Checked 19 Nov: a one-off on 11 Nov; every update since passed. The real blocker was GitHub's tests failing on main since a75c37d (my commits): fixed, green again on ae47165, so P&P updates itself again.",
    "refs": [
     "i46105c3e"
    ]
@@ -451,17 +451,17 @@ window.BOARD = {
    "status": "check",
    "server": "Both",
    "title": "Alert when an install's team list is empty",
-   "detail": "Built 19 Nov (6275127): an empty team list raises one Needs-you item. Deploying. Before: Slack or another team channel connected and nobody on the team list = one Needs-you item.",
+   "detail": "Built 19 Nov (6275127), live on both servers.",
    "refs": []
   },
   {
    "id": "TH-1",
    "area": "threads",
    "p": 1,
-   "status": "todo",
+   "status": "done",
    "server": "Elkiya",
    "title": "Restore the Threads runners",
-   "detail": "Own-post runner 738e7a2cea4f, comment + DM runner 198bc372ee48, outbound DM runner 2ea603717676. Without messaging the owner or customers.",
+   "detail": "Checked 19 Nov: all four runners are on and ran this morning; stale items closed.",
    "refs": [
     "i042a5d9d",
     "i2264ae15",
@@ -473,10 +473,10 @@ window.BOARD = {
    "id": "TH-2",
    "area": "threads",
    "p": 2,
-   "status": "todo",
+   "status": "you",
    "server": "Elkiya",
    "title": "Threads Manager's Telegram connection",
-   "detail": "Unstable; check after the 18 Nov VPN change first.",
+   "detail": "19 Nov: the 18 Nov route that sends Telegram outside the VPN never went live: the running VPN script is the 23 Oct copy, installed only when the container starts. Needs the AI box container restarted in quiet hours (OW-10). Telegram errors already fell from ~12,400 a day to ~150.",
    "refs": [
     "i9bee39e2",
     "i70899556"
@@ -486,10 +486,10 @@ window.BOARD = {
    "id": "TH-3",
    "area": "threads",
    "p": 2,
-   "status": "todo",
+   "status": "done",
    "server": "Elkiya",
    "title": "n8n tool server won't start (Threads, SEO specialist)",
-   "detail": "",
+   "detail": "Checked 19 Nov: n8n answers with its full tool list for Threads and the SEO specialist.",
    "refs": [
     "i76f30eaf",
     "i4682773e"
@@ -499,10 +499,10 @@ window.BOARD = {
    "id": "TH-4",
    "area": "threads",
    "p": 2,
-   "status": "todo",
+   "status": "done",
    "server": "Elkiya",
    "title": "A post may have gone live without being recorded",
-   "detail": "Posting limits count recorded posts; find it and record it.",
+   "detail": "Expired by its own rule; posts are recorded normally.",
    "refs": [
     "i0200628e"
    ]
@@ -511,10 +511,10 @@ window.BOARD = {
    "id": "TH-5",
    "area": "threads",
    "p": 2,
-   "status": "check",
+   "status": "done",
    "server": "Elkiya",
    "title": "Schedules still run old instructions",
-   "detail": "Waiting to be checked.",
+   "detail": "The old schedules are off; their work moved to the runners, which use the current instructions.",
    "refs": [
     "i29f8ce5c"
    ]
@@ -523,10 +523,10 @@ window.BOARD = {
    "id": "TH-6",
    "area": "threads",
    "p": 2,
-   "status": "todo",
+   "status": "done",
    "server": "Elkiya",
    "title": "Posting gate script can't be checked",
-   "detail": "Stuck: unknown posting-gate script on the comment runner.",
+   "detail": "By design: the posting gate is aqeelOS's limit check, not instructions to edit.",
    "refs": [
     "i2b72c1c4"
    ]
@@ -535,10 +535,10 @@ window.BOARD = {
    "id": "TH-7",
    "area": "threads",
    "p": 2,
-   "status": "todo",
+   "status": "done",
    "server": "Elkiya",
    "title": "Label and video tool folders unreachable",
-   "detail": "Stuck: continue-vial-labels skill's generator files.",
+   "detail": "The tools are in the agent's own home (~/work/labels), owned by it.",
    "refs": [
     "i7a41d501"
    ]
@@ -547,10 +547,10 @@ window.BOARD = {
    "id": "TH-8",
    "area": "threads",
    "p": 3,
-   "status": "todo",
+   "status": "done",
    "server": "Elkiya",
    "title": "Threads reply schedule reports a missing tool",
-   "detail": "",
+   "detail": "No missing tool in the last 40 runs; one-off.",
    "refs": [
     "iea5a7e6a"
    ]
@@ -559,10 +559,10 @@ window.BOARD = {
    "id": "EN-1",
    "area": "engine",
    "p": 1,
-   "status": "check",
+   "status": "you",
    "server": "Elkiya",
    "title": "Telegram replies and Donna's voice notes",
-   "detail": "Proxy errors; 18 Nov sends Telegram outside the VPN and keeps messages during restarts. Check a voice note downloads, then close.",
+   "detail": "See TH-2: the Telegram route needs the box container restarted (OW-10).",
    "refs": [
     "i02fd3fa8"
    ]
@@ -571,10 +571,10 @@ window.BOARD = {
    "id": "EN-2",
    "area": "engine",
    "p": 2,
-   "status": "todo",
+   "status": "you",
    "server": "Elkiya",
    "title": "Donna's Meta Ads tools don't start",
-   "detail": "",
+   "detail": "19 Nov: Donna's Meta Ads connection was never signed in (no saved sign-in). Sign in on Connections › Meta Ads (OW-11).",
    "refs": [
     "i76088b47"
    ]
@@ -583,10 +583,10 @@ window.BOARD = {
    "id": "EN-3",
    "area": "engine",
    "p": 2,
-   "status": "todo",
+   "status": "done",
    "server": "Elkiya",
    "title": "Agent stuck loading the same skill, no reply",
-   "detail": "",
+   "detail": "One-off: the loop guard stopped a repeat, as designed.",
    "refs": [
     "icf43ba65"
    ]
@@ -595,10 +595,10 @@ window.BOARD = {
    "id": "EN-4",
    "area": "engine",
    "p": 3,
-   "status": "todo",
+   "status": "done",
    "server": "Elkiya",
    "title": "Maps skill points to a missing script",
-   "detail": "",
+   "detail": "Every agent's maps skill finds its script.",
    "refs": [
     "i13138cea"
    ]
@@ -607,10 +607,10 @@ window.BOARD = {
    "id": "EN-5",
    "area": "engine",
    "p": 2,
-   "status": "todo",
+   "status": "done",
    "server": "Elkiya",
    "title": "AI account moves: spare quota failing, daily cap hit",
-   "detail": "Accounts with quota keep failing; Sesa made eight automatic moves.",
+   "detail": "The moves were real limits (Claude accounts at 96-100%), as designed; the subscriptions run full on busy days.",
    "refs": [
     "ibf0203b5",
     "i2cf129b0"
@@ -632,10 +632,10 @@ window.BOARD = {
    "id": "EN-7",
    "area": "engine",
    "p": 3,
-   "status": "todo",
+   "status": "done",
    "server": "Elkiya",
    "title": "Code: project tools reject the chat as outside a run",
-   "detail": "",
+   "detail": "By design: Code project tools work only inside a Code run.",
    "refs": [
     "i0895fcb3"
    ]
@@ -656,10 +656,10 @@ window.BOARD = {
    "id": "EN-9",
    "area": "engine",
    "p": 3,
-   "status": "todo",
+   "status": "done",
    "server": "Elkiya",
    "title": "Schedule wake-up card only offers Keep as it is",
-   "detail": "",
+   "detail": "Fixed 13 Nov (77a30d3).",
    "refs": [
     "i3ca9594f"
    ]
@@ -668,10 +668,10 @@ window.BOARD = {
    "id": "EN-10",
    "area": "engine",
    "p": 3,
-   "status": "todo",
+   "status": "check",
    "server": "Elkiya",
    "title": "Night page check: switching pages quickly",
-   "detail": "",
+   "detail": "Fixed 19 Nov (05795e1): the night check could not sign in to the test copy since owners have email sign-in, so it never saw a page. Tonight's run is the proof.",
    "refs": [
     "ib15104b3"
    ]
@@ -877,6 +877,44 @@ window.BOARD = {
    "refs": [
     "i0772eb6f",
     "i20f9b25b"
+   ]
+  },
+  {
+   "id": "OW-10",
+   "area": "owner",
+   "p": 1,
+   "status": "you",
+   "server": "Elkiya",
+   "title": "Restart the AI box container in quiet hours",
+   "detail": "Dokploy › AI VPS › ai-box › Redeploy, between 01:00 and 05:00 WIB (every agent drops for a few minutes). Installs the current root scripts, among them the 18 Nov route that keeps Telegram off the VPN. Or say yes and I do it at night.",
+   "refs": [
+    "i02fd3fa8",
+    "i9bee39e2",
+    "i70899556"
+   ]
+  },
+  {
+   "id": "OW-11",
+   "area": "owner",
+   "p": 2,
+   "status": "you",
+   "server": "Elkiya",
+   "title": "Sign in to Meta Ads for Donna",
+   "detail": "aqeelOS › Abilities › Connections › Meta Ads (Donna) › Sign in with your Facebook account.",
+   "refs": [
+    "i76088b47"
+   ]
+  },
+  {
+   "id": "OW-12",
+   "area": "owner",
+   "p": 1,
+   "status": "you",
+   "server": "P&P",
+   "title": "Edit access to the Wood Origins sheet for Fakhri Agent",
+   "detail": "His agent only has read access through aqeel@pixelandprofits.com. Either share that Google account with Fakhri Agent with read + write in Connections, or Fakhri connects his own Google account that can edit the sheet.",
+   "refs": [
+    "i04f68157"
    ]
   }
  ]

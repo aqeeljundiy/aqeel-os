@@ -6,7 +6,7 @@ let out='### 19 Nov: everything open, one checklist (owner, from Amri, Donna, Al
 for(const [k,name] of Object.entries(B.areas)){const l=B.items.filter(i=>i.area===k).sort((a,b)=>(a.status==='done')-(b.status==='done')||a.p-b.p);if(!l.length)continue;
  out+='\n**'+name+'**\n';for(const i of l)out+='- '+box[i.status]+' **'+i.id+'** P'+i.p+' · '+i.server+' · '+i.title+tag[i.status]+(i.detail?'. '+i.detail.replace(/\.$/,'')+'.':'')+(i.refs.length?' ['+i.refs.join(', ')+']':'')+'\n'}
 let md=fs.readFileSync(mdFile,'utf8');
-const a=md.indexOf('### 19 Nov (owner, from Donna'),b=md.indexOf('### Night of 17–18 Nov');
+const a=md.indexOf('### 19 Nov'),b=md.indexOf('### Night of 17–18 Nov');
 if(a<0||b<0)throw Error('section markers not found');
 // keep ROLES-2 line text in the roles area already; replace the old 19 Nov section
 md=md.slice(0,a)+out+'\n'+md.slice(b);
