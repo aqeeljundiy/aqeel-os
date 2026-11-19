@@ -298,7 +298,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    if(same&&st.seen.includes(same))continue;if(same)st.seen.push(same);
    if(tester&&isReset(line,m.text.trim())){st.cut[key]=new Date((m.ts||now()/1000)*1000+1000).toISOString();delete st.pending[key];delete st.turns[key];cancelOutbound(agent,m.from);
     // a reset starts the test over: no pause or handoff left from earlier test traffic may hold the confirmation or the next question (7 Nov 2026)
-    delete st.paused[agent+'|'+m.from];if(m.conversationId)delete st.paused[agent+'|'+m.conversationId];release(agent,m.from,'reset');
+    delete st.paused[agent+'|'+m.from];if(m.conversationId)delete st.paused[agent+'|'+m.conversationId];if(st.kitPhotos)delete st.kitPhotos[agent+'|'+m.from];release(agent,m.from,'reset');
     await send(agent,line,m.from,line.resetText||'✅ Test reset. Start again as a new customer.').catch(e=>log('kirimdev reset reply: '+e.message));continue}
    const until=pausedUntil(agent,m.conversationId,m.from),hold=holdOf(agent,m.from);
    // a message during a team member's pause is kept, not dropped (audit 6 Nov: "mau pakai CC" was never answered): it waits
@@ -432,7 +432,12 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  // reviewer holds it; a reviewer that fails holds it too (fail closed), except when the AI provider itself is down (the run waits for it)
  const reviewOn=line=>String(line?.review??'on')!=='off';
  async function review(agent,line,g,{newMessages=[],history=''}={}){if(!reviewReply||!reviewOn(line))return g;
-  let r;try{r=parseReview(await reviewReply(agent,reviewPrompt({newMessages,history,draft:g.parts,language:line.language||''})))}
+  // in Test every payment is the small test amount on purpose (customer-tools.mjs); the check held those as wrong amounts and two holds handed the chat to the team (19 Nov 2026)
+  const ta=Number(line.payment?.testAmount)>0?Number(line.payment.testAmount):10000,facts=modeOf(line)==='test'?['This line is in TEST mode: every QRIS, VA or card payment is made for the test amount of '+(line.payment?.currency||'Rp')+ta.toLocaleString('id-ID')+' on purpose, instead of the order total. A payment, QR or receipt of that amount is correct and is never a reason to hold.']:[];
+  // the line's own fixed facts for the check (kirimdev.json lines.<agent>.reviewFacts), e.g. a strike-through price set by the team that
+  // breaks the line's general rule: the check held Randy's pen at ~Rp1.500.000~ again and again although Amri set it (19 Nov 2026)
+  for(const f of Array.isArray(line.reviewFacts)?line.reviewFacts.slice(0,20):[])if(String(f).trim())facts.push(String(f).trim().slice(0,400));
+  let r;try{r=parseReview(await reviewReply(agent,reviewPrompt({newMessages,history,draft:g.parts,language:line.language||'',facts})))}
   catch(e){if(providerUnavailable(e.message,{now:now()})||engineDown(e.message))throw e;r={ok:false,problems:['the reply could not be checked before sending ('+String(e.message).slice(0,120)+')']}}
   if(r.ok)return g;log('kirimdev '+agent+': the check before sending held a reply: '+r.problems.join(' | ').slice(0,300));
   return {...g,kinds:['review'],hold:'A check before sending found problems: '+r.problems.join('; ')+'. Fix exactly these; if you are not sure what the customer meant, ask them one short question instead of guessing.'}}
@@ -466,13 +471,17 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   if(!out){log('kirimdev '+agent+': the agent wrote nothing; the team was told');await alertTeam(agent,line,{key:'empty|'+p.from,title:'the agent wrote nothing for a customer message',detail:'Customer wrote: '+String(lastQ).slice(0,300)+'\nNothing was sent. Answer in Kirimdev if it needs an answer.',from:p.from,conversationId:p.conversationId,name:p.name});return}
   if(/^HANDOFF\b/.test(out))return handoff(out.replace(/^HANDOFF:?\s*/,'').trim()||'(no reason given)');
   // pictures the agent should send with a recommendation, when it forgets the tags
-  const withPhotos=t=>line.autoPhotos?.pattern&&new RegExp(line.autoPhotos.pattern,'i').test(t)&&!/\[(FOTO|TEMPLATE):/.test(t)?t+'\n'+(line.autoPhotos.tags||[]).join('\n'):t;
+  // once per chat (19 Nov 2026): the pattern also matches order and payment replies ("saat ini rp"), so the photos went out again and the
+  // check held its own addition twice, which handed the chat to the team. Once sent they are never added again, and a repeat is dropped.
+  const kitKey=agent+'|'+p.from,kitTags=(line.autoPhotos?.tags||[]).map(x=>String(x).trim()),kitSent=!!st.kitPhotos?.[kitKey];
+  const withPhotos=t=>!kitSent&&line.autoPhotos?.pattern&&new RegExp(line.autoPhotos.pattern,'i').test(t)&&!/\[(FOTO|TEMPLATE):/.test(t)?t+'\n'+kitTags.join('\n'):t;
+  const noRepeat=parts=>kitSent?parts.filter(x=>!kitTags.includes(String(x).trim())):parts;
   // a payment made for this customer in a recent earlier run counts too: a follow-up reply that points back to the QRIS sent a minute
   // ago is not a false claim (false handoff, 10 Nov). Window: lines.<agent>.paymentRecentMin (default 60).
   // a payment lookup that fails counts as "no payment proven" (fail closed, 14 Nov 2026: a failed lookup turned the payment-claim check
   // off); a QRIS made in a recent earlier reply counts, so "the QRIS above is still valid" is attached, not held (false handoffs)
   const since=runAt-Math.max(0,Number(line.paymentRecentMin??60)||0)*60e3;
-  const check=async text=>{const g=guardReply(splitReply(withPhotos(text)),{paid:paidSince?await paidSince(agent,p.from,since).catch(()=>false):null,qrPics:qrSince?await qrSince(agent,p.from,since).catch(()=>[]):[],
+  const check=async text=>{const g=guardReply(noRepeat(splitReply(withPhotos(text))),{paid:paidSince?await paidSince(agent,p.from,since).catch(()=>false):null,qrPics:qrSince?await qrSince(agent,p.from,since).catch(()=>[]):[],
    ctx:await guardCtx(agent,line,p.from,{hist}),customerText:(p.messages||[]).join('\n')});
    return g.hold?g:await review(agent,line,g,{newMessages:(p.messages||[]).map(m=>m||'(a photo or file)'),history:hist})};
   let g=await check(out);
@@ -495,7 +504,8 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   p.outbound=[];for(const part of withCaptions(g.parts)){const id=await prepare(agent,line,p.from,part);if(id)p.outbound.push(id)}await saveState();
   // every part was a picture tag aqeelOS has no picture for: nothing to send, and the customer must not be left with silence (audit H7)
   if(!p.outbound.length){delete p.outbound;await alertTeam(agent,line,{key:'empty|'+p.from,title:'the agent\'s reply was only pictures aqeelOS does not have',detail:'Customer wrote: '+String(lastQ).slice(0,300)+'\nThe reply: '+g.parts.join(' ').slice(0,200)+'\nNothing was sent.',from:p.from,conversationId:p.conversationId,name:p.name});return}
-  for(const id of p.outbound){await deliver(id);await wait(2500)}}
+  for(const id of p.outbound){await deliver(id);await wait(2500)}
+  if(kitTags.length&&g.parts.some(x=>kitTags.includes(String(x).trim()))){(st.kitPhotos||={})[kitKey]=now();await saveState()}}
 
  // where the team opens the chat: the line's own link (lines.<agent>.chatLink with {phone} and {conversation}), else WhatsApp itself
  const chatLink=(line,h)=>line?.chatLink?String(line.chatLink).replace('{phone}',h.from||'').replace('{conversation}',h.conversationId||''):'https://wa.me/'+String(h.from||'');

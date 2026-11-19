@@ -161,6 +161,12 @@ test('a failed handoff post tells the customer nothing, tells the owner, and is 
 test('no team group: the handoff is not posted, the customer is not told, the owner is told where to set it',async()=>{const t=await make({agentSays:'HANDOFF: x',team:null});
  await t.post(meta('628123','?'));await t.settle();assert.equal(t.posts.length,0);assert.equal(t.sent.length,0);assert.match(t.told[0],/handoff/)});
 
+test('the kit photos go out once per chat: a later reply that matches the pattern, or repeats the tag itself, sends text only (19 Nov 2026)',async()=>{let say='Ini *rekomendasi utama* kak';const t=await make({agentSays:async()=>say});
+ await t.post(meta('628123','halo'));await t.settle();assert.deepEqual(t.sent.map(b=>b.type),['text','image']);
+ say='Total *rekomendasi utama* kak\n---\n[FOTO: Kit.jpeg]';const n=t.sent.length;
+ await t.post(meta('628123','oke lanjut'));await t.settle();assert.deepEqual(t.sent.slice(n).map(b=>b.type),['text'],'no photo again');
+ assert.equal(t.sent.length,n+1)});
+
 test('Draft: every customer gets a draft in the Questions topic, nothing is sent until a PERSON approves it (audit H5)',async()=>{const t=await make({mode:'draft',agentSays:'Halo kak\n---\nIni *rekomendasi utama*'});
  await t.post(meta('629999','halo',undefined,'cnv_Z'));await t.settle();
  // the draft, then the short message a person answers
