@@ -13,9 +13,13 @@
 # The users it made go to ~/.aqeelos-agent-users.done; each agent's display and Chrome port to
 # ~/.aqeelos-agent-ports (agent display port per line).
 set -u
-HOMEC=${AQEELOS_HOME:-$HOME}
 # the Unix user aqeelOS runs as (the owner of HOMEC); "claude" on the reference box
 OWNER=${AQEELOS_USER:-claude}
+# its home: AQEELOS_HOME when given, else that user's own home from the system. Never root's $HOME: the box's start-up runs this as
+# root without AQEELOS_HOME, and with HOMEC=/root it read no requests and wrote nothing, so a container restart left every agent
+# without its Linux user (Elkiya, 19 Nov 2026: all agents' terminals refused until it was fixed)
+_oh=$(getent passwd "$OWNER" 2>/dev/null | cut -d: -f6)
+HOMEC=${AQEELOS_HOME:-${_oh:-$HOME}}
 REQ=$HOMEC/.aqeelos-agent-users
 DONE=$REQ.done
 PORTS=$HOMEC/.aqeelos-agent-ports
