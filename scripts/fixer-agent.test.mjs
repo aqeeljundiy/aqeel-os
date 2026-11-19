@@ -13,5 +13,5 @@ test('ready only while the config still pins aq-fixer (and no cwd)',async()=>{
  const mk=cfg=>createFixerAgent({DASH:'http://x',DASH_TOKEN:'t',keyFile:'/k',live:false,readConfig:async()=>cfg});
  // whether the profile folder exists depends on the machine; a config that does not pin aq-fixer is never ready
  assert.equal(await mk({terminal:{...good.terminal,ssh_user:'claude'}}).ready(),false);
- assert.equal(await mk({terminal:{...good.terminal,cwd:'/tmp'}}).ready(),false,'a fixed cwd would override each run's own folder');
+ assert.equal(await mk({terminal:{...good.terminal,cwd:'/tmp'}}).ready(),false,'a fixed cwd would override the folder of each run');
  assert.equal(await mk(good).ensure(),false)});   // a test copy (live false) never makes the profile
