@@ -447,6 +447,9 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   const ta=Number(line.payment?.testAmount)>0?Number(line.payment.testAmount):10000,facts=modeOf(line)==='test'?['This line is in TEST mode: every QRIS, VA or card payment is made for the test amount of '+(line.payment?.currency||'Rp')+ta.toLocaleString('id-ID')+' on purpose, instead of the order total. A payment, QR or receipt of that amount is correct and is never a reason to hold.']:[];
   // the line's own fixed facts for the check (kirimdev.json lines.<agent>.reviewFacts), e.g. a strike-through price set by the team that
   // breaks the line's general rule: the check held Randy's pen at ~Rp1.500.000~ again and again although Amri set it (19 Nov 2026)
+  // how a reply is sent (KD-4, 19 Nov 2026: the check held Gilang's QR replies for their [FOTO: qris-…] part, which is how the QR reaches the customer)
+  facts.push('A part like [FOTO: name] or [FOTO: name | caption] is a picture aqeelOS sends in its place (create_payment tells the agent to put its QR this way); it is never shown as text and is not a reason to hold. "---" only separates messages.');
+  facts.push('A QRIS has a top amount, so a bigger total is split into several QRs; several QRs adding up to the order total are correct.');
   for(const f of Array.isArray(line.reviewFacts)?line.reviewFacts.slice(0,20):[])if(String(f).trim())facts.push(String(f).trim().slice(0,400));
   // the line's price list held by aqeelOS (price-catalog.mjs, what quote_order and create_payment charge): the check never saw it and held
   // right prices as "not backed by any source" (Gilang's Tirzepatide 10mg Rp3.600.000, 17 Nov 2026)

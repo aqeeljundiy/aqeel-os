@@ -576,7 +576,9 @@ test('the check before sending holds a draft that misses the question; the agent
  await t.post(meta('628123','dan suntikan itu 1.5 mg = water dan peptide atau hanya peptide nya'));await t.settle();
  assert.equal(t.asked.length,2);assert.match(t.asked[1][1],/does not answer whether 1\.5 mg includes the water/);
  assert.deepEqual(t.sent.map(b=>b.text?.body),['Dosis 1.5 mg itu peptide saja kak, belum termasuk water.']);
- assert.match(seen[0],/1\.5 mg = water dan peptide/,'the reviewer sees the customer message');assert.match(seen[0],/Halo kak/,'and the draft')});
+ assert.match(seen[0],/1\.5 mg = water dan peptide/,'the reviewer sees the customer message');assert.match(seen[0],/Halo kak/,'and the draft');
+ // KD-4 (19 Nov 2026): the check is told a [FOTO: …] part is the picture aqeelOS sends, and that big totals come as several QRs
+ assert.match(seen[0],/\[FOTO: name\] .*is a picture aqeelOS sends/);assert.match(seen[0],/split into several QRs/)});
 
 test('held twice by the check: nothing is sent, a person gets the chat with the held text',async()=>{
  const t=await make({mode:'live',agentSays:'Halo kak',reviewReply:async()=>'{"ok":false,"problems":["misreads the quantity"]}'});
