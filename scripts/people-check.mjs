@@ -61,6 +61,18 @@ await step('Member files: upload inside works',async()=>{const fd=new FormData()
 await step('Member files: upload outside blocked',async()=>{const fd=new FormData();fd.append('path',`${H}/evil.txt`);fd.append('file',new Blob(['x']),'evil.txt');
  const r=await fetch(BASE+'/hapi/files/upload-stream',{method:'POST',headers:{'x-hui':'1',cookie:member},body:fd});must(r.status===403,'status '+r.status)});
 await step('Member cannot edit chat-only agent',async()=>{const r=await call(member,'/hapi/profiles/'+AGENT+'/soul',{method:'PUT',body:{content:'x'}});must(r.s===403,'status '+r.s)});
+// Roles (19 Nov 2026, docs/roles-design.md): chat-only gets none of the agent's own pages; Can edit gets its channels, keys
+// (never shown in full, no engine settings), Health and Activity; the main agent stays with admins
+await step('Roles: chat-only sees no agent on Health and no channel rows',async()=>{const h=await call(member,'/ui/health/mine');must(h.s===200&&!(h.j.agents||[]).length,'health '+h.s+' '+JSON.stringify(h.j).slice(0,120));
+ const c=await call(member,'/ui/channels');must(c.s===200&&!(c.j.channels||[]).length,'channels '+c.s+' '+JSON.stringify(c.j).slice(0,120));
+ const k=await call(member,'/hapi/env?profile='+AGENT);must(k.s===403,'keys '+k.s)});
+await step('Roles: owner shares the agent as Can edit',async()=>{const r=await call(owner,'/ui/people/share',{method:'PUT',body:{agent:AGENT,user:uid,level:'edit'}});must(r.s===200,'status '+r.s+' '+JSON.stringify(r.j))});
+await step('Roles: Can edit sees the agent on Health',async()=>{const h=await call(member,'/ui/health/mine');must(h.s===200&&(h.j.agents||[]).some(r=>r.agent===AGENT)&&!(h.j.agents||[]).some(r=>r.agent==='default'),JSON.stringify(h.j).slice(0,200))});
+await step('Roles: Can edit lists the agent\'s keys, not the main agent\'s, never a value in full',async()=>{const k=await call(member,'/hapi/env?profile='+AGENT);must(k.s===200,'own '+k.s);
+ const d=await call(member,'/hapi/env?profile=default');must(d.s===403,'main '+d.s);const v=await call(member,'/hapi/env/reveal?profile='+AGENT,{method:'POST',body:{key:'X'}});must(v.s===403,'reveal '+v.s)});
+await step('Roles: Can edit may not set an engine setting as a key',async()=>{const r=await call(member,'/hapi/env?profile='+AGENT,{method:'PUT',body:{key:'TERMINAL_USER',value:'root'}});must(r.s===403,'status '+r.s)});
+await step('Roles: Can edit sees Activity and its channels',async()=>{const a=await call(member,'/ui/activity');must(a.s===200,'activity '+a.s);const c=await call(member,'/ui/channels');must(c.s===200&&!(c.j.channels||[]).some(r=>r.agent==='default'),'channels '+c.s)});
+await step('Roles: Can edit may not change the main agent\'s channels',async()=>{const r=await call(member,'/hapi/messaging/platforms?profile=default');must(r.s===403,'status '+r.s)});
 await step('Owner sees member on People',async()=>{const r=await call(owner,'/ui/people');must((r.j.users||[]).some(u=>u.id===uid),'missing')});
 // clean up
 // the test chat is deleted where it was made (the gateway)
