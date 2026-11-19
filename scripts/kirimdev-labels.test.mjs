@@ -165,6 +165,11 @@ test('interest labels by code: each allowed I- label the customer named, whole w
  assert.deepEqual(interestLabels(A,'pencernaan saya kurang baik'),[],'"pen" inside another word is not a pen');
  assert.deepEqual(interestLabels(A,'kalau pakai pen?'),['I-Pen']);
  assert.deepEqual(interestLabels(A,'halo'),[]);
+ const B=['I-GHKCu','I-BPC-TB','I-IGF1','I-Sema','I-CJC Ipa'];
+ assert.deepEqual(interestLabels(B,'mau tanya ghk cu sama igf-1'),['I-GHKCu','I-IGF1'],'written without the space or dash');
+ assert.deepEqual(interestLabels(B,'bpc 157 sama tb 500'),['I-BPC-TB'],'each word of a two-word name');
+ assert.deepEqual(interestLabels(B,'semangat kak'),[],'an everyday word that starts like a name is not interest');
+ assert.deepEqual(interestLabels(B,'semaglutide ada?'),['I-Sema']);
  const t=await make({allowed:['New Leads','I-Reta','I-NAD']});
  const L2=JSON.parse(await readFile(path.join(t.DATA,'kirimdev.json'),'utf8'));L2.lines['cove-support'].labels.autoInterest=true;await writeFile(path.join(t.DATA,'kirimdev.json'),JSON.stringify(L2));
  await t.post(meta('628123','mau tanya reta kak'));await t.settle();assert.deepEqual(t.names('ctc_A'),['I-Reta'])});

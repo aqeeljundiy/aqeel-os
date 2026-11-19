@@ -92,10 +92,13 @@ export function chunkText(t,max=TEXT_MAX){const out=[];let r=String(t||'');
 // interest labels by code (19 Nov 2026, Amri: Gilang often left a customer interested in a peptide without its I- label, although his
 // instructions say so): each allowed I- label whose name the customer wrote, as a word or the start of one ("reta", "retatrutide" → I-Reta;
 // at least 3 letters). lines.<agent>.labels.autoInterest switches it on; the agent's own labels are unchanged.
-export function interestLabels(allowed,text){const t=' '+String(text||'').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,' ')+' ';
- // a short name (3 letters or fewer: Pen, NAD) only as a whole word ("pencernaan" is no pen); a longer one also as a word's start ("retatrutide")
- return [...new Set((Array.isArray(allowed)?allowed:[]).filter(n=>/^I-/.test(String(n))))].filter(n=>{const w=String(n).slice(2).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-  return w.length>=3&&t.includes(' '+w+(w.length<=3?' ':''))})}
+export function interestLabels(allowed,text){const t=' '+String(text||'').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,' ')+' ',flat=t.replace(/ /g,'');
+ // a short name (3 letters or fewer: Pen, NAD) only as a whole word ("pencernaan" is no pen); a longer one also as a word's start ("retatrutide"),
+ // written without spaces or dashes ("ghk cu" → GHKCu, "igf-1" → IGF1), or, for a name of several words, each of them ("bpc 157 sama tb 500" → BPC-TB)
+ // a word's start only in a long word (9+ letters: retatrutide, semaglutide), so everyday words stay out ("semangat" is no Sema)
+ const word=w=>!!w&&(t.includes(' '+w+' ')||w.length>=4&&t.split(' ').some(x=>x.length>=9&&x.startsWith(w)));
+ return [...new Set((Array.isArray(allowed)?allowed:[]).filter(n=>/^I-/.test(String(n))))].filter(n=>{const w=String(n).slice(2).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(),f=w.replace(/ /g,''),ws=w.split(' ');
+  return f.length>=3&&(word(w)||(f.length>=5||/\d/.test(f))&&flat.includes(f)||ws.length>1&&ws.every(x=>x.length>=2&&word(x)))})}
 export const PARTS_MAX=8;
 export function splitReply(out){const t=normalizeTags(String(out||'').replace(FOOTER,'').trim());const parts=[];
  for(const x of t.split(/\n-{3,}\n/))for(const y of x.split(/(\[(?:FOTO|TEMPLATE|VIDEO):[^\]]+\])/))if(y.trim())parts.push(...(/^\[(?:FOTO|TEMPLATE|VIDEO):/.test(y.trim())?[y.trim()]:chunkText(y.trim())));
