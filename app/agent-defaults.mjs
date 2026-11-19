@@ -146,8 +146,8 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
   let ch=false;for(const a of names)if(!(a in first)){first[a]=Date.now();ch=true}if(ch)await writeFile(FIRST,JSON.stringify(first)).catch(()=>{});
   return names.filter(a=>a==='default'||Date.now()-first[a]>=300000)}
  // the skills copy looks at stat times first (main agent's skills, each agent's, the policy file) and walks the folders only when one moved
- // (12 Nov 2026: it walked every skill folder of every agent every minute)
- const skillsKey=async names=>{const hs=await Promise.all(names.map(a=>homeSig(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a)).then(s=>a+'='+s.skills,()=>a+'=?')));return hs.join(';')+'|'+await statSig([path.join(DATA,'skills-policy.json'),path.join(DATA,'skills-given.json')])};
+ // (12 Nov 2026: it walked every skill folder of every agent every minute); the main agent's SKILL.md edited in place counts too (SV-6)
+ const skillsKey=async names=>{const hs=await Promise.all(names.map(a=>homeSig(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a)).then(s=>a+'='+s.skills+(a==='default'?'/'+s.skillfiles:''),()=>a+'=?')));return hs.join(';')+'|'+await statSig([path.join(DATA,'skills-policy.json'),path.join(DATA,'skills-given.json')])};
  let skillsSeen=null;
  async function skillsIfChanged(names,force=false){const t=Date.now(),k=await skillsKey(names);if(!force&&k===skillsSeen){note('skills copy (every minute)',{ran:false});return 0}
   const n=await skills(names);skillsSeen=await skillsKey(names);note('skills copy (every minute)',{ms:Date.now()-t});return n}

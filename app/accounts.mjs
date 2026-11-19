@@ -8,7 +8,7 @@ import {readFile,writeFile,mkdir,rename,rm,readdir,cp,access,stat,copyFile,appen
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStatus,LIVE_APP,homeOf} from './agentops.mjs';
-import {allowed,trim,setRule,ownerOf} from './skills-policy.mjs';
+import {allowed,trim,setRule,ownerOf} from './skills-policy.mjs';import {follow} from './skill-follow.mjs';
 import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
 import {providerUnavailable} from './provider-limits.mjs';
@@ -401,19 +401,26 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  const GIVEN=path.join(DATA,'skills-given.json');let given=null,gFirst=null,gSave=Promise.resolve();
  const gLoad=async()=>given||(given=await (gFirst||=readFile(GIVEN,'utf8').then(JSON.parse).catch(()=>({})))) ;
  const gKeep=()=>{const snap=JSON.stringify(given);gSave=gSave.then(async()=>{await mkdir(DATA,{recursive:true});const t=GIVEN+'.'+process.pid+'.tmp';await writeFile(t,snap);await rename(t,GIVEN)}).catch(e=>console.warn('skills given',e.message))};
+ // the fingerprint of each skill as last given (skill-follow.mjs): DATA/skills-given-sig.json, agent -> {skill: fingerprint}
+ const GSIG=path.join(DATA,'skills-given-sig.json');let gsig=null,gsFirst=null,gsSave=Promise.resolve();
+ const sLoad=async()=>gsig||(gsig=await (gsFirst||=readFile(GSIG,'utf8').then(JSON.parse).catch(()=>({}))));
+ const sKeep=()=>{const snap=JSON.stringify(gsig);gsSave=gsSave.then(async()=>{await mkdir(DATA,{recursive:true});const t=GSIG+'.'+process.pid+'.tmp';await writeFile(t,snap);await rename(t,GSIG)}).catch(e=>console.warn('skills given sig',e.message))};
  // copy each skill folder the agent does not have yet from the main agent (never overwrites its own)
  async function giveSkills(name){const from=path.join(HERMES_HOME,'skills'),to=path.join(HERMES_HOME,'profiles',name,'skills');let n=0;
-  await access(path.join(HERMES_HOME,'profiles',name,'config.yaml'));const rec=await gLoad();let ch=!rec[name];const mine=rec[name]||={};
+  await access(path.join(HERMES_HOME,'profiles',name,'config.yaml'));const rec=await gLoad();let ch=!rec[name];const mine=rec[name]||={};const srec=await sLoad();let sch=false;const sigs=srec[name]||={};
   for(const cat of await readdir(from,{withFileTypes:true}).catch(()=>[])){if(!cat.isDirectory()||cat.name.startsWith('.'))continue;
    // a skill right at the top (skills/<skill>/SKILL.md, no category) is a skill too (11 Nov 2026: threads-fast-search
    // never reached 4 agents, the copy only looked one folder down)
    const top=await access(path.join(from,cat.name,'SKILL.md')).then(()=>true,()=>false);
    for(const sk of top?[{name:'',isDirectory:()=>true}]:await readdir(path.join(from,cat.name),{withFileTypes:true}).catch(()=>[])){if(!sk.isDirectory())continue;const src=path.join(from,cat.name,sk.name),dst=path.join(to,cat.name,sk.name),key=top?cat.name:cat.name+'/'+sk.name;
     if(await access(path.join(src,'SKILL.md')).then(()=>false,()=>true))continue;if(!allowed(key,name))continue;
-    if(await access(dst).then(()=>true,()=>false)){if(!mine[key]){mine[key]=Date.now();ch=true}continue}
+    // a given copy nobody changed follows the main agent's copy (skill-follow.mjs, SV-6 19 Nov 2026)
+    if(await access(dst).then(()=>true,()=>false)){if(!mine[key]){mine[key]=Date.now();ch=true}const f=await follow({src,dst,was:sigs[key]}).catch(()=>({copy:false,sig:sigs[key]}));
+     if(f.copy){await rm(dst,{recursive:true,force:true});await cp(src,dst,{recursive:true});n++;console.log('skills: '+name+' got the main agent\'s new copy of '+key)}
+     if(f.sig&&f.sig!==sigs[key]){sigs[key]=f.sig;sch=true}continue}
     if(mine[key])continue;   // it had it and someone took it off: it stays off
-    await mkdir(path.dirname(dst),{recursive:true});await cp(src,dst,{recursive:true});mine[key]=Date.now();ch=true;n++}}
-  if(ch)gKeep();if(n)console.log('gave',n,'skills to',name);return n}
+    await mkdir(path.dirname(dst),{recursive:true});await cp(src,dst,{recursive:true});mine[key]=Date.now();ch=true;n++;const g=await follow({src,dst}).catch(()=>({}));if(g.sig){sigs[key]=g.sig;sch=true}}}
+  if(ch)gKeep();if(sch)sKeep();if(n)console.log('gave',n,'skills to',name);return n}
  // skills an agent must not have (see skills-policy.mjs) are moved to <agent>/skills-removed/<date>, never deleted;
  // they leave its given list too, so a later policy that allows them gives them again
  async function trimSkills(name){const root=name==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',name);
