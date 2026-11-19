@@ -593,6 +593,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   i.history.push({kind:'cap',at:now(),status:'needs_human',summary:why==='cost'?'Stopped at the spending limit for one problem ($'+spent.toFixed(2)+')':'Stopped at the limit of runs for one problem ('+c.fixTotal+' fix, '+c.proofTotal+' proof)'});await save();
   const to=await tell(i,nameOf(i.agent)+': aqeelOS stopped trying to fix this by itself\n\nProblem: '+i.missing+'\nWhat is needed from you: '+i.need);i.told=to;await save();log('issues: '+i.id+' at its '+(why==='cost'?'spending limit ($'+spent.toFixed(2)+')':'run limit ('+c.fixTotal+' fix, '+c.proofTotal+' proof)')+'; needs a person, told '+to)}
  async function start(i,pol,kind){const n=kind==='fix'?i.tries+1:i.tries,id=i.id+'-'+n+(kind==='proof'?'p':''),dir=path.join(DIR,id);await mkdir(dir,{recursive:true,mode:0o700});
+  // a run id comes back (a proof tried again keeps its number): the last try's exit and output would end this run at its first check,
+  // and its routes closed while it still worked (19 Nov 2026: every proof "ended without a result" after about 5 seconds)
+  for(const f of ['exit','out.txt'])await rm(path.join(dir,f),{force:true}).catch(()=>{});
   const last=i.history.filter(h=>h.kind==='fix').at(-1);
   const cl=kind==='fix'&&!!await cloud?.ready().catch(()=>false);let gw=null;
   // AUD-6: EVERY run is confined to the fixer's own user; there is no other way to start one. Held until that user and the canary are ready.
