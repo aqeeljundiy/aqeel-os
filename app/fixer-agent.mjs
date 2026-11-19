@@ -7,7 +7,8 @@
 // to aq-fixer in its config, and the main agent's model sign-ins. Like Help and Code it is made by the live app, checked
 // at every start, and kept out of every agent list (agentops.mjs).
 import path from 'node:path';
-import {FIXER_AGENT,HERMES_HOME,isAgent,setKey,readConfig as readCfg,pick as pickKey,hermes as engineCmd} from './agentops.mjs';
+import {readFile} from 'node:fs/promises';
+import {FIXER_AGENT,HERMES_HOME,homeOf,isAgent,setKey,readConfig as readCfg,pick as pickKey,hermes as engineCmd} from './agentops.mjs';
 import {copyProviderPlugins} from './code-agent.mjs';
 import {FIXER_USER,TOOLSETS} from './fixer-sandbox.mjs';
 
@@ -16,13 +17,20 @@ export const FIXER_SOUL='You are the aqeelOS fixer. You work only on the problem
 export const fixerTerminal=keyFile=>({'terminal.backend':'ssh','terminal.ssh_host':'127.0.0.1','terminal.ssh_user':FIXER_USER,'terminal.ssh_port':22,'terminal.ssh_key':keyFile});
 export const fixerOff=list=>list.map(x=>x?.name||x).filter(n=>n&&!TOOLSETS.split(',').includes(n));
 
-export function createFixerAgent({DASH,DASH_TOKEN,keyFile=path.join(HERMES_HOME,'agent-ssh','id_ed25519'),readConfig=readCfg,pick=pickKey,live=true,hermes=engineCmd,log=m=>console.log(m)}){
+// the terminal section of a profile's config.yaml as flat keys ('terminal.ssh_user': 'aq-fixer'); plain "key: value" lines, as the engine writes them
+export function terminalOf(yaml){const out={};let on=false;for(const l of String(yaml||'').split('\n')){if(/^terminal:\s*$/.test(l)){on=true;continue}
+  if(!on)continue;if(/^\S/.test(l))break;const m=/^\s+([a-z_]+):\s*(?:'([^']*)'|"([^"]*)"|([^#]*?))\s*(?:#.*)?$/.exec(l);if(m)out['terminal.'+m[1]]=(m[2]??m[3]??m[4]??'').trim()}
+ return out}
+
+export function createFixerAgent({DASH,DASH_TOKEN,keyFile=path.join(HERMES_HOME,'agent-ssh','id_ed25519'),readConfig=readCfg,pick=pickKey,live=true,hermes=engineCmd,log=m=>console.log(m),
+ readText=()=>readFile(path.join(homeOf(FIXER_AGENT),'config.yaml'),'utf8')}){
  const dash=(p,opt={})=>fetch(DASH+'/api'+p,{...opt,headers:{'x-hermes-session-token':DASH_TOKEN,...(opt.body?{'content-type':'application/json'}:{}),...(opt.headers||{})},signal:opt.signal||AbortSignal.timeout(30000)});
  const json=async r=>{try{return await r.json()}catch{return {}}};
  let ok=false,ensuring=null;
- // ready = the profile exists and its config still sends the terminal to aq-fixer (checked again on every call: a run must never start on a guess)
- async function ready(){if(!await isAgent(FIXER_AGENT))return false;const c=await readConfig(FIXER_AGENT).catch(()=>null)||{};
-  return Object.entries(fixerTerminal(keyFile)).every(([k,v])=>String(pick(c,k)??'')===String(v))&&!pick(c,'terminal.cwd')}
+ // ready = the profile exists and its config still sends the terminal to aq-fixer (checked again on every call: a run must never start on a guess).
+ // Read from the file's own text, not through the engine's Python, so a check never depends on that Python being there.
+ async function ready(){if(!await isAgent(FIXER_AGENT))return false;const c=terminalOf(await readText().catch(()=>''));
+  return Object.entries(fixerTerminal(keyFile)).every(([k,v])=>String(c[k]??'')===String(v))&&!c['terminal.cwd']}
  function ensure(){if(!live)return Promise.resolve(false);return ensuring||=(async()=>{
   if(!await isAgent(FIXER_AGENT)){const r=await dash('/profiles',{method:'POST',body:JSON.stringify({name:FIXER_AGENT,description:'The aqeelOS fixer (runs as '+FIXER_USER+')',clone_from_default:false,no_skills:true}),signal:AbortSignal.timeout(120000)});
    if(!r.ok)throw Error('the engine did not make its profile ('+r.status+')');log('fixer agent: made its engine profile '+FIXER_AGENT)}

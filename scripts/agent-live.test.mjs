@@ -83,8 +83,8 @@ test('an empty team list raises one Needs-you item per platform, again only afte
  const told=[];let pol={teams:[],fixer:{on:true}},t=1e12;
  const mk=()=>createAgentLive({HERMES_HOME:tmpdir(),DATA:tmpdir(),listAgents:async()=>[],readConfig:async()=>({}),setKey:async()=>{},pick:()=>undefined,capabilities:async()=>[],policy:async()=>pol,engineDir:ENGINE,log:()=>{},now:()=>t,teamEmpty:async pf=>{told.push(pf)}});
  const L=mk();
- await L.context('cove-support',{platform:'slack',sender:'U0C8FJKHQ4R'});await L.context('cove-support',{platform:'slack',sender:'U0C8FJKHQ4R'});
+ await L.context('cove-support',{platform:'slack',sender:'U00000000A1'});await L.context('cove-support',{platform:'slack',sender:'U00000000A1'});
  await new Promise(r=>setTimeout(r,10));assert.deepEqual(told,['slack']);
- t+=7*3600e3;await L.context('cove-support',{platform:'slack',sender:'U0C8FJKHQ4R'});await new Promise(r=>setTimeout(r,10));assert.deepEqual(told,['slack','slack']);
- pol={owner:{name:'Aqeel',slack:['U09SU72KC13']},teams:[]};t+=7*3600e3;await mk().context('cove-support',{platform:'slack',sender:'U0C8FJKHQ4R'});await new Promise(r=>setTimeout(r,10));
+ t+=7*3600e3;await L.context('cove-support',{platform:'slack',sender:'U00000000A1'});await new Promise(r=>setTimeout(r,10));assert.deepEqual(told,['slack','slack']);
+ pol={owner:{name:'Aqeel',slack:['U00000000B2']},teams:[]};t+=7*3600e3;await mk().context('cove-support',{platform:'slack',sender:'U00000000A1'});await new Promise(r=>setTimeout(r,10));
  assert.equal(told.length,2,'an owner on the list is enough')});

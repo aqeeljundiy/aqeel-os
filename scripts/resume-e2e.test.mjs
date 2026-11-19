@@ -36,6 +36,9 @@ test.before(async()=>{
  tmp=await mkdtemp(path.join(tmpdir(),'resume-e2e-'));home=path.join(tmp,'home');hh=path.join(home,'.hermes');data=path.join(tmp,'data');logf=path.join(tmp,'e2e.log');await mkdir(data,{recursive:true});await writeFile(logf,'');
  fakePy=path.join(hh,'installs','i1','environments','e1','venv','bin','python');await mkdir(path.dirname(fakePy),{recursive:true});await writeFile(fakePy,'');
  await writeFile(path.join(hh,'config.yaml'),'{}');
+ // the fixer's own profile, as a live box has it (fixer-agent.mjs): its terminal is aq-fixer by its config, so fixer runs may start
+ await mkdir(path.join(hh,'profiles','aqeelos-fixer'),{recursive:true});
+ await writeFile(path.join(hh,'profiles','aqeelos-fixer','config.yaml'),['terminal:','  backend: ssh','  ssh_host: 127.0.0.1','  ssh_user: aq-fixer','  ssh_port: 22','  ssh_key: '+path.join(hh,'agent-ssh','id_ed25519'),''].join('\n'));
  // how long the app keeps trying (install.json resumeMaxHours): the install's default, 2 h. It was the shortest, a quarter of an hour, and on
  // GitHub's 2-core runner "cut again and again" failed every time (12 Nov 2026): the app's clock runs WARP (60) times quicker, so 15 app minutes
  // are 15 real seconds, and three SIGKILL-and-start cycles of the real app take longer than that on a slow box (each start, its 20 s first look
