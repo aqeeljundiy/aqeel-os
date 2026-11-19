@@ -8,11 +8,28 @@ This is the one list of everything still open in aqeelOS. It lives in git, so th
 - A session only stops when everything left is waiting on the owner. Those items go under **Waiting on you** with the exact step needed.
 - Each session ends by updating this file: what's done, what's still left and why.
 
-_Last updated: 13 Nov 2026 (afternoon)_
+_Last updated: 19 Nov 2026 (16–18 Nov work added; both servers run 7e6e757, checked 19 Nov)_
 
 ---
 
 ## Now
+
+### Night of 17–18 Nov: Telegram (live on both servers in 7e6e757)
+- [x] **TG-1** Messages sent to a Telegram agent during a restart are kept and answered, no longer dropped by the engine's cold boot (nightly restart). The health pass sets `drop_pending_on_cold_boot: false` for every agent with Telegram, also agents that only have `TELEGRAM_BOT_TOKEN` in .env (the support agents), unless a value was already chosen (0e1ecbc, 7ed3282).
+- [x] **TG-2** Nord VPN: Telegram goes out on the normal connection. Through the tunnel about 1 in 10 connections timed out (12 of 117 in a 10-minute probe, 0 of 117 direct), so voice notes to Donna could not be downloaded. Telegram's published ranges are fetched on every VPN connect (last good copy kept), not written in the repo (5e8a0ce, 7e6e757). Watch: Donna's voice notes download.
+
+### 17 Nov (live on both servers)
+- [x] **TOOLS-1** Tool bridge: an agent's scripts call the tools it has connected (Airtable's MCP, Google, any server in its config) with the agent's own sign-in, no API tokens. `.tools/aqtool` and `aqtools.py` in every agent's folder; skill productivity/script-tools, and a `script_tools` how-to in aqeelos-notify so older installs learn it too. Signed with the relay key so healing and key rotation keep it working. Proven on P&P: 12,000 Airtable records in 330 s, one connect (dbc0963, 55460d3). Watch: Fakhri Agent's daily Airtable-to-Sheet sync.
+- [x] **KIRIM-2** A deploy's restart no longer hands a Kirimdev customer to the team: during a restart window a cut turn waits 30 s and runs again (up to 20 times). The engine's own error text ("No reply: …", "Send continue") is never sent to a customer (08baebe).
+- [x] **LIVE-2** The deploy's Kirimdev live test leaves a tester alone who wrote to the line in the last 30 minutes (Amri's real chat with Randy waited 11 min behind it); with no quiet tester the check is skipped, not failed. `LIVE_TEST_QUIET_MIN` in .env.example (7f8a6e7, b3e7f14). Written by Donna on the box; that branch's engine patch is reviewed on its own (open).
+- [x] **MARK-1** aqeelOS mark is the orbit (owner's pick): one drawing for the web app, Code, desktop and the Chrome extension, a light version for light mode and the navy one for dark. Installs with their own logo keep it (d5c4e41, c48254e, PR #2).
+
+### 16 Nov (live on both servers)
+- [x] **RESTART-1** One agent, not the whole engine: plugins reload in place and one agent restarts alone (7.9 s on aq-livetest, others untouched). "Restart <agent>" in the command palette and agent settings; Donna can do it (manage_agent part "restart"). The main agent still restarts all. The app now waits up to 45 s for the engine to serve the agent again instead of restarting everything (ae3b086, 4888ad4, c9efd90).
+- [x] **MODEL-5** Each agent can follow the main Models order or have its own (Models › Which agent uses what › Main order / Own order); auto-switch, pools and fallbacks read it (59b0ad5, fdfe00a).
+- [x] **MODEL-6** Every agent gets every model sign-in the main agent has (only Donna had Gemini, so the others fell straight to GPT). A box network blip no longer moves agents off Claude: the outage switch asks the provider again and the next one first (8f3ac9c).
+- [x] **KIRIM-1** A provider hold only lasts while the agent is still on the model that failed (continue-support was held 30 min after already being back on Claude) (e5337e7).
+- [x] **GAPI-1** Google API switched off in the install's Cloud project: one Needs-you item per project with one link that switches on every API aqeelOS uses, instead of every agent reporting it; new sign-ins are probed so the item appears before an agent meets it (fc5b8bb). Owner: click the link when the item shows (P&P's Sheets API, see SHEETS-1).
 
 ### aqeelOS /v2 (owner, 13 Nov: "Make a /v2 for aqeelOS now.")
 Same app, cleaner: today's aqeelOS at `/` stays the main and is not touched; `/v2` runs the same code and look with a tidy layer on top. Method: admin kit for behaviour, checks and motion only, never its layout (his verdict on the kit /v2s: "insanely ugly, the first version is better").
