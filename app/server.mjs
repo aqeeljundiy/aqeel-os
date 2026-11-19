@@ -36,7 +36,7 @@ import {createTebar} from './tebar.mjs';   // Tebar webhooks: failed posts and e
 import {mcpAddProblem} from './mcp-add-check.mjs';   // an app added by address: no spaces in its name, no Google file links (11 Nov 2026)
 import {createAddons,probeMcp,RUNS_CODE_MSG} from './addons.mjs';   // personal add-ons: who added what, the admin block list, "is it an MCP tool" (11 Nov 2026)
 import {setupGuideLines} from './setup-guide.mjs';   // how every agent onboards people to any app (11 Nov 2026)
-import {createEscalations} from './escalations.mjs';
+import {createEscalations} from './escalations.mjs';import {createChatReview} from './chat-review.mjs';
 import {createEfficiencyView} from './efficiency-view.mjs';
 import {createBrowserAsks} from './browser-ask.mjs';   // no card wait when no web chat is looking (EN-8)
 import {createReconciler,createAgentGate,statSig,ledgerSig} from './reconcile.mjs';
@@ -1563,7 +1563,7 @@ const kirimdev=createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev),DATA,docLinks,eng
    events picked are a notice in the bell of the agent's owner (admins for the main agents) */
 const eventRuns=createEventRuns({DATA,trigger:async(a,id)=>{runGates.noteManual(a,id);const r=await fetch(DASH.origin+'/api/cron/jobs/'+encodeURIComponent(id)+'/trigger?profile='+encodeURIComponent(a),{method:'POST',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(90000)});if(!r.ok)throw Error('the engine answered '+r.status)}});
 const emitEvent=(a,ev)=>Promise.allSettled([eventRuns.fire(a,ev),eventHooks.fire(a,ev)]);   // every event of design-guard.mjs EVENTS passes here: a schedule's run and a script hook can both start from it
-// a finished schedule is an event too (schedule-finish.mjs): rules with "after" chain schedules; one stat of a jobs file every 30 s per agent that has such a rule
+// a finished schedule is an event too (schedule-finish.mjs): rules with "after" chain schedules
 const scheduleFinish=createScheduleFinish({HERMES_HOME,watched:()=>eventRuns.watched(),onEvent:(a,ev)=>emitEvent(a,ev),log:m=>console.log(m)});
 if(LIVE_APP)setInterval(()=>scheduleFinish.tick().catch(e=>console.warn('schedule finish',e.message)),30e3).unref();
 const tebar=createTebar({DATA,onEvent:(a,ev)=>emitEvent(a,ev),publicUrl:()=>String(PUBLIC_URL??''),nameOf:a=>NAMES[a]||a,log:m=>console.log(m),
@@ -1581,7 +1581,7 @@ const eventHooks=createEventHooks({DATA,WORK:path.join(homedir(),'workspaces'),e
  deliver:async(a,target,text)=>{const m=/^telegram:(-?\d+)(?::(\d+))?$/.exec(String(target||''));if(!m)throw Error('delivery to '+target+' is not supported (telegram:<chat>[:<topic>])');
   if(!await kirimdev.teamPost(a,m[1],m[2]?Number(m[2]):null,text))throw Error('Telegram did not take the message')},
  problem:(a,topic,title,fix)=>health.problem(a,'run',title,{topic,fix}),solved:(a,topic)=>health.ok(a,topic),log:m=>console.log(m)});
-// keys aqeelOS uses for an agent, out of the agent's reach (agent-keys.mjs); payments made by the app (payment-providers.mjs); the price list (price-catalog.mjs)
+// keys aqeelOS uses for an agent (agent-keys.mjs), payments (payment-providers.mjs), the price list (price-catalog.mjs)
 const agentKeys=createAgentKeys({DATA,WORK:path.join(homedir(),'workspaces'),log:m=>console.log(m)});
 const payProviders=createPaymentProviders({DATA,keyOf:(a,n)=>agentKeys.get(a,n),log:m=>console.log(m)});
 const priceCatalog=createCatalog({DATA,log:m=>console.log(m)});
@@ -1774,7 +1774,7 @@ accountHooks.capped=({profile,n,max})=>bottlenecks.event('models',(NAMES[profile
 accountHooks.exhausted=until=>{if(until)providerLimits.set(until,'every AI account is used up','accounts');else if(providerLimits.hold()?.kind==='accounts')providerLimits.clear()};
 // questions for the owner (questions.mjs): the fixer, an agent (ask_owner) or the app asks with a few options; the answer goes back to the asker
 const questions=createQuestions({DATA,names:a=>agentName(a),onAnswer:async q=>{if(q.kind==='fixer'&&q.issue)await issues.answered(q.issue,q);if(q.kind==='app'&&q.issue==='brand-logo'&&q.answered?.choice==='b'){await brand.setMono(true);await pwa.current()}if(q.kind==='app'&&String(q.issue).startsWith('live-logo-')&&q.answered?.choice==='b')await live.useLetter(String(q.issue).slice(10))}});
-// the cloud fixer (cloud-fixer.mjs, 12 Nov 2026): code fixes are written by a Claude Code routine in Anthropic's cloud; the account with the most room is used
+// the cloud fixer (cloud-fixer.mjs, 12 Nov 2026): code fixes written in the cloud by the account with the most room
 const cloudFixer=createCloudFixer({DATA,accounts:async()=>{const b=accountsApi.backup,d=await b.load();return Promise.all(b.all(d).map(a=>b.details(a)))},github:id=>fixerGit.mergedPr(id)});
 const issues=createIssues({DATA,watch:createFixerWatch({list:()=>protectedFiles({HOME:homedir(),HERMES_HOME,DATA}),log:m=>console.warn(m)}),onOver:n=>n?bottlenecks.event('issues',n+' open issues: more than the list is meant to hold','None is dropped. Close or decline the ones that no longer matter under System › Health, so new ones stay easy to find.',{topic:'issues-over'}):bottlenecks.resolve('issues-over'),ask:o=>questions.file({kind:o.kind,agent:o.agent,issue:o.issue},o),limits:providerLimits,git:fixerGit,sandbox:fixerSandbox,fixerAgent:createFixerAgent({DASH:DASH.origin,DASH_TOKEN,live:LIVE_APP}),needFull:why=>bottlenecks.event('fixer_full_rights','The fixer waits for its own user',String(why||'')+' Fixes and proofs never run as the box user, so they wait until the fixer\'s own user works (the root script makes it; Health shows when it is ready).',{topic:'fixer_full_rights'}),fullOk:()=>bottlenecks.resolve('fixer_full_rights'),cloud:cloudFixer,window:()=>windowOf(installSettings()),onLimit:(a,t)=>accountsApi.noteLimit(a,t),
  needCloud:()=>bottlenecks.event('cloud_fixer','Set up the cloud fixer','A bug in aqeelOS\'s own code is fixed in the cloud. Add a routine on System › Settings › Cloud fixer; until then the older way runs.',{topic:'cloud_fixer'}),cloudOk:()=>bottlenecks.resolve('cloud_fixer'),needToken:()=>bottlenecks.event('github_token','The fixer needs a GitHub token','Fixes wait for review as branches on the box. Add the token and their pull requests open by themselves.',{topic:'github_token'}),tokenOk:()=>bottlenecks.resolve('github_token'),usageOf:fixerRunUsage,home:homedir(),bin:path.join(homedir(),'.local','bin','aqeelos'),fixerHome:homedir(),nameOf:a=>agentName(a),
@@ -1814,7 +1814,7 @@ async function customerSmoke(){if(!LIVE_APP)return;const F=path.join(DATA,'custo
  await health.problem(a,'customer','The customer test after the update failed',{topic:'smoke',fix:detail}).catch(()=>{});return done({ok:false,detail})}
 if(LIVE_APP)setTimeout(()=>customerSmoke().catch(e=>console.warn('customer smoke test',e.message)),5*60e3).unref();
 const teamView=createTeamView({HERMES_HOME,DATA,python:enginePython,users,policy:()=>issues.policy(),agents:()=>listAllProfiles(),isOn:async()=>installSettings().supervision===true,MAIN:agentAccess.MAIN,log:m=>console.log(m)});
-const escalations=createEscalations({HERMES_HOME,python:enginePython,policy:()=>issues.policy()});
+const escalations=createEscalations({HERMES_HOME,python:enginePython,policy:()=>issues.policy()});const chatReview=createChatReview({DATA,HERMES_HOME,python:enginePython,listAgents,nameOf:agentName,health});
 // the chat a tool call came from (the agent's newest person-chat): who asked, and where to answer
 // the chat the waiting call (tool) was made in, and the person whose message started that turn: in a group topic every
 // sender shares one chat, and the engine marks each message with "[their name]" in front, so that name decides
@@ -1918,7 +1918,7 @@ if(LIVE_APP){setTimeout(()=>resumeTick().catch(e=>console.warn('resume',e.messag
 // a signal means the app is being replaced (a deploy, an update, a restart by hand): the moment is noted so what was in
 // progress is continued by the next start. A crash leaves no note; the journal itself covers it.
 for(const sig of ['SIGTERM','SIGHUP','SIGINT'])process.on(sig,()=>{try{resume.planned('restart')}catch{}process.exit(0)});
-if(LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('health',e.message)),3*60e3).unref();setInterval(()=>health.tick().catch(e=>console.warn('health',e.message)),5*60e3).unref()}
+if(LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('health',e.message)),3*60e3).unref();setInterval(()=>{health.tick().catch(e=>console.warn('health',e.message));chatReview.tick().catch(()=>{})},5*60e3).unref()}
 /* Self-repair kit (agent-versions.mjs, workstream E, 6 Nov 2026): each agent's own changes are versions with undo
    (Edit agent › Changes and undo_my_change), a ping run checks it still answers after a self-change and undoes the
    changes by itself when it does not; own-scope tools (my_logs, my_runs, my_health, my_deliveries, my_schedules,
@@ -2293,7 +2293,7 @@ async function hermesCall(req,res,u,url){
  const transform=/^\/hapi\/(sessions|sessions\/search|profiles|cron\/jobs)$/.test(p)&&req.method==='GET'?d=>users.filter(u,p,d,agent)
   // Add an app: Tebar first (app/tebar-app.mjs), then the engine's own
   :p==='/hapi/mcp/catalog'&&req.method==='GET'?async d=>withTebar(d,await readConfig(agent).catch(()=>null))
-  // System › Logs: the agents' tool addresses carry a secret part (/mcp/<kind>/<agent>/<secret>), and keys can turn up in a line: hidden before they reach the page
+  // System › Logs: secret parts of tool addresses and keys in a line are hidden before they reach the page
   :p==='/hapi/logs'&&req.method==='GET'?d=>Array.isArray(d?.lines)?{...d,lines:d.lines.map(l=>redactText(String(l)))}:d
   :/^\/hapi\/mcp\/servers$/.test(p)&&req.method==='GET'?d=>hideOwnTools(d)
   :p==='/hapi/status'&&req.method==='GET'?d=>users.statusFor(u,d)
