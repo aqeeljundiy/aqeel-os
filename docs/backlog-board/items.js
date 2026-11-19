@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 09:07 UTC",
+ "updated": "19 Nov 2026, 09:28 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -110,7 +110,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "Fewer false handoffs to the team",
-   "detail": "Since the fixes went live (04:30 UTC 19 Nov): 7 answers, 0 replies held, 0 handoffs (before: 78 holds in 3 days). Tester traffic only so far; to see with real customers.",
+   "detail": "Long term since 19 Nov (91d14ab): the check reads strike-through prices from the price list (imported from PRICELIST.md, 38 products), no more prices typed into line settings. Since the fixes went live (04:30 UTC 19 Nov): 7 answers, 0 replies held, 0 handoffs (before: 78 holds in 3 days). Tester traffic only so far; to see with real customers.",
    "refs": [
     "ic17c5666",
     "i5026fc4a"
@@ -290,7 +290,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "After payment: confirmation, pen tutorial, cartridge, calibration",
-   "detail": "Built and live 19 Nov (e093c70): after a confirmed payment aqeelOS sends the line's list once: confirmation, and for pen orders the pen, cartridge and calibration tutorials with videos (vial orders: mixing). Set on Randy and Gilang. Before: Amri #9: Randy skips what the SOP says to send after a payment. Make it a fixed step after a paid status. Also: protocol PDFs couldn't be sent after setting protocols.",
+   "detail": "Long term since 19 Nov (8ef2e4b): the after-payment messages are the team's own quick replies (/cont-sudahbayar, /nt-sudahbayar, pen, cartridge, calibration), read from QUICK_REPLIES.md when sent, so an SOP edit reaches them. Built and live 19 Nov (e093c70): after a confirmed payment aqeelOS sends the line's list once: confirmation, and for pen orders the pen, cartridge and calibration tutorials with videos (vial orders: mixing). Set on Randy and Gilang. Before: Amri #9: Randy skips what the SOP says to send after a payment. Make it a fixed step after a paid status. Also: protocol PDFs couldn't be sent after setting protocols.",
    "refs": [
     "i19b649d9"
    ]
