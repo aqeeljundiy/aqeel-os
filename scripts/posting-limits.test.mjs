@@ -46,10 +46,10 @@ test('rules are checked',()=>{assert.throws(()=>clean({stopFile:'../x'}));assert
 
 async function rig({pages,stop=false}){const dir=await mkdtemp(path.join(tmpdir(),'pl-'));const DATA=path.join(dir,'data'),WORK=path.join(dir,'ws'),HH=path.join(dir,'hermes');
  if(stop){await mkdir(path.join(WORK,'ct','.tools'),{recursive:true});await writeFile(path.join(WORK,'ct','.tools','STOP_COMMENTS'),'')}
- let t=at('10:00');const events=[],tg=[],keys=[];let n=0;
+ let t=at('10:00');const events=[],tg=[],keys=[],solvedT=[];let n=0;
  const pl=createPostingLimits({DATA,WORK,HERMES_HOME:HH,PORT:4400,sig:a=>'sig-'+a,setKey:async(a,k,v)=>{keys.push([a,k,v]);return {ok:true}},readConfig:async()=>({cron:{max_parallel_jobs:keys.length?Number(keys.at(-1)[2]):null}}),pick:(o,k)=>k.split('.').reduce((x,y)=>x?.[y],o),
-  look:async u=>{const p=pages[Math.min(n++,pages.length-1)];if(p instanceof Error)throw p;return p},event:async(...x)=>events.push(x),telegram:async(...x)=>{tg.push(x);return true},log:()=>{},now:()=>t,retryMs:0});
- return {pl,dir,HH,events,tg,keys,tick:ms=>{t+=ms}}}
+  look:async u=>{const p=pages[Math.min(n++,pages.length-1)];if(p instanceof Error)throw p;return p},event:async(...x)=>events.push(x),solved:async(...x)=>solvedT.push(x),telegram:async(...x)=>{tg.push(x);return true},log:()=>{},now:()=>t,retryMs:0});
+ return {pl,dir,HH,events,tg,keys,solved:solvedT,tick:ms=>{t+=ms}}}
 
 test('Run rules: one at a time and the gate script',async()=>{const {pl,HH,keys}=await rig({pages:['']});
  const v=await pl.set('ct',{serial:true,rules:R});assert.deepEqual(keys[0],['ct','cron.max_parallel_jobs','1']);assert.equal(v.serial,true);
@@ -97,3 +97,10 @@ test('the same post answered twice is told to the agent and shown under Bottlene
  assert.ok(x.tg.some(t=>/answered the same post twice/.test(t[3])),'the alert chat is told');
  x.tick(15*60e3);r=await x.pl.record('ct',{post_url:'https://www.threads.com/@farra1717/post/NEWreply1',text:a});assert.doesNotMatch(r.text,/REPEAT/);
  x.tick(25*3600e3);const n=x.events.length;r=await x.pl.record('ct',{post_url:u,text:b});assert.doesNotMatch(r.text,/REPEAT/,'a day later is a new conversation');assert.equal(x.events.length,n)});
+
+test('a post flagged missing that shows up later clears its Health item and the slowdown (SV-5, 19 Nov 2026)',async()=>{const text='pelan pelan aja kak, yang penting rutin';
+ const x=await rig({pages:['p\nnothing','p\nnothing','p\nnothing','p\nnothing','p\n'+text]});await x.pl.set('ct',{rules:R});
+ const r=await x.pl.record('ct',{post_url:'https://www.threads.com/@a/post/4',text});assert.equal(r.isError,true);assert.match(await x.pl.gate('ct'),/no post this run/);
+ const id=(await x.pl.view('ct')).recent[0].id;x.tick(10*60e3);await x.pl.tick();assert.equal((await x.pl.view('ct')).recent[0].status,'missing');   // not before recheckMin
+ x.tick(21*60e3);await x.pl.tick();assert.equal((await x.pl.view('ct')).recent[0].status,'visible');
+ assert.deepEqual(x.solved.at(-1),['ct','comment|'+id]);assert.doesNotMatch(await x.pl.gate('ct'),/not visible/);assert.equal(x.tg.length,1)});
