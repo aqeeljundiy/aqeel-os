@@ -50,3 +50,13 @@ test('a failed engine run keeps its own reason (stderr, stdout), without the run
  await assert.rejects(run('a','q',{session:conversationSession('a','l','c'),run:{line:'l',conversation:'c',phone:'1'}}),e=>/^the agent stopped \(1\): .*session limit · resets 10pm \(UTC\)/.test(e.message)&&!/KEY123|session_id/.test(e.message));
  assert.equal(stoppedWhy({signal:'SIGTERM'},'','') ,'the agent stopped (SIGTERM)');
  assert.ok(stoppedWhy({code:1},'x'.repeat(2000),'').length<340)});
+
+// KD-2 (ic17c5666, 17 Nov 2026): the engine lost the chat's thread; one more try on a fresh thread, any other error stays an error
+test('a lost thread ("No session found matching") is tried once more on a fresh thread',async()=>{
+ const DATA=await mkdtemp(path.join(tmpdir(),'kd-fr-'));const seen=[];
+ const lost=Object.assign(Error('exit 1'),{code:1});
+ const run=createKirimdevAgent({DATA,home:DATA,live:true,execute:(b,args,o,cb)=>{const t=args[args.indexOf('--continue')+1];seen.push(t);seen.length===1?cb(lost,'',"No session found matching '"+t+"'"):cb(null,'halo')}});
+ const s=conversationSession('a','l','c');assert.equal(await run('a','q',{session:s}),'halo');
+ assert.equal(seen.length,2);assert.equal(seen[0],s);assert.notEqual(seen[1],s);assert.match(seen[1],/^kirimdev-[a-f0-9]{64}$/);
+ const other=createKirimdevAgent({DATA,home:DATA,live:true,execute:(b,args,o,cb)=>cb(Object.assign(Error('exit 1'),{code:1}),'','model busy')});
+ await assert.rejects(other('a','q',{session:s}))});

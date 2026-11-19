@@ -42,10 +42,14 @@ export function createKirimdevAgent({DATA,home,live,execute=execFile,customer=nu
    await writeFile(file,token?query+'\n\nRun key for your tools in this chat: '+token+' (put it in the run field of every tool call; never write it in your reply).':query,{mode:0o600,flag:'wx'});
    // the engine refuses to reopen a thread under another tool set (exit 2, 7 Nov 2026): a sandboxed run has a thread of its own
    const thread=token?'kirimdev-'+createHash('sha256').update(session+'|customer-tools').digest('hex'):session;
-   return await new Promise((resolve,reject)=>execute(path.join(home,'.local','bin','hermes'),
-    ['-p',agent,'chat','--oneshot','-Q','--source','tool',...(token?['-t',CUSTOMER_TOOLSET]:[]),'--continue',thread,'--create-if-missing','--no-restore-cwd','--query-file',file],
+   const go=t=>new Promise((resolve,reject)=>execute(path.join(home,'.local','bin','hermes'),
+    ['-p',agent,'chat','--oneshot','-Q','--source','tool',...(token?['-t',CUSTOMER_TOOLSET]:[]),'--continue',t,'--create-if-missing','--no-restore-cwd','--query-file',file],
     {cwd:path.join(home,'workspaces',agent),timeout:400e3,maxBuffer:4e6,...(token?{env:{...process.env,TERMINAL_AQEELOS_CUSTOMER_RUN:token}}:{})},
     (error,out,err)=>error?reject(Error(stoppedWhy(error,out,err,token))):resolve(token?String(out||'').split(token).join(''):String(out||''))));
+   // the engine lost or would not make the chat's thread (KD-2, ic17c5666: "No session found matching", 17 Nov 2026): one more try
+   // on a fresh thread, so the customer still gets an answer instead of the run failing
+   try{return await go(thread)}catch(e){if(!/No session found matching|could not be created/i.test(e.message))throw e;
+    return await go('kirimdev-'+createHash('sha256').update(thread+'|fresh|'+randomUUID()).digest('hex'))}
   }finally{await unlink(file).catch(()=>{});if(token)customer?.()?.end(token)}
  };
 }
