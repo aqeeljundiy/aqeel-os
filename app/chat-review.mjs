@@ -25,6 +25,8 @@ print(json.dumps(out))`;
 
 export const NOT_PROCESSED=/request (was|is) not processed|could not (be )?process|something went wrong|an error occurred|I hit an error/i;
 export const UNHAPPY=/\b(wrong|broken|broke|ugly|not working|doesn'?t work|still not|you (removed|deleted|broke)|why did you|salah|rusak|(nggak|gak|ga|tidak) bisa|belum bisa|masih belum|kok (belum|gak|nggak|ga))\b/i;
+// a person saying they got something wrong themselves is no complaint (20 Nov 2026: "aku salah pesan", I ordered the wrong size)
+export const OWN_SLIP=/\b(?:aku|saya|gue|gw|i)\s+(?:yang\s+|was\s+|am\s+)?(?:salah|keliru|wrong)\b/gi;
 const clean=t=>String(t||'').replace(/^Gateway message origin[^\n]*\n?(\{[^\n]*\}\s*)?[^\n]*?insufficient\.\s*/,'').replace(/^\[Replying to:[\s\S]*?"\]\s*/,'').replace(/\[aqeelOS\][\s\S]*$/,'').trim();
 const compact=/^\[CONTEXT COMPACTION|^\[PRIOR CONTEXT/;
 
@@ -37,7 +39,7 @@ export function reviewRows(rows,{now=Date.now()/1000,answerWithin=30*60}={}){con
    if(role==='assistant'){if(NOT_PROCESSED.test(raw)){r.notProcessed++;ex(src,'not processed','')}prev=null;continue}
    if(SYSTEM_ROW.test(raw))continue;const t=clean(raw);if(!t)continue;
    if(prev&&prev.t===t&&Math.abs(ts-prev.ts)<=2){r.doubled++;continue}prev={t,ts};
-   if(UNHAPPY.test(t)){r.unhappy++;ex(src,'unhappy',t)}
+   if(UNHAPPY.test(t.replace(OWN_SLIP,' '))){r.unhappy++;ex(src,'unhappy',t)}
    const answered=l.slice(i+1).some(y=>y[2]==='assistant'&&y[3]-ts<=answerWithin);
    // a group or channel where the agent is meant to stay quiet unless asked is not "unanswered"
    if(!/group|channel/i.test(ct||'')&&!answered&&now-ts>answerWithin&&!l.slice(i+1).some(y=>y[2]==='user')){r.unanswered++;ex(src,'unanswered',t)}}}

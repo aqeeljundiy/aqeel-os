@@ -1,7 +1,7 @@
 // Daily chat review (app/chat-review.mjs, EN-12, 19 Nov 2026)
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp} from 'node:fs/promises';import {tmpdir} from 'node:os';import path from 'node:path';
-import {reviewRows,summary,createChatReview,NOT_PROCESSED,UNHAPPY} from '../app/chat-review.mjs';
+import {reviewRows,summary,createChatReview,NOT_PROCESSED,UNHAPPY,OWN_SLIP} from '../app/chat-review.mjs';
 const now=1795060000,H=3600;
 test('unanswered, "not processed", unhappy and stored twice are counted; answered messages are not',()=>{
  const rows=[
@@ -26,3 +26,9 @@ test('one Health item per agent with problems, the others cleared, once a day af
  assert.equal(await cr.tick(new Date('2026-11-19T21:10:00Z')),true);assert.equal(await cr.tick(new Date('2026-11-19T21:15:00Z')),false,'once a day');
  assert.deepEqual(filed.map(f=>f.slice(0,2)),[['default','chatreview']]);assert.match(filed[0][2],/^Donna's chats yesterday: .*1 unhappy/);
  assert.deepEqual(cleared,[['fine','chatreview']])});
+
+test('a person own mistake is no complaint (20 Nov 2026)',()=>{
+ const rows=[['s1','telegram','user',1000,'Kak izin yah, aku salah pesan yang small, aku pesan ulang','group'],['s1','telegram','assistant',1010,'Siap kak','group'],
+  ['s2','telegram','user',2000,'yang dikirim salah ukurannya','group'],['s2','telegram','assistant',2010,'Maaf kak','group']];
+ const r=reviewRows(rows,{now:9999});assert.equal(r.unhappy,1,'only the second, which says something sent was wrong');
+ assert.equal('aku salah pesan'.replace(OWN_SLIP,' ').includes('salah'),false)});
