@@ -1678,9 +1678,9 @@ async function ownSkills(a){const out=[];const root=path.join(homeOfA(a),'skills
  return out}
 async function namesTick(){if(!LIVE_APP)return;const F=path.join(DATA,'names-health.json');let st={};try{st=JSON.parse(await readFile(F,'utf8'))}catch{}st.asked??={};
  const [lab,keys]=await Promise.all([labels.all(),keysId.list().then(r=>r.items).catch(()=>[])]);let started=0;
- for(const a of await listAgents()){if(started>=3)break;if(Date.now()-(st.asked[a]||0)<7*86400e3)continue;
+ for(const a of await listAgents()){if(started>=3)break;if(Date.now()-(st.asked[a]||0)<7*86400e3||await isTestAgent(a))continue;
   const items=namesMissing({skills:await ownSkills(a),keys:keys.filter(k=>(k.agents||[])[0]===a),labels:lab});if(!items.length)continue;
-  // the main agent (and any agent that cannot run itself): the next step of the same ladder, the fixer, still silent
+  // test agents: never asked (20 Nov 2026); the main agent, or one that cannot run itself: the fixer
   if(!await srEligible(a).catch(()=>false)){try{await issues.file({agent:a,what:'Things with no plain name or description',missing:items.slice(0,15).map(x=>x.what).join('; '),evidence:namesPrompt(items),proposed_fix:'Call name_thing (aqeelos-notify) for each one with a plain name and one line on what it is for.',origin:{}});st.asked[a]=Date.now();started++}catch(e){console.warn('names check',a,e.message)}continue}
   try{await selfRuns.start({agent:a,args:{prompt:namesPrompt(items),reason:'aqeelOS: name and describe '+items.length+' of your things',timeout_minutes:15},origin:{ok:true,by:{kind:'aqeelos',name:'aqeelOS names check'}},ws:path.join(homedir(),'workspaces',a)});
    st.asked[a]=Date.now();started++;console.log('names: asked',a,'to describe',items.length)}catch(e){console.warn('names check',a,e.message)}}

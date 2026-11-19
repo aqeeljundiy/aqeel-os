@@ -60,3 +60,7 @@ test('engine: a skill made without a one-line description is refused; an edit is
  assert.equal(py('skill_manage',{action:'create',name:'flat',content:'---\nname: flat\ndescription: Use when testing the flat call shape.\n---\nx'}),null);
  assert.equal(py('skill_manage',{operations:[{action:'patch',name:'x',old_string:'a',new_string:'b'}]}),null)});
 test('the engine plugin words are plain',()=>{const src=readFileSync(plug,'utf8');const block=src.slice(src.indexOf('def name_block'),src.indexOf('def _pre_tool'));assert.doesNotMatch(block,/[—–]/)});
+
+test('the names check never asks a test agent (20 Nov 2026: aq-livetest got a "needs a person" item for its skills)',()=>{
+ const src=readFileSync(new URL('../app/server.mjs',import.meta.url),'utf8'),i=src.indexOf('async function namesTick');assert.ok(i>0);
+ assert.match(src.slice(i,i+600),/\|\|await isTestAgent\(a\)\)continue;/)});
