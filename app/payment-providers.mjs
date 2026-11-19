@@ -35,7 +35,8 @@ export function createPaymentProviders({DATA,keyOf,fetchFn=(...a)=>fetch(...a),n
    signature:createHmac('sha256',priv).update(String(t.merchantCode)+ref+String(amount)).digest('hex')};
   const r=await fetchFn(base+'/transaction/create',{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json','user-agent':'curl/8.5.0'},body:JSON.stringify(body),signal:AbortSignal.timeout(40000)});
   const j=await r.json().catch(()=>({}));if(!r.ok||!j.success||!j.data)throw Error('Tripay did not make the payment ('+r.status+(j.message?': '+String(j.message).slice(0,120):'')+')');
-  return {ref,exp:exp*1000,data:j.data}}
+  // the expiry Tripay itself set (data.expired_time, seconds) is what the customer is told; ours only when it gives none (KD-5, 19 Nov 2026)
+  const real=Number(j.data.expired_time);return {ref,exp:(real>0?real:exp)*1000,data:j.data}}
  // QRIS: one transaction per amount; each is a picture part for the reply
  async function qris(agent,pr,{amounts,name,phone}){const out=[],refs=[],orders=[];await loadMedia();
   for(const [k,amt] of amounts.entries()){const x=await tripay(agent,pr,{method:'QRIS',amount:amt,name,phone,i:k+1+(seq++%7)*10});
