@@ -63,7 +63,9 @@ const Cx={
   if(first||this._for!==(S.tab.connections||'All')+'|'+(S.cxQ||'')){this.shown=40;this._for=(S.tab.connections||'All')+'|'+(S.cxQ||'')}const vis=l.slice(0,this.shown);
   // a filter, a search or a refresh changes only the rows that differ: rows still listed stay put (their pictures, focus and hover too)
   const draw=()=>{const html=l.length?vis.map((r,i)=>cxRow(r,first&&i<12?i:0)).join('')+(l.length>vis.length?`<button class="ghost cn-more" data-act="cn-more">Show ${Math.min(60,l.length-vis.length)} more of ${l.length-vis.length}</button>`:''):`<div class="state-box">${S.cxQ?`Nothing matches “${esc(S.cxQ)}”. <button class="link" data-act="cn-clear">Clear the search</button>`:'Nothing of this kind is connected yet.'}</div>`;if(first)box.innerHTML=html;else morph(box,html);
-  box.querySelectorAll('.cn-row').forEach((x,i)=>{if(!first||i>=12)x.style.animation='none'})};first?draw():smoothHeight(box,draw);
+  box.querySelectorAll('.cn-row').forEach((x,i)=>{if(!first||i>=12)x.style.animation='none'})};// an empty list (a page drawn from a list kept from before) is drawn at full size at once: grown from 0 it pushed what is
+  // under it down over 150 ms (Keys, 19 Nov 2026: the deploy's flicker check refused P&P on it)
+  first||!box.children.length?draw():smoothHeight(box,draw);
   const need=all.filter(cxNeeds),slot=el.querySelector('.cn-needs-slot'),onTab=(S.tab.connections||'All')==='Needs you';
   const why=r=>r.registered===false?'not registered by the agent that made it':'needs someone to sign in again';
   if(slot)slot.innerHTML=need.length&&!onTab?alertBox(`<b>${need.length===1?'1 needs you':need.length+' need you'}</b><ul class="cn-need-l">${need.slice(0,4).map(r=>`<li>${esc(r.name)}: ${esc(why(r))}</li>`).join('')}${need.length>4?`<li>and ${need.length-4} more</li>`:''}</ul>`,{act:'cn-needs',label:'Show them',ic:'chevR'}):''},
