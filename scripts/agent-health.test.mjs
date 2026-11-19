@@ -128,7 +128,9 @@ test('the same script of one agent running twice is a problem; its subshell, oth
   {pid:40,ppid:1,age:900,user:'claude',args:'python3 dm_watch.py',cwd:W},{pid:50,ppid:1,age:900,user:'ag-sela',args:'python3 dm_watch.py',cwd:'/home/u/workspaces/sela'},
   {pid:60,ppid:1,age:900,user:'claude',args:'python3 -I job.py --a',cwd:W},{pid:61,ppid:1,age:900,user:'claude',args:'python3 -I job.py --b',cwd:W},
   // one tool server per agent: the same script in each agent's own folder is not a duplicate
-  {pid:70,ppid:1,age:900,user:'claude',args:'node /app/guard.mjs x',cwd:'/home/u/workspaces/cove-threads'},{pid:71,ppid:1,age:900,user:'claude',args:'node /app/guard.mjs x',cwd:'/home/u/workspaces/sela'}];
+  {pid:70,ppid:1,age:900,user:'claude',args:'node /app/guard.mjs x',cwd:'/home/u/workspaces/cove-threads'},{pid:71,ppid:1,age:900,user:'claude',args:'node /app/guard.mjs x',cwd:'/home/u/workspaces/sela'},
+  // the engine's code kernels, one per session, their folders unreadable: never "twice" (19 Nov 2026)
+  {pid:80,ppid:1,age:900,user:'ag-cove-threads',args:'python3 /home/u/workspaces/cove-threads/kernel_runner.py',cwd:''},{pid:81,ppid:1,age:900,user:'ag-cove-threads',args:'python3 /home/u/workspaces/cove-threads/kernel_runner.py',cwd:''}];
  const d=duplicateProcesses(rows,agentOf);
  assert.equal(d.length,1,JSON.stringify(d));assert.equal(d[0].agent,'cove-threads');assert.match(d[0].text,/comment_loop.sh runs 2 times at once/);assert.match(d[0].detail,/10, 30/);
  assert.equal(d[0].topic,'health|cove-threads|twice|comment_loop.sh')});

@@ -76,7 +76,9 @@ export function scheduleProblems(agent,{ticker,jobs=[]},{now=Date.now(),engineUp
 const SCRIPT=/^(?:\S*\/)?(?:bash|sh|python3?(?:\.\d+)?|node)\s+(?:-\S+\s+)*(\S+\.(?:sh|py|mjs|js))(?:\s|$)/;
 export function duplicateProcesses(rows,agentOf){const byPid=new Map(rows.map(r=>[String(r.pid),r])),key=r=>{const m=SCRIPT.exec(String(r.args||'').trim());if(!m)return null;
   const f=m[1].startsWith('/')?m[1]:path.join(r.cwd||'?',m[1]);return r.user+'|'+f+'|'+(r.cwd||'')+'|'+String(r.args).trim().split(/\s+/).slice(2).join(' ')};   // same user, script, folder and arguments
- const groups=new Map();for(const r of rows){if(!(Number(r.age)>120))continue;const k=key(r);if(!k)continue;const par=byPid.get(String(r.ppid));if(par&&key(par)===k)continue;
+ // the engine's own code kernels (kernel_runner.py, one per chat session in its own /tmp/hermes_rkernel_*) are not an agent's script running twice:
+ // their folders often cannot be read for another user, so two sessions looked like one script twice (FX-4, Continue Threads, 18 Nov 2026)
+ const groups=new Map();for(const r of rows){if(!(Number(r.age)>120))continue;if(/kernel_runner\.py|hermes_rkernel_/.test(String(r.args||'')+' '+String(r.cwd||'')))continue;const k=key(r);if(!k)continue;const par=byPid.get(String(r.ppid));if(par&&key(par)===k)continue;
   const a=agentOf(r);if(!a)continue;(groups.get(k)||groups.set(k,{agent:a,script:k.split('|')[1],pids:[]}).get(k)).pids.push(Number(r.pid))}
  return [...groups.values()].filter(g=>g.pids.length>1).map(g=>({agent:g.agent,topic:'health|'+g.agent+'|twice|'+path.basename(g.script),
   text:path.basename(g.script)+' runs '+g.pids.length+' times at once',detail:'Everything it does happens '+g.pids.length+' times. Processes '+g.pids.join(', ')+' ('+g.script+'). Stop all but one (kill the extra process IDs), and make whatever starts it check that it is not running already.'}))}
