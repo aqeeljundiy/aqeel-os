@@ -9,6 +9,7 @@ import {appendFile,readFile,mkdir} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import path from 'node:path';
 import {personOf} from './issues.mjs';
+import {oneCopy} from './one-copy.mjs';
 
 const AUTOMATED=['cron','subagent','tool','oneshot'];
 const WEB=new Set(['api_server','webui','web','aqeelos','local','']);
@@ -47,7 +48,7 @@ elif a['op']=='list':
         for r in rows: out.append(dict(zip(('id','source','uid','chat_type','chat','thread','name','origin','parent','at','messages','title'),r),agent=d['agent']))
 elif a['op']=='read':
     c=db(a['db'])
-    for r in c.execute('select role,content,timestamp,tool_name from messages where session_id=? order by timestamp,id limit ? offset ?',(a['id'],a['limit'],a['offset'])): out.append(dict(zip(('role','text','at','tool'),r)))
+    for r in c.execute("select role,content,timestamp,tool_name from messages where session_id=? and ${oneCopy('session_id=?')} order by timestamp,id limit ? offset ?",(a['id'],a['id'],a['limit'],a['offset'])): out.append(dict(zip(('role','text','at','tool'),r)))
 print(json.dumps(out))
 `;
 

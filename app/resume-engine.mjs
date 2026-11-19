@@ -4,6 +4,7 @@
 import {execFile} from 'node:child_process';
 import path from 'node:path';
 import {NOTE_START} from './resume.mjs';
+import {oneCopy} from './one-copy.mjs';
 
 // one chat since the person's message: was it stored, answered, did the person write again, which tools ran, is a call
 // still without its result, when was the last sign of life
@@ -12,7 +13,7 @@ db,sid,since,note=sys.argv[1],sys.argv[2],float(sys.argv[3]),sys.argv[4]
 try: c=sqlite3.connect('file:'+db+'?mode=ro',uri=True,timeout=5)
 except Exception: print('null'); sys.exit()
 if not c.execute("select 1 from sessions where id=?",(sid,)).fetchone(): print(json.dumps({'missing':True})); sys.exit()
-rows=c.execute("select role,content,tool_calls,tool_call_id,timestamp from messages where session_id=? and timestamp>=? order by id",(sid,since)).fetchall()
+rows=c.execute("select role,content,tool_calls,tool_call_id,timestamp from messages where session_id=? and timestamp>=? and ${oneCopy('session_id=?')} order by id",(sid,since,sid)).fetchall()
 o={'stored':False,'answered':False,'personAfter':False,'tools':[],'openCall':False,'posted':False,'partial':False,'lastAt':0}
 calls=set();seen=False
 for role,content,tc,tcid,ts in rows:

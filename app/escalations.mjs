@@ -4,12 +4,13 @@
 // (policy teams[].aliases: {"<agent>": ["Rory", ...]}). Shown on System › Health so it can be watched going to zero.
 import {execFile} from 'node:child_process';
 import path from 'node:path';
+import {oneCopy} from './one-copy.mjs';
 
 const Q=`import sqlite3,sys,json,time
 c=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True,timeout=5)
 since=time.time()-float(sys.argv[2])*86400; ids=set(json.loads(sys.argv[3]))
 out=[]
-for ts,content,uid,src in c.execute("select m.timestamp,m.content,s.user_id,s.source from messages m join sessions s on s.id=m.session_id where m.role='user' and m.timestamp>? and coalesce(m.content,'')<>'' and s.source in ('telegram','whatsapp','slack','discord','signal')",(since,)):
+for ts,content,uid,src in c.execute("select m.timestamp,m.content,s.user_id,s.source from messages m join sessions s on s.id=m.session_id where m.role='user' and m.timestamp>? and coalesce(m.content,'')<>'' and s.source in ('telegram','whatsapp','slack','discord','signal') and ${oneCopy("role='user' and timestamp>?",'m.id')}",(since,since)):
   if str(uid) in ids or any(('['+i+']') in (content or '')[:40] for i in ids): out.append([ts,(content or '')[:1500]])
 print(json.dumps(out))`;
 // msgs: [[ts, text]]; aliases: {agent: [words]}; returns {agent: {weeks: {"2026-W45": n}, thisWeek, lastWeek}}
