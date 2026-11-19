@@ -1,6 +1,6 @@
 ---
 name: amazon-writing-style
-description: Use whenever you write or rewrite text people will read and decide on (reports, summaries, updates, proposals, docs, emails, recaps, answers to "how did it go?"). Short sentences, data instead of adjectives, no weasel words, the "so what" test, and the four Amazon answers.
+description: Use when writing or rewriting text people read to decide or act (reports, updates, summaries, proposals, emails). Short sentences, data not adjectives, no weasel words, the "so what" test.
 ---
 
 # Amazon writing style
