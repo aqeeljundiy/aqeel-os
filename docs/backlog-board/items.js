@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 07:30 UTC",
+ "updated": "19 Nov 2026, 07:55 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -110,7 +110,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "Fewer false handoffs to the team",
-   "detail": "Fixed 19 Nov (a636781, 5bb3fbc): 78 holds in 3 days, mostly not the agent's fault: kit photos re-added by aqeelOS (now once per chat), test-mode Rp10.000 payments (the check is told), team-set prices like the pen's ~Rp1.500.000~ (line reviewFacts) and correct prices the check could not see (it now gets the price list). Live on Elkiya. Before: Amri #2: chats the AI could handle go to human CS and replies are held. Go through the false alarms Donna logged, tighten kirim-review and the handoff rules so only real cases go to people. Includes a chat that stopped after a hold message and kit photos re-sent until the customer is stuck on hold.",
+   "detail": "19 Nov: kit photos once per chat and the check's true facts are live (a636781, 5bb3fbc); a lost chat thread now gets one more try on a fresh thread (29cb177, the Fixer's ic17c5666 change that never reached main). To see in a test chat.",
    "refs": [
     "ic17c5666",
     "i5026fc4a"
@@ -135,7 +135,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "Payment QR made but not delivered to the customer",
-   "detail": "QR never reached the customer, or the text after the QR image was dropped, or the reply went out without the QR. Round 17: Gilang's QRIS never reached tester 3124. Fixes waiting to be checked; the needs-human one includes the expiry shown 1 hour late (KD-5).",
+   "detail": "19 Nov checked against the code: QR delivery fixes are in main with tests (kirim-guard, customer-tools). The check before sending was still holding QR replies for their [FOTO:] picture part (03:45 today): fixed in 27247bb. To see in a test chat with a QRIS.",
    "refs": [
     "i10e323ba",
     "i2043b125",
@@ -201,7 +201,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "Test bank transfer charged the wrong amount",
-   "detail": "Waiting to be checked.",
+   "detail": "In main: the tester amount applies to QRIS, VA and card (customer-tools). Tests cover QRIS only; to see a VA or card test payment live.",
    "refs": [
     "i28f521e1"
    ]
@@ -255,10 +255,10 @@ window.BOARD = {
    "id": "KD-14",
    "area": "sales",
    "p": 2,
-   "status": "check",
+   "status": "todo",
    "server": "Elkiya",
    "title": "Gilang labels interested customers (I-<pep>)",
-   "detail": "Live on Elkiya 19 Nov (d23aca4); switched on for both lines.",
+   "detail": "Gilang's interest labels are live (d23aca4). Left: the Fixer's \"clear a tester's labels\" tool (i98eb0fad) never reached main; to reapply with a test.",
    "refs": [
     "i98eb0fad"
    ]
@@ -302,7 +302,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "Randy reads his full instructions and the website quiz answers",
-   "detail": "Waiting to be checked.",
+   "detail": "19 Nov: Randy's full-instructions read is in main; the tool now offers read: true (2690361). To see live.",
    "refs": [
     "id051b007",
     "i77296280"
@@ -324,10 +324,10 @@ window.BOARD = {
    "id": "KD-20",
    "area": "sales",
    "p": 2,
-   "status": "check",
+   "status": "todo",
    "server": "Elkiya",
    "title": "Tester safety on deploys",
-   "detail": "Deploy check no longer writes into a real tester's chat (done 17 Nov, 7f8a6e7); keep the tester pause after a restart; test chats got an engine error instead of a reply (08baebe). Check live and close.",
+   "detail": "Tester chats never pause and the engine's fallback text never reaches a customer (in main, tested). Left: the Fixer's live-test change that treats a tester with an open turn as busy (i877d1a2d try 2) never reached main; to reapply.",
    "refs": [
     "i877d1a2d",
     "i87c8beb0",
@@ -620,10 +620,10 @@ window.BOARD = {
    "id": "EN-6",
    "area": "engine",
    "p": 3,
-   "status": "check",
+   "status": "you",
    "server": "Elkiya",
    "title": "Pep Club chat uses a different model than selected",
-   "detail": "Waiting to be checked.",
+   "detail": "19 Nov: the old fix is replaced by per-agent model order (16 Nov). Pep Club Social has no order of its own yet: set its model order (fallbacks off) in Models, or tell me which model.",
    "refs": [
     "i4731c443"
    ]
@@ -644,10 +644,10 @@ window.BOARD = {
    "id": "EN-8",
    "area": "engine",
    "p": 3,
-   "status": "check",
+   "status": "todo",
    "server": "Elkiya",
    "title": "Browser choice prompt expires before the owner answers",
-   "detail": "Waiting to be checked.",
+   "detail": "Not fixed in main: the browser-choice prompt still waits 270 s. The Fixer's patch (answer at once when nobody has the web chat open) is on the box; to reapply outside server.mjs.",
    "refs": [
     "i26680424"
    ]
@@ -680,10 +680,10 @@ window.BOARD = {
    "id": "EN-11",
    "area": "engine",
    "p": 3,
-   "status": "check",
+   "status": "todo",
    "server": "Elkiya",
    "title": "Overnight AdmissionSight build",
-   "detail": "Waiting to be checked.",
+   "detail": "Not fixed: a restart does not wait for background delegations. The Fixer's engine patch (i90830fb0) is on the box; to add as an engine patch.",
    "refs": [
     "i90830fb0"
    ]
@@ -725,7 +725,7 @@ window.BOARD = {
    "status": "check",
    "server": "Both",
    "title": "Keys and Health tabs on each agent",
-   "detail": "Keys built 19 Nov (888e093). Health built 19 Nov (e01768b): System › Health in an owner's Agents menu shows Your agents (status and problems, their agents only) and the Fixer's items about them, what needs them first. Live on Elkiya; deploying to P&P. To see as Aldillah.",
+   "detail": "Keys (888e093) and Health (e01768b) built. Checked 19 Nov on P&P's test copy: a Can edit person sees the agent on Health, its keys (never a value in full, no engine settings), Activity and channels; the main agent is refused (58/58). Deploying to both; then to see as Aldillah.",
    "refs": []
   },
   {
