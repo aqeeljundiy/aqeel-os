@@ -58,7 +58,7 @@ if [ "$HEAVY" = 1 ]; then
 echo "· 1/5 pages"
 pages(){ BASE=http://127.0.0.1:4402 PWFILE=$D/pw OUT=/tmp/aud-check timeout 400 node scripts/pages-check.mjs 2>&1 | tail -1; }
 r=$(pages); echo "$r" | grep -q '"errors":\[\]' || { again pages "$r"; r=$(pages); }
-echo "$r" | grep -q '"errors":\[\]' || { echo "✗ a page did not load: $r" | cut -c1-600; exit 1; }
+echo "$r" | grep -q '"errors":\[\]' || { echo "✗ a page did not load: $(echo "$r" | grep -o '"errors":.*' | cut -c1-600)"; exit 1; }   # the errors, not the timings that hid them (19 Nov)
 # FLICKER_CHECK=0 skips only this check; every other check still runs. Not needed any more (12 Nov 2026): the sweep used to judge every page 2.5 s after
 # opening it, so a loaded server failed it at random; it now waits until the page has settled, and a slow page is named (slowPages), not failed.
 # When it fails, a page flickers (it says which, what and when) or never finished loading: fix that, do not skip the check.
