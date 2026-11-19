@@ -136,6 +136,9 @@ The board shows the same list by status. `[~]` = fixed or doing, to check live. 
 - Checked and already covered: the knowledge updates (wolverine stack, reta titration quick reply) are in both SOUL.md files; strike prices are KD-2; payment confirmation after payment is KD-17; Gilang's format and spacing are TS-8 and TS-9; orders not in Sheets or the store are TS-1 and TS-2; Slack "please accept her" is PP-7.
 
 **Owner items**
+- [~] **AU-3** P2 · Elkiya · Self-audit 19 Nov: "Live server changes were lost in a deploy" was filed again at 23:58 WIB for four drift patches of 11 and 13 Nov that were all in main (one line for line, three as reworked ports); nobody had pressed "taken into git", so every restart filed them again. Patches moved to drift/done, issue closed; a patch whose added lines are all in the code is now set aside by itself (8774381). [i8562983e]
+- [~] **AU-4** P2 · Elkiya · Owner, 19 Nov: automatic "Model changes" messages go to the Notifications topic, not Management. Info-only notices now have their own target (alerts.json "info"); model changes use it, alerts that need you stay where they are (ab577c6). Elkiya's info target is set to the AqeelOS group's topic 2, where your reports already go. [i42d84784]
+- [ ] **AU-5** P3 · Both · System › Teams has no picker for the new info target yet (AU-4 was set in the data file); add it next to "Alerts go to".
 - [ ] **OW-13** P2 · Elkiya · Give Amri an aqeelOS account, or add his Telegram id to the support lines' team in team-policy, so he can use the new "release" command (CH-7) **(waiting on you)**.
 - [ ] **OW-14** P3 · Elkiya · Delete the paid test store order from Randy's TS-2 test by hand in the store admin; the API cannot delete it **(waiting on you)**.
 - [ ] **OW-15** P3 · Elkiya · The Kirimdev lines' approvers are empty; fill them in if drafts should be approved over Telegram **(waiting on you)**.
