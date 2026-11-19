@@ -636,7 +636,10 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   for(const v of VARIANTS){const id='canary-'+now()+'-'+v.name,dir=path.join(DIR,id);await mkdir(dir,{recursive:true,mode:0o700});
    const tok=randomBytes(12).toString('hex'),probe=path.join(dir,'probe');await writeFile(probe,'canary-'+tok+'\n',{mode:0o600});
    await writeFile(path.join(dir,'prompt.txt'),'Two steps. 1) Run the command  id -un  with your terminal tool. 2) With your file-reading tool (not the terminal) read the file '+probe+' . Answer with exactly two lines: first the output of id -un, nothing else on that line; then FILE: followed by the file content, or FILE: DENIED if you could not read it.',{mode:0o600});
-   const c=sandbox.launch({workDir:null,issue:'canary',run:id,variant:v});
+   // a work folder of its own, made and given to aq-fixer like a real run's: with none it used ~/apps/aqeel-os-fixer, which only a box with
+   // the fixer's git checkout has, and the engine refused to start ("cwd must be an existing directory"; P&P, 19 Nov 2026)
+   const wd=sandbox.scratch?sandbox.scratch('canary'):null;if(wd){await mkdir(wd,{recursive:true}).catch(()=>{});await sandbox.prepareDir?.(wd).catch(()=>{})}
+   const c=sandbox.launch({workDir:wd,issue:'canary',run:id,variant:v});
    // the fixer's own cheap model (14 Nov 2026: with model '' the engine refused --ignore-user-config ("read no profile default: pass
    // --model explicitly"), so every canary failed and no fix or proof started from 12 Nov; real runs always pass their model)
    const cm=fixerModel(pol,'proof',1);
