@@ -6,7 +6,7 @@ import {execFileSync,spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {createCodeChanges,patchFiles} from '../app/code-changes.mjs';
+import {createCodeChanges,patchFiles,takenIn} from '../app/code-changes.mjs';
 import {testWebhook,sign,pickTester,testAgents} from './kirimdev-test-message.mjs';
 import {verifySignature,parseInbound} from '../app/kirimdev.mjs';
 let n=0;const t=async(name,f)=>{await f();n++;console.log('ok',name)};
@@ -72,4 +72,15 @@ await t('the tester webhook runs only on test agents (owner, 8 Nov 2026: no live
  const {execFile}=await import('node:child_process');const home=await mkdtemp(path.join(tmpdir(),'hh-'));await writeFile(path.join(home,'.aqeelos-test-agents'),'mb-z4b1u\n');
  const r=await new Promise(res=>execFile(process.execPath,[new URL('./kirimdev-test-message.mjs',import.meta.url).pathname,'continue-support','hi'],{env:{...process.env,HERMES_HOME:home,UI_DATA_DIR:home}},(e,o,er)=>res({code:e?.code,er})));
  assert.equal(r.code,1);assert.match(r.er,/real agent: no live tests on real agents/)});
+await t('a drift patch whose added lines are all in the code is set aside, not filed again (19 Nov 2026, i8562983e)',async()=>{
+ const D=await mkdtemp(path.join(tmpdir(),'data-')),R=await mkdtemp(path.join(tmpdir(),'root-'));await mkdir(path.join(D,'drift'),{recursive:true});await mkdir(path.join(R,'app'),{recursive:true});
+ const patch=(f,line)=>'--- '+f+'\t2026-11-12 02:53:10 +0000\n+++ '+f+'\t2026-11-13 01:35:50 +0000\n@@ -1 +1,2 @@\n keep\n+'+line+'\n';
+ await writeFile(path.join(D,'drift','20261113-072235.patch'),patch('app/a.mjs','const fixed=true;   // taken into git'));
+ await writeFile(path.join(D,'drift','20261114-080000.patch'),patch('app/a.mjs','const lost=true;   // only on the box'));
+ await writeFile(path.join(R,'app','a.mjs'),'keep\n  const fixed=true;   // taken into git\n');
+ const filed=[];const c=createCodeChanges({DATA:D,root:R,fileIssue:async o=>filed.push(o.healthKey)});
+ assert.equal(await c.raise(),1);assert.deepEqual(filed,['drift:20261114-080000.patch'],'only the change git lacks is filed');
+ assert.deepEqual(await readdir(path.join(D,'drift','done')),['20261113-072235.patch'],'the one in the code moved to done');
+ assert.equal(takenIn(patch('app/a.mjs','const fixed=true;   // taken into git'),()=>null),false,'a file that is gone never counts as taken');
+ assert.equal(takenIn('--- app/a.mjs\n+++ app/a.mjs\n@@\n-gone\n',()=>'x'),false,'nothing added is not taken')});
 console.log(n+' passed');

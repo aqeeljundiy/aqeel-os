@@ -993,7 +993,7 @@ const fixerSandbox=createFixerSandbox({DATA,home:homedir(),sign:v=>sign(v),redac
  logs:async id=>{const db=await issues._db(),i=db.items.find(x=>x.id===id),a=String(i?.agent||'default');if(!/^[\w-]+$/.test(a))return '';
   const t=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'logs','errors.log'),'utf8').catch(()=>'');return t.split('\n').slice(-120).join('\n')}});
 const liveDrift=createLiveDrift({DATA,live:root,repo:fixerGit.src});
-const codeChanges=createCodeChanges({DATA,fileIssue:o=>issues.file(o),fixes:()=>issues.reviews(),hand:()=>liveDrift.item(),diff:id=>fixerGit.diff(id)});   // fixes waiting for review, hand edits, deploy drift, fixer patches (System › Health)
+const codeChanges=createCodeChanges({DATA,root,fileIssue:o=>issues.file(o),fixes:()=>issues.reviews(),hand:()=>liveDrift.item(),diff:id=>fixerGit.diff(id)});   // fixer reviews, hand edits, deploy drift (Health)
 if(LIVE_APP){setTimeout(()=>liveDrift.check().catch(e=>console.warn('hand-edit check',e.message)),3*60e3).unref();setInterval(()=>liveDrift.check().catch(()=>{}),30*60e3).unref()}
 // Where owner alerts go: the channel and chat chosen on System › Teams; else the main agent's own chat (Telegram first for
 // its reports, WhatsApp first for the rest). No channel at all, or the send fails: the bell, so an alert is never lost.

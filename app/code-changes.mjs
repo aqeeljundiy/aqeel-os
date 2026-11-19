@@ -25,7 +25,16 @@ export const driftItem=p=>({agent:'default',affects:['aqeelos'],source:'health',
  missing:('The box had changes git does not have ('+p.name+'): '+p.files.join(', ')).slice(0,480),
  hold:'Take '+p.name+' into git, or drop it. Each deploy puts the git files back, so a fix that is only on the box comes back as the old bug. Open System › Health › Code changes, read the patch, port what is still right.',
  evidence:(p.note+'\nFiles: '+p.files.join(', ')).slice(0,1800)});
-export function createCodeChanges({DATA,fileIssue=null,fixes=async()=>[],hand=async()=>null,diff=async()=>""}){
+// a drift patch whose added lines are all in the code now was taken into git (19 Nov 2026, i8562983e: four patches of 11 and 13 Nov were
+// in main for days, but nobody pressed "taken into git", so every restart filed them again as lost changes). read(file) gives the
+// current text of a file the patch names, or null; a patch with nothing added, or a file that is gone, never counts as taken.
+export function takenIn(text,read){const by=new Map();let cur=null;
+ for(const l of String(text||'').split('\n')){const m=/^\+\+\+ (?:b\/)?([^\t\n]+)/.exec(l);if(m){cur=m[1].trim()==='/dev/null'?null:m[1].trim();if(cur&&!by.has(cur))by.set(cur,[]);continue}
+  if(cur&&l.startsWith('+')&&l.slice(1).trim().length>=8)by.get(cur).push(l.slice(1).trim())}
+ if(![...by.values()].some(x=>x.length))return false;
+ for(const [f,lines] of by){if(!lines.length)continue;const t=read(f);if(t==null)return false;const have=new Set(String(t).split('\n').map(x=>x.trim()));if(!lines.every(x=>have.has(x)))return false}
+ return true}
+export function createCodeChanges({DATA,root=null,fileIssue=null,fixes=async()=>[],hand=async()=>null,diff=async()=>""}){
  const dirOf=k=>{if(!KINDS[k])throw Error('Unknown kind.');return path.join(DATA,KINDS[k])};
  const safe=n=>{if(!NAME.test(String(n||'')))throw Error('Unknown patch.');return n};
  async function list(){const out=[];for(const k of Object.keys(KINDS)){const d=dirOf(k);
@@ -40,5 +49,8 @@ export function createCodeChanges({DATA,fileIssue=null,fixes=async()=>[],hand=as
   // files an item for every drift patch that has none yet; safe to run at every start and every hour
  const filed=new Set();
  async function raise(){if(!fileIssue)return 0;let n=0;for(const p of (await list()).filter(x=>x.kind==='drift')){if(filed.has(p.name))continue;
+   if(root){const t=await readFile(path.join(dirOf('drift'),p.name),'utf8').catch(()=>'');const cache=new Map();
+    for(const f of patchFiles(t))if(!f.endsWith(' (removed)'))cache.set(f,await readFile(path.join(root,f),'utf8').catch(()=>null));
+    if(takenIn(t,f=>cache.has(f)?cache.get(f):null)){await done('drift',p.name).catch(()=>{});filed.add(p.name);continue}}
    try{await fileIssue(driftItem(p));filed.add(p.name);n++}catch(e){console.warn('code changes: could not file '+p.name+': '+e.message)}}return n}
  return {list,read,done,raise}}
