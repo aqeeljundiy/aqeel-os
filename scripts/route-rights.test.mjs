@@ -12,7 +12,8 @@ const src=sourceOf('app/server.mjs');
 const handler=(route)=>{const i=src.indexOf("p==='"+route+"'");assert.ok(i>=0,'route not found: '+route);return src.slice(i,i+900)};
 
 const OWN=['/ui/mcp/server','/ui/share/rename-mcp','/ui/channels/reconnect'];   // /ui/channels/pause is tested by what it does (route-handlers.test.mjs: member 403, owner and admin 200)
-const ADMIN_ONLY=['/ui/channels'];   // every agent's channels at once
+// /ui/channels left this list on 19 Nov 2026 (roles design): an agent's owner or editor gets that agent's rows, admins every one
+const ADMIN_ONLY=[];
 
 test('own-agent routes: an admin or the agent\'s owner',()=>{
  for(const r of OWN){const h=handler(r);assert.match(h,/ownsAgent\(u,/,r+' must check ownsAgent');assert.doesNotMatch(h.slice(0,200),/if\(!users\.isAdmin\(u\)\)return send\(res,403/,r+' must not be admin-only')}});
@@ -25,6 +26,10 @@ test('Connect Google: the client is an admin\'s, an account is the owner\'s',()=
 
 test('the Connected apps panel removes a Google account for its owner too',()=>{
  assert.match(src,/if\(req\.method==='DELETE'\)\{if\(!ownsAgent\(u,a\)\)return send\(res,403,\{error:'Only an admin or this agent’s owner removes its Google accounts\.'/)});
+
+test('the channel list: every row for admins, only the agents they may edit for anyone else, never the main agent',()=>{
+ const h=handler('/ui/channels');assert.ok(h.includes('visibleChannels(await channelList('),h.slice(0,200));assert.ok(h.includes('{admin,mayEdit}'));
+ assert.ok(h.includes("a!=='default'&&users.gate(u,'/hapi/profiles/'+a+'/soul','PUT'"),'never the main agent, only agents they may edit')});
 
 test('install-wide routes stay admin-only',()=>{
  for(const r of ADMIN_ONLY)assert.match(handler(r).slice(0,200),/if\(!users\.isAdmin\(u\)\)return send\(res,403/,r);
