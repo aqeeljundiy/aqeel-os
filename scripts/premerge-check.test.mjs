@@ -46,3 +46,7 @@ test('a clean tree passes; each planted problem fails with its file', async () =
 
 test('this repo passes today (no false positive)', async () => {
  const r=await check({});assert.deepEqual(r.fails.map(f=>f.rule+' '+f.file+' '+f.msg),[])});
+
+test('an address pattern that lost its backslashes is caught (Health, 19 Nov 2026); the escaped one and a plain string are not', () => {
+ const bad='const pr=c=>/^https:'+'//github.com//.test(c.pr||"");',good=String.raw`const pr=c=>/^https:\/\/github\.com\//.test(c.pr||"");`;
+ assert.ok(lostBackslash(bad));assert.equal(lostBackslash(good),null);assert.equal(lostBackslash('const u="https://github.com/x";'),null)});

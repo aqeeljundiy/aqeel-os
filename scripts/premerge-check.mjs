@@ -47,6 +47,9 @@ export function regexLiterals(line){
    out.push(line.slice(i+1,k));i=k}}
  return out}
 export function lostBackslash(line){
+ // an address pattern whose slashes lost their backslashes ends the regex early: "^https:" became the whole regex and the rest
+ // ("github" as a name) code, and Health threw "github is not defined" (19 Nov 2026)
+ {const m=/\/\^?https?\??:\/\/[a-z]/i.exec(String(line).replace(/(['"`])(?:\\.|(?!\1).)*\1/g,'""'));if(m)return {regex:m[0],why:'an address pattern with // unescaped ends the regex early (write :\\/\\/)'}}
  for(const body of regexLiterals(line)){
   // drop the escapes that are there, then look at what is left
   const b=body.replace(/\\./g,'__');

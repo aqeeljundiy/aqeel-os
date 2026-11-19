@@ -222,7 +222,7 @@ const HealthCode={
   const when=ms=>new Date(ms).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
   const files=f=>f.length?f.slice(0,4).join(', ')+(f.length>4?' and '+(f.length-4)+' more':''):'no file names';
   const ttl=c=>c.kind==='drift'?'Changed on the box before a deploy':c.kind==='hand'?'Hand edits on the live box':c.kind==='pr'?'Fix for issue '+t(c.issue):'Fixer change to code, issue '+t(c.issue);
-  const pr=c=>/^https://github.com//.test(c.pr||'');
+  const pr=c=>/^https:\/\/github\.com\//.test(c.pr||'');   // its backslashes were lost (GIT-2): the page threw "github is not defined" (19 Nov 2026)
   const line=c=>c.kind==='drift'?'The deploy saved this before it put the files from git in place. If it is a fix, take it into git or it stays lost.':c.kind==='hand'?'The next deploy would put the old files back. Put the change in a pull request, or undo it. This clears itself once the folder matches the deployed commit.':
    c.kind==='pr'?(c.state==='pr'?'Waits for review. Merge the pull request and the next deploy ships it.':c.state==='error'?'The pull request is not open yet: '+t(c.why||'GitHub did not accept it')+'. It tries again.':'Waits for review. A GitHub token is needed to open the pull request.'):'';
   const row=c=>'<div class="row" data-cc="'+t(c.kind+'/'+c.name)+'"><div class="main-c"><div class="txt"><b>'+ttl(c)+'</b><span>'+t(files(c.files))+' · '+t(when(c.at))+'</span>'+
