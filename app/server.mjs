@@ -75,7 +75,7 @@ import {createAccessRequests} from './access-requests.mjs';
 import {startScreenFollow} from './screen-follow.mjs';
 import {createN8n} from './n8n.mjs';
 import {createCode} from './code.mjs';
-import {createCodeAgents,safeRel} from './code-agents.mjs';import {createCodeAgent} from './code-agent.mjs';import {createFixerAgent} from './fixer-agent.mjs';
+import {createCodeAgents,safeRel} from './code-agents.mjs';import {createCodeAgent} from './code-agent.mjs';import {createFixerAgent} from './fixer-agent.mjs';import {opensToAnyone} from './role-scope.mjs';
 import {createCodeBridge} from './code-bridge.mjs';
 import {createCodeOnline} from './code-online.mjs';
 import {createTeamFolders} from './team-folders.mjs';
@@ -791,7 +791,7 @@ if(LIVE_APP)setInterval(async()=>{if(dashStopped)return;const ok=await fetch(DAS
 // only the live app (isLive, install.mjs) sets agents' tools; a test copy on another port must not repoint them
 if(LIVE_APP){setTimeout(()=>agentHealth().catch(()=>{}),30000);setInterval(()=>agentHealth().catch(()=>{}),300000).unref()}
 if(LIVE_APP){rec.add('notify tool',{run:()=>syncNotifyTool(),reads:['cfg'],every:3600e3,why:'was every 10 min'})}
-// old engine environments (each plugin enable builds one, ~400 MB): the engine's own cleanup once a day; it keeps the one in use, any still held, and any less than a day old
+// old engine environments (~400 MB each): the engine's own cleanup once a day
 if(LIVE_APP){const gc=()=>shx('timeout 900 hermes pm gc >/dev/null 2>&1').catch(()=>{});setTimeout(gc,30*60e3).unref();setInterval(gc,24*3600e3).unref()}
 // leftovers of deleted agents: a folder with only logs/ (a command still ran during the delete) is removed
 const sweepGhosts=async()=>{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}).catch(()=>[])){if(!d.isDirectory()||d.name.startsWith('.'))continue;
@@ -896,7 +896,7 @@ const backups=createBackups({detach:LIVE_APP,DATA,HOME:homedir(),HERMES_HOME,tz:
   for(let i=0;i<30&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false);i++)await new Promise(r=>setTimeout(r,1000));
   if(await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false))throw Error('the engine dashboard still answers after 30 s')},
  startEngine:async()=>{dashStopped=false;gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true,restore:true})}});restoreBusy=()=>backups.busy();holdWrites(()=>backups.writesHeld());if(LIVE_APP)backups.schedule();
-// a published app with no real logo of its own gets the plain colour tile as its icon and one question under Needs you (once per app, withdrawn when a later publish finds a logo)
+// a published app without a logo: the colour tile, and one Needs-you question per app
 const liveIcons=async(a,r)=>{const ask={kind:'app',issue:'live-logo-'+a.slug};if(r.needsLogo)await questions.file(ask,{question:'No logo found for the app '+a.name+': add its mark',options:[{label:'I will add its logo',effect:'Put logo.svg in the project (its public folder) in Code, then publish again: the icon follows.',recommended:true},{label:'Use its first letter',effect:'From the next publish, a letter on the colour tile. Add a logo any time to replace it.'}],allowOther:false});else await questions.retire(ask)};
 const live=createLive({DATA,DOMAIN:hostSetting('liveDomain'),SECRET,PUBLIC_URL,auto:LIVE_APP,onIcons:liveIcons});
 // This install's own settings (System › Settings): Your address, time zone, hosts, agent users, Claude sign-in (install-routes.mjs)
@@ -1588,7 +1588,7 @@ const agentOps=createAgentOps({PORT,sign,relayKeys,kirimdev,HERMES_HOME,enginePy
 const teamHookUrl=a=>`http://127.0.0.1:${PORT}/team-message/${a}/${sign('team-message:'+a).slice(0,32)}`;
 if(LIVE_APP){const t=async()=>{await agentOps.ensureClients().catch(e=>console.warn('agent ops',e.message));for(const a of Object.keys(await kirimdev.lines().catch(()=>({}))))await ensureTeamHook({HERMES_HOME,agent:a,url:teamHookUrl(a),log:m=>console.log(m)}).catch(e=>console.warn('team hook',a,e.message))};setTimeout(t,45e3).unref();setInterval(t,10*60e3).unref()}
 const paidLabels=createPaidLabels({DATA,WORK:path.join(homedir(),'workspaces'),keyOf:(a,n)=>agentKeys.get(a,n),onEvent:(a,ev)=>emitEvent(a,ev),callbackActive:(a,k)=>paymentCallbacks.active(a,k),label:(a,o)=>kirimdev.labelContact(a,o),orders:lineOrders,post:(a,t,text)=>kirimdev.teamPost(a,t.chatId,t.threadId,text),failed:(a,topic,title,detail)=>health.problem(a,/^part-paid\|/.test(String(topic))?'customer':'handoff',title,{topic,fix:detail})});
-// the providers call us when a payment is paid (payment-callbacks.mjs); the minute tick stays as the fallback and slows to 10 minutes per agent once a callback has been seen
+// payment callbacks (payment-callbacks.mjs); the minute tick is the fallback
 const paymentCallbacks=createPaymentCallbacks({DATA,WORK:path.join(homedir(),'workspaces'),readSecret:(a,provider)=>agentKeys.get(a,provider==='tripay'?'TRIPAY_PRIVATE_KEY':'XENDIT_CALLBACK_TOKEN'),nudge:a=>paidLabels.nudge(a),log:m=>console.log(m)});
 if(LIVE_APP)setInterval(()=>paidLabels.tick().catch(e=>console.warn('paid labels',e.message)),60e3).unref();
 // the labels a line's agent may set (Line settings) that Kirimdev still has, and Kirimdev's S- labels for create_payment
@@ -2115,7 +2115,7 @@ async function hermesCall(req,res,u,url){
  if(users.isAdmin(u)&&u.role!=='owner'&&agent!=='all'&&dec.via!=='none'&&!users.level(u,agent))return send(res,403,{error:'This agent is private to its owner. Ask them to share it.'});
  // the forwarded request names that one agent and nothing else: every other selector is overwritten or dropped
  {const rw=proxyAgent.rewrite(p,q,jb,agent);if(rw.changed){jb=rw.body;body=Buffer.from(JSON.stringify(jb))}const qs=q.toString();req.url=p+(qs?'?'+qs:'')}
- if(jb&&typeof jb==='object'&&!Array.isArray(jb)&&p==='/hapi/profiles'&&jb.name===HELP_AGENT)return send(res,403,{error:'That name is taken by Help.'});
+ if(jb&&typeof jb==='object'&&!Array.isArray(jb)&&p==='/hapi/profiles'&&jb.name===HELP_AGENT)return send(res,403,{error:'That name is taken by Help.'});{const od=!users.isAdmin(u)&&opensToAnyone(p,jb);if(od){bottlenecks.event('channel',(u.name||'Someone')+' asks to open '+od+' of '+agent+' to anyone','Only you approve this.',{topic:'open|'+agent+'|'+od}).catch(()=>{});return send(res,403,{error:'Opening '+od+' to anyone needs the owner OK; he was asked.'})}}
  if(jb&&typeof jb==='object'&&!Array.isArray(jb)&&p==='/hapi/profiles'&&req.method==='POST'&&String(jb.name??'').includes('--'))return send(res,400,{error:'An agent name cannot contain "--".'});
  // A10: a member's new chat gets the id the engine gives it, never one the request names (an existing chat would become theirs)
  if(!users.isAdmin(u)&&req.method==='POST'&&/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)){let b={};try{b=JSON.parse((await readRaw(req,65536)).toString('utf8')||'{}')}catch{}if(b&&typeof b==='object'&&!Array.isArray(b)){delete b.id;delete b.session_id;delete b.sessionId}else b={};body=Buffer.from(JSON.stringify(b))}
@@ -2361,7 +2361,7 @@ const screenTickets=createScreenTickets({sign}),screens=createScreens({keepOn:a=
 const agentAds=createAgentAdspower({DATA,HERMES_HOME,screens,wanted:a=>optins.on('adspower',a),help:a=>a===HELP_AGENT,codeUser:a=>agentDefaults.codeUser(a),agentNames,readConfig,pick,withAgent,live:LIVE_APP,nameOf:a=>agentName(a),skip:async a=>a===HELP_AGENT||await isTestAgent(a),
  mcp:(a,m,p,b)=>fetch(`${DASH.origin}/api/mcp/servers${p}?profile=${encodeURIComponent(a)}`,{method:m,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok&&r.status!==404)throw new Error('MCP '+m+' '+r.status+' '+(await r.text().catch(()=>'')).slice(0,120))})});
 const BUILD=String(Date.now());
-// home-screen app for every page (pwa.mjs): icons from the brand's real mark, the manifest, head tags and the service worker. No real mark = one question under Needs you
+// home-screen app (pwa.mjs): icons from the brand's real mark, manifest, service worker
 const brandNeeds=async(set,s)=>{try{const ask={kind:'app',issue:'brand-logo'};if(set.needsLogo)await questions.file(ask,{question:'No logo found for '+s.name+': upload its mark',options:[{label:'Upload the mark',effect:'Opens Branding, where you choose its SVG or PNG file.',recommended:true,go:'/system/branding'},{label:'Use its first letter',effect:'The first letter on the colour tile instead. You can still upload the mark later.'}],allowOther:false});else await questions.retire(ask)}catch(e){console.warn('brand icon question:',e.message)}};
 // The icons are drawn off the main thread with a time limit and never hold up the start (audit C2: a malformed logo hung every start). A logo that
 // cannot be drawn gives the plain tile and one Health item, which goes away once a set is drawn again.

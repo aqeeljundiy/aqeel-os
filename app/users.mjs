@@ -9,6 +9,7 @@ import path from 'node:path';
 import {readPicture,emojiSlugs,AVATAR_TYPES} from './avatar-file.mjs';
 import {listedAgent} from './agentops.mjs';
 import {addonDecision} from './addons.mjs';
+import {AGENT_CHANNEL_ROUTE,channelRouteOk} from './role-scope.mjs';
 import {safeEq} from './account-limit.mjs';
 import {createSignInGuard,burn,hashName} from './signin-guard.mjs';
 
@@ -250,6 +251,8 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
    if(rest==='/model/set'&&method==='POST')return edit('models');
    if(rest==='/model/info'&&G)return null;
    if(/^\/memory(\/.*)?$/.test(rest))return atLeast(u,a,'owner')?null:no('Only an owner of this agent can see its memory.');
+   // Channels for an agent's owner or editor, whatever their role (roles design, 19 Nov 2026); never the main agent (role-scope.mjs)
+   if(AGENT_CHANNEL_ROUTE.test(rest))return channelRouteOk({admin:false,level:level(u,a),agent:a})?null:no(a==='default'?'The main agent\'s channels are set by admins: changing them restarts every agent.':'You can chat with this agent but not change its channels.');
    return no()}
   if(p.startsWith('/ui/')){
    if(method==='GET'&&/^\/ui\/(identities|avatar\/[^/]+|logo)$/.test(p))return null;

@@ -42,6 +42,8 @@ function applyRole(){
  // Code on their own computer, with the agents shared with them (online projects stay with admins: the AI box has one Linux user)
  {const c=SECTIONS.find(s=>s.id==='code');if(c)out.push(c)}
  if(has('schedules'))out.push({id:'automations',label:'Automations',icon:'zap',pages:[pg('automations','schedules')]});
+ // Channels for anyone who owns or edits an agent, whatever their role (roles design, 19 Nov 2026): their agents only; Kirimdev stays with admins
+ if(editsAny)out.push({id:'channels',label:'Channels',icon:'radio',pages:[pg('channels','channels',{desc:'Put your agents on Slack, Telegram, WhatsApp and more, and choose who may message them.'})]});
  out.push({id:'abilities',label:'Abilities',icon:'puzzle',pages:[...(has('skills')?[pg('abilities','skills')]:[]),...(has('mcp')?[pg('abilities',SECTIONS.find(x=>x.id==='abilities')?.pages.some(q=>q.id==='connections')?'connections':'mcp'),...(SECTIONS.find(x=>x.id==='abilities')?.pages.some(q=>q.id==='apps')?[pg('abilities','apps')]:[])]:[])   /* Connected apps became Connections (1 Nov 2026): members with the apps right get the new page */,...(owns?[pg('abilities','plugins',{desc:'Add-ons for the agents you own. Turn one on for an agent there.'})]:[])   /* personal add-ons (11 Nov 2026) */,pg('agents','files',{desc:'Your own folder. Your agents can read what you put here.'})]});
  // their Usage page: the same page as admins', for them only, with how full each AI account is (1 Nov 2026; it was called Accounts)
  if(has('usage'))out.push({id:'models',label:'Models',icon:'cpu',pages:[{id:'usage',label:'Usage',icon:'chart',desc:'What you used, and how much of each AI account is used.'}]});

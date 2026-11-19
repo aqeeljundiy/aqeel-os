@@ -912,7 +912,7 @@ window.BOARD = {
    "status": "you",
    "server": "P&P",
    "title": "Edit access to the Wood Origins sheet for Fakhri Agent",
-   "detail": "His agent only has read access through aqeel@pixelandprofits.com. Either share that Google account with Fakhri Agent with read + write in Connections, or Fakhri connects his own Google account that can edit the sheet.",
+   "detail": "His agent only has read access through your P&P Google account. Either share that Google account with Fakhri Agent with read + write in Connections, or Fakhri connects his own Google account that can edit the sheet.",
    "refs": [
     "i04f68157"
    ]

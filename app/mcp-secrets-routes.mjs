@@ -6,6 +6,7 @@
 // where the block was (the person `u` is already signed in and the x-hui header already checked) and it answers true when it handled the request.
 import path from 'node:path';
 import {readConfig,pick,setKey} from './agentops.mjs';
+import {visibleChannels} from './role-scope.mjs';
 import {readdir,mkdir,copyFile,readFile,stat} from 'node:fs/promises';
 export function createMcpSecretsRoutes({access,browserAsks,channelList,displayName,freshSignins,HERMES_HOME,listAgents,localBrowser,MCP_OAUTH_BASE,memberSecretName,NAMES,optins,ownsAgent,readBody,saveSecret,screens,secretAsks,secretDir,secretHow,security,send,sharing,signinsAt,signinsDue,slackClientFor,startSignin,users,whyOf}){
 async function useSecret(rec,value,{admin=false}={}){
@@ -49,7 +50,8 @@ async function useSecret(rec,value,{admin=false}={}){
     try{return send(res,200,await sharing.duplicate(String(b.kind||''),ag,String(b.name||''),String(b.to||''))),true}catch(e){return send(res,400,{error:e.message}),true}}
    if(p==='/ui/share/rename-mcp'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}if(!ownsAgent(u,b.agent||'default'))return send(res,403,{error:'Only an admin or this agent’s owner renames its apps.'}),true;try{return send(res,200,await sharing.renameMcp(String(b.agent||'default'),String(b.from||''),String(b.to||''))),true}catch(e){return send(res,400,{error:e.message}),true}}
    // channels across all agents (admins), and handing one to another agent
-   if(p==='/ui/channels'&&req.method==='GET'){if(!users.isAdmin(u))return send(res,403,{error:'Only admins can see every channel.'}),true;return send(res,200,await channelList(url.searchParams.has('fresh'))),true}
+   // an agent's owner or editor sees that agent's channels (roles design, 19 Nov 2026); admins every one
+   if(p==='/ui/channels'&&req.method==='GET'){const admin=users.isAdmin(u),mayEdit=a=>a!=='default'&&users.gate(u,'/hapi/profiles/'+a+'/soul','PUT',new URLSearchParams(),a)===null;return send(res,200,visibleChannels(await channelList(url.searchParams.has('fresh')),{admin,mayEdit})),true}
    // WhatsApp: clear a login that WhatsApp has ended, so a fresh QR can link the phone again
    if(p==='/ui/secrets/give'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,20000))}catch{}const base=String(b.agent||'default').split('--')[0];
     if(!(await listAgents()).includes(base))return send(res,400,{error:'Unknown agent'}),true;
