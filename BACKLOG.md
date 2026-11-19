@@ -8,11 +8,21 @@ This is the one list of everything still open in aqeelOS. It lives in git, so th
 - A session only stops when everything left is waiting on the owner. Those items go under **Waiting on you** with the exact step needed.
 - Each session ends by updating this file: what's done, what's still left and why.
 
-_Last updated: 19 Nov 2026 (16–18 Nov work added; both servers run 7e6e757, checked 19 Nov)_
+_Last updated: 19 Nov 2026 (P&P team list, Fixer state, Randy/Gilang list, Channels for members)_
 
 ---
 
 ## Now
+
+### 19 Nov (owner, from Donna, Amri, Aldillah and the Fixer lists)
+- [x] **TEAM-PNP** Pixel refused Aldillah ("can't verify this Slack account"): P&P's team list (hermes-ui-data/team-policy.json) had no owner and no members since setup, so every Slack sender, the owner too, was "not on the team list". Filled from the P&P Slack member list (owner Aqeel; team Pixel & Profits: Aisar, Faisal, Firdha, Rifqi, Fakhri, Aldillah, each with their own agent; guests left out); backup team-policy.json.bak-20261119-beforeslack. Checked: Aldillah = member, Aqeel = owner, a guest = not verified. Still to see: Pixel answering Aldillah in Slack.
+- [ ] **TEAM-ALERT** An install with Slack (or another team channel) connected and an empty team list gets one Needs-you item, so this can't stay unseen again.
+- [ ] **CH-MEMBER** Aldillah (member) has no Channels page: the menu gives Channels to admins only (people.js applyRole). Owner to choose: Channels for members, limited to the agents they own, or make her an admin.
+- [ ] **FIX-HOLD** The Fixer is held on both servers: its last isolation check did not see the engine run tools as aq-fixer ("Execution outcome is unknown", a cut session). Nothing in the Fixer lists is worked on until this clears.
+- [ ] **ROLLBACK-LOOP** P&P: every agent shows "Automatic rollback" up to 221 times: the graphify SKILL.md copied into each agent counts as a self change, the agent does not answer within 120 s on the busy box, aqeelOS undoes it, and it repeats.
+- [ ] **PAY-1** Elkiya Fixer items waiting to be checked: QRIS made but not delivered (Gilang to tester 3124), QRIS expiry shown 1 h late, card links missing, "no payment" said wrongly, paid orders without the buyer's details, a test transfer charged the wrong amount, a reply leaking internal notes (again).
+- [ ] **KIRIM-LIST** Randy and Gilang (Continue, Amri's list): (1) one answer per burst of messages, 2-4 min quiet wait: check the line's quietSec and that a new message supersedes a reply being written; (2) false handoffs: tighten from Donna's logged cases; (3) Gilang's combination = main recommendation + add-on; (4) Gilang's I-<pep> labels; (5) "not a doctor's service" wording: compound research, guided by an experienced team; (6) free pen vs 5% code: price-catalog checks the free item before the discount, the business rule is one or the other, explained up front; (7) Gilang can't take any payment; (8) don't let a lost lead go, offer the best deal; (9) Randy sends payment confirmation, pen tutorial, cartridge change and calibration after payment.
+- [ ] **FIXER-OWNER** Waiting on you from the Fixer lists: Higgsfield sign-in for Threads and Continue Support, Donna's KirimDev sign-in, the fixer's GitHub token (AUD-7), the one Telegram group = one session decision, Fakhri's read-only Airtable key and n8n Google sign-in.
 
 ### Night of 17–18 Nov: Telegram (live on both servers in 7e6e757)
 - [x] **TG-1** Messages sent to a Telegram agent during a restart are kept and answered, no longer dropped by the engine's cold boot (nightly restart). The health pass sets `drop_pending_on_cold_boot: false` for every agent with Telegram, also agents that only have `TELEGRAM_BOT_TOKEN` in .env (the support agents), unless a value was already chosen (0e1ecbc, 7ed3282).
