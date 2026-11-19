@@ -39,7 +39,8 @@ function applyRole(){
  const out=[SECTIONS.find(s=>s.id==='chat')];
  // the same order as admins' menu: Chat, Agents, Code, Automations, Abilities, Models, Help
  // Memory too for an agent's owner (the server already allows it; roles design, 19 Nov 2026): it lists only the agents they own
- if(has('create')||editsAny)out.push({id:'agents',label:'Agents',icon:'user',pages:[pg('agents','profiles',{desc:'Agents you can use and change.'}),...(owns?[pg('agents','memory',{desc:'What your own agents remember, between chats.'})]:[])]});
+ if(has('create')||editsAny)out.push({id:'agents',label:'Agents',icon:'user',pages:[pg('agents','profiles',{desc:'Agents you can use and change.'}),...(owns?[pg('agents','memory',{desc:'What your own agents remember, between chats.'})]:[]),
+  ...(editsAny?[pg('system','keys',{desc:'API keys of the agents you run. Add, replace or remove them; a saved key is never shown in full.'}),pg('system','activity',{desc:'What happened by itself around you and your agents.'})]:[])]});
  // Code on their own computer, with the agents shared with them (online projects stay with admins: the AI box has one Linux user)
  {const c=SECTIONS.find(s=>s.id==='code');if(c)out.push(c)}
  // Webhooks for an agent's owner or editor too (roles design, 19 Nov 2026)

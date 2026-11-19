@@ -75,7 +75,7 @@ import {createAccessRequests} from './access-requests.mjs';
 import {startScreenFollow} from './screen-follow.mjs';
 import {createN8n} from './n8n.mjs';
 import {createCode} from './code.mjs';
-import {createCodeAgents,safeRel} from './code-agents.mjs';import {createCodeAgent} from './code-agent.mjs';import {createFixerAgent} from './fixer-agent.mjs';import {opensToAnyone} from './role-scope.mjs';
+import {createCodeAgents,safeRel} from './code-agents.mjs';import {createCodeAgent} from './code-agent.mjs';import {createFixerAgent} from './fixer-agent.mjs';import {memberBody} from './role-scope.mjs';
 import {createCodeBridge} from './code-bridge.mjs';
 import {createCodeOnline} from './code-online.mjs';
 import {createTeamFolders} from './team-folders.mjs';
@@ -2115,7 +2115,7 @@ async function hermesCall(req,res,u,url){
  if(users.isAdmin(u)&&u.role!=='owner'&&agent!=='all'&&dec.via!=='none'&&!users.level(u,agent))return send(res,403,{error:'This agent is private to its owner. Ask them to share it.'});
  // the forwarded request names that one agent and nothing else: every other selector is overwritten or dropped
  {const rw=proxyAgent.rewrite(p,q,jb,agent);if(rw.changed){jb=rw.body;body=Buffer.from(JSON.stringify(jb))}const qs=q.toString();req.url=p+(qs?'?'+qs:'')}
- if(jb&&typeof jb==='object'&&!Array.isArray(jb)&&p==='/hapi/profiles'&&jb.name===HELP_AGENT)return send(res,403,{error:'That name is taken by Help.'});{const od=!users.isAdmin(u)&&opensToAnyone(p,jb);if(od){bottlenecks.event('channel',(u.name||'Someone')+' asks to open '+od+' of '+agent+' to anyone','Only you approve this.',{topic:'open|'+agent+'|'+od}).catch(()=>{});return send(res,403,{error:'Opening '+od+' to anyone needs the owner OK; he was asked.'})}}
+ if(jb&&typeof jb==='object'&&!Array.isArray(jb)&&p==='/hapi/profiles'&&jb.name===HELP_AGENT)return send(res,403,{error:'That name is taken by Help.'});{const g=!users.isAdmin(u)&&memberBody(p,jb);if(g){if(g.ask)bottlenecks.event('channel',(u.name||'Someone')+' asks to open '+g.ask+' of '+agent+' to anyone','Only you approve this.',{topic:'open|'+agent+'|'+g.ask}).catch(()=>{});return send(res,403,{error:g.error})}}
  if(jb&&typeof jb==='object'&&!Array.isArray(jb)&&p==='/hapi/profiles'&&req.method==='POST'&&String(jb.name??'').includes('--'))return send(res,400,{error:'An agent name cannot contain "--".'});
  // A10: a member's new chat gets the id the engine gives it, never one the request names (an existing chat would become theirs)
  if(!users.isAdmin(u)&&req.method==='POST'&&/^\/gapi(\/p\/[^/]+)?\/api\/sessions$/.test(p)){let b={};try{b=JSON.parse((await readRaw(req,65536)).toString('utf8')||'{}')}catch{}if(b&&typeof b==='object'&&!Array.isArray(b)){delete b.id;delete b.session_id;delete b.sessionId}else b={};body=Buffer.from(JSON.stringify(b))}

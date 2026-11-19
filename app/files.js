@@ -17,7 +17,9 @@ const KIND_LABEL={folder:'Folder',image:'Image',video:'Video',audio:'Audio',pdf:
 // Places follow the selected agent: its own workspace first, and its own memory and skills.
 const fAgent=()=>agentProfile()||'default';const fAgentHome=()=>FILE_HOME+'/.hermes'+(fAgent()==='default'?'':'/profiles/'+fAgent());
 const fWork=()=>S.me&&!S.me.admin?FILE_HOME:FILE_HOME+'/workspaces/'+fAgent();
-const placesFor=()=>!S.me?.admin&&S.me?[['My files',FILE_HOME,'folder','own']]:[['Workspace',fWork(),'folder','agent'],['Memory',fAgentHome()+'/memories','brain','agent'],['Skills',fAgentHome()+'/skills','sparkle','agent'],['Home',FILE_HOME,'folder','box'],['Apps',FILE_HOME+'/apps','layers','box'],['Code projects',FILE_HOME+'/code-projects','folder','box']];
+// a member's places: their own folder, and the workspace of each agent they own or edit (roles design, 19 Nov 2026; never the main agent's)
+const myWorkspaces=()=>Object.entries(S.me?.agents||{}).filter(([a,l])=>a!=='default'&&(l==='owner'||l==='edit')).map(([a])=>[ident(a).name+' workspace',String(FILE_HOME).replace(/\/people\/[^/]+\/?$/,'')+'/workspaces/'+a,'folder','agent']);
+const placesFor=()=>!S.me?.admin&&S.me?[['My files',FILE_HOME,'folder','own'],...myWorkspaces()]:[['Workspace',fWork(),'folder','agent'],['Memory',fAgentHome()+'/memories','brain','agent'],['Skills',fAgentHome()+'/skills','sparkle','agent'],['Home',FILE_HOME,'folder','box'],['Apps',FILE_HOME+'/apps','layers','box'],['Code projects',FILE_HOME+'/code-projects','folder','box']];
 
 const FV={view:store.get('filesView','grid'),sort:store.get('filesSort','name'),hidden:store.get('filesHidden',false),q:''};
 PAGES.files=async(p,el)=>{const stale=pageTok(el);

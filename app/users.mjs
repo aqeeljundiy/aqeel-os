@@ -9,7 +9,8 @@ import path from 'node:path';
 import {readPicture,emojiSlugs,AVATAR_TYPES} from './avatar-file.mjs';
 import {listedAgent} from './agentops.mjs';
 import {addonDecision} from './addons.mjs';
-import {AGENT_CHANNEL_ROUTE,channelRouteOk} from './role-scope.mjs';
+import {AGENT_CHANNEL_ROUTE,channelRouteOk,workspaceAgent} from './role-scope.mjs';
+import {realpathSync} from 'node:fs';
 import {safeEq} from './account-limit.mjs';
 import {createSignInGuard,burn,hashName} from './signin-guard.mjs';
 
@@ -34,6 +35,9 @@ export const PRESETS={member:[],creator:['create','skills','mcp','schedules','mo
 const DEFAULT_ROLES={member:{name:'Member',caps:[],models:null,limit:null,maxAgents:0},creator:{name:'Builder',caps:[...PRESETS.creator,'unsafe'],models:null,limit:null,maxAgents:5}};
 export const UNSAFE_TOOLSETS=['terminal','file','code_execution','computer_use'];
 const PEOPLE_DIR=path.join(homedir(),'people');      // members' own folders: ~/people/<id>
+const WORKSPACES=path.join(homedir(),'workspaces');   // agents' workspaces: ~/workspaces/<agent>
+// a path's real location, links followed; a path not made yet: its nearest existing folder's real place plus the rest
+function realish(p){let cur=path.resolve(String(p||'')),rest=[];for(;;){try{return path.join(realpathSync(cur),...rest)}catch{const d=path.dirname(cur);if(d===cur)return path.resolve(String(p||''));rest.unshift(path.basename(cur));cur=d}}}
 
 // Signing in is by email (7 Nov 2026, the owner: "username not enough"). The username stays as a handle shown to others.
 // For 14 days after this version first runs, the old username (or name) still signs in, and the page says to use the email
@@ -255,6 +259,9 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
    if(/^\/memory(\/.*)?$/.test(rest))return atLeast(u,a,'owner')?null:no('Only an owner of this agent can see its memory.');
    // Channels for an agent's owner or editor, whatever their role (roles design, 19 Nov 2026); never the main agent (role-scope.mjs)
    if(AGENT_CHANNEL_ROUTE.test(rest))return channelRouteOk({admin:false,level:level(u,a),agent:a})?null:no(a==='default'?'The main agent\'s channels are set by admins: changing them restarts every agent.':'You can chat with this agent but not change its channels.');
+   // its keys (the agent's own .env): listed, added, replaced and removed, never shown in full; which names is checked on the body (role-scope keyNameOk)
+   if(rest==='/env/reveal')return no('Only admins see a key in full.');
+   if(/^\/env(\/|$)/.test(rest))return channelRouteOk({admin:false,level:level(u,a),agent:a})?null:no(a==='default'?'The main agent\'s keys are set by admins.':'You can chat with this agent but not change its keys.');
    // its webhooks (signed addresses other services call), likewise
    if(/^\/webhooks(\/|$)/.test(rest))return channelRouteOk({admin:false,level:level(u,a),agent:a})?null:no(a==='default'?'The main agent\'s webhooks are set by admins.':'You can chat with this agent but not change its webhooks.');
    return no()}
@@ -272,7 +279,9 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
    return no()}
   return no()}
  // A member's file calls must stay inside ~/people/<id>. A change (delete, rename, write) is for what is in it, never the folder itself.
- function filePathOk(u,fp,change){if(isAdmin(u))return true;const base=home(u);const r=path.resolve(String(fp||''));return !change&&r===base||r.startsWith(base+path.sep)}
+ function filePathOk(u,fp,change){if(isAdmin(u))return true;const base=home(u);const r=path.resolve(String(fp||''));if(!change&&r===base||r.startsWith(base+path.sep))return true;
+  // the workspace of an agent they own or edit (roles design, 19 Nov 2026), by its real location (an agent's link out of it never counts); never the main agent's
+  const a=workspaceAgent(fp,{root:WORKSPACES,real:realish});return !!a&&a!=='default'&&channelRouteOk({admin:false,level:level(u,a),agent:a})&&(!change||realish(fp)!==realish(path.join(WORKSPACES,a)))}
 
  /* ---------- filtering what comes back ---------- */
  // the engine's status: an admin sees all of it (Help's profile left out); a member only whether the engine runs and their own agents
