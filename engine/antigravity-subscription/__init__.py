@@ -43,7 +43,8 @@ commandExecutionPolicy: "off"
 tools: []
 ---
 You are the language model behind aqeelOS. You have no tools of your own in this session: never call, request or
-mention tools such as files, terminal or browsing. Everything you need is in the prompt. When the prompt describes
+mention tools such as files, terminal or browsing. Names like tool_search, tool_describe and tool_call in the prompt are
+not tools you can run: they only exist as text you write in the <tool_call> format. Everything you need is in the prompt. When the prompt describes
 tools and how to call them, reply exactly in that format; aqeelOS runs them and gives you the results.
 """
 _HOME = Path(os.path.expanduser("~"))
@@ -77,13 +78,16 @@ def _make_client_class():
         def _run_prompt(self, prompt_text: str, *, timeout_seconds: float, model: str | None = None) -> tuple[str, str]:
             # a stop because Gemini reached for an agy tool of its own is tried once more, told to write the call as text
             # (reply_fix.retry_note, 19 Nov 2026); every other stop, and a second one, still ends the request
-            try:
-                return self._run_once(prompt_text, timeout_seconds=timeout_seconds, model=model)
-            except RuntimeError as e:
-                note = _retry_note(str(e))
-                if not note:
-                    raise
-                return self._run_once(prompt_text + note, timeout_seconds=timeout_seconds, model=model)
+            # up to two more tries: one was not enough on 19 Nov 2026 (the schedule still failed after it)
+            text = prompt_text
+            for attempt in range(3):
+                try:
+                    return self._run_once(text, timeout_seconds=timeout_seconds, model=model)
+                except RuntimeError as e:
+                    note = _retry_note(str(e))
+                    if not note or attempt == 2:
+                        raise
+                    text = prompt_text + note
 
         def _run_once(self, prompt_text: str, *, timeout_seconds: float, model: str | None = None) -> tuple[str, str]:
             work = Path(tempfile.mkdtemp(prefix="aqeelos-agy-"))
