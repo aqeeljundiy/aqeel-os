@@ -36,7 +36,7 @@ import {createTebar} from './tebar.mjs';   // Tebar webhooks: failed posts and e
 import {mcpAddProblem} from './mcp-add-check.mjs';   // an app added by address: no spaces in its name, no Google file links (11 Nov 2026)
 import {createAddons,probeMcp,RUNS_CODE_MSG} from './addons.mjs';   // personal add-ons: who added what, the admin block list, "is it an MCP tool" (11 Nov 2026)
 import {setupGuideLines} from './setup-guide.mjs';   // how every agent onboards people to any app (11 Nov 2026)
-import {createEscalations} from './escalations.mjs';import {createChatReview} from './chat-review.mjs';
+import {createEscalations} from './escalations.mjs';import {createChatReview} from './chat-review.mjs';import {createTerminalCheck} from './terminal-check.mjs';
 import {createEfficiencyView} from './efficiency-view.mjs';
 import {createBrowserAsks} from './browser-ask.mjs';   // no card wait when no web chat is looking (EN-8)
 import {createReconciler,createAgentGate,statSig,ledgerSig} from './reconcile.mjs';
@@ -212,7 +212,7 @@ function checkPassword(pw){const [kind,salt,hash]=PW_HASH.split(':');if(kind!=='
 
 // 5 wrong passwords per address per 10 minutes, then a cool-down.
 const attempts=new Map();
-// The caller's address, for the sign-in limit: forwarding headers count only from a trusted proxy (TRUSTED_PROXIES, default loopback); see app/client-ip.mjs
+// The caller's address, for the sign-in limit: forwarding headers count only from a trusted proxy (TRUSTED_PROXIES; app/client-ip.mjs)
 const clientIp=makeClientIp(env.TRUSTED_PROXIES,{warn:m=>console.warn(m)});
 function limited(ip){const now=Date.now(),a=(attempts.get(ip)||[]).filter(t=>now-t<600e3);if(a.length)attempts.set(ip,a);else attempts.delete(ip);if(attempts.size>5000)for(const k of [...attempts.keys()].slice(0,1000))attempts.delete(k);return a.length>=5}
 
@@ -512,7 +512,7 @@ async function writeAgentContext(){const all=await listAgents();const names={};f
    a Sign in button instead of finding out when an agent says it cannot reach the app. */
 const signinsDue=new Map();let signinsAt=0;
 // said in the log once per agent and app (12 Nov 2026: Higgsfield was announced 51 times per agent in a day, because a test that passed
-// now and then took the app off the list and the next check put it back). Said again only after a new sign-in was made (its token file is newer).
+// now and then took the app off the list and the next check put it back). Said again only after a new sign-in (a newer token file).
 const signinSaid=new Map();
 // a connected app in words people know: which service, which account, and what stops working without it
 const APP_KINDS=[[/slack\.com/,'Slack','read and post in Slack'],[/notion\.com/,'Notion','read and edit your Notion pages'],[/n8n/,'n8n','find and run your n8n workflows'],
@@ -707,7 +707,7 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
  if(gwRestarting){if(!gwRun.started&&!(bridges&&gwRun.bridgesDone)){gwRun.bridges||=bridges;return gwRestarting}
   gwAgain={why:gwAgain?.why||why,bridges:!!(gwAgain?.bridges||bridges)};return gwRestarting.then(()=>{if(!gwAgain)return gwRestarting||undefined;const a=gwAgain;gwAgain=null;return restartGateway(a.why,{bridges:a.bridges})})}if(auto){autoRestarts=autoRestarts.filter(t=>Date.now()-t<30*60e3);if(autoRestarts.length>=3){if(Date.now()-(globalThis.__rf||0)>30*60e3){globalThis.__rf=Date.now();noteSys('restart-failed','The engine kept stopping, so it was left off. Open System › Host and press Start.')}return Promise.resolve()}autoRestarts.push(Date.now())}if(!LIVE_APP){console.log('gateway restart skipped (test copy):',why);return Promise.resolve()}
  const run=gwRun={bridges,stopping:false};gwRestarting=(async()=>{if(wait){let said=false;for(let i=0;i<waitMax&&(liveCount()>0||await engineAgents()>0||resume.openOf('deleg')>0);i++){if(!said&&i===12){said=true;console.log('gateway restart: still waiting for',Math.max(liveCount(),engAgents.n),'agent(s) and',resume.openOf('deleg'),'background task(s) at work:',why);
-   // no new scheduled runs meanwhile (engine fix aqeelos:hold-cron-for-restart), so the agents at work finish and none start: the quiet moment comes
+   // no new scheduled runs meanwhile (engine fix aqeelos:hold-cron-for-restart), so agents at work finish and none start: the quiet moment comes
    await writeFile(path.join(HERMES_HOME,'aqeelos-hold-cron'),JSON.stringify({why,at:Date.now()})).catch(()=>{})}await new Promise(r=>setTimeout(r,5000))}
    await unlink(path.join(HERMES_HOME,'aqeelos-hold-cron')).catch(()=>{})}
   console.log('gateway restart:',why);gwStopped=false;lastOwnRestart=Date.now();noteSys('restart',why);run.stopping=true;
@@ -719,7 +719,7 @@ function restartGateway(why,{wait=true,waitMax=360,auto=false,bridges=false,rest
   const own=ownGateways(parseGatewayList((await shx('hermes gateway list 2>/dev/null',30000)).out));if(own.length)console.log('gateway restart: agents with their own gateway too:',own.join(', '));
   for(const a of own)await shx(stopOwnGatewayCmd(a),90000);
   {const t0=Date.now(),st=await shx(stopGatewayCmd(),stopTimeoutMs());console.log('gateway restart: engine stopped after',Math.round((Date.now()-t0)/1000)+' s'+(/FORCED/.test(st.out)?' (it did not stop by itself in time and was closed)':' (clean)'))}
-  // a WhatsApp bridge is its own process and reads its settings only when it starts: when channel settings changed, stop them so the engine starts fresh ones
+  // a WhatsApp bridge reads its settings only at start: when channel settings changed, stop it so the engine starts a fresh one
   if(run.bridges)for(const a of await listAllProfiles().catch(()=>[]))await stopBridges(a).catch(()=>{});
   run.bridgesDone=true;run.started=true;later.covered().catch(()=>{});await shx('~/services.sh >/dev/null 2>&1');for(const a of own)await shx(startOwnGatewayCmd(a),60000);
   platCache.clear();hapiStatus.drop();hapiLists.drop();guardAfterRestart(Date.now())})().finally(()=>{gwRestarting=null});return gwRestarting}
@@ -845,7 +845,7 @@ const access=createAccess({googleShares,HERMES_HOME,DATA,listAgents:()=>listAgen
  own:{n8n:{owner:'aqeelOS',note:'every agent has its own n8n user',grant:a=>n8n.ensure(a)}},
  dash:(method,p)=>fetch(DASH.origin+p,{method,headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>r.json().catch(()=>({})))});
 const accessAsk=createAccessRequests({DATA,access,listAgents:()=>listAgents(),names:a=>agentName(a)});
-// conflicts (11 Nov 2026): a schedule's prompt against Run rules, and whatever an agent files; applying an answer edits Run rules and jobs.json
+// conflicts (11 Nov 2026): a schedule's prompt against Run rules, or what an agent files; an answer edits Run rules and jobs.json
 const conflicts=createConflicts({DATA,HERMES_HOME,names:a=>agentName(a),lock:withFlock,setRules:(a,rules)=>postingLimits.set(a,{rules})});
 const n8n=createN8n({BASE:N8N_URL,readConfig,removeMcp:(a,name)=>fetch(DASH.origin+'/api/mcp/servers/'+encodeURIComponent(name)+'?profile='+encodeURIComponent(a),{method:'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(30000)}).then(r=>{if(!r.ok&&r.status!==404)throw new Error('Could not remove the tool ('+r.status+')');return true}),DATA,setKey,restart:why=>{if(/^n8n connected for /.test(why)&&testAgentShown(why))return;restartLater(why)},names:a=>NAMES[a]||a});
 const code=createCode({DATA,SRC:path.join(homedir(),'apps','aqeel-code'),PUBLIC_URL,ROOT:root});
@@ -880,8 +880,8 @@ if(LIVE_APP){const HB=path.join(DATA,'heartbeat.json');readFile(HB,'utf8').then(
   // it started again by itself, so a short break is not something to act on (31 Oct 2026); an hour or more is shown
   await bottlenecks.event('down','aqeelOS was off for '+mins+' min','From about '+at(last)+' to '+at(Date.now())+' ('+zoneName(tzNow)+' time). Everything started again by itself. If it happens often, check the server at your hosting provider.',{info:mins<60}).catch(()=>{});
   await relay.sendAs('default',c.owner,c.platform,'aqeelOS was off from about '+at(last)+' to '+at(Date.now())+' ('+zoneName(tzNow)+' time, '+mins+' min). It is running again.',null,{toYou:true});console.log('told the owner about '+mins+' min off')}catch(e){console.warn('downtime note:',e.message)}},120000).unref()})}
-// the real marks an install's icon may be drawn from when no logo was uploaded: the one this install's setup names (BRAND_LOGO_FALLBACK, a file in assets/),
-// and aqeelOS's own only while the install still carries aqeelOS's name (the orbit since 17 Nov 2026, rendered by code/scripts/make-icons.mjs)
+// the marks an install's icon may be drawn from without an uploaded logo: the one its setup names (BRAND_LOGO_FALLBACK, in assets/),
+// and aqeelOS's own only while the install carries aqeelOS's name (the orbit since 17 Nov 2026, code/scripts/make-icons.mjs)
 const brandMarks=async({custom}={})=>{const out=[],rd=f=>readFile(path.join(root,f)).catch(()=>null),fb=String(env.BRAND_LOGO_FALLBACK||'');
  if(/^\/assets\/[\w.-]+\.(svg|png)$/.test(fb)){const d=await rd(fb.slice(1));if(d)out.push({file:fb.slice(1),type:fb.endsWith('svg')?'image/svg+xml':'image/png',data:d})}
  if(!custom){const d=await rd('assets/aqeelos-mark-render.png');if(d)out.push({file:'assets/aqeelos-mark.svg',type:'image/png',data:d,bg:'#111827',note:'the orbit at 2048 px (code/scripts/make-icons.mjs), on its own #111827 tile'})}return out};
@@ -932,8 +932,8 @@ const mcpEdit=createMcpEdit({readConfig,setKey,readEnv:a=>readFile(path.join(hom
 const news=createNews({DATA});
 // "Needs you" (7 Nov 2026): the Bottlenecks person items, one list shown in two places, the Bottlenecks popup and the
 // bell; only what truly needs a person (forPopup), each once
-// what this install really has, for working out the one button of a need (need-action.mjs): connected apps and who is signed in, signed-out AI accounts
-// (12 Nov 2026: with what each can really do, so a button is only offered when it will start: signin = a sign-in page can open for that agent's copy)
+// what this install has, for the one button of a need (need-action.mjs): connected apps, who is signed in, signed-out AI accounts
+// (12 Nov 2026: a button is only offered when it will start: signin = a sign-in page can open for that agent's copy)
 async function needCtx(){const [m,a,ag,g]=await Promise.all([access.list('mcp').catch(()=>({items:[]})),accountsApi.known().catch(()=>[]),listAgents().catch(()=>[]),access.list('google').catch(()=>({items:[]}))]);return {google:(g.items||[]).map(x=>({id:x.id,users:(x.users||[]).map(y=>({id:y.id}))})),agents:ag.map(id=>({id,name:agentName(id)})),mcp:(m.items||[]).map(x=>({id:x.id,label:x.label,detail:x.detail||'',users:(x.users||[]).map(y=>({id:y.id,name:y.name,signed:!!y.signed,signin:!!y.signin}))})),accounts:a}}
 async function needsFor(u){const admin=users.isAdmin(u);if(admin)await freshSignins();const items=await bottlenecks.list({admin,uid:admin?null:u.id,mayUse:a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a),signins:admin?[...signinsDue.values()]:[],invites:admin?users.expiredInvites():[],accounts:admin?await accountsApi.signedOut().catch(()=>[]):[],channels:admin?await channelAttention(false).catch(()=>[]):[]});const mayU=a=>!users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a);items.push(...await accessAsk.open(admin?()=>true:mayU).catch(()=>[]));items.push(...await conflicts.open(mayU,admin).catch(()=>[]));items.push(...await questions.open(mayU,admin).catch(()=>[]));items.push(...await runGates.needs(admin).catch(()=>[]));items.push(...await designGuard.needs(admin).catch(()=>[]));items.push(...await help.items(u).catch(()=>[]));
     for(const {a,p:pr} of await instructions.openProposals(await listAgents()).catch(()=>[]))if(admin||users.agentOwner(a)===u.id)items.push({id:'instr|'+a+'|'+pr.id,kind:'instructions',agent:a,pid:pr.id,title:(NAMES[a]||a)+': new instructions wait for your approval',detail:pr.why,created:pr.at,from:null});
@@ -957,7 +957,7 @@ const morning=createMorning({DATA,tz:()=>tzNow,send:text=>ownerSend(text,'telegr
 if(LIVE_APP)setInterval(()=>morning.tick().catch(e=>console.warn('morning line:',e.message)),5*60e3).unref();
 const newsInfo=(kind,text,detail)=>{const ok=/works again|fixed|back on|working again|passed/i.test(text);return news.add({aud:'admins',group:'ev|'+kind+'|'+String(text).replace(/\(.*?\)|[0-9]+/g,'#').replace(/\s+/g,' ').trim().slice(0,100),icon:kind==='down'?'activity':ok?'check':'refresh',kind:ok?'ok':'blue',title:text,text:detail,go:'/system/health',label:'Health'})};
 const bottlenecks=createBottlenecks({DATA,onInfo:newsInfo,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
-// a state file that cannot be read is left untouched and nothing is saved over it (store.mjs, audit H4): one Health item per file, gone when it reads again
+// a state file that cannot be read is left as is, nothing saved over it (store.mjs, audit H4): one Health item per file
 setStoreHooks({bad:(file,why)=>bottlenecks.event('store','aqeelOS cannot read '+path.basename(file),'The file is left exactly as it is and nothing is saved over it, so what it holds is not lost; changes to it are refused until it reads again. Repair '+file+' or put back its copy ('+path.basename(file)+'.last-good), then it carries on by itself. ('+why+')',{topic:'store|'+path.basename(file)}).catch(()=>{}),
  good:file=>bottlenecks.resolve('store|'+path.basename(file)).catch(()=>{})});
 sweepTmp(DATA).then(n=>{if(n)console.log('store: removed '+n+' temp file(s) a cut-off write left in the data folder')}).catch(()=>{});
@@ -971,7 +971,7 @@ if(LIVE_APP&&existsSync(path.join(homedir(),'services.sh'))){const tick=()=>{try
 // Night page checks (browser-checks.mjs, 12 Nov 2026): once a night after the update; a failure is one Health item
 const browserChecks=createBrowserChecks({DATA,APP:root,settings:()=>installSettings(),bottlenecks,live:async()=>({box:existsSync(path.join(homedir(),'services.sh')),sha:(await readFile(path.join(root,'.deployed-commit'),'utf8').catch(()=>'')).trim()})});
 if(LIVE_APP)setInterval(()=>browserChecks.tick().catch(e=>console.warn('browser checks',e.message)),5*60e3).unref();
-// after a key rotation (scripts/rotate-secrets.mjs): every old signature in the agents' settings and aqeelOS's scripts becomes the new one, first thing
+// after a key rotation (scripts/rotate-secrets.mjs): every old signature in agents' settings and scripts becomes the new one
 if(relayKeys.old&&LIVE_APP)setTimeout(async()=>{try{const names=new Set(['default',...await listAgents().catch(()=>[])]);for(const p of await readdir(path.join(HERMES_HOME,'profiles')).catch(()=>[]))names.add(p);
   const ch=await reissueSigned({HERMES_HOME,agents:[...names],cur:relayKeys.cur,old:relayKeys.old,log:m=>console.warn(m)});relayKeys.done();console.log('relay keys: re-issued the agents\' signed addresses after a rotation ('+ch.length+' files). Reload the agents once nothing is running.');
   if(ch.length)restartLater('tool addresses of the agents were re-issued')}catch(e){console.warn('relay keys: re-issue failed: '+e.message)}},3000);
@@ -1540,7 +1540,7 @@ const teamGroups=createTeamGroups({DATA,tell:async(a,before,g)=>{const t=x=>x?.c
  await bottlenecks.event('team-group',(NAMES[a]||a)+'’s team group changed','By '+(g.by||'?')+'.\nBefore: '+t(before)+'\nNow: '+t(g),{info:true}).catch(()=>{});if(LIVE_APP)writeAgentContext().catch(()=>{})}});
 const docLinks=createDocLinks({DATA,PUBLIC_URL:()=>String(PUBLIC_URL)});
 const teamPost=createTeamPost({HERMES_HOME,live:LIVE_APP,python:enginePython});
-const kirimdev=createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev),DATA,docLinks,engineRestarting:async()=>process.uptime()<600||Date.now()-lastOwnRestart<6e5,routeOf:async a=>{const c=await readConfig(a).catch(()=>null);return c?String(pick(c,'model.provider')||'')+'/'+String(pick(c,'model.default')||''):''},WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
+const kirimdev=createKirimdev({onEvent:(a,ev)=>emitEvent(a,ev),DATA,docLinks,engineRestarting:async()=>process.uptime()<600||Date.now()-lastOwnRestart<6e5,teamPerson:async(a,uid)=>{const p=personOf(await issues.policy(),'telegram',uid);return p&&(p.owner||p.team?.agents?.includes(a))?p:null},routeOf:async a=>{const c=await readConfig(a).catch(()=>null);return c?String(pick(c,'model.provider')||'')+'/'+String(pick(c,'model.default')||''):''},WORK:path.join(homedir(),'workspaces'),PUBLIC_URL,log:m=>console.log(m),teamGroup:a=>teamGroups.get(a),
  // kind "customer" (a customer left without a reply, an unanswered handoff, a stopped message): shown and counted on Health, for the
  // team; agent-health.mjs never gives it to the agent or the code fixer, neither can answer a customer (audit H7)
  problem:(a,topic,title,detail)=>health.problem(a,String(topic).startsWith('kirimdev|')?'kirimdev':/^(customer|unanswered)\|/.test(String(topic))?'customer':'handoff',title,{topic,fix:detail}),solved:(a,topic)=>health.ok(a,topic),
@@ -1573,7 +1573,7 @@ if(LIVE_APP)setTimeout(()=>kirimdev.resume().catch(e=>console.warn('kirimdev res
 // a confirmed payment labels the contact (Customer, S-…, no Checkout): code, every minute, on the live box only
 // a paid order goes to the line's Orders topic with the same check (8 Nov 2026)
 const lineOrders=async a=>{const l=(await kirimdev.lines().catch(()=>({})))[a],o=l?.orders;return o?.chatId?{chatId:o.chatId,threadId:o.threadId||null,persona:l.persona||a,currency:l.payment?.currency||'',context:l.payment?.orderContext||null}:null};
-// event hooks (event-hooks.mjs, DATA/event-hooks.json): the script runs as the agent's own user, what it prints goes to the chat the schedule delivered to
+// event hooks (event-hooks.mjs): the script runs as the agent's user; its output goes to the schedule's chat
 const eventHooks=createEventHooks({DATA,WORK:path.join(homedir(),'workspaces'),enabled:()=>LIVE_APP,
  runAs:async(a,remote,ms)=>{const c=await readConfig(a).catch(()=>null)||{};const user=String(pick(c,'terminal.ssh_user')||'');if(!/^ag-[\w-]+$/.test(user))return {ok:false,err:'this agent has no own user'};
   const {execFile}=await import('node:child_process');return new Promise(res=>execFile('ssh',['-i',path.join(HERMES_HOME,'agent-ssh','id_ed25519'),'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=accept-new','-o','ConnectTimeout=20',user+'@127.0.0.1',
@@ -1628,7 +1628,7 @@ async function ensureCustomerServer(){if(!LIVE_APP)return;for(const a of Object.
  // no header (7 Nov 2026): the gateway serves customer runs over this one connection; each call carries its run key instead
  const want={url:'http://127.0.0.1:'+PORT+'/mcp/customer/'+a};const have=pick(c,'mcp_servers.aqeelos-customer');
  if(have?.url!==want.url||have?.headers){await setKey(a,'mcp_servers.aqeelos-customer',want);console.log('customer tools: set for',a,'(key per call)')}
- // a support agent never skips the engine's safety stop for scripts (6 Nov: execute_code and "-e/-c" were allowlisted, the two stops that held customer runs)
+ // a support agent never skips the engine's safety stop for scripts (6 Nov: execute_code and -e/-c were allowlisted)
  const al=[].concat(pick(c,'command_allowlist')||[]);if(al.length){await setKey(a,'command_allowlist',[]);console.log('customer tools: removed the command allowlist of',a,'('+al.join(', ')+')')}}}
 if(LIVE_APP)setTimeout(()=>ensureCustomerServer().catch(e=>console.warn('customer tools',e.message)),40000).unref();
 /* Run rules (posting-limits.mjs, 5 Nov 2026): per agent, its schedules one at a time (one browser), and posting limits
@@ -1764,7 +1764,7 @@ async function issueApply(kind,why){if(kind==='ui'){if(!underKeeper()){console.w
 const issueEnvFiles=async()=>[path.join(HERMES_HOME,'.env'),...(await readdir(path.join(HERMES_HOME,'profiles')).catch(()=>[])).map(a=>path.join(HERMES_HOME,'profiles',a,'.env'))];
 const fixerRunUsage=createFixerRunUsage({HERMES_HOME});   // what one fixer run used (fixer-usage.mjs)
 // the one "Needs you" item that asks for the GitHub token: made once, taken away when the token is there (issues.mjs noteToken)
-// the AI provider is not available (rate limit, every account used up): one shared state; nothing needing a model starts until it ends (provider-limits.mjs)
+// AI provider not available (rate limit, accounts used): one shared state, nothing needing a model starts (provider-limits.mjs)
 const providerLimits=createLimitState({DATA});
 // between chats (account pools, 12 Nov 2026): no reply running in aqeelOS, no engine session running, and quiet for 10 minutes, so a
 // change of account throws away no warm prompt cache. An engine that does not answer counts as busy.
@@ -1772,7 +1772,7 @@ accountHooks.idle=async a=>{if([...LIVE].some(([k,r])=>!r.done&&String(k).split(
 // an agent that reached the day's ceiling of automatic account moves: one Health item per agent (a newer one replaces it)
 accountHooks.capped=({profile,n,max})=>bottlenecks.event('models',(NAMES[profile]||profile)+' changed AI account '+n+' times today and now stays where it is','aqeelOS moves an agent at most '+max+' times a day by itself. It stays on its account until tomorrow; move it by hand on Models › AI accounts if that account is used up. So many moves in one day usually means every account is close to its limit.',{topic:'account-moves|'+profile,agent:profile}).catch(()=>{});
 accountHooks.exhausted=until=>{if(until)providerLimits.set(until,'every AI account is used up','accounts');else if(providerLimits.hold()?.kind==='accounts')providerLimits.clear()};
-// questions for the owner (questions.mjs): the fixer, an agent (ask_owner) or the app asks with a few options; the answer goes back to the asker
+// questions for the owner (questions.mjs): the fixer, an agent (ask_owner) or the app asks; the answer goes back to the asker
 const questions=createQuestions({DATA,names:a=>agentName(a),onAnswer:async q=>{if(q.kind==='fixer'&&q.issue)await issues.answered(q.issue,q);if(q.kind==='app'&&q.issue==='brand-logo'&&q.answered?.choice==='b'){await brand.setMono(true);await pwa.current()}if(q.kind==='app'&&String(q.issue).startsWith('live-logo-')&&q.answered?.choice==='b')await live.useLetter(String(q.issue).slice(10))}});
 // the cloud fixer (cloud-fixer.mjs, 12 Nov 2026): code fixes written in the cloud by the account with the most room
 const cloudFixer=createCloudFixer({DATA,accounts:async()=>{const b=accountsApi.backup,d=await b.load();return Promise.all(b.all(d).map(a=>b.details(a)))},github:id=>fixerGit.mergedPr(id)});
@@ -1814,7 +1814,7 @@ async function customerSmoke(){if(!LIVE_APP)return;const F=path.join(DATA,'custo
  await health.problem(a,'customer','The customer test after the update failed',{topic:'smoke',fix:detail}).catch(()=>{});return done({ok:false,detail})}
 if(LIVE_APP)setTimeout(()=>customerSmoke().catch(e=>console.warn('customer smoke test',e.message)),5*60e3).unref();
 const teamView=createTeamView({HERMES_HOME,DATA,python:enginePython,users,policy:()=>issues.policy(),agents:()=>listAllProfiles(),isOn:async()=>installSettings().supervision===true,MAIN:agentAccess.MAIN,log:m=>console.log(m)});
-const escalations=createEscalations({HERMES_HOME,python:enginePython,policy:()=>issues.policy()});const chatReview=createChatReview({DATA,HERMES_HOME,python:enginePython,listAgents,nameOf:agentName,health});
+const escalations=createEscalations({HERMES_HOME,python:enginePython,policy:()=>issues.policy()});const chatReview=createChatReview({DATA,HERMES_HOME,python:enginePython,listAgents,nameOf:agentName,health});const termCheck=createTerminalCheck({HOME:homedir(),HERMES_HOME,listAgents,problem:(a,k,t,d)=>health.problem(a,k,t,{topic:k,fix:d}),ok:(a,k)=>health.ok(a,k),closeReports:(a,re)=>bottlenecks.closeReports(a,re)});
 // the chat a tool call came from (the agent's newest person-chat): who asked, and where to answer
 // the chat the waiting call (tool) was made in, and the person whose message started that turn: in a group topic every
 // sender shares one chat, and the engine marks each message with "[their name]" in front, so that name decides
@@ -1918,7 +1918,7 @@ if(LIVE_APP){setTimeout(()=>resumeTick().catch(e=>console.warn('resume',e.messag
 // a signal means the app is being replaced (a deploy, an update, a restart by hand): the moment is noted so what was in
 // progress is continued by the next start. A crash leaves no note; the journal itself covers it.
 for(const sig of ['SIGTERM','SIGHUP','SIGINT'])process.on(sig,()=>{try{resume.planned('restart')}catch{}process.exit(0)});
-if(LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('health',e.message)),3*60e3).unref();setInterval(()=>{health.tick().catch(e=>console.warn('health',e.message));chatReview.tick().catch(()=>{})},5*60e3).unref()}
+if(LIVE_APP){setTimeout(()=>health.tick().catch(e=>console.warn('health',e.message)),3*60e3).unref();setInterval(()=>{health.tick().catch(e=>console.warn('health',e.message));chatReview.tick().catch(()=>{});termCheck.tick().catch(()=>{})},5*60e3).unref()}
 /* Self-repair kit (agent-versions.mjs, workstream E, 6 Nov 2026): each agent's own changes are versions with undo
    (Edit agent › Changes and undo_my_change), a ping run checks it still answers after a self-change and undoes the
    changes by itself when it does not; own-scope tools (my_logs, my_runs, my_health, my_deliveries, my_schedules,
@@ -2272,7 +2272,7 @@ async function hermesCall(req,res,u,url){
    delete b.hub_skills;const ms=Array.isArray(b.mcp_servers)?b.mcp_servers:[];if(ms.some(s=>s&&(s.command||s.args||s.transport==='stdio'))&&!users.can(u,'unsafe'))return send(res,403,{error:RUNS_CODE_MSG});
    for(const s of ms)if(s?.url&&await privateAddress(s.url))return send(res,403,{error:'Tools must use a public web address.'})}
   body=Buffer.from(JSON.stringify(b))}
- // a member's catalog install: the same rules as adding that server by hand (a plain public address, or "unsafe" for anything that runs on the box)
+ // a member's catalog install: the same rules as adding that server by hand (a public address, or "unsafe" for one on the box)
  if(!users.isAdmin(u)&&req.method==='POST'&&p==='/hapi/mcp/catalog/install'){let b={};try{b=JSON.parse((body||await readRaw(req,65536)).toString('utf8'))}catch{}body=Buffer.from(JSON.stringify(b));
   const cat=await fetch(DASH.origin+'/api/mcp/catalog?profile='+encodeURIComponent(agent||'default'),{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json()).catch(()=>null);
   const e=(cat?.entries||[]).find(x=>x.name===String(b.name||''));if(!e)return send(res,404,{error:'That tool is not in the catalog.'});
@@ -2358,8 +2358,8 @@ const agentAds=createAgentAdspower({DATA,HERMES_HOME,screens,wanted:a=>optins.on
 const BUILD=String(Date.now());
 // home-screen app (pwa.mjs): icons from the brand's real mark, manifest, service worker
 const brandNeeds=async(set,s)=>{try{const ask={kind:'app',issue:'brand-logo'};if(set.needsLogo)await questions.file(ask,{question:'No logo found for '+s.name+': upload its mark',options:[{label:'Upload the mark',effect:'Opens Branding, where you choose its SVG or PNG file.',recommended:true,go:'/system/branding'},{label:'Use its first letter',effect:'The first letter on the colour tile instead. You can still upload the mark later.'}],allowOther:false});else await questions.retire(ask)}catch(e){console.warn('brand icon question:',e.message)}};
-// The icons are drawn off the main thread with a time limit and never hold up the start (audit C2: a malformed logo hung every start). A logo that
-// cannot be drawn gives the plain tile and one Health item, which goes away once a set is drawn again.
+// Icons are drawn off the main thread with a time limit, never holding up the start (audit C2: a bad logo hung every start). A logo that
+// cannot be drawn gives the plain tile and one Health item until a set is drawn again.
 const pwa=createPwa({brand,build:()=>BUILD,onSet:(set,s,failed)=>{if(failed)return;brandNeeds(set,s);bottlenecks.resolve('brand-icons').catch(()=>{})},
  onFail:(e,s)=>{console.warn('icons: the plain tile is used:',e.message);bottlenecks.event('brand','The logo could not be made into icons','The plain colour tile is used for the home-screen icon and the tab icon until another logo is uploaded in System › Branding. '+String(e.message).slice(0,200),{topic:'brand-icons'}).catch(()=>{})}});
 pwa.current().catch(e=>console.warn('icons:',e.message));
@@ -2412,7 +2412,7 @@ const server=createServer(async(req,res)=>{
    if(p==='/local/needs'&&req.method==='GET'){console.log('local owner: needs listed');return send(res,200,{items:(await needsFor(owner)).map(localView)})}
    if(p==='/local/answer'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     try{const r=await localAnswer({items:await needsFor(owner),id:String(b.id||''),choice:b.choice,value:b.value,text:b.text,conflicts,questions,runGates});console.log('local owner: answered',b.id,'with',String(b.choice||'').slice(0,40));return send(res,200,r)}catch(e){return send(res,e.status||409,{error:e.message})}}
-   // an issue closed or sorted again from the box (aq-needs.mjs issue <id> resort|close "<reason>"); the app's own issue functions, as the owner
+   // an issue closed or sorted again from the box (aq-needs.mjs issue <id> resort|close); the app's own issue functions, as the owner
    if(p==='/local/issue'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
     const id=String(b.id||''),why=String(b.reason||'').trim();if(!/^i[0-9a-f]{8}$/.test(id))return send(res,400,{error:'That is not an issue id.'});
     if(!['resort','close'].includes(b.action))return send(res,400,{error:'Use resort or close.'});if(!why)return send(res,400,{error:'Give a reason.'});
