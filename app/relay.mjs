@@ -7,7 +7,7 @@ import {randomBytes,createHmac} from 'node:crypto';
 import path from 'node:path';
 import {LIVE_APP} from './agentops.mjs';
 
-export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links,platformsOf,nameOf,ownerName,ownerAgent=()=>false,retryMs=2*60e3}){
+export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links,platformsOf,nameOf,ownerName,ownerAgent=()=>false,retryMs=2*60e3,sendRetryMs=20e3}){
  // the owner's own chat on the main agent's channel (its home channel), for alerts "to you"
  const homeChat=async p=>{const t=await readFile(path.join(HERMES_HOME,'.env'),'utf8').catch(()=>'');return ((new RegExp('^'+p.toUpperCase()+'_HOME_CHANNEL=["\']?([^"\'\\n]+)','m')).exec(t)||[])[1]||null};
  const FILE=path.join(DATA,'channel-shares.json');let db=null;
@@ -17,12 +17,16 @@ export function createRelay({DATA,DASH,TOKEN,HERMES_HOME,SECRET,listAgents,links
  const api=(p,o={})=>fetch(DASH+'/api'+p,{signal:AbortSignal.timeout(o.timeout||60000),...o,headers:{'x-hermes-session-token':TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.error||('HTTP '+r.status));return j});
  const q=a=>'?profile='+encodeURIComponent(a);const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  const key=(owner,platform)=>owner+'|'+platform;
+ const TRANSIENT=/timed out|timeout|ETIMEDOUT|ECONNRESET|did not confirm in time|network ?error|temporarily/i;
 
  // people the owner agent may message on that platform: the ones approved under Pairing
  async function recipients(owner,platform){try{const p=await api('/pairing'+q(owner));return (p.approved||[]).filter(x=>x.platform===platform).map(x=>({id:String(x.user_id),name:x.user_name||String(x.user_id)}))}catch{return []}}
 
  let sending=0;   // relays on their way (counted by /healthz, so a deploy waits for them)
- async function send(o){sending++;try{return await sendNow(o)}finally{sending--}}
+ // CH-8 (19 Nov 2026): Telegram sends to the owner and the team still timed out now and then after Telegram left the VPN (5e8a0ce): three
+ // since 18 Nov, each a notice that was simply lost ("issues: could not reach …: Telegram send failed: Timed out"). A send that fails on
+ // the network is tried once more after 20 s; anything else (no such chat, nothing to send, a refused channel) is not.
+ async function send(o){sending++;try{try{return await sendNow(o)}catch(e){if(!TRANSIENT.test(e.message))throw e;console.warn('relay: '+e.message+'; trying once more');await sleep(sendRetryMs);return await sendNow(o)}}finally{sending--}}
  async function sendNow({owner,platform,chat,text,from}){
   if(!/^[a-z_]{2,30}$/.test(platform))throw new Error('Unknown channel');
   const body=(from&&from!==owner?'['+from+'] ':'')+String(text||'').slice(0,4000);if(!String(text||'').trim())throw new Error('Nothing to send');
