@@ -514,7 +514,7 @@ Object.assign(ID,{
  'Roles':'Peran',
  'New role':'Peran baru',
  'What each kind of person may do, which models they get, a daily limit and how many agents they may own.':'Apa yang boleh dilakukan setiap jenis orang, model apa yang mereka dapat, batas harian, dan berapa agen yang boleh mereka miliki.',
- 'Creator':'Pembuat',
+ 'Creator':'Pembuat','Builder':'Pembangun',
  'How sharing works':'Cara berbagi bekerja',
  'Two layers.':'Dua lapis.',
  'Each person has a role':'Setiap orang punya peran',

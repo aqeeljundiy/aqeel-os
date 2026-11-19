@@ -38,10 +38,12 @@ function applyRole(){
  const pg=(sec,id,extra)=>({...SECTIONS.find(s=>s.id===sec).pages.find(p=>p.id===id),...extra});
  const out=[SECTIONS.find(s=>s.id==='chat')];
  // the same order as admins' menu: Chat, Agents, Code, Automations, Abilities, Models, Help
- if(has('create')||editsAny)out.push({id:'agents',label:'Agents',icon:'user',pages:[pg('agents','profiles',{desc:'Agents you can use and change.'})]});
+ // Memory too for an agent's owner (the server already allows it; roles design, 19 Nov 2026): it lists only the agents they own
+ if(has('create')||editsAny)out.push({id:'agents',label:'Agents',icon:'user',pages:[pg('agents','profiles',{desc:'Agents you can use and change.'}),...(owns?[pg('agents','memory',{desc:'What your own agents remember, between chats.'})]:[])]});
  // Code on their own computer, with the agents shared with them (online projects stay with admins: the AI box has one Linux user)
  {const c=SECTIONS.find(s=>s.id==='code');if(c)out.push(c)}
- if(has('schedules'))out.push({id:'automations',label:'Automations',icon:'zap',pages:[pg('automations','schedules')]});
+ // Webhooks for an agent's owner or editor too (roles design, 19 Nov 2026)
+ if(has('schedules')||editsAny)out.push({id:'automations',label:'Automations',icon:'zap',pages:[...(has('schedules')?[pg('automations','schedules')]:[]),...(editsAny?[pg('automations','webhooks')]:[])]});
  // Channels for anyone who owns or edits an agent, whatever their role (roles design, 19 Nov 2026): their agents only; Kirimdev stays with admins
  if(editsAny)out.push({id:'channels',label:'Channels',icon:'radio',pages:[pg('channels','channels',{desc:'Put your agents on Slack, Telegram, WhatsApp and more, and choose who may message them.'})]});
  out.push({id:'abilities',label:'Abilities',icon:'puzzle',pages:[...(has('skills')?[pg('abilities','skills')]:[]),...(has('mcp')?[pg('abilities',SECTIONS.find(x=>x.id==='abilities')?.pages.some(q=>q.id==='connections')?'connections':'mcp'),...(SECTIONS.find(x=>x.id==='abilities')?.pages.some(q=>q.id==='apps')?[pg('abilities','apps')]:[])]:[])   /* Connected apps became Connections (1 Nov 2026): members with the apps right get the new page */,...(owns?[pg('abilities','plugins',{desc:'Add-ons for the agents you own. Turn one on for an agent there.'})]:[])   /* personal add-ons (11 Nov 2026) */,pg('agents','files',{desc:'Your own folder. Your agents can read what you put here.'})]});

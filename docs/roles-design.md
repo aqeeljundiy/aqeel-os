@@ -1,6 +1,10 @@
 # Roles: what you own decides what you can do
 
-Status: design for the owner's review (19 Nov 2026). Nothing here is built yet. Backlog item ROLES-2 (replaces CH-MEMBER).
+Status: approved by the owner (19 Nov 2026), being built. Backlog items RO-1 to RO-6.
+
+**Owner's answers (19 Nov 2026):** Kirimdev stays admin-only; only outside-facing channels (WhatsApp, Telegram, email, public bots) need his OK to open to anyone, a Slack bot in the team's own workspace does not; a Builder owns 5 agents; only the owner approves a guard.
+
+**Built so far:** app/role-scope.mjs (the rules); Channels for an agent's owner or editor (list, connect, who may message, restart that one agent), never the main agent; the open-door guard; Memory and Webhooks in their menu; Creator renamed Builder (new installs: with terminal and file tools). Next: the Keys and Health tabs on each agent, agent workspace Files, Activity.
 
 ## Why
 
@@ -108,7 +112,4 @@ Job: get my agent onto the apps my team or clients use, and control who reaches 
 
 ## Open questions for the owner
 
-1. **Kirimdev lines**: should the owner of a support agent see their line's chats and hold/release customers, or does Kirimdev stay admin-only?
-2. **Open doors**: is "anyone may message" on a Slack bot inside the P&P workspace also a guard, or only outside-facing ones (WhatsApp, Telegram, email, public bots)?
-3. **Builder's agent limit**: 5 by default, or no limit?
-4. **Admins and guards**: should admins (not only you) be able to approve guard requests?
+Answered 19 Nov 2026 (see the top).

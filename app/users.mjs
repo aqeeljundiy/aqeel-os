@@ -29,7 +29,9 @@ export const CAPS={
 export const PRESETS={member:[],creator:['create','skills','mcp','schedules','models','tools','usage']};
 // Roles bundle what someone may do: permissions, which models, a daily limit and how many agents they may own.
 // The owner defines them once (People › Roles) and gives each person one. "Custom" = per-person settings.
-const DEFAULT_ROLES={member:{name:'Member',caps:[],models:null,limit:null,maxAgents:0},creator:{name:'Creator',caps:PRESETS.creator,models:null,limit:null,maxAgents:5}};
+// Builder (19 Nov 2026, roles design; was Creator): staff who own agents and run them fully. A new install's Builder has the terminal,
+// file and code tools too (owner, 12 Nov: employees' agents are not locked; each agent's own Linux user is the boundary).
+const DEFAULT_ROLES={member:{name:'Member',caps:[],models:null,limit:null,maxAgents:0},creator:{name:'Builder',caps:[...PRESETS.creator,'unsafe'],models:null,limit:null,maxAgents:5}};
 export const UNSAFE_TOOLSETS=['terminal','file','code_execution','computer_use'];
 const PEOPLE_DIR=path.join(homedir(),'people');      // members' own folders: ~/people/<id>
 
@@ -45,7 +47,7 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
  // A damaged people file is left as it is and never saved over (store.mjs). With no good copy to fall back on it must not look like a
  // new install that whoever opens it first may claim (audit A4): the app says so instead.
  const load=async()=>{if(db)return db;db=await readStore(FILE);if(storeBad(FILE)&&!db?.ownerPw&&!(db?.users||[]).length){db=null;throw Error('The people file '+FILE+' is damaged and there is no good copy of it. Put back a backup before using aqeelOS.')}
-  db.users||=[];db.invites||=[];db.shares||={};db.owners||={};db.agentOwners||={};db.privateAgents||={};db.roles||=JSON.parse(JSON.stringify(DEFAULT_ROLES));db.leads||={};db.resets||=[];
+  db.users||=[];db.invites||=[];db.shares||={};db.owners||={};db.agentOwners||={};db.privateAgents||={};db.roles||=JSON.parse(JSON.stringify(DEFAULT_ROLES));if(db.roles.creator?.name==='Creator')db.roles.creator.name='Builder';db.leads||={};db.resets||=[];
   // the owner's name and username: chosen at first run (OWNER_NAME / OWNER_USERNAME, else neutral), then kept in users.json.
   // Older data had only a name; its username was the name in lower case, so sign-in keeps working
   let first=false;if(!db.ownerName){db.ownerName=String(process.env.OWNER_NAME||'').trim().slice(0,60)||'Owner';first=true}
@@ -253,6 +255,8 @@ export function createUsers(DATA,mail,{ownerCheck,envOwner=()=>false,brandName=a
    if(/^\/memory(\/.*)?$/.test(rest))return atLeast(u,a,'owner')?null:no('Only an owner of this agent can see its memory.');
    // Channels for an agent's owner or editor, whatever their role (roles design, 19 Nov 2026); never the main agent (role-scope.mjs)
    if(AGENT_CHANNEL_ROUTE.test(rest))return channelRouteOk({admin:false,level:level(u,a),agent:a})?null:no(a==='default'?'The main agent\'s channels are set by admins: changing them restarts every agent.':'You can chat with this agent but not change its channels.');
+   // its webhooks (signed addresses other services call), likewise
+   if(/^\/webhooks(\/|$)/.test(rest))return channelRouteOk({admin:false,level:level(u,a),agent:a})?null:no(a==='default'?'The main agent\'s webhooks are set by admins.':'You can chat with this agent but not change its webhooks.');
    return no()}
   if(p.startsWith('/ui/')){
    if(method==='GET'&&/^\/ui\/(identities|avatar\/[^/]+|logo)$/.test(p))return null;
