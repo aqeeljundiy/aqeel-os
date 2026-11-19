@@ -76,6 +76,11 @@ export function createTeamSettings({DATA,HERMES_HOME,listAgents=async()=>[],now=
  const setAlerts=b=>queue(async()=>{const cur=await readJson(ALERTS,{});const ch=str(b?.channel,80);
   cur.target=ch?{channel:ch,chat:str(b?.chat,80)||null,name:str(b?.name,120)||null}:null;if(!cur.target)delete cur.target;await write(ALERTS,cur);return cur.target||null});
  const alertTarget=async()=>(await readJson(ALERTS,{})).target||null;
+ // where info-only notices go (model changes; owner, 19 Nov 2026, i42d84784: "make these messages on Notifications topic"):
+ // the same shape as the alert target, alerts.json "info"; none set = the alert target, so nothing changes for an install without it
+ const infoTarget=async()=>{const j=await readJson(ALERTS,{});return j.info||j.target||null};
+ const setInfo=b=>queue(async()=>{const cur=await readJson(ALERTS,{});const ch=str(b?.channel,80);
+  cur.info=ch?{channel:ch,chat:str(b?.chat,80)||null,name:str(b?.name,120)||null}:null;if(!cur.info)delete cur.info;await write(ALERTS,cur);return cur.info||null});
 
  // Pause alerts until…: until = epoch ms, or 0/null to end the pause now
  const setPause=b=>queue(async()=>{const u=Number(b?.until)||0;
@@ -88,4 +93,4 @@ export function createTeamSettings({DATA,HERMES_HOME,listAgents=async()=>[],now=
   const known=await listAgents().catch(()=>[]);if(on&&known.length&&!known.includes(a))throw Error('That agent does not exist: '+a);
   await write(TESTS,setTestLine(await readFile(TESTS,'utf8').catch(()=>''),a,!!on));return [...await testAgents()]});
 
- return {view,policy,setTeams,setFixer,setAlerts,alertTarget,setPause,setTest,testAgents}}
+ return {view,policy,setTeams,setFixer,setAlerts,alertTarget,infoTarget,setInfo,setPause,setTest,testAgents}}

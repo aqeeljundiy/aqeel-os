@@ -997,12 +997,12 @@ const codeChanges=createCodeChanges({DATA,root,fileIssue:o=>issues.file(o),fixes
 if(LIVE_APP){setTimeout(()=>liveDrift.check().catch(e=>console.warn('hand-edit check',e.message)),3*60e3).unref();setInterval(()=>liveDrift.check().catch(()=>{}),30*60e3).unref()}
 // Where owner alerts go: the channel and chat chosen on System › Teams; else the main agent's own chat (Telegram first for
 // its reports, WhatsApp first for the rest). No channel at all, or the send fails: the bell, so an alert is never lost.
-async function ownerChannel(prefer){const ch=await relay.channelsFor('default').catch(()=>[]),t=await teamSettings.alertTarget();
+async function ownerChannel(prefer,info){const ch=await relay.channelsFor('default').catch(()=>[]),t=await teamSettings[info?'infoTarget':'alertTarget']();
  if(t){const c=ch.find(x=>x.id===t.channel);if(c)return {...c,chat:t.chat||null}}
  return ch.find(x=>x.platform===prefer&&x.owner==='default')||ch.find(x=>x.owner==='default')||ch[0]||null}
-async function ownerSend(text,prefer){const c=await ownerChannel(prefer);
- // with no channel: a message that needs the owner (the fixer's "needs a person" or "could not fix") is a Bottlenecks
- // item, in the bell's Needs you; anything else is Activity (7 Nov 2026), and the Send test the owner pressed is theirs
+async function ownerSend(text,prefer,info){const c=await ownerChannel(prefer,info);
+ // no channel: a message that needs the owner ("needs a person", "could not fix") is a Bottlenecks item in the bell's
+ // Needs you; anything else is Activity (7 Nov 2026), and the Send test the owner pressed is theirs
  const {first,cut}=alertTitle(text),need=/needs a person|What is needed|could not fix this by itself|What is needed from you/i.test(text);
  const bell=why=>(need?bottlenecks.event('alerts',first,String(text)+'\n\n'+why,{topic:'alerts|'+String(text).slice(0,60)}):
   news.add({aud:'admins',started:/^Test from /.test(text),group:'alerts|'+first.replace(/[0-9]+/g,'#'),icon:'bell',title:first,text:String(text).slice(cut).trim()+' '+why,go:'/system/teams',label:'Teams'})).catch(()=>{});
@@ -1039,7 +1039,7 @@ accountHooks.held=k=>backupModels.held(k);accountHooks.backupSync=why=>backupMod
 {let movesQ=[],movesT=null;accountHooks.tell=e=>{if(!LIVE_APP)return;movesQ.push(e);clearTimeout(movesT);movesT=setTimeout(async()=>{const l=movesQ;movesQ=[];
  const to=k=>{const m=/^claude:(.+)$/.exec(k||'');return m?'Claude ('+m[1]+')':String(k||'').replace(/^p:/,'')};
  const text='Model change'+(l.length>1?'s ('+l.length+')':'')+':\n'+l.map(x=>'- '+(NAMES[x.profile]||x.profile)+' → '+to(x.to)+(x.why?' ('+x.why+')':'')).join('\n')+'\nModels › AI accounts shows the history.';
- await bottlenecks.event('models',l.length+' model change(s)',text,{info:true}).catch(()=>{});await srToOwner(text).catch(err=>console.warn('model moves: owner not told',err.message))},30e3)}}
+ await bottlenecks.event('models',l.length+' model change(s)',text,{info:true}).catch(()=>{});await ownerSend(text,'telegram',1).catch(e=>console.warn('model moves: not told',e.message))},30e3)}}
 /* Connected accounts (connected-accounts.mjs, 31 Oct 2026): every login where an agent acts as the owner (Google, Slack
    and Notion sign-ins, a personal Telegram session), with Pause, allowed actions and Disconnect. Only the live app looks
    by itself and adds a Bottlenecks item; a copy on another port with its own engine home may, for testing (ACCOUNTS_TEST=1, and

@@ -33,6 +33,11 @@ await t('store: saves keep other keys and a .prev copy; pause and alerts; quiet 
  const f=await T.setFixer({on:true,cap:12});assert.deepEqual([f.on,f.cap,f.off_why],[true,12,undefined]);assert.equal((await T.view()).teams[0].name,'Cove');
  assert.deepEqual(await T.setAlerts({channel:'telegram',chat:'99',name:'Telegram (main)'}),{channel:'telegram',chat:'99',name:'Telegram (main)'});assert.equal((await T.alertTarget()).chat,'99');
  assert.equal(await T.setAlerts({channel:''}),null);assert.equal(await T.alertTarget(),null);
+ // i42d84784 (19 Nov 2026): info-only notices (model changes) have their own target, the alert target when none is set
+ await T.setAlerts({channel:'telegram',chat:'-100777',name:'Telegram (main)'});assert.equal((await T.infoTarget()).chat,'-100777','no info target: the alert target');
+ assert.deepEqual(await T.setInfo({channel:'telegram',chat:'-100777:2',name:'Notifications'}),{channel:'telegram',chat:'-100777:2',name:'Notifications'});
+ assert.equal((await T.infoTarget()).chat,'-100777:2');assert.equal((await T.alertTarget()).chat,'-100777','alerts that need the owner stay where they were');
+ assert.equal(await T.setInfo({channel:''}),null);assert.equal((await T.infoTarget()).chat,'-100777');await T.setAlerts({channel:''});
  const q=createQuiet({DATA:D,HERMES_HOME:H,now:()=>clock,every:0});assert.equal(q('a1'),null);
  const ps=await T.setPause({until:clock+3600e3,why:'build'});assert.equal(ps.why,'build');assert.equal(q('a1'),'hold');assert.equal((await T.view()).pause.why,'build');
  await assert.rejects(T.setPause({until:clock+30*864e5}),/two weeks/);
