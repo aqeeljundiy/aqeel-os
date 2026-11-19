@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 08:10 UTC",
+ "updated": "19 Nov 2026, 08:30 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -647,7 +647,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "Browser choice prompt expires before the owner answers",
-   "detail": "Fixed 19 Nov (69bb042): when nobody has the agent's web chat open, the browser-choice question answers at once and the agent asks in the chat instead of waiting 270 s. To see: an agent needing a browser while you're on Telegram.",
+   "detail": "Fixed 19 Nov (69bb042), live on both: when nobody has the agent's web chat open, the browser-choice question answers at once and the agent asks in the chat instead of waiting 270 s. To see: an agent needing a browser while you're on Telegram.",
    "refs": [
     "i26680424"
    ]
@@ -683,7 +683,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "Overnight AdmissionSight build",
-   "detail": "Fixed 19 Nov (b4d0ecd): an engine patch counts background delegations as busy, so aqeelOS waits for them before an engine restart. Applies at deploy; to see at the next restart with a delegation running.",
+   "detail": "Fixed 19 Nov (b4d0ecd), live on both; the engine patch is in place on Elkiya: background delegations count as busy, so aqeelOS waits for them before an engine restart. To see at the next restart with a delegation running.",
    "refs": [
     "i90830fb0"
    ]
@@ -955,6 +955,16 @@ window.BOARD = {
    "server": "Both",
    "title": "Keys page: the list jumps down about half a second after it opens",
    "detail": "Fixed 19 Nov (c57c12f): on a quick second visit the Keys list grew from zero height and pushed everything under it down. Measured on P&P's test copy: moves 0 now, fast-switching check passes. Next full-check deploy on P&P is the proof.",
+   "refs": []
+  },
+  {
+   "id": "EN-15",
+   "area": "engine",
+   "p": 2,
+   "status": "done",
+   "server": "Both",
+   "title": "Amazon writing style for every agent",
+   "detail": "19 Nov (e0147a2, 02c2672): a built-in skill: sentences under 30 words, data instead of adjectives, no weasel words, the \"so what\" test, the four Amazon answers (Yes / No / a number / I don't know, follow-up by a date), acronyms spelled out. Installed on both servers: all 9 Elkiya and 10 P&P agents have it (the Fixer, Code and Help helpers excepted); new installs get it too.",
    "refs": []
   }
  ]
