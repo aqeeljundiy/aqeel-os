@@ -71,3 +71,10 @@ test('a tester with a turn still open is busy, whatever the clock says; a lone r
  assert.deepEqual(withOpenTurns(old,undefined,undefined,now),old);assert.equal(old['x|62811111'],now-60*60e3,'recent is not changed in place');
  assert.equal(withOpenTurns({'y|1':now+5},{a:{agent:'y',from:'1',messages:['x']}},{},now)['y|1'],now+5,'a later stamp is kept');
 });
+
+test('the engine media tests run on the engine as this version patches it, not on the live engine (19 Nov 2026)',async()=>{
+ // a new engine fix is applied only after the live test passes; testing the unpatched live engine failed every deploy that added one
+ const src=(await import('node:fs')).readFileSync(new URL('./live-test.mjs',import.meta.url),'utf8');
+ const i=src.indexOf('engine-fixes.test.py');assert.ok(i>0);const near=src.slice(Math.max(0,i-700),i+200);
+ assert.match(near,/engine-fixes-patch\.mjs'\),E,pf\]/,'the live engine is patched into a temporary copy first');
+ assert.match(near,/ENGINE_FIXED:pt\.ok\?pf:E/,'the tests read the patched copy')});

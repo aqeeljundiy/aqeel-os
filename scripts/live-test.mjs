@@ -10,8 +10,8 @@
 //   kirimdev   a signed tester message to a Test-mode Kirimdev line gets its reply sent
 //   agent      the test agent answers one short message (text, and the voice note and photo once media checks are on)
 // Writes the result to DATA/live-test.json (System › Health shows the latest) and exits 1 when anything failed.
-import {readFile,writeFile,rename,stat,mkdir} from 'node:fs/promises';
-import {homedir} from 'node:os';
+import {readFile,writeFile,rename,stat,mkdir,rm} from 'node:fs/promises';
+import os,{homedir} from 'node:os';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {randomBytes} from 'node:crypto';
@@ -184,7 +184,11 @@ async function checkMedia(since){const {execFile}=await import('node:child_proce
  const here=path.dirname(new URL(import.meta.url).pathname),E=path.join(HERMES_HOME,'hermes-agent'),py=await python();if(!py)return {ok:false,why:'the engine’s Python was not found'};
  const t=new Date(since).toISOString().slice(0,16).replace('T',' ');
  const mc=await run('bash',[path.join(here,'media-check.sh'),t]);if(!mc.ok)return {ok:false,why:'media-check: '+mc.out.split('\n').filter(l=>/✗|failed for good: [1-9]/.test(l)).join('; ').slice(0,300)};
- const ut=await run(py,['-I',path.join(here,'engine-fixes.test.py')],{env:{...process.env,ENGINE_FIXED:E}});if(!ut.ok)return {ok:false,why:'engine media tests failed: '+ut.out.split('\n').slice(-4).join(' ').slice(0,300)};
+ // the tests run on the engine as this version patches it (19 Nov 2026: engine fixes are applied only after the live test passes,
+ // so a new fix's test run on the live engine failed every time and undid both servers' deploys of fc829c7 and 8d63ab7)
+ const pf=path.join(os.tmpdir(),'aq-live-engine-'+randomBytes(4).toString('hex')),pt=await run(process.execPath,[path.join(here,'engine-fixes-patch.mjs'),E,pf]);
+ const ut=await run(py,['-I',path.join(here,'engine-fixes.test.py')],{env:{...process.env,ENGINE_FIXED:pt.ok?pf:E}});await rm(pf,{recursive:true,force:true}).catch(()=>{});
+ if(!ut.ok)return {ok:false,why:'engine media tests failed: '+(ut.out.split('\n').find(l=>/^✗/.test(l))||'')+' '+ut.out.split('\n').slice(-4).join(' ').slice(0,300)};
  const tx=await run(py,['-c','import sys,json;sys.path.insert(0,sys.argv[1]);from tools.transcription_tools import transcribe_audio;print(json.dumps(transcribe_audio(sys.argv[2])))',E,path.join(here,'fixtures','live-test-voice.wav')],{cwd:E});
  let j={};try{j=JSON.parse(tx.out.split('\n').filter(l=>l.trim().startsWith('{')).pop())}catch{}   // stderr comes along: take the JSON line, not the last line
  return heard(j.transcript)?{ok:true,why:'media fixes in place, engine media tests pass, a voice note transcribes ("'+String(j.transcript).slice(0,60)+'")'}:{ok:false,why:'the voice note did not transcribe ('+String(j.transcript||j.error||tx.out).slice(0,120)+')'}}
