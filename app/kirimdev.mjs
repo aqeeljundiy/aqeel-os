@@ -122,6 +122,10 @@ export function withCaptions(parts){const out=[];for(let i=0;i<parts.length;i++)
 import {guardReply,leaks,leakWords,internalLine,internalText,langOf} from './kirim-guard.mjs';
 export {guardReply,leaks,internalLine,internalText};
 
+// CH-7 (19 Nov 2026): "release 4567" (also lepas, lepaskan, buka; "chat"/"tahanan" may follow) from a team member in the team group: the
+// digits a held chat's number ends in (at least 4). Anything else is null. A quoted post it answers ([Replying to …]) is skipped.
+export function parseRelease(raw){const t=String(raw||'').replace(/^\[Replying to[\s\S]*?"\]\s*/,'').replace(/^@\w+\s+/,'').trim();
+ const m=/^(?:release|lepas(?:kan)?|buka)\s+(?:(?:chat|tahanan)\s+)?\+?(\d[\d\s-]{2,18}\d)[.!]?$/i.exec(t);return m?m[1].replace(/\D/g,''):null}
 // What a team member's Telegram message says about a draft (audit H5). Only these count: "ok" (also oke, okay, ya, yes, kirim, send, setuju,
 // approve, 👍, ✅), "no" (tidak, jangan, drop, batal, discard, ❌, 👎), or a text to send instead, which must be marked: "kirim: <text>"
 // (send:, edit:, ganti:). "ok nanti saya cek" is none of them and sends nothing. The draft's number comes from "#12" in the message or from
@@ -167,7 +171,7 @@ export const BRIDGE={url:process.env.WHATSAPP_BRIDGE_URL||'http://127.0.0.1:3000
 // otherwise it is an ordinary stop (the breaker below).
 const ENGINE_DOWN=/the agent stopped \((SIGINT|SIGTERM|SIGKILL)\)|Gateway did not answer|No session found matching|couldn't start the model connection|didn't produce a reply|Send `?continue`? to|Your message was not sent|ECONNREFUSED 127\.0\.0\.1|socket hang up/i;
 const engineDown=t=>ENGINE_DOWN.test(String(t||''));
-export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,reviewReply=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,mediaLink=null,receiptFinal=()=>{},echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout,routeOf=async()=>'',engineRestarting=async()=>false}){
+export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,reviewReply=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,mediaLink=null,receiptFinal=()=>{},echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout,routeOf=async()=>'',engineRestarting=async()=>false,teamPerson=async()=>null}){
  const pub=()=>String(PUBLIC_URL??publicUrl()).replace(/\/+$/,'');   // the address given (tests) or the install's current one
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
  const catalog=createCatalog({DATA,log}),CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
@@ -686,6 +690,16 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  // (lines.<agent>.approvers: [{who, telegramId}]), and the text is exactly an approval for one waiting draft. Anything else changes nothing.
  async function teamMessage(agent,{chatId,threadId,userId,text}={}){await state();const line=await lineOf(agent);if(!line)return {handled:false,why:'no line'};
   const t=await target(agent);if(!t||String(t.chatId)!==String(chatId))return {handled:false,why:'not the team group'};
+  // CH-7 (19 Nov 2026): The team lead could not let a held chat go: only an admin could, on Channels, and he has no aqeelOS sign-in. A person on the
+  // line's approvers list, or on the team that looks after this agent (teamPerson: the team policy), writes "release 4567" in any topic of
+  // the team group; the one held chat whose number ends in those digits is let go and its waiting messages are answered. Nothing is sent.
+  const rd=parseRelease(text);if(rd){const say=m=>telegram(agent,t.chatId,threadId||t.threadId,m).catch(()=>false);
+   const who=(line.approvers||[]).find(x=>String(x?.telegramId||'')===String(userId||'')&&String(userId||''))?.who||(String(userId||'')?(await teamPerson(agent,String(userId)).catch(()=>null))?.name:null);
+   if(!who){await say('✋ Not released: this Telegram account is not on '+line.persona+'’s team list. An admin adds it, or releases the chat on Channels.');return {handled:false,why:'not an approver'}}
+   const held=Object.values(st.holds).filter(h=>h.agent===agent&&String(h.from).endsWith(rd));
+   if(held.length!==1){await say(held.length?'✋ '+held.length+' held chats end in '+rd+': write more digits of the number.':'✋ No chat ending in '+rd+' is held for the team on '+line.persona+'.');return {handled:false,why:held.length?'which chat':'not held'}}
+   const num=String(held[0].from);release(agent,num,'released by '+who+' in Telegram');for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===num)schedule(k,{debounceSec:5});await saveState();
+   await say('✅ The chat ending in '+rd+' is no longer held, released by '+who+'. '+line.persona+' answers its waiting messages in a few seconds.');return {handled:true,released:num}}
   if(t.threadId&&threadId&&String(t.threadId)!==String(threadId))return {handled:false,why:'not the Questions topic'};
   const waiting=Object.values(st.drafts).filter(d=>d.agent===agent&&d.status==='waiting');if(!waiting.length)return {handled:false,why:'no draft is waiting'};
   const a=parseApproval(text);if(!a)return {handled:false,why:'not an approval'};
