@@ -884,7 +884,7 @@ if(LIVE_APP){const HB=path.join(DATA,'heartbeat.json');readFile(HB,'utf8').then(
 const brandMarks=async({custom}={})=>{const out=[],rd=f=>readFile(path.join(root,f)).catch(()=>null),fb=String(env.BRAND_LOGO_FALLBACK||'');
  if(/^\/assets\/[\w.-]+\.(svg|png)$/.test(fb)){const d=await rd(fb.slice(1));if(d)out.push({file:fb.slice(1),type:fb.endsWith('svg')?'image/svg+xml':'image/png',data:d})}
  if(!custom){const d=await rd('assets/aqeelos-mark-render.png');if(d)out.push({file:'assets/aqeelos-mark.svg',type:'image/png',data:d,bg:'#111827',note:'the orbit at 2048 px (code/scripts/make-icons.mjs), on its own #111827 tile'})}return out};
-// how an install's logo is really used when the owner has set no colours: Pixel & Profits shows its mark in green #83b271 on near-black #111 (its site's favicon and header), so its icon does too
+// an install's logo as it is really used when no colours are set (P&P: green #83b271 on #111, as its favicon)
 const BRAND_LOOK={'ai.pixelandprofits.com':{colour:'#111111',accent:'#83b271'}}[(()=>{try{return new URL(env.PUBLIC_URL||'').hostname}catch{return ''}})()]||{};
 const brand=createBrand({DATA,contactFallback:OWNER_CONTACT,fallbackMarks:brandMarks,colourDefault:env.AQEELOS_BRAND_COLOUR||BRAND_LOOK.colour||'',accentDefault:env.AQEELOS_BRAND_ACCENT||BRAND_LOOK.accent||''});
 const backups=createBackups({detach:LIVE_APP,DATA,HOME:homedir(),HERMES_HOME,tz:()=>tzNow,notify:(t,d)=>bottlenecks.event('backup',t,d+' Open System › Health to try again.',{topic:'backup'}).catch(()=>{}),solved:()=>bottlenecks.resolve('backup').catch(()=>{}),
@@ -967,7 +967,7 @@ if(LIVE_APP){setTimeout(()=>listAgents().then(l=>instructions.tick(l)).catch(()=
 // Automatic updates (scripts/auto-update.mjs) on a Docker box; installer installs use a systemd timer. Checked every 15 minutes;
 // the script itself keeps to the quiet hours. A failed or refused update goes under Bottlenecks once.
 if(LIVE_APP&&existsSync(path.join(homedir(),'services.sh'))){const tick=()=>{try{spawn(process.execPath,[path.join(root,'scripts','auto-update.mjs')],{detached:true,stdio:'ignore',env:process.env}).unref()}catch{}};setTimeout(tick,120000).unref();setInterval(tick,15*60000).unref()}
-// The night's page checks (browser-checks.mjs, 12 Nov 2026): the browser checks that no longer run at every deploy run once a night in the maintenance window, after the update; a failure is one Health item
+// Night page checks (browser-checks.mjs, 12 Nov 2026): once a night after the update; a failure is one Health item
 const browserChecks=createBrowserChecks({DATA,APP:root,settings:()=>installSettings(),bottlenecks,live:async()=>({box:existsSync(path.join(homedir(),'services.sh')),sha:(await readFile(path.join(root,'.deployed-commit'),'utf8').catch(()=>'')).trim()})});
 if(LIVE_APP)setInterval(()=>browserChecks.tick().catch(e=>console.warn('browser checks',e.message)),5*60e3).unref();
 // after a key rotation (scripts/rotate-secrets.mjs): every old signature in the agents' settings and aqeelOS's scripts becomes the new one, first thing
@@ -1257,7 +1257,7 @@ if(LIVE_APP)setTimeout(()=>{for(const p of ['/profiles','/profiles/active'])hapi
 // the slow status reads are read once soon after start (read-only), so even the first page that asks answers from them
 setTimeout(()=>{channelList(false).catch(()=>{});antigravity.status().catch(()=>{});n8n.spaces().catch(()=>{})},15000).unref();
 // System › Usage's engine reports (last 7 days, and the 62 the Spending overview needs) for every agent, once after start, so
-// even the first visit answers at once; after that each visit refreshes them behind the scenes (usage.mjs, 1 Nov 2026). Only the live app (isLive): a test copy reads nothing it is not asked for
+// the first visit answers at once; later visits refresh in the background (usage.mjs, 1 Nov 2026). Live app only
 if(LIVE_APP)setTimeout(async()=>{for(const a of [...await listAgents().catch(()=>[]),HELP_AGENT])for(const [k,d] of [['usage',7],['usage',62],['models',7]])usage.report(k,a,d).catch(()=>{})},25000).unref();
 /* The engine reports WhatsApp on any agent but the main one as "not set up", even when linked and connected (its
    check needs env keys WhatsApp doesn't have). The truth: switched on + a saved login (creds.json) = set up, and the
@@ -1941,7 +1941,7 @@ async function telegramChat(agent,chatId){const k=agent+'|'+chatId,c=chatSeen.ge
  if(v&&!v.gone){const me=tok.split(':')[0];const m=await api('getChatMember',{chat_id:chatId,user_id:Number(me)});if(m?.ok&&/left|kicked/.test(m.result?.status||''))v.gone=true}
  chatSeen.set(k,{at:Date.now(),v});return v}
 const agentLive=createAgentLive({HERMES_HOME,DATA,chatInfo:(a,pf,id)=>pf==='telegram'?telegramChat(a,id):null,
- topicName:async(a,chatId,thread)=>{const g=await teamGroups.get(a).catch(()=>null);if(!g||String(g.chatId)!==String(chatId))return null;const r=Object.entries(g.topics||{}).find(([,v])=>String(v)===String(thread));return r?pretty0(r[0])+' (topic '+thread+')':null},listAgents:()=>listAgents(),readConfig,setKey,pick,capabilities:a=>versions.capabilities(a),policy:()=>issues.policy(),nameOf:a=>NAMES[a]||a,engineDir:path.join(here,'..','engine','aqeelos-live')});
+ topicName:async(a,chatId,thread)=>{const g=await teamGroups.get(a).catch(()=>null);if(!g||String(g.chatId)!==String(chatId))return null;const r=Object.entries(g.topics||{}).find(([,v])=>String(v)===String(thread));return r?pretty0(r[0])+' (topic '+thread+')':null},listAgents:()=>listAgents(),readConfig,setKey,pick,capabilities:a=>versions.capabilities(a),policy:()=>issues.policy(),nameOf:a=>NAMES[a]||a,engineDir:path.join(here,'..','engine','aqeelos-live'),teamEmpty:pf=>bottlenecks.event('channel','Nobody is on the team list','Messages come in on '+pf+' but System › Teams names no owner or member, so agents treat every sender as unverified. Add the people with their '+pf+' accounts.',{topic:'team-empty'})});
 // shipped engine plugins stay current in every home; the engine reloads after an update (plugin-sync.mjs)
 const pluginSync=createPluginSync({DATA,engineDir:path.join(root,'engine'),readConfig,pick,restartLater,isTest:isTestAgent,nameOf:agentName,enginePid:gatewayPid,bottlenecks});
 if(LIVE_APP){const liveInstall=()=>agentLive.install().then(async c0=>{const c=[];for(const a of c0)if(!await isTestAgent(typeof a==='string'?a:a?.agent||'').catch(()=>false))c.push(a);if(c.length)agentReload.plugins(c.map(a=>typeof a==='string'?a:a?.agent).filter(Boolean),'aqeelos-live plugin installed').catch(()=>{})}).catch(e=>{console.warn('agent-live install',e.message);throw e});

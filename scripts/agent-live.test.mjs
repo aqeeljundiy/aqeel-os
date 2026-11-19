@@ -78,3 +78,13 @@ test('a group chat is named as it is now, with its topic role; a group the bot l
  assert.match(c.text,/This chat now: "Continue - Support Agent", topic Questions \(topic 89\) \(earlier messages may call it "Longevity - Support Agents": that is its old name\)/);
  assert.match((await L.context('cove-support',{platform:'telegram',sender:'1000000001',chat:{chat_id:'-100gone',chat_type:'supergroup'}})).text,/no longer a member/);
  assert.doesNotMatch((await L.context('cove-support',{platform:'telegram',sender:'1000000001',chat:{chat_id:'1000000001',chat_type:'dm'}})).text,/This chat now/)});
+
+test('an empty team list raises one Needs-you item per platform, again only after 6 hours; a filled list never (19 Nov 2026)',async()=>{
+ const told=[];let pol={teams:[],fixer:{on:true}},t=1e12;
+ const mk=()=>createAgentLive({HERMES_HOME:tmpdir(),DATA:tmpdir(),listAgents:async()=>[],readConfig:async()=>({}),setKey:async()=>{},pick:()=>undefined,capabilities:async()=>[],policy:async()=>pol,engineDir:ENGINE,log:()=>{},now:()=>t,teamEmpty:async pf=>{told.push(pf)}});
+ const L=mk();
+ await L.context('cove-support',{platform:'slack',sender:'U0C8FJKHQ4R'});await L.context('cove-support',{platform:'slack',sender:'U0C8FJKHQ4R'});
+ await new Promise(r=>setTimeout(r,10));assert.deepEqual(told,['slack']);
+ t+=7*3600e3;await L.context('cove-support',{platform:'slack',sender:'U0C8FJKHQ4R'});await new Promise(r=>setTimeout(r,10));assert.deepEqual(told,['slack','slack']);
+ pol={owner:{name:'Aqeel',slack:['U09SU72KC13']},teams:[]};t+=7*3600e3;await mk().context('cove-support',{platform:'slack',sender:'U0C8FJKHQ4R'});await new Promise(r=>setTimeout(r,10));
+ assert.equal(told.length,2,'an owner on the list is enough')});
