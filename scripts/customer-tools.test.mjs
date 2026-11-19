@@ -132,7 +132,9 @@ test('the price list prices the order: products, quantities, a listed promo code
  assert.deepEqual(splitAmounts(5700000,{min:10000,max:5000000}),[5000000,700000]);assert.deepEqual(splitAmounts(5005000,{min:10000,max:5000000}),[4995000,10000]);assert.equal(splitAmounts(26000000,{min:10000,max:5000000}),null);
  assert.equal(parseMoney('3800000.00'),3800000);assert.equal(parseMoney('IDR 3,040,000'),3040000);
  const p=parsePriceList('# list\n- Reta 10mg: jual Rp3.200.000 | coret Rp4.000.000\n- Premium Reusable Pen (colors: Orange): jual Rp1.000.000 | coret Rp1.500.000\nCL-RTGLP3-10MG | Product A · 10 mg | 4000000 | 3200000\nRT-GLP3 10mg | Default Title | None | 3800000.00 | gid://shopify/ProductVariant/1 | ACTIVE\nOld | Default Title | None | 1.00 | gid://shopify/ProductVariant/2 | ARCHIVED');
- assert.deepEqual(p,{'reta-10mg':{name:'Reta 10mg',price:3200000},'premium-reusable-pen':{name:'Premium Reusable Pen',price:1000000},'CL-RTGLP3-10MG':{name:'Product A · 10 mg',price:3200000},'rt-glp3-10mg':{name:'RT-GLP3 10mg',price:3800000}})});
+ // the strike-through price (coret) is kept (19 Nov 2026), and an id written in the line wins over the name's slug
+ assert.deepEqual(parsePriceList('- Promo bundle Reta + Pen (any colour; quote_order id: reta-pen-bundle): jual Rp3.900.000 FIXED | coret Rp5.500.000'),{'reta-pen-bundle':{name:'Promo bundle Reta + Pen',price:3900000,was:5500000}});
+ assert.deepEqual(p,{'reta-10mg':{name:'Reta 10mg',price:3200000,was:4000000},'premium-reusable-pen':{name:'Premium Reusable Pen',price:1000000,was:1500000},'CL-RTGLP3-10MG':{name:'Product A · 10 mg',price:3200000},'rt-glp3-10mg':{name:'RT-GLP3 10mg',price:3800000}})});
 test('the model cannot set the amount: Rp10.000 for an order of millions is refused for a customer; the price list total is charged (audit C2)',async()=>{const t=await shop();
  // the audit's case: the model read "testers pay Rp10.000" and passes it
  const low=await t.pay({items:[{id:'reta-10mg',qty:1}],discount_code:'THREADS5',order_form:FORM3('Rp3.040.000'),order_total:10000,amounts:[10000]});assert.equal(low.isError,true);assert.match(low.text,/No payment was made[\s\S]*never yours to set/);

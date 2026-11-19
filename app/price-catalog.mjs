@@ -35,7 +35,9 @@ export function splitAmounts(total,{min=1,max=1e9}={}){total=int(total);if(!(tot
  if(rest<min){parts[parts.length-1]-=min-rest;rest=min}parts.push(rest);return parts.every(x=>x>=min&&x<=max)?parts:null}
 
 export function cleanCatalog(c){if(!c||typeof c!=='object'||!c.products||typeof c.products!=='object')return null;const ID=/^[A-Za-z0-9][\w.+-]{0,60}$/;const out={currency:String(c.currency||''),products:{},shipping:{},discounts:{},free:{},fees:{},updated:String(c.updated||''),source:String(c.source||'')};
- for(const [id,p] of Object.entries(c.products)){const price=int(p?.price);if(!ID.test(id)||!(price>=0)||!p?.name)continue;out.products[id]={name:String(p.name).slice(0,120),price,...(p.label&&/^S-/.test(p.label)?{label:String(p.label)}:{})}}
+ // was: the strike-through price (harga coret) the team set, kept when it is above the selling price (19 Nov 2026: the check before sending
+ // needs it from here, not from prices typed into a line's settings that go stale when the list changes)
+ for(const [id,p] of Object.entries(c.products)){const price=int(p?.price),was=int(p?.was);if(!ID.test(id)||!(price>=0)||!p?.name)continue;out.products[id]={name:String(p.name).slice(0,120),price,...(was>price?{was}:{}),...(p.label&&/^S-/.test(p.label)?{label:String(p.label)}:{})}}
  for(const [id,s] of Object.entries(c.shipping||{})){const price=int(s?.price);if(!ID.test(id)||!(price>=0))continue;out.shipping[id]={name:String(s.name||id).slice(0,80),price,...(s.default?{default:true}:{})}}
  for(const [code,d] of Object.entries(c.discounts||{})){const k=String(code).trim().toUpperCase(),pc=Number(d?.percent),am=int(d?.amount);if(!/^[A-Z0-9][A-Z0-9_-]{1,30}$/.test(k))continue;
   if(pc>0&&pc<=100)out.discounts[k]={percent:pc};else if(am>0)out.discounts[k]={amount:am};else continue;
@@ -85,9 +87,11 @@ export const listText=(cat,cur=cat?.currency||'')=>!cat?'This line has no price 
 //  "CL-RTGLP3-10MG | Product A · 10 mg | 4000000 | 3200000"     (sku | title | list price | selling price)
 //  "RT-GLP3 10mg | Default Title | None | 3800000.00 | gid://… | ACTIVE"   (title | variant | sku | price | id | status)
 export const slug=s=>String(s||'').toLowerCase().normalize('NFKD').replace(/\([^)]*\)/g,' ').replace(/\+/g,' plus ').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60);
-export function parsePriceList(text){const products={};const add=(id,name,price)=>{id=String(id||'').trim();price=int(price);if(!id||!(price>0)||!name)return;let k=id,n=2;while(products[k]&&products[k].price!==price)k=id+'-'+n++;products[k]={name:String(name).trim().slice(0,120),price}};
+export function parsePriceList(text){const products={};const add=(id,name,price,was)=>{id=String(id||'').trim();price=int(price);if(!id||!(price>0)||!name)return;let k=id,n=2;while(products[k]&&products[k].price!==price)k=id+'-'+n++;products[k]={name:String(name).trim().slice(0,120),price,...(int(was)>price?{was:int(was)}:{})}};
  for(const raw of String(text||'').split('\n')){const l=raw.trim();if(!l||l.startsWith('#'))continue;
-  let m=/^[-*•]\s*(.+?):\s*jual\s+(Rp[\d.,]+)/i.exec(l);if(m){add(slug(m[1]),m[1].replace(/\s*\([^)]*\)\s*/g,' ').trim(),parseMoney(m[2]));continue}
+  // "- Name (… id: some-id …): jual Rp… | coret Rp…": the id written in the line wins, the strike-through price is kept (19 Nov 2026)
+  let m=/^[-*•]\s*(.+?):\s*jual\s+(Rp[\d.,]+)/i.exec(l);if(m){const id=(/\bid:\s*([a-z0-9][a-z0-9-]{1,60})\b/i.exec(m[1])||[])[1],was=(/\bcoret\s+~?(Rp[\d.,]+)/i.exec(l)||[])[1];
+   add(id||slug(m[1]),m[1].replace(/\s*\([^)]*\)\s*/g,' ').trim(),parseMoney(m[2]),was?parseMoney(was):0);continue}
   const c=l.split('|').map(x=>x.trim());
   if(c.length>=6&&/^gid:\/\//.test(c[4])){if(/^(ACTIVE|UNLISTED)$/i.test(c[5]))add(c[2]&&c[2]!=='None'?c[2]:slug(c[0]+(c[1]&&c[1]!=='Default Title'?' '+c[1]:'')),c[0]+(c[1]&&c[1]!=='Default Title'?' '+c[1]:''),parseMoney(c[3]));continue}
   if(c.length===4&&/^[A-Z0-9][A-Z0-9_-]+$/.test(c[0])&&/^\d+$/.test(c[3]))add(c[0],c[1],Number(c[3]))}

@@ -454,7 +454,10 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   // the line's price list held by aqeelOS (price-catalog.mjs, what quote_order and create_payment charge): the check never saw it and held
   // right prices as "not backed by any source" (Gilang's Tirzepatide 10mg Rp3.600.000, 17 Nov 2026)
   const cat=await catalog.of(agent).catch(()=>null),pl=Object.values(cat?.products||{}).slice(0,80);
-  if(pl.length)facts.push('Selling prices in the price list aqeelOS charges from (a price that matches this list is backed): '+pl.map(x=>x.name+' '+money(x.price,cat.currency||line.payment?.currency||'Rp')).join('; ')+'.');
+  // with the team's strike-through price (coret) where the list has one: it can break the line's general rule on purpose (the pen's fixed
+  // ~Rp1.500.000~), and coming from the list it stays right when the team changes a price (19 Nov 2026; before, it was typed into reviewFacts)
+  const cur=cat?.currency||line.payment?.currency||'Rp';
+  if(pl.length)facts.push('Prices in the price list aqeelOS charges from (a price or strike-through price that matches this list is right, even where it breaks a general rule): '+pl.map(x=>x.name+' '+money(x.price,cur)+(x.was?' (coret '+money(x.was,cur)+')':'')).join('; ')+'.');
   let r;try{r=parseReview(await reviewReply(agent,reviewPrompt({newMessages,history,draft:g.parts,language:line.language||'',facts})))}
   catch(e){if(providerUnavailable(e.message,{now:now()})||engineDown(e.message))throw e;r={ok:false,problems:['the reply could not be checked before sending ('+String(e.message).slice(0,120)+')']}}
   if(r.ok)return g;log('kirimdev '+agent+': the check before sending held a reply: '+r.problems.join(' | ').slice(0,300));

@@ -22,6 +22,12 @@ const pairs=s=>String(s||'').split(',').map(x=>x.trim()).filter(Boolean).map(x=>
 const shipping=arg('--shipping')?Object.fromEntries(pairs(arg('--shipping')).map(([id,v])=>{const j=v.lastIndexOf(':');return [id,{name:v.slice(0,j).replace(/^"|"$/g,''),price:Number(v.slice(j+1))}]})):old.shipping;
 const discounts=arg('--discount')?Object.fromEntries(pairs(arg('--discount')).map(([c,p])=>[c.toUpperCase(),{percent:Number(p)}])):old.discounts;
 const free=arg('--free')?Object.fromEntries(pairs(arg('--free')).map(([id,o])=>[id,{over:Number(o)}])):old.free;
+// --was-only: only the strike-through prices (coret) go onto the products the list already has, matched by id, else by name; no product is
+// added, removed, renamed or repriced (19 Nov 2026: the check before sending reads them from here)
+if(A.includes('--was-only')){const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(),byName=new Map(Object.values(products).map(p=>[norm(p.name),p]));let n=0;
+ for(const [id,p] of Object.entries(old.products||{})){const src=products[id]||byName.get(norm(p.name));if(src?.was>p.price&&src.price===p.price){p.was=src.was;n++}}
+ console.log(n+' strike-through price(s) found for '+Object.keys(old.products||{}).length+' products (only where the selling price matches).');
+ if(A.includes('--apply')){await cat.set(agent,old);console.log('Saved to '+cat.file+'.')}else console.log('Dry run: nothing was saved; run again with --apply.');process.exit(0)}
 const next=cleanCatalog({currency:arg('--currency')||old.currency||'Rp',products,shipping,discounts,free,fees:arg('--card-fee')?{card:{percent:Number(arg('--card-fee'))}}:old.fees,source:path.basename(file),updated:new Date().toISOString().slice(0,10)});
 console.log(listText(next));console.log('\n'+Object.keys(next.products).length+' products for '+agent+'.');
 if(A.includes('--apply')){await cat.set(agent,next);console.log('Saved to '+cat.file+'.')}else console.log('Dry run: nothing was saved. Check every price above against the team\'s list, then run again with --apply.');
