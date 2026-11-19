@@ -3,7 +3,7 @@
 # around it. It never starts a browser sign-in (suppress_interactive_oauth): a server that needs one says so.
 # argv[1] the engine's folder (its libraries), argv[2] the server name in the agent's config.yaml; HERMES_HOME = the agent's home.
 # stdout: one JSON line {"ready":..} after connecting, then one JSON line per call; stdin: one JSON line per call {"id","tool","arguments"}.
-import json, sys
+import json, re, sys
 sys.path.insert(0, sys.argv[1] if len(sys.argv) > 1 else '.')
 import glob, os
 _sp = sorted(glob.glob(os.path.expanduser("~/.hermes/installs/*/environments/*/venv/lib/python*/site-packages")), key=os.path.getmtime)
@@ -49,9 +49,13 @@ def main():
     include, exclude = _tool_filters(cfg)
     cfg = _resolve_mcp_server_config(dict(cfg))
     _ensure_mcp_loop()
-    try:
+
+    def connect():
         with suppress_interactive_oauth():
-            server = _run_on_mcp_loop(_connect_server(name, cfg), timeout=float(cfg.get("connect_timeout", 60)) + 10)
+            return _run_on_mcp_loop(_connect_server(name, cfg), timeout=float(cfg.get("connect_timeout", 60)) + 10)
+
+    try:
+        server = connect()
     except BaseException as e:
         return say({"ready": False, "error": (type(e).__name__ + ": " + str(e))[:400]})
     names = [t.name for t in server._tools]
@@ -67,11 +71,30 @@ def main():
             if tool not in allowed:
                 say({"id": rid, "ok": False, "error": "this agent has no tool " + tool + " on " + name})
                 continue
-            try:
-                r = _run_on_mcp_loop(server.session.call_tool(tool, req.get("arguments") or {}), timeout=float(req.get("timeout") or 120))
+            # A server that drops once (Airtable answered 502 mid-sync, 19 Nov 2026) leaves server.session None, and every later
+            # call failed with "'NoneType' object has no attribute 'call_tool'": connect again and try that call once more.
+            r, err, stale = None, None, False
+            for attempt in (1, 2):
+                try:
+                    if stale or getattr(server, "session", None) is None:
+                        try:
+                            _run_on_mcp_loop(server.shutdown(), timeout=20)
+                        except BaseException:
+                            pass
+                        server, stale = connect(), False
+                    r = _run_on_mcp_loop(server.session.call_tool(tool, req.get("arguments") or {}), timeout=float(req.get("timeout") or 120))
+                    err = None
+                    break
+                except BaseException as e:
+                    err = e
+                    # a dropped connection gets one more try on a new one; any other error is the tool's answer
+                    stale = getattr(server, "session", None) is None or isinstance(e, (AttributeError, ConnectionError, OSError, EOFError)) or bool(re.search(r"\b50[234]\b|closed|connection|stream", str(e), re.I))
+                    if not stale:
+                        break
+            if err is None:
                 say({"id": rid, "ok": True, **content_of(r)})
-            except BaseException as e:
-                say({"id": rid, "ok": False, "error": (type(e).__name__ + ": " + str(e))[:400]})
+            else:
+                say({"id": rid, "ok": False, "error": (type(err).__name__ + ": " + str(err))[:400]})
     finally:
         try:
             _run_on_mcp_loop(server.shutdown(), timeout=20)

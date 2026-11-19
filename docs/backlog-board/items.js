@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 06:45 UTC",
+ "updated": "19 Nov 2026, 07:30 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -371,10 +371,10 @@ window.BOARD = {
    "id": "PP-2",
    "area": "pnp",
    "p": 1,
-   "status": "you",
+   "status": "doing",
    "server": "P&P",
    "title": "Fakhri's Wood Origins Airtable to Sheet sync",
-   "detail": "19 Nov: the tool bridge works (Google and n8n answer); Airtable fails because Fakhri's Airtable sign-in expired and Airtable refused the renewal, and the Sheets API is off in P&P's Google Cloud project. Fakhri signs in again (OW-9) and you switch on the Sheets API (OW-8); then I run the sync. Before: Tool bridge signature still rejected after the 17 Nov fix, so the sheet sync stopped and the daily 06:00 WIB lead sync keeps failing. Fix the signature, run the sync once, watch the next morning's run.",
+   "detail": "19 Nov: the sync now runs as a script (not through the chat, since 17 Nov). Today's 06:00 run read 12,000 of 17,541 Airtable records, then Airtable answered 502 once and aqeelOS's tool bridge never reconnected (\"'NoneType' object has no attribute 'call_tool'\"), so nothing was written. Fixed: the bridge reconnects and retries the call once. Live with the next P&P deploy; tomorrow's 06:00 run is the proof. Sheet write access still needs OW-12.",
    "refs": [
     "i6c13dcf5",
     "i0772eb6f",
@@ -945,6 +945,16 @@ window.BOARD = {
    "server": "Elkiya",
    "title": "Donna: Master To Do views restored after her Context change",
    "detail": "19 Nov morning: adding the Context column made Donna hide every other column in your 5 Notion views (no data lost). She put the columns back but did not look at the result. Open Master To Do and say if a view still looks wrong. Your two rules (only tasks you own; close finished ones) are saved in her task rules.",
+   "refs": []
+  },
+  {
+   "id": "WA-1",
+   "area": "sales",
+   "p": 2,
+   "status": "todo",
+   "server": "Both",
+   "title": "WhatsApp chats show where the person came from (first and last touch, UTM)",
+   "detail": "Owner's idea, 19 Nov: when someone taps a WhatsApp button on a site, the chat opens with where they came from (\"Halo, saya dari ...\" plus a short code), and the team and agent see the source. Keep layers: first touch, last touch, and the last paid touch (ad campaign UTM, fbclid/gclid), kept for days in the browser, so an ad still gets the credit when the person converts later on a direct visit. Show it on the chat (Kirimdev labels, Meta Ads/WhatsApp lead), and report which source turned into a sale. Wood Origins already has a short hash-code version on 3 landing pages (lookup table of ad rows); this generalises it. To decide first: which sites, and whether the code is visible in the message or hidden.",
    "refs": []
   }
  ]
