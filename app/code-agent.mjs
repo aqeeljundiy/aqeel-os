@@ -21,6 +21,18 @@ export const providerPlugins=(enabled,manifest)=>(Array.isArray(enabled)?enabled
 // which tool groups to switch off: every one the engine lists that is not kept
 export const codeOff=list=>list.map(x=>x?.name||x).filter(n=>n&&!CODE_KEEP.includes(n));
 
+// The main agent's model sign-ins in another engine profile: every plugin the main agent has on whose manifest says
+// kind: model-provider is copied (as accounts.mjs does for a new agent) and switched on there. Returns how many need a
+// gateway restart to apply (a CLI run, as the fixer's, loads them at its start anyway). Used by Code and the fixer.
+export async function copyProviderPlugins(agent,{readConfig,pick,hermes=engineCmd,log=()=>{}}){
+ const main0=await readConfig('default').catch(()=>null),mainDir=homeOf('default'),dir=homeOf(agent);const manifests={};
+ for(const p of pick(main0||{},'plugins.enabled')||[])manifests[p]=await readFile(path.join(mainDir,'plugins',String(p),'plugin.yaml'),'utf8').catch(()=>'');
+ const have=pick(await readConfig(agent).catch(()=>null)||{},'plugins.enabled')||[];let switched=0;
+ for(const p of providerPlugins(pick(main0||{},'plugins.enabled'),n=>manifests[n])){const to=path.join(dir,'plugins',p);
+  if(!await access(path.join(to,'plugin.yaml')).then(()=>1,()=>0)){await mkdir(path.join(dir,'plugins'),{recursive:true});await cp(path.join(mainDir,'plugins',p),to,{recursive:true});await cp(path.join(mainDir,'plugins','.install-metadata.json'),path.join(dir,'plugins','.install-metadata.json')).catch(()=>{})}
+  if(!have.includes(p)){const r=await hermes(agent,['plugins','enable',p],{timeout:150000,retries:3});if(!r.ok)throw Error('could not switch on '+p+': '+String(r.err||r.out||'').slice(-160));log(p+' switched on');if(!/Gateway reloaded plugins/i.test(String(r.out||'')))switched++}}
+ return switched}
+
 export function createCodeAgent({DASH,DASH_TOKEN,API_KEY,live=true,codeBridge,readConfig,pick,hermes=engineCmd,restart=null,log=m=>console.log(m)}){
  const dash=(p,opt={})=>fetch(DASH+'/api'+p,{...opt,headers:{'x-hermes-session-token':DASH_TOKEN,...(opt.body?{'content-type':'application/json'}:{}),...(opt.headers||{})},signal:opt.signal||AbortSignal.timeout(30000)});
  const json=async r=>{try{return await r.json()}catch{return {}}};
@@ -42,12 +54,7 @@ export function createCodeAgent({DASH,DASH_TOKEN,API_KEY,live=true,codeBridge,re
   const cur=await dash('/profiles/'+CODE_AGENT+'/soul').then(json).catch(()=>({}));
   if(cur.content!==CODE_SOUL){const r=await dash('/profiles/'+CODE_AGENT+'/soul',{method:'PUT',body:JSON.stringify({content:CODE_SOUL})});if(!r.ok)throw Error('could not write its instructions ('+r.status+')')}
   // the main agent's model sign-ins (copied as accounts.mjs does for a new agent, then switched on in this profile)
-  const main0=await readConfig('default').catch(()=>null),mainDir=homeOf('default'),dir=homeOf(CODE_AGENT);const manifests={};
-  for(const p of pick(main0||{},'plugins.enabled')||[])manifests[p]=await readFile(path.join(mainDir,'plugins',String(p),'plugin.yaml'),'utf8').catch(()=>'');
-  const have=pick(await readConfig(CODE_AGENT).catch(()=>null)||{},'plugins.enabled')||[];let switched=0;
-  for(const p of providerPlugins(pick(main0||{},'plugins.enabled'),n=>manifests[n])){const to=path.join(dir,'plugins',p);
-   if(!await access(path.join(to,'plugin.yaml')).then(()=>1,()=>0)){await mkdir(path.join(dir,'plugins'),{recursive:true});await cp(path.join(mainDir,'plugins',p),to,{recursive:true});await cp(path.join(mainDir,'plugins','.install-metadata.json'),path.join(dir,'plugins','.install-metadata.json')).catch(()=>{})}
-   if(!have.includes(p)){const r=await hermes(CODE_AGENT,['plugins','enable',p],{timeout:150000,retries:3});if(!r.ok)throw Error('could not switch on '+p+': '+String(r.err||r.out||'').slice(-160));log('code agent: '+p+' switched on');if(!/Gateway reloaded plugins/i.test(String(r.out||'')))switched++}}
+  const switched=await copyProviderPlugins(CODE_AGENT,{readConfig,pick,hermes,log:m=>log('code agent: '+m)});
   // a plugin switched on applies when the agents restart (as for any agent, access.mjs); the restart waits until nobody is mid-reply
   if(switched&&restart)await restart('code agent: its model sign-ins switched on');
   // a default model, the main agent's, so "Default" in Code works; Code names the model of each turn anyway

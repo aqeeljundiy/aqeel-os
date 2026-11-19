@@ -309,6 +309,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  tz=()=>'',sortRun=null,
  // GIT-2: the fixer's own git checkout (fixer-git.mjs); needToken / tokenOk: the one "Needs you" item that asks for the GitHub token
  git=null,needToken=async()=>{},tokenOk=async()=>{},
+ // the fixer's own engine profile (fixer-agent.mjs): runs and checks use it, since its config is what sends the terminal to aq-fixer
+ fixerAgent=null,
  // CR-7: the fixer's own user (fixer-sandbox.mjs); needFull / fullOk: the Health item that says the fixer runs with full rights; canaryMs: how long the confinement check may take
  sandbox=null,needFull=async()=>{},fullOk=async()=>{},canaryMs=240000,
  // 12 Nov 2026: the cloud fixer (cloud-fixer.mjs); needCloud / cloudOk: the one "Needs you" item that asks to set it up; window: the maintenance window; onLimit(agent, text): an answer that said a Claude account hit a limit
@@ -597,7 +599,8 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   // code = a bug in aqeelOS's own code (a git checkout); repair = a settings repair through the app's named repairs (fixer-actions.mjs); proof = read-only checks through the app
   const mode=kind==='proof'?'proof':i.sorted==='code'&&!cl&&git?'code':'repair';
   const pl=sandbox?await sandbox.plan(pol,i,{mode}).catch(e=>({hold:true,why:e.message})):{hold:true,why:'This install has no fixer user; fixes wait (the fixer never runs as the box user).'};
-  if(pl.confine&&pl.canary){const c=await runCanary(pl,pol);if(c.ok)pl.variant=c.variant;else{pl.confine=false;pl.hold=true;pl.why=c.why}}
+  const fa=await fixerProfile(pol);if(!fa.ok){pl.hold=true;pl.why=fa.why}
+  if(!pl.hold&&pl.confine&&pl.canary){const c=await runCanary(pl,pol);if(c.ok)pl.variant=c.variant;else{pl.confine=false;pl.hold=true;pl.why=c.why}}
   if(pl.hold||!pl.confine)return await hold(i,pl.why);
   if(db.heldSince||db.heldWhy){db.heldSince=0;db.heldWhy=null;await save()}await clearFull();
   let work;
@@ -612,7 +615,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   await writeFile(path.join(dir,'prompt.txt'),kind==='proof'?proofPrompt(i,last,{reloaded:i.applied||null,recheck:!!i.recheck,deployed:i.recheck==='deploy',turns,url:cf.launch.url,help}):mode==='code'?confinedPrompt(i,{rules:pol.fixer?.rules||'',attempt:n,git:gw,url:cf.launch.url,turns}):repairPrompt(i,{rules:pol.fixer?.rules||'',attempt:n,url:cf.launch.url,help,cloud:cl,turns}),{mode:0o600});
   if(kind==='fix'&&watch)await watch.snapshot(dir).catch(e=>log('issues: watch snapshot: '+e.message));
   if(kind==='fix'){i.tries=n;i.state='fixing'}else i.state='verifying';i.run=id;i.updated=now();
-  i.fp=fingerprint(i);const r={id,issue:i.id,kind,day:today(),at:now(),agent:pol.fixer?.agent||'default',turns,fp:i.fp,...(mdl.model?{model:mdl.model}:{}),...(mdl.effort?{effort:mdl.effort}:{})};if(gw)r.git={dir:gw.dir,branch:gw.branch};r.confined=cf.variant?.name||'env';r.mode=mode;db.runs[id]=r;await save();
+  i.fp=fingerprint(i);const r={id,issue:i.id,kind,day:today(),at:now(),agent:fa.id,turns,fp:i.fp,...(mdl.model?{model:mdl.model}:{}),...(mdl.effort?{effort:mdl.effort}:{})};if(gw)r.git={dir:gw.dir,branch:gw.branch};r.confined=cf.variant?.name||'env';r.mode=mode;db.runs[id]=r;await save();
   const minutes=kind==='fix'?Math.min(40,pol.fixer?.minutes||25):Math.min(30,pol.fixer?.proof_minutes||15);
   try{r.pid=await (launch||spawnRun)({dir,agent:r.agent,minutes,model:mdl.model,effort:mdl.effort,turns,lean:pol.fixer?.ignoreRules!==false,confine:cf.launch})}catch(e){r.done=now();r.exit=-1;r.notStarted=true;if(kind==='fix')i.tries--;i.state=kind==='fix'?'queued':'verify';await save();log('issues: fixer could not start: '+e.message);return}
   await save();log('issues: '+kind+' run started for '+i.id+' ('+id+')')}
@@ -620,9 +623,13 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // Health at once (fixerView held), and after half an hour it is a "Needs you" item too (needFull), since the root script should have made it by then.
  async function hold(i,why){i.notBefore=now()+10*60e3;i.updated=now();db.heldSince||=now();await save();if(now()-db.heldSince>30*60e3)await noteFull(why);
   if(db.heldWhy!==why){db.heldWhy=why;await save();log('issues: '+i.id+' waits: '+why)}}
+ // the engine profile a run uses: the fixer's own (fixer-agent.mjs), only when its config sends the terminal to aq-fixer
+ async function fixerProfile(pol){if(!fixerAgent)return {ok:true,id:pol?.fixer?.agent||'default'};   // no profile given (tests, older wiring): the policy's agent
+  if(await fixerAgent.ready().catch(()=>false))return {ok:true,id:fixerAgent.id};await fixerAgent.ensure().catch(()=>false);
+  return await fixerAgent.ready().catch(()=>false)?{ok:true,id:fixerAgent.id}:{ok:false,id:fixerAgent.id,why:'The fixer\'s own engine profile ('+fixerAgent.id+') is not set up to run as aq-fixer yet; fixes wait and it is tried again.'}}
  // CR-7: the confinement check. The confined engine is asked for `id -un`; only aq-fixer counts, so a run is never confined on a guess
  // (the engine may take its terminal from the profile's own settings). The first launch variant that passes is kept for this engine.
- async function runCanary(pl,pol){const agent=pol.fixer?.agent||'default',owner=process.env.USER||'claude';let last='no answer';
+ async function runCanary(pl,pol){const agent=(await fixerProfile(pol)).id,owner=process.env.USER||'claude';let last='no answer';
   for(const v of VARIANTS){const id='canary-'+now()+'-'+v.name,dir=path.join(DIR,id);await mkdir(dir,{recursive:true,mode:0o700});
    const tok=randomBytes(12).toString('hex'),probe=path.join(dir,'probe');await writeFile(probe,'canary-'+tok+'\n',{mode:0o600});
    await writeFile(path.join(dir,'prompt.txt'),'Two steps. 1) Run the command  id -un  with your terminal tool. 2) With your file-reading tool (not the terminal) read the file '+probe+' . Answer with exactly two lines: first the output of id -un, nothing else on that line; then FILE: followed by the file content, or FILE: DENIED if you could not read it.',{mode:0o600});

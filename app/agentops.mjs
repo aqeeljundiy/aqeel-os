@@ -25,7 +25,9 @@ export const HELP_AGENT=process.env.HELP_AGENT||'aqeelos-help';
 export const LIVE_TEST_AGENT=process.env.LIVE_TEST_AGENT||'aq-livetest';
 // the plain agent a Code turn on aqeelOS models runs as when the person picks no agent (app/code-agent.mjs): kept out of every agent list, as Help
 export const CODE_AGENT=process.env.CODE_AGENT||'aqeelos-code-agent';
-export const listedAgent=a=>{const n=String(a?.name??a?.id??a);return n!==HELP_AGENT&&n!==LIVE_TEST_AGENT&&n!==CODE_AGENT};
+// the fixer's own engine profile (app/fixer-agent.mjs): its terminal is the aq-fixer user, set in its config; not an agent, kept out of every list, as Help
+export const FIXER_AGENT=process.env.FIXER_AGENT||'aqeelos-fixer';
+export const listedAgent=a=>{const n=String(a?.name??a?.id??a);return n!==HELP_AGENT&&n!==LIVE_TEST_AGENT&&n!==CODE_AGENT&&n!==FIXER_AGENT};
 
 const queues=new Map();
 // while a restore copies the engine's files (backup.mjs), aqeelOS's own writes to them wait here (up to 30 minutes)
@@ -77,7 +79,7 @@ export async function agentNames({copies=false}={}){const k=copies?1:0,dir=path.
  const m=(await stat(dir).catch(()=>null))?.mtimeMs||0,hit=namesHit.get(k);if(hit&&hit.m===m&&Date.now()-hit.t<2000)return [...await hit.p];
  const p=(async()=>{const n=['default'];
   for(const d of await readdir(dir,{withFileTypes:true}).catch(()=>[]))
-   if(d.isDirectory()&&!d.name.startsWith('.')&&d.name!==HELP_AGENT&&d.name!==CODE_AGENT&&(copies||!d.name.includes('--'))&&await isAgent(d.name))n.push(d.name);
+   if(d.isDirectory()&&!d.name.startsWith('.')&&d.name!==HELP_AGENT&&d.name!==CODE_AGENT&&d.name!==FIXER_AGENT&&(copies||!d.name.includes('--'))&&await isAgent(d.name))n.push(d.name);
   return n})();
  namesHit.set(k,{t:Date.now(),m,p});p.catch(()=>namesHit.delete(k));return [...await p]}
 
