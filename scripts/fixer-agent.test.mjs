@@ -11,6 +11,7 @@ test('the fixer profile is not an agent people see',()=>{assert.equal(listedAgen
 test('ready only while the config still pins aq-fixer (and no cwd)',async()=>{
  const good={terminal:{backend:'ssh',ssh_host:'127.0.0.1',ssh_user:FIXER_USER,ssh_port:22,ssh_key:'/k'}};
  const mk=cfg=>createFixerAgent({DASH:'http://x',DASH_TOKEN:'t',keyFile:'/k',live:false,readConfig:async()=>cfg});
- // isAgent reads the engine home; with no profile folder ready() is false whatever the config says
- assert.equal(await mk(good).ready(),false);
+ // whether the profile folder exists depends on the machine; a config that does not pin aq-fixer is never ready
+ assert.equal(await mk({terminal:{...good.terminal,ssh_user:'claude'}}).ready(),false);
+ assert.equal(await mk({terminal:{...good.terminal,cwd:'/tmp'}}).ready(),false,'a fixed cwd would override each run's own folder');
  assert.equal(await mk(good).ensure(),false)});   // a test copy (live false) never makes the profile
