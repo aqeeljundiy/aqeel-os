@@ -20,6 +20,9 @@
 //    A turn where something already ran ("This turn did not complete") is never repeated. When it still fails, the
 //    person gets the cause in plain words instead of the stock line. Every failed chat turn adds one line to
 //    ~/.hermes/logs/aqeelos-dropped.jsonl (agent, channel, cause, retried, recovered), which System > Health counts.
+//    19 Nov 2026 (CH-1, its own tag aqeelos:retry-waits-limit so engines patched before get it too): when the AI service
+//    asked to wait a short while (a rate limit with its reset time, up to 15 min), the one more try waits until then
+//    instead of 8 s, which only failed a second time while the hold lasted.
 // 5) aqeelos:clone-no-bot-tokens (6 Nov 2026). A cloned agent dropped the channel keys the engine knows by prefix
 //    (TELEGRAM_..., SLACK_...), but kept bot tokens saved under another name (COVE_SUPPORT_BOT_TOKEN), so two agents
 //    polled one Telegram bot and kicked each other off. Every ..._BOT_TOKEN / ..._APP_TOKEN key now counts as a channel
@@ -452,6 +455,27 @@ def _aq_failed_reply(response, agent_result, notice, add_notice):
   {why:'the failed-turn reply',
    from:'                response = self._hmwa_add_failed_turn_notice(response, self._hmwa_failed_turn_notice(agent_result))\n',
    to:'                response = _aq_failed_reply(response, agent_result, self._hmwa_failed_turn_notice(agent_result), self._hmwa_add_failed_turn_notice)\n'}]},
+ {tag:'aqeelos:retry-waits-limit',name:'the one more try waits out a short rate limit',file:'gateway/run_turn.py',edits:[
+  {why:'how long to wait',
+   from:'_AQ_RETRY_WAIT = 8.0\n',
+   to:`_AQ_RETRY_WAIT = 8.0
+_AQ_RETRY_MAX_WAIT = 900.0  # aqeelos:retry-waits-limit: wait out a short rate limit, never longer than 15 minutes
+
+
+def _aq_wait_for(agent_result, now=None):
+    """Seconds before the one more try: the AI service's own reset when it asked everyone to wait a short while (CH-1, 19 Nov
+    2026: the relay held Claude sends for 5 to 9 minutes, so a try after 8 s failed again and the customer got nothing)."""
+    r = str((agent_result or {}).get("failure_reason") or "")
+    at = (agent_result or {}).get("failure_resets_at")
+    if r in ("rate_limit", "upstream_rate_limit", "overloaded") and isinstance(at, (int, float)):
+        left = at - (time.time() if now is None else now)
+        if 0 < left <= _AQ_RETRY_MAX_WAIT:
+            return max(_AQ_RETRY_WAIT, left + 3.0)
+    return _AQ_RETRY_WAIT
+`},
+  {why:'the wait itself',
+   from:'    await asyncio.sleep(_AQ_RETRY_WAIT if wait is None else wait)\n',
+   to:'    await asyncio.sleep(_aq_wait_for(agent_result) if wait is None else wait)\n'}]},
  {tag:'aqeelos:phone-redaction-setting',name:'phone-number masking is its own per-agent setting',file:'agent/redact.py',edits:[
   {why:'the per-agent switch',
    from:'    with _REDACT_ENABLED_LOCK:\n        _REDACT_ENABLED_BY_HOME[home_key] = enabled\n    return enabled\n',
