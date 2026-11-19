@@ -8,7 +8,7 @@ import path from 'node:path';
 import {readConfig,pick,setKey} from './agentops.mjs';
 import {visibleChannels} from './role-scope.mjs';
 import {readdir,mkdir,copyFile,readFile,stat} from 'node:fs/promises';
-export function createMcpSecretsRoutes({access,browserAsks,channelList,displayName,freshSignins,HERMES_HOME,listAgents,localBrowser,MCP_OAUTH_BASE,memberSecretName,NAMES,optins,ownsAgent,readBody,saveSecret,screens,secretAsks,secretDir,secretHow,security,send,sharing,signinsAt,signinsDue,slackClientFor,startSignin,users,whyOf}){
+export function createMcpSecretsRoutes({access,browserAsks,browserCardSeen,channelList,displayName,freshSignins,HERMES_HOME,listAgents,localBrowser,MCP_OAUTH_BASE,memberSecretName,NAMES,optins,ownsAgent,readBody,saveSecret,screens,secretAsks,secretDir,secretHow,security,send,sharing,signinsAt,signinsDue,slackClientFor,startSignin,users,whyOf}){
 async function useSecret(rec,value,{admin=false}={}){
  if(rec.mode==='type'){await screens.typeInto(rec.base,value,{enter:rec.enter,secret:true});return 'Typed it into the focused field on your screen'+(rec.enter?' and pressed Enter':'')+'. You never saw the value; take a screenshot to check the result.'}
  await saveSecret(rec.base,rec.name,value,{admin});
@@ -66,6 +66,7 @@ async function useSecret(rec,value,{admin=false}={}){
     return send(res,200,{ok:true,name,message:'🔒 '+label+' — saved for you as '+name+'. You cannot see the value. '+secretHow(base,name)}),true}
    if(p==='/ui/secrets/pending'&&req.method==='GET'){const ag=String(url.searchParams.get('agent')||'default').split('--')[0];
     if(!users.isAdmin(u)&&users.gate(u,'/ui/screens/'+ag,'GET',new URLSearchParams(),ag))return send(res,200,{items:[]}),true;
+    browserCardSeen(ag);   // someone who may answer this agent's cards is looking (choose_browser waits only then)
     return send(res,200,{items:[...[...secretAsks.values()].filter(x=>x.base===ag).map(x=>({id:x.id,label:x.label,mode:x.mode,name:x.name,enter:x.enter,t:x.t,expires:x.t+270000})),
      ...[...browserAsks.values()].filter(x=>x.base===ag).map(x=>({id:x.id,kind:'browser',task:x.task,suggest:x.suggest,why:x.why,t:x.t,expires:x.t+270000,connected:localBrowser.connected(u.id)}))]}),true}
    if(p==='/ui/local-browser/pair'&&req.method==='POST')return send(res,200,{token:await localBrowser.pair(u.id)}),true;

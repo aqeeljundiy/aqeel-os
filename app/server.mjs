@@ -38,6 +38,7 @@ import {createAddons,probeMcp,RUNS_CODE_MSG} from './addons.mjs';   // personal 
 import {setupGuideLines} from './setup-guide.mjs';   // how every agent onboards people to any app (11 Nov 2026)
 import {createEscalations} from './escalations.mjs';
 import {createEfficiencyView} from './efficiency-view.mjs';
+import {createBrowserAsks} from './browser-ask.mjs';   // no card wait when no web chat is looking (EN-8)
 import {createReconciler,createAgentGate,statSig,ledgerSig} from './reconcile.mjs';
 import {createConnect,firstModelFor} from './connect.mjs';
 import {createOptins,appNames,solvedIssues} from './agent-optins.mjs';
@@ -2074,13 +2075,7 @@ async function secretRouteIn(req,res,p){
  let raw;try{raw=await readBody(req,8192)}catch{return send(res,413,{error:'That is too much.'},{...H,connection:'close'})}let b;try{b=JSON.parse(raw)}catch{return send(res,400,{error:'Open the link you were sent.'},H)}
  if(p==='/secret/peek'){const r=await secretLinks.peek(b?.token);return r?send(res,200,r,H):send(res,410,{gone:true},H)}
  const r=await secretLinks.consume(b?.token,b?.value);return send(res,r.ok?200:r.gone?410:400,r.ok?{ok:true,name:r.name,agentName:r.agentName}:r.gone?{gone:true}:{error:r.error},H)}
-/* "Which browser?" An agent about to work in a browser asks (choose_browser) once per chat: the person's own
-   Chrome (one-off jobs where they are already signed in) or the agent's screen on the AI box (anything that must
-   keep running). The person answers on a card in the chat; their answer links that chat to their browser or not. */
-const browserAsks=new Map();
-function askBrowser(agent,a){return new Promise(resolve=>{const id=randomBytes(9).toString('base64url');
- const rec={id,kind:'browser',agent,base:agent.split('--')[0],task:String(a.task||'a browser job').slice(0,160),suggest:a.suggest==='yours'?'yours':'server',why:String(a.why||'').slice(0,220),t:Date.now(),resolve};browserAsks.set(id,rec);
- setTimeout(()=>{if(browserAsks.get(id)===rec){browserAsks.delete(id);resolve({text:'The person did not choose in time. Use your own screen on the AI box and tell them you did.'})}},270000)})}
+const {asks:browserAsks,ask:askBrowser,seen:browserCardSeen}=createBrowserAsks();   // "Which browser?" (choose_browser) cards
 // a web address that ends up inside the box or on a private network, however it is spelled (user@host, numeric,
 // IPv6-mapped, a name that resolves privately): refused for tools a member adds
 async function privateAddress(u){let url;try{url=new URL(String(u))}catch{return true}if(!/^https?:$/.test(url.protocol))return true;
@@ -2396,7 +2391,7 @@ const systemRoutes=createSystemRoutes({accountsApi,addonBy,addons,agentAds,agent
 const abilitiesRoutes=createAbilitiesRoutes({agentReload,agentDefaults,channelIdentity,code,codeAgents,codeBridge,codeOnline,displayName,envOf,isTestAgent,listAgents,listAllProfiles,live,lockedAgent,lockTools,MCP_OAUTH_BASE,n8n,NAMES,readBody,restartGateway,send,sharing,slackClientChannels,slackQuiet,users});
 const instructionsRoutes=createInstructionsRoutes({accountsApi,backupModels,bottlenecks,cfgLimit,channelAttention,code,DATA,DESKTOP_RELEASES,displayName,help,instructions,listAgents,localAppVersions,n8n,NAMES,needsFor,newerApp,readBody,releaseAppVersions,security,send,signinsDue,teamFolders,users,versions});
 const accessRoutes=createAccessRoutes({access,accessAsk,agentAccess,bottlenecks,conflicts,connAccounts,connections,DATA,keysId,labels,listAgents,NAMES,questions,readBody,send,shareLevels,users});
-const mcpSecretsRoutes=createMcpSecretsRoutes({access,browserAsks,channelList,displayName,freshSignins,HERMES_HOME,listAgents,localBrowser,MCP_OAUTH_BASE,memberSecretName,NAMES,optins,ownsAgent,readBody,saveSecret,screens,secretAsks,secretDir,secretHow,security,send,sharing,signinsAt:()=>signinsAt,signinsDue,slackClientFor,startSignin,users,whyOf});
+const mcpSecretsRoutes=createMcpSecretsRoutes({access,browserAsks,browserCardSeen,channelList,displayName,freshSignins,HERMES_HOME,listAgents,localBrowser,MCP_OAUTH_BASE,memberSecretName,NAMES,optins,ownsAgent,readBody,saveSecret,screens,secretAsks,secretDir,secretHow,security,send,sharing,signinsAt:()=>signinsAt,signinsDue,slackClientFor,startSignin,users,whyOf});
 const schedulesRoutes=createSchedulesRoutes({designGuard,postingLimits,readBody,relay,schedules,send,users});
 const identitiesRoutes=createIdentitiesRoutes({accountsApi,billion,builtins,channels,connect,DASH,DASH_TOKEN,DATA,designGuard,displayName,explain,graphify,HERMES_HOME,keysId,labels,listAgents,listAllProfiles,NAMES,okProfile,ownsAgent,pausedLoad,platCache,readBody,readIds,reconnectOne,restartGateway,runGates,security,send,setChannelOn,setDisplayName,starters,usage,users,waitingNow,withIds,writeIds});
 const hooksRoutes=createHooksRoutes({agentAccess,agentLive,customerTools:()=>customerTools,designGuard,HOOKS,issues,kirimdev,paymentCallbacks,pressKey,proxy,readBody,readRaw,send,smokeWatch,teamView,tebar,versions,WA_CLOUD});
