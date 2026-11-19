@@ -25,4 +25,5 @@ test('a web chat is looking: the card waits, the person answers',async()=>{let t
  b.asks.delete(rec.id);rec.resolve({text:'chosen'});assert.equal((await p).text,'chosen')});
 
 test('unanswered card ends after its wait with the old answer',async()=>{const b=createBrowserAsks({waitMs:20});b.seen('donna');
- const r=await b.ask('donna',{suggest:'bogus'});assert.match(r.text,/did not choose in time/);assert.equal(b.asks.size,0)});
+ // the card's timer is unref'd (it never holds the server open), so something must keep this test's event loop alive (GitHub run, 19 Nov)
+ const hold=setTimeout(()=>{},5000);const r=await b.ask('donna',{suggest:'bogus'});clearTimeout(hold);assert.match(r.text,/did not choose in time/);assert.equal(b.asks.size,0)});
