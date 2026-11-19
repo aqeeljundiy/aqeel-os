@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 07:55 UTC",
+ "updated": "19 Nov 2026, 08:20 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -955,6 +955,16 @@ window.BOARD = {
    "server": "Both",
    "title": "WhatsApp chats show where the person came from (first and last touch, UTM)",
    "detail": "Owner's idea, 19 Nov: when someone taps a WhatsApp button on a site, the chat opens with where they came from (\"Halo, saya dari ...\" plus a short code), and the team and agent see the source. Keep layers: first touch, last touch, and the last paid touch (ad campaign UTM, fbclid/gclid), kept for days in the browser, so an ad still gets the credit when the person converts later on a direct visit. Show it on the chat (Kirimdev labels, Meta Ads/WhatsApp lead), and report which source turned into a sale. Wood Origins already has a short hash-code version on 3 landing pages (lookup table of ad rows); this generalises it. To decide first: which sites, and whether the code is visible in the message or hidden.",
+   "refs": []
+  },
+  {
+   "id": "EN-14",
+   "area": "engine",
+   "p": 3,
+   "status": "todo",
+   "server": "Both",
+   "title": "Keys page: the list jumps down about half a second after it opens",
+   "detail": "Found 19 Nov by the deploy's flicker check on P&P (System › Keys, every agent): the part under the list (the hint lines and the secret links box) moves 150-172 px about 0.2-0.5 s after the page opens, so P&P's full-check deploys are refused. Find what grows the list after it is drawn and draw it once at full size.",
    "refs": []
   }
  ]
