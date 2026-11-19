@@ -25,9 +25,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .reply_fix import clean as _clean, whole as _whole
+    from .reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note
 except ImportError:  # loaded as a plain module (the engine's plugin loader or a test)
-    from reply_fix import clean as _clean, whole as _whole
+    from reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note
 from providers import register_provider
 from providers.base import ProviderProfile
 
@@ -75,6 +75,17 @@ def _make_client_class():
         """Same facade as the engine's ACP bridge; the prompt goes to `agy` in print mode instead of an ACP session."""
 
         def _run_prompt(self, prompt_text: str, *, timeout_seconds: float, model: str | None = None) -> tuple[str, str]:
+            # a stop because Gemini reached for an agy tool of its own is tried once more, told to write the call as text
+            # (reply_fix.retry_note, 19 Nov 2026); every other stop, and a second one, still ends the request
+            try:
+                return self._run_once(prompt_text, timeout_seconds=timeout_seconds, model=model)
+            except RuntimeError as e:
+                note = _retry_note(str(e))
+                if not note:
+                    raise
+                return self._run_once(prompt_text + note, timeout_seconds=timeout_seconds, model=model)
+
+        def _run_once(self, prompt_text: str, *, timeout_seconds: float, model: str | None = None) -> tuple[str, str]:
             work = Path(tempfile.mkdtemp(prefix="aqeelos-agy-"))
             log = work / "agy.log"
             agent_dir = work / ".agents" / "agents"
