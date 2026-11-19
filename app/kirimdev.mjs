@@ -89,6 +89,13 @@ export function chunkText(t,max=TEXT_MAX){const out=[];let r=String(t||'');
  while(r.length>max){let i=r.lastIndexOf('\n\n',max);if(i<max/2)i=r.lastIndexOf('\n',max);if(i<max/2)i=r.lastIndexOf(' ',max);if(i<max/2)i=max;out.push(r.slice(0,i).trim());r=r.slice(i).trim()}
  if(r)out.push(r);return out}
 // at most PARTS_MAX messages for one reply: text beyond that is joined into the last message instead of being dropped
+// interest labels by code (19 Nov 2026, Amri: Gilang often left a customer interested in a peptide without its I- label, although his
+// instructions say so): each allowed I- label whose name the customer wrote, as a word or the start of one ("reta", "retatrutide" → I-Reta;
+// at least 3 letters). lines.<agent>.labels.autoInterest switches it on; the agent's own labels are unchanged.
+export function interestLabels(allowed,text){const t=' '+String(text||'').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,' ')+' ';
+ // a short name (3 letters or fewer: Pen, NAD) only as a whole word ("pencernaan" is no pen); a longer one also as a word's start ("retatrutide")
+ return [...new Set((Array.isArray(allowed)?allowed:[]).filter(n=>/^I-/.test(String(n))))].filter(n=>{const w=String(n).slice(2).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  return w.length>=3&&t.includes(' '+w+(w.length<=3?' ':''))})}
 export const PARTS_MAX=8;
 export function splitReply(out){const t=normalizeTags(String(out||'').replace(FOOTER,'').trim());const parts=[];
  for(const x of t.split(/\n-{3,}\n/))for(const y of x.split(/(\[(?:FOTO|TEMPLATE|VIDEO):[^\]]+\])/))if(y.trim())parts.push(...(/^\[(?:FOTO|TEMPLATE|VIDEO):/.test(y.trim())?[y.trim()]:chunkText(y.trim())));
@@ -510,7 +517,9 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   // every part was a picture tag aqeelOS has no picture for: nothing to send, and the customer must not be left with silence (audit H7)
   if(!p.outbound.length){delete p.outbound;await alertTeam(agent,line,{key:'empty|'+p.from,title:'the agent\'s reply was only pictures aqeelOS does not have',detail:'Customer wrote: '+String(lastQ).slice(0,300)+'\nThe reply: '+g.parts.join(' ').slice(0,200)+'\nNothing was sent.',from:p.from,conversationId:p.conversationId,name:p.name});return}
   for(const id of p.outbound){await deliver(id);await wait(2500)}
-  if(kitTags.length&&g.parts.some(x=>kitTags.includes(String(x).trim()))){(st.kitPhotos||={})[kitKey]=now();await saveState()}}
+  if(kitTags.length&&g.parts.some(x=>kitTags.includes(String(x).trim()))){(st.kitPhotos||={})[kitKey]=now();await saveState()}
+  if(line.labels?.autoInterest&&p.conversationId){const add=interestLabels(line.labels.allowed,(p.messages||[]).join('\n')).slice(0,LABEL_MAX);
+   if(add.length)await labelContact(agent,{conversationId:p.conversationId,phone:p.from,add,source:'auto',run:'interest'}).catch(e=>log('kirimdev '+agent+': interest labels: '+e.message))}}
 
  // where the team opens the chat: the line's own link (lines.<agent>.chatLink with {phone} and {conversation}), else WhatsApp itself
  const chatLink=(line,h)=>line?.chatLink?String(line.chatLink).replace('{phone}',h.from||'').replace('{conversation}',h.conversationId||''):'https://wa.me/'+String(h.from||'');

@@ -157,3 +157,14 @@ test('after a confirmed payment the line own messages go out once: the confirmat
  await L(t.k,{add:['Customer','S-Reta','S-Pen'],source:'payment',run:'pay1'});assert.equal(sent()-n,2,'the same payment never sends them again');
  const u=await make();await u.post(meta('628123','halo'));await u.settle();const m=u.calls.filter(c=>c==='POST 111111/messages').length;
  await L(u.k,{add:['Customer','S-Reta'],source:'payment',run:'pay2'});assert.equal(u.calls.filter(c=>c==='POST 111111/messages').length,m,'a line with no list sends nothing')});
+
+test('interest labels by code: each allowed I- label the customer named, whole words or their start, nothing else (19 Nov 2026)',async()=>{
+ const {interestLabels}=await import('../app/kirimdev.mjs');const A=['New Leads','I-Reta','I-NAD','I-BPC-157','I-Pen','Checkout'];
+ assert.deepEqual(interestLabels(A,'mau tanya retatrutide sama NAD+ kak'),['I-Reta','I-NAD']);
+ assert.deepEqual(interestLabels(A,'harga BPC 157 berapa'),['I-BPC-157']);
+ assert.deepEqual(interestLabels(A,'pencernaan saya kurang baik'),[],'"pen" inside another word is not a pen');
+ assert.deepEqual(interestLabels(A,'kalau pakai pen?'),['I-Pen']);
+ assert.deepEqual(interestLabels(A,'halo'),[]);
+ const t=await make({allowed:['New Leads','I-Reta','I-NAD']});
+ const L2=JSON.parse(await readFile(path.join(t.DATA,'kirimdev.json'),'utf8'));L2.lines['cove-support'].labels.autoInterest=true;await writeFile(path.join(t.DATA,'kirimdev.json'),JSON.stringify(L2));
+ await t.post(meta('628123','mau tanya reta kak'));await t.settle();assert.deepEqual(t.names('ctc_A'),['I-Reta'])});
