@@ -1573,7 +1573,7 @@ if(LIVE_APP)setTimeout(()=>kirimdev.resume().catch(e=>console.warn('kirimdev res
 // a confirmed payment labels the contact (Customer, S-…, no Checkout): code, every minute, on the live box only
 // a paid order goes to the line's Orders topic with the same check (8 Nov 2026)
 const lineOrders=async a=>{const l=(await kirimdev.lines().catch(()=>({})))[a],o=l?.orders;return o?.chatId?{chatId:o.chatId,threadId:o.threadId||null,persona:l.persona||a,currency:l.payment?.currency||'',context:l.payment?.orderContext||null}:null};
-// event hooks (event-hooks.mjs): the script runs as the agent's user; its output goes to the schedule's chat
+// event hooks (event-hooks.mjs): the script runs as the agent's user; output goes to the schedule's chat
 const eventHooks=createEventHooks({DATA,WORK:path.join(homedir(),'workspaces'),enabled:()=>LIVE_APP,
  runAs:async(a,remote,ms)=>{const c=await readConfig(a).catch(()=>null)||{};const user=String(pick(c,'terminal.ssh_user')||'');if(!/^ag-[\w-]+$/.test(user))return {ok:false,err:'this agent has no own user'};
   const {execFile}=await import('node:child_process');return new Promise(res=>execFile('ssh',['-i',path.join(HERMES_HOME,'agent-ssh','id_ed25519'),'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=accept-new','-o','ConnectTimeout=20',user+'@127.0.0.1',
@@ -1814,7 +1814,7 @@ async function customerSmoke(){if(!LIVE_APP)return;const F=path.join(DATA,'custo
  await health.problem(a,'customer','The customer test after the update failed',{topic:'smoke',fix:detail}).catch(()=>{});return done({ok:false,detail})}
 if(LIVE_APP)setTimeout(()=>customerSmoke().catch(e=>console.warn('customer smoke test',e.message)),5*60e3).unref();
 const teamView=createTeamView({HERMES_HOME,DATA,python:enginePython,users,policy:()=>issues.policy(),agents:()=>listAllProfiles(),isOn:async()=>installSettings().supervision===true,MAIN:agentAccess.MAIN,log:m=>console.log(m)});
-const escalations=createEscalations({HERMES_HOME,python:enginePython,policy:()=>issues.policy()});const chatReview=createChatReview({DATA,HERMES_HOME,python:enginePython,listAgents,nameOf:agentName,health});const termCheck=createTerminalCheck({HOME:homedir(),HERMES_HOME,listAgents,problem:(a,k,t,d)=>health.problem(a,k,t,{topic:k,fix:d}),ok:(a,k)=>health.ok(a,k),closeReports:(a,re)=>bottlenecks.closeReports(a,re)});
+const escalations=createEscalations({HERMES_HOME,python:enginePython,policy:()=>issues.policy()});const chatReview=createChatReview({DATA,HERMES_HOME,python:enginePython,listAgents,nameOf:agentName,health});const termCheck=createTerminalCheck({HOME:homedir(),home:homeOfAg,listAgents,problem:(a,k,t,d)=>health.problem(a,k,t,{topic:k,fix:d}),ok:(a,k)=>health.ok(a,k),closeReports:(a,re)=>bottlenecks.closeReports(a,re)});
 // the chat a tool call came from (the agent's newest person-chat): who asked, and where to answer
 // the chat the waiting call (tool) was made in, and the person whose message started that turn: in a group topic every
 // sender shares one chat, and the engine marks each message with "[their name]" in front, so that name decides

@@ -32,9 +32,10 @@ export function decide(prev,fails,oks,{rootAlive=true,now=Date.now(),lastRepair=
     :'Start it again as root on the box, with the box user\'s home: AQEELOS_HOME=<box user home> scripts/agent-users.sh watch (see OPERATIONS.md). aqeelOS checks again every 5 minutes.')});
  return {next,repair,report,clear}}
 
-export function createTerminalCheck({HOME,HERMES_HOME,listAgents,problem=async()=>{},ok=async()=>{},closeReports=async()=>0,log=m=>console.log(m),
+// home(agent): the agent's engine folder (homeOf in agentops.mjs, passed in so the tests use their own)
+export function createTerminalCheck({HOME,home,listAgents,problem=async()=>{},ok=async()=>{},closeReports=async()=>0,log=m=>console.log(m),
  probe=null,now=()=>Date.now(),every=EVERY}){
- const REQ=path.join(HOME,'.aqeelos-agent-users'),home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
+ const REQ=path.join(HOME,'.aqeelos-agent-users');
  let prev={},lastRepair=0,lastRun=0,running=null;
  const login=probe||(s=>new Promise(res=>execFile('ssh',['-o','BatchMode=yes','-o','ConnectTimeout=5','-o','StrictHostKeyChecking=no','-o','UserKnownHostsFile=/dev/null','-o','LogLevel=ERROR',
   '-p',String(s.port),...(s.key?['-i',s.key]:[]),s.user+'@'+s.host,'true'],{timeout:15000},(e,o,er)=>res(e?{ok:false,err:String(er||e.message).trim().split('\n').pop()||'no answer'}:{ok:true}))));

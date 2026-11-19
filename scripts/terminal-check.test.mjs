@@ -29,7 +29,7 @@ async function box({alive=true,results}){const HOME=await mkdtemp(path.join(tmpd
  await writeFile(path.join(HOME,'.aqeelos-agent-users'),'cove\nbay\n');let clock=Date.parse('2026-11-19T09:00:00Z');
  if(alive)await writeFile(path.join(HOME,'.aqeelos-agent-users.alive'),String(Math.floor(clock/1000)-20));
  const probs=[],oks=[],closed=[],tried=[];
- const c=createTerminalCheck({HOME,HERMES_HOME:HH,listAgents:async()=>['cove','bay','plain','cove--sub'],log:()=>{},now:()=>clock,
+ const c=createTerminalCheck({HOME,home:a=>path.join(HH,'profiles',a),listAgents:async()=>['cove','bay','plain','cove--sub'],log:()=>{},now:()=>clock,
   problem:async(...x)=>{probs.push(x)},ok:async(...x)=>{oks.push(x)},closeReports:async(a,re)=>{closed.push([a,re===REFUSED]);return 0},
   probe:async s=>{tried.push(s.user);return results[s.user]}});
  return {c,HOME,probs,oks,closed,tried,later:ms=>{clock+=ms},alive:async()=>writeFile(path.join(HOME,'.aqeelos-agent-users.alive'),String(Math.floor(clock/1000)-20))}}
