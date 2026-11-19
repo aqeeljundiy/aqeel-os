@@ -88,7 +88,13 @@ export function forPopup(items){const out=[],by=new Map(),groupAgents=new Set(it
  for(const y of out)if(y.agentNames.length>1){y.text=(y.text?y.text+' ':'')+'Asked by '+list(y.agentNames)+'.';if(y.kind==='report'||y.kind==='system')y.title=y.title.replace(/^.*? (is blocked|reported a system problem): /,'')}
  return out}
 
-export function createBottlenecks({DATA,dash,listAgents,names,onInfo=async()=>{}}){
+// CH-2 (19 Nov 2026): an agent's report stayed a person need forever: a support agent's "keys missing since 12 Nov" (the keys were never
+// meant to be in its folder: aqeelOS holds them) and a dozen "terminal refused" reports from the EN-16 outage still showed after the fix.
+// A report the agent has not repeated for REPORT_DAYS is no longer shown (it shows again when the agent reports it again), and
+// closeReports() closes an agent's reports once a check proves the thing works again (the terminal check, terminal-check.mjs).
+export const REPORT_DAYS=3;
+export const reportStale=(r,now=Date.now())=>now-(Number(r?.updated||r?.created)||0)>REPORT_DAYS*864e5;
+export function createBottlenecks({DATA,dash,listAgents,names,onInfo=async()=>{},now:clock=()=>Date.now()}){
  const FILE=path.join(DATA,'bottlenecks.json');let db=null;
  const load=async()=>{if(!db){db=await readStore(FILE);db.reports||=[];db.snooze||={};db.fixed||={};db.events||=[]}return db};
  const save=async()=>{await mkdir(DATA,{recursive:true});await writeStore(FILE,JSON.stringify(db,null,1))};
@@ -96,8 +102,8 @@ export function createBottlenecks({DATA,dash,listAgents,names,onInfo=async()=>{}
  // an agent reports what blocks it (merged with an open report about the same missing thing)
  async function report(agent,{what,missing,fix,from,system}){await load();const m=String(missing||'').trim().slice(0,400);if(!m)throw Error('Say what is missing.');
   const key=agent+'|'+norm(m);let r=db.reports.find(x=>x.key===key&&!x.fixed);
-  if(r){r.count=(r.count||1)+1;r.updated=Date.now();if(system)r.system=true;if(what)r.what=String(what).slice(0,400);if(fix)r.fix=String(fix).slice(0,400);if(from)r.from=from}
-  else{r={id:'r'+randomBytes(6).toString('hex'),key,agent,what:String(what||'').slice(0,400),missing:m,fix:String(fix||'').slice(0,400),created:Date.now(),updated:Date.now(),count:1,from:from||null,...(system?{system:true}:{})};db.reports.unshift(r);db.reports=db.reports.slice(0,200)}
+  if(r){r.count=(r.count||1)+1;r.updated=clock();if(system)r.system=true;if(what)r.what=String(what).slice(0,400);if(fix)r.fix=String(fix).slice(0,400);if(from)r.from=from}
+  else{r={id:'r'+randomBytes(6).toString('hex'),key,agent,what:String(what||'').slice(0,400),missing:m,fix:String(fix||'').slice(0,400),created:clock(),updated:clock(),count:1,from:from||null,...(system?{system:true}:{})};db.reports.unshift(r);db.reports=db.reports.slice(0,200)}
   await save();return r}
  // something aqeelOS itself noticed (the server was off, a backup failed, a tool server broke): shown until it is solved
  // or dismissed (31 Oct 2026, the owner: "if it's solved we shouldn't still show it"). topic: the problem it is about; a
@@ -128,13 +134,15 @@ export function createBottlenecks({DATA,dash,listAgents,names,onInfo=async()=>{}
    // the key holds the time it went wrong, so a later drop of the same channel shows again after Clear all
    for(const c of channels||[]){const k='channel|'+c.agent+'|'+c.id+'|'+(c.since||0);if(!hid(k))out.push({id:k,kind:'channel',agent:c.base||c.agent,agentName:names(c.base||c.agent),title:(/^whatsapp/.test(c.id)?'WhatsApp channel':(c.name||c.id))+(c.needs_link?' logged out':' is not connected')+' on '+names(c.base||c.agent)+(String(c.agent).includes('--')?' (extra number)':''),text:c.needs_link?'Link it again, or remove it if it is no longer used.':'Open Channels to check it.',channel:{agent:c.agent,id:c.id,needs_link:c.needs_link}})}
    prune();for(const e of db.events){const k='event|'+e.id;if(!hid(k))out.push({id:k,kind:e.kind,title:e.text,text:e.detail||'',...(e.topic?{topic:e.topic}:{}),...(e.agent?{agent:e.agent,agentName:names(e.agent)}:{}),...(e.told?{told:true}:{}),...(e.data?{data:e.data}:{}),at:e.created})}}
-  for(const r of db.reports){if(r.fixed||!mayUse(r.agent)||hid('report|'+r.id))continue;out.push({id:'report|'+r.id,kind:r.system?'system':'report',missing:r.missing,agent:r.agent,agentName:names(r.agent),title:r.system?names(r.agent)+' reported a system problem: '+r.missing:names(r.agent)+' is blocked: '+r.missing,text:r.fix?'Would fix it: '+r.fix:'',purpose:r.what?r.what.replace(/^to /i,''):'',from:r.from||null,count:r.count,at:r.updated})}
+  for(const r of db.reports){if(r.fixed||reportStale(r,clock())||!mayUse(r.agent)||hid('report|'+r.id))continue;out.push({id:'report|'+r.id,kind:r.system?'system':'report',missing:r.missing,agent:r.agent,agentName:names(r.agent),title:r.system?names(r.agent)+' reported a system problem: '+r.missing:names(r.agent)+' is blocked: '+r.missing,text:r.fix?'Would fix it: '+r.fix:'',purpose:r.what?r.what.replace(/^to /i,''):'',from:r.from||null,count:r.count,at:r.updated})}
   return out}
  async function done(id){await load();if(id.startsWith('report|')){const r=db.reports.find(x=>'report|'+x.id===id);if(r){r.fixed=Date.now()}}else db.fixed[id]=Date.now();await save()}
  // uid: a member's "Not now" hides it only for them; snoozes that ran out are dropped so the map stays small
  async function later(id,uid){await load();const now=Date.now();for(const [k,t] of Object.entries(db.snooze))if(t<now)delete db.snooze[k];db.snooze[uid?uid+'#'+id:id]=now+24*3600e3;await save()}
  // the open report behind a "report|<id>", so the caller can check who may act on it
+ // the open reports of one agent whose text matches re are closed (a check proved it works again); how many
+ async function closeReports(agent,re){await load();let n=0;for(const r of db.reports)if(!r.fixed&&r.agent===agent&&re.test(r.missing+' '+(r.what||''))){r.fixed=clock();r.closedBy='check';n++}if(n)await save();return n}
  async function find(id){await load();return db.reports.find(x=>'report|'+x.id===id&&!x.fixed)||null}
  // the open Health events as they are (the morning line, morning.mjs)
  async function events(){await load();return db.events.map(e=>({...e}))}
- return {report,event,resolve,list,done,later,find,failedSchedules,events}}
+ return {report,event,resolve,list,done,later,find,failedSchedules,events,closeReports}}

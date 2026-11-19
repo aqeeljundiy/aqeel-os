@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHmac} from 'node:crypto';
 import {createDocLinks} from '../app/doc-links.mjs';
-import {createKirimdev,verifySignature,parseInbound,parseSent,splitReply,withCaptions,parseApproval,chunkText} from '../app/kirimdev.mjs';
+import {createKirimdev,verifySignature,parseInbound,parseSent,splitReply,withCaptions,parseApproval,parseRelease,chunkText} from '../app/kirimdev.mjs';
 
 const SECRET='whsec_test_123';
 const PERSON={human:true,via:'page'};   // what only the Channels page (a signed-in admin) and teamMessage (a checked Telegram sender) give
@@ -540,6 +540,23 @@ test('a held chat is released from the page by its reference: the number is not 
  assert.equal(await t.k.releaseRef('someone-else',h[0].ref,'an admin'),false,'only the line\'s own chats');
  assert.equal(await t.k.releaseRef('cove-support',h[0].ref,'an admin'),true);assert.deepEqual((await t.k._state()).holds,{});
  assert.equal(await t.k.releaseRef('cove-support',h[0].ref,'an admin'),false,'again: already released')});
+
+// CH-7 (19 Nov 2026): the team lead had no aqeelOS sign-in, so a held chat stayed held. "release <last digits>" in the team group from
+// someone on the team that looks after the agent (or an approver) lets it go; anyone else, another group or a number that is not held changes nothing.
+test('a team member releases a held chat from Telegram with "release <last digits>"; others cannot',async()=>{
+ const team=new Map([['7001','Mira']]);
+ const t=await make({kd:{teamPerson:async(a,uid)=>a==='cove-support'&&team.has(uid)?{name:team.get(uid)}:null},agentSays:q=>/NOTE: you handed|Do not hand off again/.test(q)?'Siap kak':'HANDOFF: wants a person',extra:{humanWaitMin:5,humanWaitText:'Sebentar ya kak'}});
+ await t.post(meta('628123','mau ngomong sama orang'));await t.settle();assert.equal((await t.k.status())[0].holds.length,1);
+ const say=(text,o={})=>t.k.teamMessage('cove-support',{chatId:-100,threadId:9,userId:'7001',text,...o});
+ assert.equal((await say('release 8123',{userId:'9999'})).why,'not an approver');assert.match(t.posts.at(-1)[3],/not on Rory’s team list/);
+ assert.equal((await say('release 8123',{chatId:-555})).why,'not the team group');
+ assert.equal((await say('release 5555')).why,'not held');assert.equal((await t.k.status())[0].holds.length,1,'still held after the refusals');
+ const r=await say('[Replying to: "HANDOFF (Rory)"]\n\nlepas 8123');assert.equal(r.handled,true);assert.equal(r.released,'628123');
+ assert.deepEqual((await t.k._state()).holds,{});assert.match(t.posts.at(-1)[3],/no longer held, released by Mira/);assert.deepEqual(t.posts.at(-1).slice(0,3),['cove-support',-100,9],'answered in the topic it was asked in');
+ assert.equal((await say('release 8123')).why,'not held','again: nothing left to release')});
+test('parseRelease: release/lepas/buka and at least 4 digits; anything else is nothing',()=>{
+ for(const [t,want] of [['release 4567','4567'],['Lepas 0812-0000-4567','081200004567'],['buka chat +62 812 4567','628124567'],['@team lepaskan tahanan 4567.','4567'],['[Replying to: "x"]\n\nrelease 4567','4567']])assert.equal(parseRelease(t),want,t);
+ for(const t of ['release','release 312','tolong release 4567','release 4567 ya','ok','lepas aja'])assert.equal(parseRelease(t),null,t)});
 
 // wait for the customer to finish (owner, 14 Nov 2026): answer once they are quiet, all of it together
 test('the agent waits until the customer has been quiet (90 s by default), never past the longest wait (180 s)',async()=>{const t=await make();
