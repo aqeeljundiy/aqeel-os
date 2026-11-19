@@ -1,0 +1,52 @@
+diff --git a/plugins/platforms/whatsapp/adapter.py b/plugins/platforms/whatsapp/adapter.py
+--- a/plugins/platforms/whatsapp/adapter.py
++++ b/plugins/platforms/whatsapp/adapter.py
+@@ -1024,10 +1024,48 @@
+             print(f"[{self.name}] Attached quoted-reply media: {path}", flush=True)
+         return accepted
+ 
++    # aqeelOS (19 Nov 2026): a group set to reply only when tagged still keeps its untagged messages as context, as Telegram's
++    # observe_unmentioned_group_messages does. Each one is appended to <hermes home>/aqeelos-observed/whatsapp/<chat>.jsonl
++    # (the newest 300 kept); the agent is not run. The aqeelos-group-context plugin shows them before a reply in that group.
++    # extra.observe_unmentioned_group_messages: false turns it off; it is on whenever require_mention is on.
++    _OBSERVE_KEEP = 300
++
++    def _observe_group_message(self, data: dict[str, Any]) -> None:
++        try:
++            if not data.get("isGroup") or data.get("fromMe") or not self._whatsapp_require_mention():
++                return
++            flag = self.config.extra.get("observe_unmentioned_group_messages")
++            if flag is not None and str(flag).strip().lower() in ("0", "false", "no", "off"):
++                return
++            chat = str(data.get("chatId") or "")
++            if not chat or self._is_broadcast_chat(chat) or not self._is_group_allowed(chat):
++                return
++            text = " ".join(str(data.get("body") or "").split())
++            if not text:
++                return
++            import json, time
++            from hermes_constants import get_hermes_home
++            home = Path(get_hermes_home())
++            root = home.parent.parent if home.parent.name == "profiles" else home
++            folder = root / "aqeelos-observed" / "whatsapp"
++            folder.mkdir(parents=True, exist_ok=True)
++            path = folder / (re.sub(r"[^0-9A-Za-z@._-]", "_", chat)[:120] + ".jsonl")
++            line = json.dumps({"t": time.time(), "id": str(data.get("messageId") or ""), "from": str(data.get("senderName") or data.get("senderId") or ""),
++                               "text": text[:2000]}, ensure_ascii=False)
++            lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
++            lines = (lines + [line])[-self._OBSERVE_KEEP:]
++            tmp = path.with_suffix(".tmp")
++            tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
++            os.chmod(tmp, 0o600)
++            tmp.replace(path)
++        except Exception as exc:
++            logger.debug("[%s] WhatsApp group message not kept as context: %s", self.name, exc)
++
+     async def _build_message_event(self, data: dict[str, Any]) -> Optional[MessageEvent]:
+         """Build a MessageEvent from bridge message data, downloading images to cache."""
+         try:
+             if not self._should_process_message(data):
++                self._observe_group_message(data)
+                 return None
+             msg_type = self._classify_bridge_message(data)
+             source = self.build_source(chat_id=data.get("chatId", ""), chat_name=data.get("chatName"), chat_type="group" if data.get("isGroup", False) else "dm",

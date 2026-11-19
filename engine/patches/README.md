@@ -166,3 +166,12 @@ restart for ever (the engine's stale-delegation monitor also ends stalled ones).
 (only the paths changed, `hermes-agent/` dropped). Checked 19 Nov, read-only: `git apply --check` clean on the live engines of Elkiya and
 P&P (commit bf0203a794) and `--cached` on that clean commit; the patched file compiles with the engine's Python. Takes effect after the
 engine restarts. Not covered by an engine test yet.
+
+## 2026-11-19-whatsapp-observe-group.patch (issue i874dba65, applied by step 17b)
+
+`plugins/platforms/whatsapp/adapter.py`: in a WhatsApp group set to reply only when tagged (`require_mention`), an untagged
+message used to be dropped before anything stored it, so the agent never knew what the group said (Donna in the Remoruy.id
+group, 19 Nov 2026). Now `_observe_group_message` appends it to `<hermes home>/aqeelos-observed/whatsapp/<chat>.jsonl`
+(newest 300 kept, mode 600) when the group is allowed; the agent is not run. `extra.observe_unmentioned_group_messages: false`
+turns it off for an agent. The `aqeelos-group-context` plugin adds the last 72 hours of that file (40 messages at most) as
+context before a reply in that group; `whatsapp: {group_context: false}` in an agent's config.yaml turns that off.

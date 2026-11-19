@@ -140,6 +140,22 @@ def test_the_hook_asks_only_for_telegram_groups():
     assert gc._context(session_id="own") is None, "an error adds nothing"
 
 
+def test_whatsapp_digest():
+    """A WhatsApp group set to reply only when tagged: the kept untagged messages, recent only, once each (19 Nov 2026)."""
+    import json
+    p = pathlib.Path(tempfile.mkdtemp()) / "120363000000000001@g.us.jsonl"
+    rows = [{"t": NOW - 80 * 3600, "id": "old", "from": "Rina", "text": "too old"},
+            {"t": NOW - 600, "id": "m1", "from": "Rina", "text": "meeting jam 3 ya"},
+            {"t": NOW - 600, "id": "m1", "from": "Rina", "text": "meeting jam 3 ya"},
+            {"t": NOW - 60, "id": "m2", "from": "Budi", "text": "oke, saya bawa laptop"}]
+    p.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    d = gc.wa_digest(p, now=NOW)
+    assert d.startswith(gc.WA_HEADER), d
+    assert "too old" not in d and d.count("meeting jam 3") == 1, d
+    assert d.index("meeting jam 3") < d.index("bawa laptop"), "oldest first"
+    assert gc.wa_digest(p.with_name("none.jsonl"), now=NOW) == ""
+
+
 for name, fn in sorted(globals().copy().items()):
     if name.startswith("test_"):
         fn()
