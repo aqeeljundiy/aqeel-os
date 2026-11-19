@@ -171,7 +171,7 @@ test('after a confirmed payment the line own messages go out once: the confirmat
 
 test('interest labels by code: each allowed I- label the customer named, whole words or their start, nothing else (19 Nov 2026)',async()=>{
  const {interestLabels}=await import('../app/kirimdev.mjs');const A=['New Leads','I-Reta','I-NAD','I-BPC-157','I-Pen','Checkout'];
- assert.deepEqual(interestLabels(A,'mau tanya retatrutide sama NAD+ kak'),['I-Reta','I-NAD']);
+ assert.deepEqual(interestLabels(A,'mau tanya retaxyzinol sama NAD+ kak'),['I-Reta','I-NAD']);
  assert.deepEqual(interestLabels(A,'harga BPC 157 berapa'),['I-BPC-157']);
  assert.deepEqual(interestLabels(A,'pencernaan saya kurang baik'),[],'"pen" inside another word is not a pen');
  assert.deepEqual(interestLabels(A,'kalau pakai pen?'),['I-Pen']);

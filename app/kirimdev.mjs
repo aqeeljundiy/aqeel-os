@@ -89,8 +89,8 @@ export function chunkText(t,max=TEXT_MAX){const out=[];let r=String(t||'');
  while(r.length>max){let i=r.lastIndexOf('\n\n',max);if(i<max/2)i=r.lastIndexOf('\n',max);if(i<max/2)i=r.lastIndexOf(' ',max);if(i<max/2)i=max;out.push(r.slice(0,i).trim());r=r.slice(i).trim()}
  if(r)out.push(r);return out}
 // at most PARTS_MAX messages for one reply: text beyond that is joined into the last message instead of being dropped
-// interest labels by code (19 Nov 2026, Amri: Gilang often left a customer interested in a peptide without its I- label, although his
-// instructions say so): each allowed I- label whose name the customer wrote, as a word or the start of one ("reta", "retatrutide" → I-Reta;
+// interest labels by code (19 Nov 2026, Amri: Gilang often left a customer interested in a product without its I- label, although his
+// instructions say so): each allowed I- label whose name the customer wrote, as a word or the start of one ("abc", "abcdefinol" → I-Abc;
 // at least 3 letters). lines.<agent>.labels.autoInterest switches it on; the agent's own labels are unchanged.
 // one section of a QUICK_REPLIES.md by its command: "## name (/command)" up to the next "## ". A placeholder body ("[video]", "[image]")
 // or an empty one is no text (19 Nov 2026)
@@ -98,9 +98,9 @@ export function quickReply(md,cmd){const lines=String(md||'').split('\n');const 
  for(const l of lines){if(/^##\s/.test(l)){if(on)break;on=l.toLowerCase().includes('('+c+')');continue}if(on)out.push(l)}
  const t=out.join('\n').trim();return /^\[(video|image|foto)\]$/i.test(t)?'':t}
 export function interestLabels(allowed,text){const t=' '+String(text||'').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,' ')+' ',flat=t.replace(/ /g,'');
- // a short name (3 letters or fewer: Pen, NAD) only as a whole word ("pencernaan" is no pen); a longer one also as a word's start ("retatrutide"),
+ // a short name (3 letters or fewer: Pen, NAD) only as a whole word ("pencernaan" is no pen); a longer one also as a word's start ("abcdefinol"),
  // written without spaces or dashes ("ghk cu" → GHKCu, "igf-1" → IGF1), or, for a name of several words, each of them ("bpc 157 sama tb 500" → BPC-TB)
- // a word's start only in a long word (9+ letters: retatrutide, semaglutide), so everyday words stay out ("semangat" is no Sema)
+ // a word's start only in a long word (9+ letters: abcdefinol, xyzglutide), so everyday words stay out ("semangat" is no Sema)
  const word=w=>!!w&&(t.includes(' '+w+' ')||w.length>=4&&t.split(' ').some(x=>x.length>=9&&x.startsWith(w)));
  return [...new Set((Array.isArray(allowed)?allowed:[]).filter(n=>/^I-/.test(String(n))))].filter(n=>{const w=String(n).slice(2).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(),f=w.replace(/ /g,''),ws=w.split(' ');
   return f.length>=3&&(word(w)||(f.length>=5||/\d/.test(f))&&flat.includes(f)||ws.length>1&&ws.every(x=>x.length>=2&&word(x)))})}

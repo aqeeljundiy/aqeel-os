@@ -571,12 +571,12 @@ test('the wait settings are checked when saved, and kept',async()=>{const t=awai
 
 // the check before sending (kirim-review.mjs, 14 Nov 2026): a draft that misreads or misses a question is written again, then a person gets it
 test('the check before sending holds a draft that misses the question; the agent rewrites it with the reasons',async()=>{const seen=[];let n=0;
- const t=await make({mode:'live',agentSays:q=>/check before sending found problems/.test(q)?'Dosis 1.5 mg itu peptide saja kak, belum termasuk water.':'Halo kak',
+ const t=await make({mode:'live',agentSays:q=>/check before sending found problems/.test(q)?'Dosis 1.5 mg itu serum saja kak, belum termasuk water.':'Halo kak',
   reviewReply:async(a,prompt)=>{seen.push(prompt);return ++n===1?'{"ok":false,"problems":["it does not answer whether 1.5 mg includes the water"]}':'{"ok":true}'}});
- await t.post(meta('628123','dan suntikan itu 1.5 mg = water dan peptide atau hanya peptide nya'));await t.settle();
+ await t.post(meta('628123','dan suntikan itu 1.5 mg = water dan serum atau hanya serum nya'));await t.settle();
  assert.equal(t.asked.length,2);assert.match(t.asked[1][1],/does not answer whether 1\.5 mg includes the water/);
- assert.deepEqual(t.sent.map(b=>b.text?.body),['Dosis 1.5 mg itu peptide saja kak, belum termasuk water.']);
- assert.match(seen[0],/1\.5 mg = water dan peptide/,'the reviewer sees the customer message');assert.match(seen[0],/Halo kak/,'and the draft');
+ assert.deepEqual(t.sent.map(b=>b.text?.body),['Dosis 1.5 mg itu serum saja kak, belum termasuk water.']);
+ assert.match(seen[0],/1\.5 mg = water dan serum/,'the reviewer sees the customer message');assert.match(seen[0],/Halo kak/,'and the draft');
  // KD-4 (19 Nov 2026): the check is told a [FOTO: …] part is the picture aqeelOS sends, and that big totals come as several QRs
  assert.match(seen[0],/\[FOTO: name\] .*is a picture aqeelOS sends/);assert.match(seen[0],/split into several QRs/)});
 

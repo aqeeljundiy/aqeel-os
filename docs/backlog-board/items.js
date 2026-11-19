@@ -98,7 +98,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "One answer per burst of customer messages",
-   "detail": "Set 19 Nov: both lines answer 150 s after the customer's last message (resets on each bubble), at most 7 min after the first. To see in a test chat. Before: Amri #1: replies come per bubble, 3-5 min late, and miss the last question. The quiet wait already exists (90 s default, resets on each message): check Randy's and Gilang's quietSec, set 2-4 min, and make sure a new message replaces a reply already being written so one reply answers everything. Biomarkers also 4-6 min slow.",
+   "detail": "Set 19 Nov: both lines answer 150 s after the customer's last message (resets on each bubble), at most 7 min after the first. To see in a test chat. Before: Amri #1: replies come per bubble, 3-5 min late, and miss the last question. The quiet wait already exists (90 s default, resets on each message): check Randy's and Gilang's quietSec, set 2-4 min, and make sure a new message replaces a reply already being written so one reply answers everything. Gilang's line also 4-6 min slow.",
    "refs": [
     "i0003b8dc"
    ]
@@ -123,7 +123,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "Gilang can't take any payment",
-   "detail": "19 Nov: Gilang does make the QRIS; the check then held it as a wrong amount (test amount) and two holds handed the chat over. Fixed with KD-2. To see in a test chat. Before: Amri #7. Check Gilang's line: payment tool, price list and limits. Biomarkers also hands off payments it should create itself, and can't create them from the team topic.",
+   "detail": "19 Nov: Gilang does make the QRIS; the check then held it as a wrong amount (test amount) and two holds handed the chat over. Fixed with KD-2. To see in a test chat. Before: Amri #7. Check Gilang's line: payment tool, price list and limits. Gilang's line also hands off payments it should create itself, and can't create them from the team topic.",
    "refs": [
     "i03cf9999"
    ]
@@ -163,7 +163,7 @@ window.BOARD = {
    "status": "done",
    "server": "Elkiya",
    "title": "Card payment links, not only QRIS",
-   "detail": "Proven 19 Nov: both lines have their Xendit key, and card links were made live on both (biomarkers 12 and 17 Nov, continue-support 12 Nov).",
+   "detail": "Proven 19 Nov: both lines have their Xendit key, and card links were made live on both (Gilang's line 12 and 17 Nov, Randy's line 12 Nov).",
    "refs": [
     "i512d2725"
    ]
@@ -270,7 +270,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "\"Not a doctor's service\" wording",
-   "detail": "Done 19 Nov: both agents say they are research consultants for research compounds, cannot share a doctor's identity, and assure guidance by an experienced expert team. Before: Amri #5: Randy and Gilang say it badly. Say: compound research; we can't name a doctor, but customers are guided by an experienced team in research peptides.",
+   "detail": "Done 19 Nov: both agents say they are research consultants for research compounds, cannot share a doctor's identity, and assure guidance by an experienced expert team. Before: Amri #5: Randy and Gilang say it badly. Say: compound research; we can't name a doctor, but customers are guided by an experienced team in research products.",
    "refs": []
   },
   {
@@ -314,7 +314,7 @@ window.BOARD = {
    "p": 2,
    "status": "done",
    "server": "Elkiya",
-   "title": "Biomarkers Support lost seven instruction lines",
+   "title": "Gilang's support agent lost seven instruction lines",
    "detail": "Checked 19 Nov: Gilang's instructions hold all the lost rules again (order-forward tag, tutorial videos, check_payment steps, Ask don't assume). Fixer item closed.",
    "refs": [
     "ibd8a5021"
@@ -682,7 +682,7 @@ window.BOARD = {
    "p": 3,
    "status": "check",
    "server": "Elkiya",
-   "title": "Overnight AdmissionSight build",
+   "title": "Overnight client build",
    "detail": "Fixed 19 Nov (b4d0ecd), live on both; the engine patch is in place on Elkiya: background delegations count as busy, so aqeelOS waits for them before an engine restart. To see at the next restart with a delegation running.",
    "refs": [
     "i90830fb0"

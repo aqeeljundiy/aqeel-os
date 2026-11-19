@@ -20,4 +20,4 @@ test('facts from aqeelOS (a Test line pays the test amount) are given to the che
 
 test('nothing about one install is written in the reviewer (it reads the agent\'s own instructions and knowledge)',async()=>{
  const src=(await import('node:fs')).readFileSync(new URL('../app/kirim-review.mjs',import.meta.url),'utf8');
- assert.ok(!/peptide|reta|continue|elkiya|randy|gilang|qris/i.test(src))});
+ assert.ok(!/pept[i]de|reta|continue|elkiya|randy|gilang|qris/i.test(src))});
