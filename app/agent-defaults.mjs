@@ -87,6 +87,10 @@ export function createAgentDefaults({DATA,giveSkills,trimSkills=async()=>0,locke
   const onceF=path.join(DATA,'agent-defaults-once.json');const once=JSON.parse(await readFile(onceF,'utf8').catch(()=>'{}')||'{}');
   if(!once[a]?.interim){if(pick(c,'display.interim_assistant_messages')!==false&&String(pick(c,'display.interim_assistant_messages'))!=='false')changes.push(['display.interim_assistant_messages','false']);
    once[a]={...(once[a]||{}),interim:Date.now()};await writeFile(onceF,JSON.stringify(once))}
+  // a second message while the agent is answering waits its turn instead of interrupting the first (owner, 19 Nov 2026, EN-13:
+  // the interrupted turn ended with "Your request was not processed"). Set once per agent, like the line above.
+  if(!once[a]?.queue){if(String(pick(c,'display.busy_input_mode')??'')!=='queue')changes.push(['display.busy_input_mode','queue']);
+   once[a]={...(once[a]||{}),queue:Date.now()};await writeFile(onceF,JSON.stringify(once))}
   if(!own||isolated)for(const p of PLATFORMS){const cur=[].concat(pts[p]||[]),add=[bundle(p),...(p==='api_server'?API_EXTRA:[])].filter(x=>!cur.includes(x));if(add.length)changes.push(['platform_toolsets.'+p,cur.includes(bundle(p))?[...cur,...add]:[...add,...cur]])}
   if(!isolated&&pick(c,'bot_desktop.auto_start')!==true)changes.push(['bot_desktop.auto_start','true']);
   if(isolated){const want={'terminal.backend':'ssh','terminal.ssh_host':'127.0.0.1','terminal.ssh_user':userOf(a),'terminal.ssh_port':'22','terminal.ssh_key':KEY,'terminal.cwd':ws};

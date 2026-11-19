@@ -25,4 +25,6 @@ assert.ok(srv.includes('createAgentDefaults({DATA,isTest:a=>isTestAgent(a),'),'s
 assert.ok(/agentLive\.install\(\)\.then\(async c0=>\{const c=\[\];for\(const a of c0\)if\(!await isTestAgent/.test(srv),'plugin install ignores test agents');
 assert.ok(/async function toolSigs\(\)\{const out=\{\};for\(const a of await agentLive\.homes\(\)\)\{if\(await isTestAgent\(a\)/.test(srv),'tool lists ignore test agents');
 assert.ok(srv.includes("restart:why=>{if(/^n8n connected for /.test(why)&&testAgentShown(why))return;"),'n8n setup for a test agent restarts nothing');
+// EN-13 (owner, 19 Nov 2026): a second message waits its turn (busy_input_mode queue), set once per agent so a later change sticks
+assert.ok(src.includes("if(!once[a]?.queue){if(String(pick(c,'display.busy_input_mode')??'')!=='queue')changes.push(['display.busy_input_mode','queue']);"),'messages queue by default, once');
 console.log('agent-defaults-idempotent ok');
