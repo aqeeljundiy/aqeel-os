@@ -117,6 +117,9 @@ test('create_payment: products are S- labels, logged with the order refs for the
  assert.match((await C.call('cove-support',tok,'create_payment',{amounts:[2660000],order_total:2660000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen',name:'Ani',products:['I-Reta']})).text,/sales labels \(S-Pen, S-Reta\), not I-Reta/);
  assert.match((await C.call('cove-support',tok,'create_payment',{amounts:[2660000],order_total:2660000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\nPesanan: 1x Pen',name:'Ani',products:['S-Reta','S-Pen']})).text,/FOTO/);
  const p=JSON.parse((await readFile(path.join(D,'payments.jsonl'),'utf8')).trim());assert.deepEqual(p.products,['S-Reta','S-Pen']);assert.deepEqual(p.orders,['BM-1794038325-1']);assert.equal(p.conversation,'cnv_A');assert.match(p.run,/^r/)});
+test('create_payment: a pen the confirmed form names gets the line\'s pen label, although the agent listed only the serum (TS-3, 19 Nov 2026)',async()=>{const {C,D}=await tools();const tok=C.begin({agent:'cove-support',line:'111111',conversation:'cnv_A',phone:'628123',mode:'test'});
+ assert.match((await C.call('cove-support',tok,'create_payment',{amounts:[2660000],order_total:2660000,order_form:'Nama: Ani Wijaya\nAlamat: Jl. Merdeka 10, Bandung 40111\nNo HP: 08123456789\n1x Serum A Pen 10mg (cartridge premixed)\nKonfigurasi: Pen: premixed cartridge',name:'Ani',products:['S-Reta']})).text,/FOTO/);
+ assert.deepEqual(JSON.parse((await readFile(path.join(D,'payments.jsonl'),'utf8')).trim()).products,['S-Reta','S-Pen'])});
 
 // ---- paid-labels: code, no AI
 async function paid(statuses){const W=await mkdtemp(path.join(tmpdir(),'pl-')),D=path.join(W,'data');await mkdir(D,{recursive:true});

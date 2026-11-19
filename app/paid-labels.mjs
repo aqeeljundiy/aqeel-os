@@ -132,7 +132,7 @@ export function createPaidLabels({DATA,WORK,keyOf=null,label,orders=async()=>nul
    // the order goes to the team whatever happens with the labels, and only once
    if(!d.paid){d.paid=true;evs.push({agent:p.agent,type:'payment.paid',kind:p.kind||'qris'})}
    if(!d.order){d.order=await sendOrder(p,refs,'');d.refs=refs;changed=true;if(d.order.state==='posted')evs.push({agent:p.agent,type:'order.posted',kind:p.kind||'qris'})}
-   try{const r=await label(p.agent,{conversationId:p.conversation,phone:p.phone,add:['Customer',...(p.products||[])],remove:['Checkout'],source:'payment',run:p.run||'pay'});
+   try{const r=await label(p.agent,{conversationId:p.conversation,phone:p.phone,add:['Customer',...(p.products||[])],remove:['Checkout'],source:'payment',run:p.run||'pay',...(p.form?{form:p.form}:{})});
     db.done[key]={state:'labelled',at:t,refs,changed:r?.changed||[],...(r?.set===false?{why:r.why}:{}),order:d.order};res.push({agent:p.agent,total:p.total,...r})}
    // the record of a failed try carries its time like every other: without it the clean-up below took it for 1970 and deleted it in the same
    // tick, so the next tick started from nothing and posted the order to the team again, every minute (audit H1, 12 Nov 2026)

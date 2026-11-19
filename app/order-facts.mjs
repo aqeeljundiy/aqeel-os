@@ -19,7 +19,7 @@ export function orderFacts(form){const lines=String(form||'').split('\n'),conf=l
  const where=/\b(?:pen|vial)\b/i.test(conf)?conf:conf+'\n'+items,all=conf+'\n'+items;
  const pen=/\bpen\b/i.test(where)&&!NO_PEN.test(where),vial=/\bvial\b/i.test(where),selfMix=SELF.test(all),premix=!selfMix&&PREMIX.test(all);
  return {pen,vial,premix,selfMix}}
-export const factTags=f=>[f?.pen&&'@pen',f?.vial&&'@vial',f?.premix&&'@premix',f?.selfMix&&'@selfmix'].filter(Boolean);
+const factTags=f=>[f?.pen&&'@pen',f?.vial&&'@vial',f?.premix&&'@premix',f?.selfMix&&'@selfmix'].filter(Boolean);
 // the sales label of a pen when the line has one ("S-Pen"): the order names a pen, so the contact gets it even when the agent forgot it
 export const penLabel=sales=>(Array.isArray(sales)?sales:[]).find(x=>/^S-\s*pen$/i.test(String(x).trim()))||null;
 

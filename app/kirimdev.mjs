@@ -28,6 +28,7 @@ import {reviewPrompt,parseReview} from './kirim-review.mjs';
 import {createCatalog,money} from './price-catalog.mjs';
 import {customerHistory} from './customer-history.mjs';
 import {orderContextOf} from './paid-labels.mjs';
+import {orderFacts,afterPaidPicks,tidyText,squashText,mediaKey,REPEAT_MIN,templateCover,quizData} from './order-facts.mjs';
 import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,unlink,stat,appendFile,readdir} from 'node:fs/promises';
 import {publicUrl} from './install.mjs';   // Your address (System › Settings), read at the moment a webhook is made
@@ -105,6 +106,12 @@ export function interestLabels(allowed,text){const t=' '+String(text||'').toLowe
  return [...new Set((Array.isArray(allowed)?allowed:[]).filter(n=>/^I-/.test(String(n))))].filter(n=>{const w=String(n).slice(2).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(),f=w.replace(/ /g,''),ws=w.split(' ');
   return f.length>=3&&(word(w)||(f.length>=5||/\d/.test(f))&&flat.includes(f)||ws.length>1&&ws.every(x=>x.length>=2&&word(x)))})}
 export const PARTS_MAX=8;
+// a media tag may carry the whole link the agent's instructions give (19 Nov 2026, CH-3: "[VIDEO: https://<media host>/…/Clip.mp4]"
+// was dropped because only file names were matched, and the customer was told a video was on its way): that link is sent when urls.txt holds
+// it, or holds another file of the same media host (the line's own media library); any other link stays unsent
+export function linkIn(urls,name){if(!/^https:\/\/[^\s/]+\//i.test(String(name||'')))return null;const bare=x=>String(x).split('#')[0].split('?')[0];let host='';
+ try{host=new URL(name).host.toLowerCase()}catch{return null}
+ return (urls||[]).find(x=>bare(x)===bare(name))||((urls||[]).some(x=>{try{return new URL(x).host.toLowerCase()===host}catch{return false}})?name:null)}
 export function splitReply(out){const t=normalizeTags(String(out||'').replace(FOOTER,'').trim());const parts=[];
  for(const x of t.split(/\n-{3,}\n/))for(const y of x.split(/(\[(?:FOTO|TEMPLATE|VIDEO):[^\]]+\])/))if(y.trim())parts.push(...(/^\[(?:FOTO|TEMPLATE|VIDEO):/.test(y.trim())?[y.trim()]:chunkText(y.trim())));
  if(parts.length<=PARTS_MAX)return parts;
@@ -314,7 +321,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    if(same&&st.seen.includes(same))continue;if(same)st.seen.push(same);
    if(tester&&isReset(line,m.text.trim())){st.cut[key]=new Date((m.ts||now()/1000)*1000+1000).toISOString();delete st.pending[key];delete st.turns[key];cancelOutbound(agent,m.from);
     // a reset starts the test over: no pause or handoff left from earlier test traffic may hold the confirmation or the next question (7 Nov 2026)
-    delete st.paused[agent+'|'+m.from];if(m.conversationId)delete st.paused[agent+'|'+m.conversationId];if(st.kitPhotos)delete st.kitPhotos[agent+'|'+m.from];release(agent,m.from,'reset');
+    delete st.paused[agent+'|'+m.from];if(m.conversationId)delete st.paused[agent+'|'+m.conversationId];if(st.kitPhotos)delete st.kitPhotos[agent+'|'+m.from];if(st.sent)delete st.sent[agent+'|'+m.from];release(agent,m.from,'reset');
     await send(agent,line,m.from,line.resetText||'✅ Test reset. Start again as a new customer.').catch(e=>log('kirimdev reset reply: '+e.message));continue}
    const until=pausedUntil(agent,m.conversationId,m.from),hold=holdOf(agent,m.from);
    // a message during a team member's pause is kept, not dropped (audit 6 Nov: "mau pakai CC" was never answered): it waits
@@ -472,6 +479,13 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   await noteImages(agent,l);
   return l.map(m=>(m.direction==='inbound'?'CUSTOMER':String(line.persona||'AGENT').toUpperCase())+': '+msgText(m)).join('\n')}
 
+ // the line's greeting for a new lead (TS-7, 19 Nov 2026: an agent answered a new lead with a greeting of its own; the template was only named in
+ // its instructions): lines.<agent>.greeting is a file of the agent's folder or "[REPLY: /command]" of its QUICK_REPLIES.md; not set,
+ // templates/GREETING.md when the agent has one
+ async function greetingOf(agent,line){const g=String(line.greeting||'templates/GREETING.md').trim(),m=/^\[REPLY:\s*(\/[\w-]+)\s*\]$/i.exec(g);let t='';
+  if(m)t=quickReply(await readFile(path.join(WORK,agent,'QUICK_REPLIES.md'),'utf8').catch(()=>''),m[1]);
+  else if(/^[\w./-]+$/.test(g)&&!g.split('/').includes('..'))t=await readFile(path.join(WORK,agent,g),'utf8').catch(()=>'');
+  return {from:m?m[1]:g,text:String(t||'').trim().slice(0,2500)}}
  async function answer(agent,line,p,key){if(p.outbound){for(const id of p.outbound)await deliver(id);return}const epoch=st.cut[key]||'';const hist=await history(agent,line,p,key);const mode=modeOf(line);
   const who=mode==='test'?'WHATSAPP TEST CHAT (customer = a team tester, treat them exactly like a real customer).':'WHATSAPP CHAT with a customer.';
   const q=who+' You are '+line.persona+' for '+line.business+'. Customer WhatsApp number: '+((line.localPrefix?String(p.from||'').replace(new RegExp('^'+String(line.localPrefix.country||'').replace(/\D/g,'')),String(line.localPrefix.local??'')):String(p.from||''))||'unknown')+' (use it for the phone field of the order form; never ask the customer for it). In customer chats you have no shell and no files: read your knowledge sheet with read_sheet and your decisions, briefing and template files with read_file (list_files shows them), this chat with conversation, and make a payment only with create_payment (never .tools/sheet, cat, .tools/kirim, .tools/qris or .tools/pay here). Prices are never yours to set: quote_order gives the total of an order from the price list aqeelOS holds, and create_payment charges that total. When the customer says they paid, asks if it arrived, or sends a receipt, use check_payment and answer from it: PAID means confirmed, anything else means the team is still checking; never hand that off and never ask for the receipt again. A line like [customer photo: …] is a description of a picture they sent, and a picture never proves a payment. Read your knowledge sheet tabs + decisions file first; for anything they do not cover (product facts, how something works), look up how the team answered it before with past_chats (scope answers) before you hand off. Never give one customer another person\'s name, number, address or order. Conversation so far (oldest first):\n\n'+hist+
@@ -482,7 +496,14 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    '\n\nWrite ONLY the WhatsApp reply text to send next ('+(line.language?'in '+line.language+', or in the customer\'s own language when they write another':'in the customer\'s own language')+', WhatsApp formatting with *bold*, short paragraphs). Do NOT send anything yourself. Output only the message addressed to the customer, never an operator preface, draft commentary, or a statement that you have not sent it. Never only ask the customer to wait: nothing brings you back to this chat later, so answer now or hand off. '+
    'If several messages are needed, separate them with a line containing only ---. If this must go to a human (handoff rules), reply exactly: HANDOFF: <reason, and what you already checked (sheet, past chats) and found>';
   const ctxRun={session:conversationSession(agent,line.phoneNumberId,p.conversationId||p.from,epoch),run:{since:epoch,line:line.phoneNumberId,conversation:p.conversationId||'',phone:p.from,mode,tester:testerNow(agent,line,p.from,p.conversationId||'')}};
-  const ask=async note=>{const t=String(await runAgent(agent,note?q+note:q,ctxRun)||'').replace(FOOTER,'').trim();if(engineDown(t))throw Error('the engine answered with its own error instead of a reply: '+t.slice(0,160));return t};
+  // the first reply of a chat (nothing from the line in it since the last reset) gets the team's greeting template in its run and is
+  // checked for it (TS-7); a customer who writes English gets no Indonesian template (their rules). What they already got is named (TS-5).
+  const mine=String(line.persona||'AGENT').toUpperCase()+': ',first=!!p.conversationId&&!!hist.trim()&&!hist.split('\n').some(l=>l.startsWith(mine));
+  const greet=first&&langOf((p.messages||[]).join('\n'))!=='en'?await greetingOf(agent,line).catch(()=>({text:''})):{text:''};
+  const hadMedia=Object.keys(st.sent?.[agent+'|'+p.from]?.m||{}).map(x=>x.slice(x.indexOf(':')+1));
+  const pre=(greet.text?'\n\nThis is the FIRST reply in this chat (a new lead, or a chat started again). The team\'s greeting template for a new lead ('+greet.from+') is below. Use it as your rules say (if they asked something, answer it first, then the template, in ONE message); never replace it with a greeting of your own.\n<<<\n'+greet.text+'\n>>>':'')
+   +(hadMedia.length?'\n\nAlready sent to this customer, never send again (if they ask, say it is above in the chat): '+hadMedia.join(', ')+'.':'');
+  const ask=async note=>{const t=String(await runAgent(agent,q+pre+(note||''),ctxRun)||'').replace(FOOTER,'').trim();if(engineDown(t))throw Error('the engine answered with its own error instead of a reply: '+t.slice(0,160));return t};
   // the log is readable on the box: the chat is named by its last four digits, never by the customer's name (audit M2)
   log('kirimdev '+agent+': answering '+tail(p.from));const runAt=now();let out=await ask('');
   const lastQ=hist.split('\n').filter(l=>l.startsWith('CUSTOMER: ')).pop()?.slice(10)||(p.messages||[]).slice(-1)[0]||'-';
@@ -509,7 +530,18 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   const since=runAt-Math.max(0,Number(line.paymentRecentMin??60)||0)*60e3;
   const check=async text=>{const g=guardReply(noRepeat(splitReply(withPhotos(text))),{paid:paidSince?await paidSince(agent,p.from,since).catch(()=>false):null,qrPics:qrSince?await qrSince(agent,p.from,since).catch(()=>[]):[],
    ctx:await guardCtx(agent,line,p.from,{hist}),customerText:(p.messages||[]).join('\n')});
-   return g.hold?g:await review(agent,line,g,{newMessages:(p.messages||[]).map(m=>m||'(a photo or file)'),history:hist})};
+   if(g.hold)return g;
+   // a reply that talks about its video while no video it names exists here (CH-3: the tag was dropped and the customer was told a video was
+   // sent): written again instead. A missing picture, or one missing video next to one that exists, is still only dropped (audit H7).
+   const vids=g.parts.filter(x=>/^\[VIDEO:/i.test(x)),miss=[];for(const x of vids)if(await mediaOf(agent,x,{quiet:true})===null)miss.push(x);
+   if(vids.length&&miss.length===vids.length&&/\bvideo/i.test(g.parts.filter(x=>!TAGGED.test(x)).join('\n')))return {...g,kinds:['media'],hold:'The reply sends '+miss.join(' ')+', but this line has no such video, so it would not arrive. Use only a video your instructions name (its exact file name, or the exact link given), or leave it out; never say a video was sent unless its tag is in the reply.'};
+   // the same video or long text this customer already got (TS-5: the mixing tutorial twice)
+   const rep=g.parts.filter(x=>sentBefore(agent,p.from,x));
+   if(rep.length)return {...g,kinds:['repeat'],hold:'The customer already got this from you: '+rep.map(x=>mediaKey(x)?.split(':')[1]||'"'+String(x).slice(0,60)+'…"').join(', ')+'. Do not send it again; answer what they asked now. If they ask for it again, say it is above in the chat.'};
+   // the first reply without the team's greeting template (TS-7)
+   if(greet.text&&!quizData((p.messages||[]).join('\n'))){const c=templateCover(g.parts.filter(x=>!TAGGED.test(x)).join('\n'),greet.text);
+    if(c!==null&&c<0.4)return {...g,kinds:['greeting'],hold:'This is the first reply to a new lead and it leaves out the team\'s greeting template ('+greet.from+'). Write it again with the template, as your rules say: answer their question first if they asked one, then the template, in one message.'}}
+   return await review(agent,line,g,{newMessages:(p.messages||[]).map(m=>m||'(a photo or file)'),history:hist})};
   let g=await check(out);
   // held by the exit guard (audit H6): the customer gets nothing wrong. The reply is written once more with the reason; if that is
   // held too (or is nothing), a person gets the chat with the held text, which only the team sees.
@@ -530,7 +562,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   p.outbound=[];for(const part of withCaptions(g.parts)){const id=await prepare(agent,line,p.from,part);if(id)p.outbound.push(id)}await saveState();
   // every part was a picture tag aqeelOS has no picture for: nothing to send, and the customer must not be left with silence (audit H7)
   if(!p.outbound.length){delete p.outbound;await alertTeam(agent,line,{key:'empty|'+p.from,title:'the agent\'s reply was only pictures aqeelOS does not have',detail:'Customer wrote: '+String(lastQ).slice(0,300)+'\nThe reply: '+g.parts.join(' ').slice(0,200)+'\nNothing was sent.',from:p.from,conversationId:p.conversationId,name:p.name});return}
-  for(const id of p.outbound){await deliver(id);await wait(2500)}
+  for(const id of p.outbound){await deliver(id);await wait(2500)}noteSent(agent,p.from,g.parts);
   if(kitTags.length&&g.parts.some(x=>kitTags.includes(String(x).trim()))){(st.kitPhotos||={})[kitKey]=now();await saveState()}
   if(line.labels?.autoInterest&&p.conversationId){const add=interestLabels(line.labels.allowed,(p.messages||[]).join('\n')).slice(0,LABEL_MAX);
    if(add.length)await labelContact(agent,{conversationId:p.conversationId,phone:p.from,add,source:'auto',run:'interest'}).catch(e=>log('kirimdev '+agent+': interest labels: '+e.message))}}
@@ -677,7 +709,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   if(d.held&&!(text&&String(text).trim()))throw Error('Draft #'+id+' was held because it had text meant for the team. Send the clean text instead.');
   const parts=text&&String(text).trim()?splitReply(text):d.parts;if(!parts.length)throw Error('Write the text to send.');
   d.by=String(by||'');d.via=approval.via||'';d.edited=!!(text&&String(text).trim());
-  if(!d.outbound){d.outbound=[];for(const p of withCaptions(parts)){const op=await prepare(agent,line,d.from,p);if(op){st.outbox[op].approved=true;st.outbox[op].human=d.by||'a person';d.outbound.push(op)}}await saveState()}
+  if(!d.outbound){d.outbound=[];for(const p of withCaptions(parts)){const op=await prepare(agent,line,d.from,p,{tidy:!d.edited});if(op){st.outbox[op].approved=true;st.outbox[op].human=d.by||'a person';d.outbound.push(op)}}await saveState()}
   const sent=[];for(const id of d.outbound){sent.push(await deliver(id));await wait(1500)}d.status='sent';d.doneAt=now();release(agent,d.from,'a person sent a draft');await saveState();log('kirimdev '+agent+': draft #'+id+' sent, approved by '+d.by);
   let labels=null;if(d.labels&&!d.labelsSet){labels=await labelContact(agent,{conversationId:d.conversationId,phone:d.from,...d.labels,source:'approved',run:'draft'+d.id}).catch(e=>({set:false,why:e.message}));if(labels.set){d.labelsSet=true;await saveState()}}
   return {sent:sent.filter(Boolean).length,...(labels?{labels}:{})}}
@@ -709,18 +741,21 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   const id=randomUUID();st.outbox[id]={id,agent,pid:String(line.phoneNumberId),to:num,body:{messaging_product:'whatsapp',recipient_type:'individual',to:num,type:'document',document:{link,filename:String(filename||'file.pdf').slice(0,200),...(caption?{caption:String(caption).slice(0,1024)}:{})}},at:now(),status:'pending'};await saveState();
   return deliver(id)}
  async function send(agent,line,to,part){const id=await prepare(agent,line,to,part);await saveState();return deliver(id)}
- async function prepare(agent,line,to,part){await state();const base={messaging_product:'whatsapp',recipient_type:'individual',to};let body;
-  const tm=/^\[TEMPLATE:\s*([\w-]+)\s*\]$/.exec(part),fm=/^\[FOTO:\s*(?:media\/staff\/)?([^\]|]+?)\s*(?:\|\s*([\s\S]*?)\s*)?\]$/.exec(part);
-  if(tm){const tp=(await readJson(path.join(WORK,agent,'media','staff','templates.json'),{}))[tm[1]];if(!tp){log('kirimdev '+agent+': no picture for template '+tm[1]);return null}body={...base,type:'image',image:tp}}
+ // what a picture, video or template part sends ({type, image|video}), null when this line has no such file, undefined for a text part
+ async function mediaOf(agent,part,{quiet=false}={}){const tm=/^\[TEMPLATE:\s*([\w-]+)\s*\]$/.exec(part),fm=/^\[FOTO:\s*(?:media\/staff\/)?([^\]|]+?)\s*(?:\|\s*([\s\S]*?)\s*)?\]$/.exec(part);
+  if(tm){const tp=(await readJson(path.join(WORK,agent,'media','staff','templates.json'),{}))[tm[1]];if(!tp){if(!quiet)log('kirimdev '+agent+': no picture for template '+tm[1]);return null}return {type:'image',image:tp}}
   const vm=/^\[VIDEO:\s*(?:media\/staff\/)?([^\]|]+?)\s*(?:\|\s*([^\]]*?)\s*)?\]$/.exec(part);
-  if(tm){}else if(fm||vm){const name=(fm||vm)[1].trim(),own=mediaLink?await Promise.resolve(mediaLink(agent,name)).catch(()=>null):null,urls=((own?own+'\n':'')+(await readFile(path.join(WORK,agent,'media','staff','urls.txt'),'utf8').catch(()=>''))).split(/\s+/).filter(Boolean);
+  if(!fm&&!vm)return undefined;{const name=(fm||vm)[1].trim(),own=mediaLink?await Promise.resolve(mediaLink(agent,name)).catch(()=>null):null,urls=((own?own+'\n':'')+(await readFile(path.join(WORK,agent,'media','staff','urls.txt'),'utf8').catch(()=>''))).split(/\s+/).filter(Boolean);
    // [VIDEO: name] may omit the extension; any .mp4/.mov file is sent as a video, never as a picture
-   const u=(own&&/^https:\/\//.test(own)?own:null)||urls.find(x=>x.split('/').pop()===name)||urls.find(x=>decodeURIComponent(x.split('?')[0].split('/').pop())===name)||(vm&&urls.find(x=>/\.(mp4|mov)$/i.test(x.split('?')[0])&&decodeURIComponent(x.split('?')[0].split('/').pop()).replace(/\.(mp4|mov)$/i,'')===name));
-   if(!u){log('kirimdev '+agent+': no '+(vm?'video':'picture')+' called '+name+' in media/staff/urls.txt; tag dropped');return null}
-   if(vm||/\.(mp4|mov)$/i.test(u.split('?')[0])){const cap=vm?.[2]?.trim();body={...base,type:'video',video:{link:u,...(cap?{caption:cap.slice(0,1024)}:{})}}}
+   const u=(own&&/^https:\/\//.test(own)?own:null)||urls.find(x=>x.split('/').pop()===name)||urls.find(x=>decodeURIComponent(x.split('?')[0].split('/').pop())===name)||(vm&&urls.find(x=>/\.(mp4|mov)$/i.test(x.split('?')[0])&&decodeURIComponent(x.split('?')[0].split('/').pop()).replace(/\.(mp4|mov)$/i,'')===name))||linkIn(urls,name);
+   if(!u){if(!quiet)log('kirimdev '+agent+': no '+(vm?'video':'picture')+' called '+name+' in media/staff/urls.txt; tag dropped');return null}
+   if(vm||/\.(mp4|mov)$/i.test(u.split('?')[0])){const cap=vm?.[2]?.trim();return {type:'video',video:{link:u,...(cap?{caption:cap.slice(0,1024)}:{})}}}
    // the "f=/<name>" marker only lets urls.txt match the tag; WhatsApp gets the provider's own link (if734729a)
-   else{const link=u.replace(/([?&])f=\/[^&#]*(&|$)/,(m,a,b)=>b?a:'').replace(/[?&]$/,'');if(link!==u)log('kirimdev '+agent+': picture '+name+' sent as its plain link');const cap=fm?.[2]?.trim();body={...base,type:'image',image:{link,...(cap?{caption:cap.slice(0,1024)}:{})}}}}
-  else{const text=part.replace(FOOTER,'').trim().slice(0,4096);if(!text)return null;body={...base,type:'text',text:{body:text,preview_url:false}}}
+   else{const link=u.replace(/([?&])f=\/[^&#]*(&|$)/,(m,a,b)=>b?a:'').replace(/[?&]$/,'');if(link!==u&&!quiet)log('kirimdev '+agent+': picture '+name+' sent as its plain link');const cap=fm?.[2]?.trim();return {type:'image',image:{link,...(cap?{caption:cap.slice(0,1024)}:{})}}}}}
+ async function prepare(agent,line,to,part,{tidy=true}={}){await state();const base={messaging_product:'whatsapp',recipient_type:'individual',to};let body;
+  const m=await mediaOf(agent,part);if(m===null)return null;
+  // a customer text keeps its layout (TS-8, TS-9: points written inline, walls of text); what a person wrote or approved goes as written
+  if(m)body={...base,...m};else{const raw=part.replace(FOOTER,'').trim(),text=(tidy?tidyText(raw):raw).slice(0,4096);if(!text)return null;body={...base,type:'text',text:{body:text,preview_url:false}}}
   const id=randomUUID();st.outbox[id]={id,agent,pid:String(line.phoneNumberId),to,body,at:now(),status:'pending'};return id}
  // what this chat itself holds: the exit guard lets a number, name or address through only when it is the customer's own (audit C1)
  const ownCache=new Map();
@@ -787,7 +822,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   const ops=[];for(const p of withCaptions(parts)){const id=await prepare(agent,line,num,p);if(id)ops.push(id)}await saveState();
   if(!ops.length)throw Error('Nothing to send: aqeelOS has no picture for those tags.');
   for(const id of ops){sent.push(await deliver(id));await wait(1500)}
-  st.lastReply[agent+'|'+num]={text:sig,at:now()};
+  st.lastReply[agent+'|'+num]={text:sig,at:now()};noteSent(agent,num,parts);
   // the team's answer relayed from the Questions topic ends the wait after a handoff: the chat is the agent's again
   if(release(agent,num,'the team\'s answer was sent'))for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===num){delete st.pending[k];delete st.turns[k];clearTimer(timers.get(k));timers.delete(k)}
   for(const [id,w] of Object.entries(st.waits||{}))if(w.agent===agent&&w.from===num)delete st.waits[id];
@@ -901,7 +936,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  // source: 'agent' (the label_contact tool: allowed labels only, never LABEL_NEVER; Draft proposes, nothing is set),
  // 'approved' (a person sent the draft that proposed them: same rules, set now), 'payment' (a confirmed payment: Customer
  // and S- labels added, Checkout removed, nothing else). Test sets labels on testers only. Every change is logged.
- async function labelContact(agent,{conversationId,phone='',add=[],remove=[],source='agent',run=''}={}){await state();const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
+ async function labelContact(agent,{conversationId,phone='',add=[],remove=[],source='agent',run='',form=''}={}){await state();const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
   if(!conversationId)throw Error('This chat has no Kirimdev conversation.');const norm=a=>[...new Set([].concat(a||[]).map(x=>String(x??'').trim()).filter(Boolean))];
   add=norm(add);remove=norm(remove).filter(x=>!add.includes(x));if(!add.length&&!remove.length)throw Error('Give the labels to add or remove.');
   if(add.length+remove.length>LABEL_MAX)throw Error(LABEL_MAX+' label changes at most at once.');
@@ -921,7 +956,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   for(const n of remove){const lid=id.get(n);if(!have.has(lid))continue;await api(line.phoneNumberId+'/contacts/'+encodeURIComponent(cid)+'/labels/'+encodeURIComponent(lid),null,{method:'DELETE'});done.push('−'+n)}
   log('kirimdev '+agent+': labels on '+who+': '+(done.join(', ')||'already so')+' ('+source+(run?', run '+run:'')+')');
   if(done.length)await activity(agent,(line.persona||agent)+' labelled '+(phone?'+'+phone:'a contact')+': '+done.join(', '),(source==='payment'?'A confirmed payment':source==='approved'?'A sent draft':'The agent in a customer chat')+(run?' (run '+run+')':'')+'. Kirimdev contact '+cid+'.').catch(()=>{});
-  if(source==='payment'&&add.includes('Customer'))await afterPaid(agent,line,{phone,run,products:add.filter(x=>/^S-/.test(x))}).catch(e=>log('kirimdev '+agent+': after-payment messages: '+e.message));
+  if(source==='payment'&&add.includes('Customer'))await afterPaid(agent,line,{phone,run,products:add.filter(x=>/^S-/.test(x)),form}).catch(e=>log('kirimdev '+agent+': after-payment messages: '+e.message));
   return {set:true,changed:done}}
  // reset of a TESTER's contact (19 Nov 2026, KD-14, issue i98eb0fad): a test run starts clean, so every Kirimdev label on a tester's
  // contact goes, Customer and S- included (labelContact refuses those): testers only, in any mode, no cap, no allowed list.
@@ -939,19 +974,31 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  // calibration, although the SOP says so): the line's own list, sent by code, no AI, once per payment, inside WhatsApp's 24 hours.
  // kirimdev.json lines.<agent>.afterPaid = {parts:[text or [FOTO:/VIDEO:/TEMPLATE: x]], byLabel:[{match:'S-Pen', unless:'', parts:[...]}]}:
  // parts always; each byLabel entry when an S- label of the order matches `match` and none matches `unless`. Nothing set = nothing sent.
- async function afterPaid(agent,line,{phone,run,products=[]}){const a=line.afterPaid;if(!a||!phone||modeOf(line)==='draft')return;
+ async function afterPaid(agent,line,{phone,run,products=[],form=''}){const a=line.afterPaid;if(!a||!phone||modeOf(line)==='draft')return;
   const k=agent+'|'+phone+'|'+(run||'');st.afterPaid||={};if(st.afterPaid[k])return;
-  const hit=(re,on)=>{try{return !!re&&on.some(x=>new RegExp(re,'i').test(x))}catch{return false}};
   // a part "[REPLY: /command]" is that section of the agent's own QUICK_REPLIES.md, read now: the team's SOP text stays the one source, so an
   // edit there reaches these messages too (owner, 19 Nov 2026: long term, not hard coded). A section that is gone is left out and logged.
   const qr=await readFile(path.join(WORK,agent,'QUICK_REPLIES.md'),'utf8').catch(()=>'');
   const reply=x=>{const m=/^\[REPLY:\s*(\/[\w-]+)\s*\]$/i.exec(x);if(!m)return x;const t=quickReply(qr,m[1]);if(!t)log('kirimdev '+agent+': after-payment part '+m[1]+' is not in QUICK_REPLIES.md; left out');return t};
-  const list=[...(a.parts||[]),...(a.byLabel||[]).filter(r=>(!r?.match||hit(r.match,products))&&!hit(r?.unless,products)).flatMap(r=>r.parts||[])].map(x=>reply(String(x||'').trim())).filter(Boolean).slice(0,PARTS_MAX);
+  // what fits this order: its labels and what its confirmed form says (pen or vial, premix): a pen buyer whose S-Pen label is missing still
+  // gets the pen messages (TS-3), a premix order never gets a mixing tutorial (TS-4), and what this customer already got is not sent again (TS-5)
+  const facts=orderFacts(form),picked=afterPaidPicks(a,{products,facts}).map(x=>reply(x)).filter(Boolean),list=picked.filter(x=>!sentBefore(agent,phone,x)).slice(0,PARTS_MAX);
+  if(list.length<picked.length)log('kirimdev '+agent+': after the payment, '+(picked.length-list.length)+' part(s) left out: …'+String(phone).slice(-4)+' already had them');
   if(!list.length)return;if(!within24h(agent,phone)){log('kirimdev '+agent+': after-payment messages not sent to …'+String(phone).slice(-4)+': outside WhatsApp\'s 24 hours');return}
   for(const [x,t] of Object.entries(st.afterPaid))if(now()-t>30*86400e3)delete st.afterPaid[x];st.afterPaid[k]=now();await saveState();
   const ids=[];for(const part of withCaptions(list)){const id=await prepare(agent,line,phone,part);if(id)ids.push(id)}
-  for(const id of ids){await deliver(id);await wait(2500)}
-  log('kirimdev '+agent+': after the payment, '+ids.length+' message(s) sent to …'+String(phone).slice(-4)+(run?' (run '+run+')':''))}
+  for(const id of ids){await deliver(id);await wait(2500)}noteSent(agent,phone,list);await saveState();
+  log('kirimdev '+agent+': after the payment, '+ids.length+' message(s) sent to …'+String(phone).slice(-4)+(run?' (run '+run+')':'')+(facts.pen?', pen':facts.vial?', vial':'')+(facts.premix?', premix':''))}
+ // what each customer already got (TS-5, 19 Nov 2026: the mixing tutorial twice in one chat): a video or template for 14 days, a long text
+ // (REPEAT_MIN letters and more) for 48 hours. Pictures are not counted: a still-valid QRIS is sent again on purpose.
+ const SENT_MEDIA=14*86400e3,SENT_TEXT=48*3600e3,TAGGED=/^\[(?:FOTO|TEMPLATE|VIDEO|REPLY):/i;
+ function sentBefore(agent,phone,part){const s=st.sent?.[agent+'|'+phone];if(!s)return false;const mk=mediaKey(part),t=now();
+  if(mk)return t-(s.m?.[mk]||0)<SENT_MEDIA;if(TAGGED.test(part))return false;const q=squashText(part);
+  return q.length>=REPEAT_MIN&&(s.t||[]).some(x=>x.q===q.slice(0,600)&&t-x.at<SENT_TEXT)}
+ function noteSent(agent,phone,parts){st.sent||={};const k=agent+'|'+phone,s=st.sent[k]||={m:{},t:[]},t=now();
+  for(const p of parts){const mk=mediaKey(p);if(mk){s.m[mk]=t;continue}if(TAGGED.test(p))continue;const q=squashText(p);if(q.length>=REPEAT_MIN)s.t.push({q:q.slice(0,600),at:t})}
+  s.t=s.t.filter(x=>t-x.at<SENT_TEXT).slice(-40);for(const [x,v] of Object.entries(s.m))if(t-v>SENT_MEDIA)delete s.m[x];
+  for(const [x,v] of Object.entries(st.sent))if(!Object.keys(v.m||{}).length&&!(v.t||[]).length)delete st.sent[x]}
  // the line for an agent: a new one (Connect: Test mode, delivery set up, first check) or changes to its settings
  async function saveLine(agent,b={}){if(!AGENT.test(String(agent||'')))throw Error('Pick the agent that answers this number.');
   const c=await readStore(CONF,{lines:{}});c.lines||={};const cur=c.lines[agent]||null,isNew=!cur;

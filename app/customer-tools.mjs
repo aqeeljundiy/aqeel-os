@@ -34,6 +34,7 @@ import {randomBytes,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
 import {orderContextOf} from './paid-labels.mjs';
 import {quote,quoteText,listText,formTotal,splitAmounts,money} from './price-catalog.mjs';
+import {orderFacts,penLabel} from './order-facts.mjs';
 // the line's order details as given in this tool call
 const contextValues=(pr,a)=>Object.fromEntries(orderContextOf(pr).fields.map(f=>[f.key,String(a?.[f.key]||'').trim().slice(0,500)]));
 
@@ -177,6 +178,9 @@ export function createCustomerTools({WORK,DATA,catalogOf=async()=>null,providers
     else{if(r.mode!=='test'&&pr.prices!=='form')return {isError:true,text:'No payment was made: this line has no price list in aqeelOS yet, so it can take payments in Test only. Tell the customer the team will send the payment, and hand off.'};
      if(ft==null)return {isError:true,text:'No payment was made: the order form has no total line ("Total Pembayaran: Rp…"). The amount charged is the total the customer confirmed on the form. Send the full form with its total, ask them to confirm, then call again.'};
      orderTotal=pay=ft}
+    // a pen the confirmed form names is a pen sale, whether or not the agent listed it (TS-3, 19 Nov 2026: a pen buyer had only the product's label,
+    // so the after-payment messages sent the vial mixing video); only when the line has a pen sales label
+    {const pl=penLabel(lr.sales);if(pl&&orderFacts(form).pen&&!products.includes(pl))products=[...products,pl]}
     if(args.order_total!=null&&Number(args.order_total)!==orderTotal&&Number(args.order_total)!==pay){
      if(given.length&&given.reduce((s,x)=>s+x,0)===Number(args.order_total))return {isError:true,text:'No payment was made. You gave '+args.order_total+', but '+(cat?'the price list gives ':'the confirmed order form says ')+orderTotal+'. The amount is never yours to set: '+(cat?'it is the price list\'s total':'it is the total line of the form the customer confirmed')+'. If the form is wrong, send the corrected form and ask the customer to confirm it.'};
      return {isError:true,text:(given.length?'The amounts add up to '+given.reduce((s,x)=>s+x,0)+', not the order total '+args.order_total+'. ':'')+'order_total '+args.order_total+' is not the total of this order ('+orderTotal+'). Check the order form.'}}
