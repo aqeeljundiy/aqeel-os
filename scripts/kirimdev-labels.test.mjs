@@ -184,3 +184,11 @@ test('interest labels by code: each allowed I- label the customer named, whole w
  const t=await make({allowed:['New Leads','I-Reta','I-NAD']});
  const L2=JSON.parse(await readFile(path.join(t.DATA,'kirimdev.json'),'utf8'));L2.lines['cove-support'].labels.autoInterest=true;await writeFile(path.join(t.DATA,'kirimdev.json'),JSON.stringify(L2));
  await t.post(meta('628123','mau tanya reta kak'));await t.settle();assert.deepEqual(t.names('ctc_A'),['I-Reta'])});
+
+test('an after-payment part [REPLY: /command] is that section of the agent QUICK_REPLIES.md, read when it is sent (19 Nov 2026)',async()=>{
+ const {quickReply}=await import('../app/kirimdev.mjs');
+ const md=['# Quick replies','## sudah bayar (/cont-sudahbayar)','Baik Kak, terima kasih.','Simpan di chiller.','','## cartridge-tutorial (/cartridge-tutor)','[video]','## calib (/calib-indo)','Pastikan plunger menyentuh karet.'].join('\n');
+ assert.equal(quickReply(md,'/cont-sudahbayar'),'Baik Kak, terima kasih.\nSimpan di chiller.');
+ assert.equal(quickReply(md,'/calib-indo'),'Pastikan plunger menyentuh karet.');
+ assert.equal(quickReply(md,'/cartridge-tutor'),'','a placeholder is no text');
+ assert.equal(quickReply(md,'/gone'),'','a section that is not there')});

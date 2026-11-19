@@ -92,6 +92,11 @@ export function chunkText(t,max=TEXT_MAX){const out=[];let r=String(t||'');
 // interest labels by code (19 Nov 2026, Amri: Gilang often left a customer interested in a peptide without its I- label, although his
 // instructions say so): each allowed I- label whose name the customer wrote, as a word or the start of one ("reta", "retatrutide" → I-Reta;
 // at least 3 letters). lines.<agent>.labels.autoInterest switches it on; the agent's own labels are unchanged.
+// one section of a QUICK_REPLIES.md by its command: "## name (/command)" up to the next "## ". A placeholder body ("[video]", "[image]")
+// or an empty one is no text (19 Nov 2026)
+export function quickReply(md,cmd){const lines=String(md||'').split('\n');const c=String(cmd||'').toLowerCase();let on=false;const out=[];
+ for(const l of lines){if(/^##\s/.test(l)){if(on)break;on=l.toLowerCase().includes('('+c+')');continue}if(on)out.push(l)}
+ const t=out.join('\n').trim();return /^\[(video|image|foto)\]$/i.test(t)?'':t}
 export function interestLabels(allowed,text){const t=' '+String(text||'').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,' ')+' ',flat=t.replace(/ /g,'');
  // a short name (3 letters or fewer: Pen, NAD) only as a whole word ("pencernaan" is no pen); a longer one also as a word's start ("retatrutide"),
  // written without spaces or dashes ("ghk cu" → GHKCu, "igf-1" → IGF1), or, for a name of several words, each of them ("bpc 157 sama tb 500" → BPC-TB)
@@ -937,7 +942,11 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  async function afterPaid(agent,line,{phone,run,products=[]}){const a=line.afterPaid;if(!a||!phone||modeOf(line)==='draft')return;
   const k=agent+'|'+phone+'|'+(run||'');st.afterPaid||={};if(st.afterPaid[k])return;
   const hit=(re,on)=>{try{return !!re&&on.some(x=>new RegExp(re,'i').test(x))}catch{return false}};
-  const list=[...(a.parts||[]),...(a.byLabel||[]).filter(r=>(!r?.match||hit(r.match,products))&&!hit(r?.unless,products)).flatMap(r=>r.parts||[])].map(x=>String(x||'').trim()).filter(Boolean).slice(0,PARTS_MAX);
+  // a part "[REPLY: /command]" is that section of the agent's own QUICK_REPLIES.md, read now: the team's SOP text stays the one source, so an
+  // edit there reaches these messages too (owner, 19 Nov 2026: long term, not hard coded). A section that is gone is left out and logged.
+  const qr=await readFile(path.join(WORK,agent,'QUICK_REPLIES.md'),'utf8').catch(()=>'');
+  const reply=x=>{const m=/^\[REPLY:\s*(\/[\w-]+)\s*\]$/i.exec(x);if(!m)return x;const t=quickReply(qr,m[1]);if(!t)log('kirimdev '+agent+': after-payment part '+m[1]+' is not in QUICK_REPLIES.md; left out');return t};
+  const list=[...(a.parts||[]),...(a.byLabel||[]).filter(r=>(!r?.match||hit(r.match,products))&&!hit(r?.unless,products)).flatMap(r=>r.parts||[])].map(x=>reply(String(x||'').trim())).filter(Boolean).slice(0,PARTS_MAX);
   if(!list.length)return;if(!within24h(agent,phone)){log('kirimdev '+agent+': after-payment messages not sent to …'+String(phone).slice(-4)+': outside WhatsApp\'s 24 hours');return}
   for(const [x,t] of Object.entries(st.afterPaid))if(now()-t>30*86400e3)delete st.afterPaid[x];st.afterPaid[k]=now();await saveState();
   const ids=[];for(const part of withCaptions(list)){const id=await prepare(agent,line,phone,part);if(id)ids.push(id)}
