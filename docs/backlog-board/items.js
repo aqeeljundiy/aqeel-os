@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 08:20 UTC",
+ "updated": "19 Nov 2026, 08:45 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -374,7 +374,7 @@ window.BOARD = {
    "status": "doing",
    "server": "P&P",
    "title": "Fakhri's Wood Origins Airtable to Sheet sync",
-   "detail": "19 Nov: the sync now runs as a script (not through the chat, since 17 Nov). Today's 06:00 run read 12,000 of 17,541 Airtable records, then Airtable answered 502 once and aqeelOS's tool bridge never reconnected (\"'NoneType' object has no attribute 'call_tool'\"), so nothing was written. Fixed: the bridge reconnects and retries the call once. Live with the next P&P deploy; tomorrow's 06:00 run is the proof. Sheet write access still needs OW-12.",
+   "detail": "19 Nov: the sync runs as a script. Today's run read 12,000 of 17,541 Airtable records, then Airtable answered 502 once and the tool bridge never reconnected, so nothing was written. Fixed (b5ffff7, live on P&P): the bridge reconnects and retries once. Tomorrow's 06:00 WIB run is the proof. Sheet write access still needs OW-12.",
    "refs": [
     "i6c13dcf5",
     "i0772eb6f",
@@ -712,40 +712,40 @@ window.BOARD = {
    "id": "RO-3",
    "area": "roles",
    "p": 2,
-   "status": "check",
+   "status": "done",
    "server": "Both",
    "title": "Channels for Builders",
-   "detail": "Built 19 Nov (2d1ec2b, 24ed2bb): Channels in the menu for anyone who owns or edits an agent, their agents only, restart that one agent from the page. Deploying; to see as Aldillah.",
+   "detail": "Live on both (fae9596, 19 Nov). Checked on P&P's test copy: a Can edit person sees that agent's channels, never the main agent's; chat-only sees none (people check 58/58).",
    "refs": []
   },
   {
    "id": "RO-4",
    "area": "roles",
    "p": 2,
-   "status": "check",
+   "status": "done",
    "server": "Both",
    "title": "Keys and Health tabs on each agent",
-   "detail": "Keys (888e093) and Health (e01768b) built. Checked 19 Nov on P&P's test copy: a Can edit person sees the agent on Health, its keys (never a value in full, no engine settings), Activity and channels; the main agent is refused (58/58). Deploying to both; then to see as Aldillah.",
+   "detail": "Live on both (fae9596, 19 Nov): Keys and Health for an agent's owner or editor. Checked on P&P's test copy: Health lists their agent and the Fixer's items about it, keys listed but never shown in full, engine settings refused, main agent refused (58/58).",
    "refs": []
   },
   {
    "id": "RO-5",
    "area": "roles",
    "p": 3,
-   "status": "check",
+   "status": "done",
    "server": "Both",
    "title": "Webhooks, Memory, agent Files, Activity for Builders",
-   "detail": "Built 19 Nov: Memory and Webhooks (69b0154), agent workspace Files and Activity (888e093) for an agent's owner or editor. Live on Elkiya; deploying to P&P. To see as Aldillah.",
+   "detail": "Live on both (fae9596, 19 Nov): Memory, Webhooks, agent workspace Files and Activity for an agent's owner or editor; Activity checked on P&P's test copy.",
    "refs": []
   },
   {
    "id": "RO-6",
    "area": "roles",
    "p": 3,
-   "status": "check",
+   "status": "done",
    "server": "Both",
    "title": "Menu from scopes; Creator becomes Builder; move people",
-   "detail": "19 Nov (69b0154): Creator is Builder; new installs give Builders terminal and file tools; existing rights unchanged. People keep their role.",
+   "detail": "Live on both: menu from what a person owns, Creator is Builder, nobody lost a right (19 Nov).",
    "refs": []
   },
   {
