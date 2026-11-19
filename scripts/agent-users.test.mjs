@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {mkdtempSync,readFileSync,existsSync,mkdirSync,writeFileSync,utimesSync,readdirSync} from 'node:fs';
+import {mkdtempSync,readFileSync,existsSync,mkdirSync,writeFileSync,utimesSync,readdirSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -12,7 +12,10 @@ const SCRIPT=path.join(path.dirname(fileURLToPath(import.meta.url)),'agent-users
 function sh(body,dir){
  const r=spawnSync('bash',['-c',`export AQ_AGENT_USERS_LIB=1 AQEELOS_HOME='${dir}' AQ_RESTARTS='${dir}/rst' AQ_SEEN='${dir}/seen'; source '${SCRIPT}'; ${body}`],{encoding:'utf8'});
  return {code:r.status,out:(r.stdout||'').trim(),err:r.stderr}}
-const tmp=()=>mkdtempSync(path.join(tmpdir(),'aq-users-')).replace(/\\/g,'/');
+const made=[];const tmp=()=>{const d=mkdtempSync(path.join(tmpdir(),'aq-users-')).replace(/\\/g,'/');made.push(d);return d};
+// every folder this run made goes, with anything still running from it (20 Nov 2026: 122 aq-users- folders and the Chrome of two
+// test agents, running for 7 days, were found on the P&P box)
+test.after(()=>{for(const d of made){if(process.platform==='linux')spawnSync('pkill',['-KILL','-f','--',d]);try{rmSync(d,{recursive:true,force:true})}catch{}}});
 
 test('the script parses and sourcing it starts nothing',()=>{
  assert.equal(spawnSync('bash',['-n',SCRIPT]).status,0);

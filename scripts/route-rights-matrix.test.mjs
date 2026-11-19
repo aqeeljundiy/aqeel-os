@@ -113,6 +113,9 @@ cp.execSync=function(c,...a){log('execSync',String(c).slice(0,80));return oExecF
 cp.execFile[util.promisify.custom]=(...a)=>new Promise((res,rej)=>cp.execFile(...a,(e,stdout,stderr)=>e?rej(Object.assign(e,{stdout,stderr})):res({stdout,stderr})));
 cp.exec[util.promisify.custom]=(...a)=>new Promise((res,rej)=>cp.exec(...a,(e,stdout,stderr)=>e?rej(Object.assign(e,{stdout,stderr})):res({stdout,stderr})));
 cp.fork=function(){log('fork','');return oSpawn.call(this,NODE,DEAD)};
+// the app stops by itself once the test that started it is gone (20 Nov 2026: one killed by a time limit ran on the P&P box for
+// 7 days, about 950 MB, because process.exit is refused below); process.reallyExit is node's own exit underneath
+const oExit=process.reallyExit.bind(process),parent=process.ppid;setInterval(()=>{if(process.ppid!==parent)oExit(0)},2000).unref();
 process.exit=c=>{log('process.exit',c)};process.kill=(pid,sig)=>{if(pid===process.pid&&(sig===0||sig==='0'))return true;log('process.kill',pid+' '+sig);return true};
 syncBuiltinESMExports();`;
 
