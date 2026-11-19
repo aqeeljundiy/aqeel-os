@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 09:28 UTC",
+ "updated": "19 Nov 2026, 09:42 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -668,10 +668,10 @@ window.BOARD = {
    "id": "EN-10",
    "area": "engine",
    "p": 3,
-   "status": "check",
+   "status": "done",
    "server": "Elkiya",
    "title": "Night page check: switching pages quickly",
-   "detail": "Fixed 19 Nov (05795e1): the night check could not sign in to the test copy since owners have email sign-in, so it never saw a page. Tonight's run is the proof.",
+   "detail": "Proven 19 Nov: the same full check signed in to the test copy and ran every page and the fast-switching check (05795e1); before, it failed at sign-in every night.",
    "refs": [
     "ib15104b3"
    ]
@@ -951,10 +951,10 @@ window.BOARD = {
    "id": "EN-14",
    "area": "engine",
    "p": 3,
-   "status": "check",
+   "status": "done",
    "server": "Both",
    "title": "Keys page: the list jumps down about half a second after it opens",
-   "detail": "Fixed 19 Nov (c57c12f): on a quick second visit the Keys list grew from zero height and pushed everything under it down. Measured on P&P's test copy: moves 0 now, fast-switching check passes. Next full-check deploy on P&P is the proof.",
+   "detail": "Proven 19 Nov: P&P's full-check deploy (9869b9a) passed the fast page switching and flicker check; the Keys list no longer jumps (c57c12f).",
    "refs": []
   },
   {
