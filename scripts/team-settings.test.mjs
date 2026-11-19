@@ -39,4 +39,6 @@ await t('store: saves keep other keys and a .prev copy; pause and alerts; quiet 
  assert.equal(await T.setPause({until:0}),null);assert.equal(q('a1'),null);assert.equal((await T.view()).pause,null);
  await T.setPause({until:clock+60e3});clock+=120e3;assert.equal(q('a1'),null,'an expired pause is ignored');assert.equal((await T.view()).pause,null);
  assert.deepEqual(await T.setTest('a2',true),['a2']);assert.equal(q('a2'),'test');assert.deepEqual(await T.setTest('a2',false),[]);await assert.rejects(T.setTest('ghost',true),/does not exist/)});
+// FX-3 (19 Nov 2026): saving the fixer's settings keeps fixer.urgentAgents, which the page does not send
+await t('fixer settings keep urgentAgents',()=>{const o=cleanFixer({cap:5},['a1'],{urgentAgents:['line-a','line-b']});assert.deepEqual(o.urgentAgents,['line-a','line-b']);assert.equal(o.cap,5)});
 console.log(n+' passed');

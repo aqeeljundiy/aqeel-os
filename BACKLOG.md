@@ -18,9 +18,9 @@ _Last updated: 19 Nov 2026 (everything open in one checklist; board in sync)_
 The board shows the same list by status. `[~]` = fixed or doing, to check live. Priority 1 first. Fixer ids in brackets (Health › Fixer).
 
 **Fixer**
-- [~] **FX-2** P2 · Elkiya · Quick fixes made live could be lost on the next update (fixed, to check live). Fixed by the Fixer, waiting to be checked (reported 277 times). Check no live-only change is left on the box that main lacks. [i9530ba20]
-- [~] **FX-3** P3 · Elkiya · New issues wrongly marked urgent for two agents (fixed, to check live). Waiting to be checked. [i5b45a23c]
 - [x] **FX-1** P1 · Both · Unblock the Fixer: its isolation check fails. Fixed 19 Nov in three steps (a75c37d, a790ed2, dc78812): its own profile pinned to aq-fixer, a reused run folder no longer ends a run, the check makes its own work folder. Check passed on Elkiya (03:51) and P&P (04:48); proofs run to the end. [i4739f042, i58e99224, i32f78955, i9acabc70]
+- [x] **FX-2** P2 · Elkiya · Quick fixes made live could be lost on the next update. Checked 19 Nov: both parts are in main and live (888e093): check_payment labels a tester's test-amount QRIS, and [FOTO] finds a Tripay ?f= picture, each with a test. The deploy's drift check found no live-only change. Fixer item closed. [i9530ba20]
+- [x] **FX-3** P3 · Elkiya · New issues wrongly marked urgent for two agents. Checked 19 Nov: the urgent-agents rule (Randy and Gilang's new issues filed urgent, Donna's setting) is in main with its test, and saving the Fixer settings keeps it (new test). Fixer item closed. [i5b45a23c]
 - [x] **FX-4** P3 · Elkiya · Health check flags separate background helpers as duplicate work. Fixed 19 Nov (e25809e): the engine's code kernels (one per session) are never counted as a script running twice. [i7768eb6f]
 - [x] **FX-5** P3 · Both · Clean out Fixer items with no title. 19 Nov: untitled items read and handled one by one (closed with evidence, or fixed below). [i73d2e707, i427ff007, ib69acf62, i04f68157]
 - [x] **FX-6** P3 · Both · Give unnamed keys a plain name and purpose. 19 Nov: descriptions set for the Elkiya Creative bot token, the PnP Design key and Pixel's Slack bot token. [i3783c4a3, i54c9d693, i160b59d0]
@@ -84,8 +84,8 @@ The board shows the same list by status. `[~]` = fixed or doing, to check live. 
 
 **Roles**
 - [~] **RO-3** P2 · Both · Channels for Builders (fixed, to check live). Built 19 Nov (2d1ec2b, 24ed2bb): Channels in the menu for anyone who owns or edits an agent, their agents only, restart that one agent from the page. Deploying; to see as Aldillah.
-- [ ] **RO-4** P2 · Both · Keys and Health tabs on each agent. Its own keys (never shown in full); its status, held errors, Fixer items, restarts. Needs-you about the agent goes to its owner.
-- [~] **RO-5** P3 · Both · Webhooks, Memory, agent Files, Activity for Builders (doing). 19 Nov: Memory and Webhooks in an owner's menu (69b0154). Left: agent workspace Files and Activity.
+- [~] **RO-4** P2 · Both · Keys and Health tabs on each agent (fixed, to check live). Keys built 19 Nov (888e093). Health built 19 Nov (e01768b): System › Health in an owner's Agents menu shows Your agents (status and problems, their agents only) and the Fixer's items about them, what needs them first. Live on Elkiya; deploying to P&P. To see as Aldillah.
+- [~] **RO-5** P3 · Both · Webhooks, Memory, agent Files, Activity for Builders (fixed, to check live). Built 19 Nov: Memory and Webhooks (69b0154), agent workspace Files and Activity (888e093) for an agent's owner or editor. Live on Elkiya; deploying to P&P. To see as Aldillah.
 - [~] **RO-6** P3 · Both · Menu from scopes; Creator becomes Builder; move people (fixed, to check live). 19 Nov (69b0154): Creator is Builder; new installs give Builders terminal and file tools; existing rights unchanged. People keep their role.
 - [x] **RO-1** P1 · Both · Review the roles design and answer 4 questions. Approved 19 Nov with the owner's four answers: Kirimdev stays admin-only; only outside-facing channels need his OK to open to anyone; 5 agents per Builder; only the owner approves a guard.
 - [x] **DN-2** P1 · Both · Roles design written. docs/roles-design.md.

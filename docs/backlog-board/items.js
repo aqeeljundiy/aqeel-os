@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 05:29 UTC",
+ "updated": "19 Nov 2026, 06:10 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -30,10 +30,10 @@ window.BOARD = {
    "id": "FX-2",
    "area": "fixer",
    "p": 2,
-   "status": "check",
+   "status": "done",
    "server": "Elkiya",
    "title": "Quick fixes made live could be lost on the next update",
-   "detail": "Fixed by the Fixer, waiting to be checked (reported 277 times). Check no live-only change is left on the box that main lacks.",
+   "detail": "Checked 19 Nov: both parts are in main and live (888e093): check_payment labels a tester's test-amount QRIS, and [FOTO] finds a Tripay ?f= picture, each with a test. The deploy's drift check found no live-only change. Fixer item closed.",
    "refs": [
     "i9530ba20"
    ]
@@ -42,10 +42,10 @@ window.BOARD = {
    "id": "FX-3",
    "area": "fixer",
    "p": 3,
-   "status": "check",
+   "status": "done",
    "server": "Elkiya",
    "title": "New issues wrongly marked urgent for two agents",
-   "detail": "Waiting to be checked.",
+   "detail": "Checked 19 Nov: the urgent-agents rule (Randy and Gilang's new issues filed urgent, Donna's setting) is in main with its test, and saving the Fixer settings keeps it (new test). Fixer item closed.",
    "refs": [
     "i5b45a23c"
    ]
@@ -722,20 +722,20 @@ window.BOARD = {
    "id": "RO-4",
    "area": "roles",
    "p": 2,
-   "status": "todo",
+   "status": "check",
    "server": "Both",
    "title": "Keys and Health tabs on each agent",
-   "detail": "Its own keys (never shown in full); its status, held errors, Fixer items, restarts. Needs-you about the agent goes to its owner.",
+   "detail": "Keys built 19 Nov (888e093). Health built 19 Nov (e01768b): System › Health in an owner's Agents menu shows Your agents (status and problems, their agents only) and the Fixer's items about them, what needs them first. Live on Elkiya; deploying to P&P. To see as Aldillah.",
    "refs": []
   },
   {
    "id": "RO-5",
    "area": "roles",
    "p": 3,
-   "status": "doing",
+   "status": "check",
    "server": "Both",
    "title": "Webhooks, Memory, agent Files, Activity for Builders",
-   "detail": "19 Nov: Memory and Webhooks in an owner's menu (69b0154). Left: agent workspace Files and Activity.",
+   "detail": "Built 19 Nov: Memory and Webhooks (69b0154), agent workspace Files and Activity (888e093) for an agent's owner or editor. Live on Elkiya; deploying to P&P. To see as Aldillah.",
    "refs": []
   },
   {
