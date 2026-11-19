@@ -131,3 +131,7 @@ test('Live: every file in the zip that goes to the server carries the right chec
  const r=brandApp(z,{name:'Kopi — Lembah'});assert.ok(names(r.zip).includes('favicon.svg'),'favicon.svg is added');
  for(const e of readZip(r.zip)){const d=dataOf(e);assert.equal(e.crc>>>0,crc32(d),e.name+' checksum');assert.equal(e.us,d.length,e.name+' size')}
  const svg=readZip(r.zip).find(e=>e.name==='favicon.svg');assert.match(dataOf(svg).toString('utf8'),/^<svg [^>]*><title>Kopi — Lembah<\/title>/)});
+
+test('Live: an end-to-end test app never asks the owner for its logo (19 Nov 2026)',async()=>{const {testApp}=await import('../app/live.mjs');
+ assert.equal(testApp({slug:'e2e-claude-batik-senja'}),true);assert.equal(testApp({slug:'kopi-lembah'}),false);assert.equal(testApp({slug:'shop-e2e-x'}),false);
+ assert.match(src('app/live.mjs'),/onIcons\(a,testApp\(a\)\?\{\.\.\.r,needsLogo:false\}:r\)/,'the logo question is skipped for them')});
