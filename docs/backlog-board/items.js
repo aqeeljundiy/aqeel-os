@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 08:51 UTC",
+ "updated": "19 Nov 2026, 09:07 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -110,7 +110,7 @@ window.BOARD = {
    "status": "check",
    "server": "Elkiya",
    "title": "Fewer false handoffs to the team",
-   "detail": "19 Nov: kit photos once per chat and the check's true facts are live (a636781, 5bb3fbc); a lost chat thread now gets one more try on a fresh thread (29cb177, the Fixer's ic17c5666 change that never reached main). To see in a test chat.",
+   "detail": "Since the fixes went live (04:30 UTC 19 Nov): 7 answers, 0 replies held, 0 handoffs (before: 78 holds in 3 days). Tester traffic only so far; to see with real customers.",
    "refs": [
     "ic17c5666",
     "i5026fc4a"
@@ -160,10 +160,10 @@ window.BOARD = {
    "id": "KD-6",
    "area": "sales",
    "p": 1,
-   "status": "check",
+   "status": "done",
    "server": "Elkiya",
    "title": "Card payment links, not only QRIS",
-   "detail": "Waiting to be checked.",
+   "detail": "Proven 19 Nov: both lines have their Xendit key, and card links were made live on both (biomarkers 12 and 17 Nov, continue-support 12 Nov).",
    "refs": [
     "i512d2725"
    ]
@@ -172,10 +172,10 @@ window.BOARD = {
    "id": "KD-7",
    "area": "sales",
    "p": 1,
-   "status": "check",
+   "status": "done",
    "server": "Elkiya",
    "title": "Payment status: paid orders confirmed, no false \"no payment\"",
-   "detail": "Biomarkers can't confirm a payment the provider marked paid; Continue Support says no payment was made when listing options. Waiting to be checked.",
+   "detail": "Proven 19 Nov: a tester's paid QRIS (18 Nov) was confirmed by the provider and labelled Customer + S- labels; an unpaid one closed as EXPIRED, not as paid.",
    "refs": [
     "i5db7aedb",
     "i1b25ec10"
@@ -185,10 +185,10 @@ window.BOARD = {
    "id": "KD-8",
    "area": "sales",
    "p": 1,
-   "status": "check",
+   "status": "done",
    "server": "Elkiya",
    "title": "Paid orders reach the team with the buyer's order details",
-   "detail": "Two reports, waiting to be checked.",
+   "detail": "Proven 19 Nov: both paid test orders (18 and 19 Nov) were posted to the team's Orders topic with their order form.",
    "refs": [
     "i52af1a58",
     "icb4dab9c"
@@ -198,10 +198,10 @@ window.BOARD = {
    "id": "KD-9",
    "area": "sales",
    "p": 2,
-   "status": "check",
+   "status": "done",
    "server": "Elkiya",
    "title": "Test bank transfer charged the wrong amount",
-   "detail": "In main: the tester amount applies to QRIS, VA and card (customer-tools). Tests cover QRIS only; to see a VA or card test payment live.",
+   "detail": "19 Nov (9869b9a): a tester in Test pays the test amount by QRIS, VA and card, now all tested (customer-tools.test).",
    "refs": [
     "i28f521e1"
    ]
@@ -233,10 +233,10 @@ window.BOARD = {
    "id": "KD-12",
    "area": "sales",
    "p": 1,
-   "status": "check",
+   "status": "done",
    "server": "Elkiya",
    "title": "A customer reply leaked internal planning notes again",
-   "detail": "Second time. Waiting to be checked; add the case to the exit guard's leak tests.",
+   "detail": "19 Nov (9869b9a): Randy's 11 Nov leak (\"Dari rules ... jadi saya jawab dulu\") was already held; the same thought in other words (\"menurut aturan saya\", \"panduan internal\") is now held too, while \"aturan BPOM\" still passes. Both are leak test cases.",
    "refs": [
     "i5e349bf6"
    ]
