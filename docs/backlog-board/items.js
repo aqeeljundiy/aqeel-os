@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 09:42 UTC",
+ "updated": "19 Nov 2026, 11:15 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -883,10 +883,10 @@ window.BOARD = {
    "id": "OW-10",
    "area": "owner",
    "p": 1,
-   "status": "you",
+   "status": "done",
    "server": "Elkiya",
    "title": "Restart the AI box container in quiet hours",
-   "detail": "Dokploy › AI VPS › ai-box › Redeploy, between 01:00 and 05:00 WIB (every agent drops for a few minutes). Installs the current root scripts, among them the 18 Nov route that keeps Telegram off the VPN. Or say yes and I do it at night.",
+   "detail": "Done 19 Nov 15:44 WIB (container restarted): the Telegram route script is installed. It also removed the agent users; fixed, see EN-16.",
    "refs": [
     "i02fd3fa8",
     "i9bee39e2",
@@ -966,6 +966,30 @@ window.BOARD = {
    "title": "Amazon writing style for every agent",
    "detail": "19 Nov (e0147a2, 02c2672): a built-in skill: sentences under 30 words, data instead of adjectives, no weasel words, the \"so what\" test, the four Amazon answers (Yes / No / a number / I don't know, follow-up by a date), acronyms spelled out. Installed on both servers: all 9 Elkiya and 10 P&P agents have it (the Fixer, Code and Help helpers excepted); new installs get it too.",
    "refs": []
+  },
+  {
+   "id": "EN-16",
+   "area": "engine",
+   "p": 1,
+   "status": "done",
+   "server": "Elkiya",
+   "title": "Agents lost their Linux users after the container restart",
+   "detail": "19 Nov: the AI box container restarted at 15:44 WIB and every ag-* user and aq-fixer was gone, so agents could not run commands, scripts or schedules and the Fixer was held. The root script took /root as the box user's home (the compose sets none). Fixed long term (2be9229): it finds the box user's home itself. Container restarted at 18:05 WIB: every user logs in again.",
+   "refs": [
+    "ic8cd66ed"
+   ]
+  },
+  {
+   "id": "EN-17",
+   "area": "engine",
+   "p": 1,
+   "status": "check",
+   "server": "Elkiya",
+   "title": "WhatsApp groups: read everything, reply only when tagged",
+   "detail": "Built and deployed 19 Nov (b1e9fd9): engine patch keeps untagged messages of an allowed group (reply-only-when-tagged) as context; aqeelos-group-context shows the last 72 h before a reply there. Loads at the next engine restart: press Restart agents on System › Health, or tonight's quiet-hours restart. To see: Donna in the Remoruy.id group answers a tagged message knowing what was said before.",
+   "refs": [
+    "i874dba65"
+   ]
   }
  ]
 };
