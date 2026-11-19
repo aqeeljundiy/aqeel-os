@@ -43,3 +43,19 @@ def clean(text):
 
     text = _BLOCK.sub(valid, text)
     return _MARK.sub("", text).strip()
+
+
+# 19 Nov 2026 (i40535581): the main agent's reply-check schedule fell back to Gemini, which called the engine's catalog tool
+# "tool_call" as an agy tool of its own instead of writing it as text; the plugin stops such a request for safety, and the whole
+# schedule failed. A stop for an agy tool step is now tried once more with this note added; any other stop still fails at once.
+_OWN_TOOL = re.compile(r"^Stopped for safety: agy tried to use its own tool (.*)\.$")
+
+
+def retry_note(error):
+    """The note to add for one more try after a safety stop, or None when the stop must stand."""
+    m = _OWN_TOOL.match(str(error or ""))
+    if not m:
+        return None
+    return ("\n\n[aqeelOS] Your last answer tried to run a tool of your own (" + (m.group(1).strip() or "a tool") + "). You have no "
+            "tools in this session. To use a tool described above (tool_search, tool_call or any other), write the call as text "
+            "in the <tool_call>{...}</tool_call> format exactly as described; aqeelOS runs it and gives you the result.")

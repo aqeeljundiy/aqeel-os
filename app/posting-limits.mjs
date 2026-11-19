@@ -208,7 +208,7 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
   return {ok:false,text:'Not cancelled: its state is '+e.status+'. It counts against the limits.'}})}
  async function alert(a,r,e,how){const who=nameOf(a),short=String(e.text).replace(/\s+/g,' ').slice(0,140);
   const title=who+': a post is not visible on Threads';
-  const detail=(how==='later'?'It was visible at first and was gone '+r.recheckMin+' min later. ':'It was not visible right after posting. ')+'Post: '+(e.post||'unknown')+'. Text: "'+short+'". '+who+' posts at most '+r.afterMissingPerHour+' an hour for the next '+r.afterMissingHours+' hours.';
+  const detail=(how==='later'?'It was visible at first and was gone '+r.recheckMin+' min later. ':how==='nocheck'?'aqeelOS could not open Threads to check it for an hour. ':'It was not visible right after posting. ')+'Post: '+(e.post||'unknown')+'. Text: "'+short+'". '+who+' posts at most '+r.afterMissingPerHour+' an hour for the next '+r.afterMissingHours+' hours.';
   await event('comment',title,detail,{topic:'comment|'+e.id,agent:a}).catch(()=>{});
   const m=/^telegram:(-?\d+)(?::(\d+))?$/.exec(r.alert||'');let sent=false;if(m)sent=await telegram(a,m[1],m[2]||null,'⚠️ '+title+'\n'+detail).catch(()=>false);
   e.alerted=now();e.alertSent=!!sent;log('posting: '+a+' post '+e.id+' not visible ('+how+')'+(m&&!sent?', alert not delivered':''))}
@@ -296,8 +296,14 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
  let ticks=0;
  async function tick(){if(busy)return;busy=true;try{await load();if(++ticks%10===0)await ensure().catch(x=>log('posting ensure: '+x.message));for(const a of Object.keys(db.agents)){const r=await rulesOf(a);if(!r?.on)continue;await expire(a,r).catch(x=>log('posting expire: '+x.message));await unrecordedItem(a).catch(x=>log('posting unrecorded: '+x.message));const l=await entries(a);await silence(a,r,l.filter(x=>x.status!=='pending')).catch(x=>log('posting silence: '+x.message));
    const e=l.find(x=>(x.status==='unchecked'&&now()-x.at>60e3)||(x.status==='checking'&&now()-x.at>120e3))||   // 'checking' for over 2 minutes: the app restarted during the look (audit M15)
-    l.find(x=>x.status==='visible'&&!x.rechecked&&now()-x.at>=r.recheckMin*60e3&&now()-x.at<6*3600e3);if(!e)continue;
-   const s=await check(a,r,e);if(s!=='unchecked'&&e.status==='checking')e.status='unchecked';if(s==='unchecked'){if(e.status==='checking')e.status='unchecked';if(now()-e.at>3600e3){e.status='missing';e.missingAt=now();e.checkFailed=true;await alert(a,r,e,'now')}continue}
+    l.find(x=>x.status==='visible'&&!x.rechecked&&now()-x.at>=r.recheckMin*60e3&&now()-x.at<6*3600e3)||
+    // SV-5 (19 Nov 2026): a post flagged missing was never looked at again, so a comment that showed up later (visible 2.5 hours on)
+    // kept its Health item and the slowdown. It is looked at again every recheckMin for 24 hours; seen = the item and the slowdown go
+    l.find(x=>x.status==='missing'&&now()-x.at<24*3600e3&&now()-Math.max(x.missingAt||x.at,x.lookedAgain||0)>=r.recheckMin*60e3);if(!e)continue;
+   if(e.status==='missing'){const s=await check(a,r,e);e.lookedAgain=now();
+    if(s==='visible'){e.status='visible';e.rechecked=now();e.foundLater=now();delete e.missingAt;await solved(a,'comment|'+e.id).catch(()=>{});log('posting: '+a+' post '+e.id+' is visible after all')}
+    await keep(a);continue}
+   const s=await check(a,r,e);if(s!=='unchecked'&&e.status==='checking')e.status='unchecked';if(s==='unchecked'){if(e.status==='checking')e.status='unchecked';if(now()-e.at>3600e3){e.status='missing';e.missingAt=now();e.checkFailed=true;await alert(a,r,e,'nocheck')}await keep(a);continue}
    if(e.status==='visible')e.rechecked=now();e.checkedAt=now();
    if(s==='missing'){const was=e.status;e.status='missing';e.missingAt=now();await alert(a,r,e,was==='visible'?'later':'now')}else e.status='visible';await keep(a)}}
   catch(x){log('posting check: '+x.message)}finally{busy=false}}

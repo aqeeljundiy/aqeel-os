@@ -178,7 +178,8 @@ print(json.dumps(out))`;
   const now=new Set(found.map(x=>x.topic));for(const t of st.live[name]||[])if(!now.has(t))await bottlenecks.resolve(t);st.live[name]=[...now]}
  // an engine event stays a problem for an hour after the last one, then goes away by itself
  async function checkEngine(){await load();const since=st.engineAt||Date.now()-10*60e3;st.engineAt=Date.now();
-  const e=engineEvents(await tail(path.join(HERMES_HOME,'logs','gateway-exit-diag.log'),4e5),await tail(path.join(HERMES_HOME,'logs','errors.log'),1e6),since);
+  const tests=new Set(String(await readFile(path.join(HERMES_HOME,'.aqeelos-test-agents'),'utf8').catch(()=>'')).split('\n').map(l=>l.replace(/#.*$/,'').trim()).filter(Boolean));
+  const e=engineEvents(await tail(path.join(HERMES_HOME,'logs','gateway-exit-diag.log'),4e5),await tail(path.join(HERMES_HOME,'logs','errors.log'),1e6),since,tests);
   st.engineSeen||={};for(const x of engineProblems(e))st.engineSeen[x.topic]={...x,at:Date.now()};
   for(const [k,v] of Object.entries(st.engineSeen))if(Date.now()-v.at>H)delete st.engineSeen[k];
   await keep('engine',Object.values(st.engineSeen).map(({at,...x})=>({...x,kind:'engine'})))}
@@ -231,10 +232,13 @@ print(json.dumps(out))`;
 // engine log lines carry a UTC time "YYYY-MM-DD HH:MM:SS,ms"
 const logTime=l=>{const m=/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})/.exec(l);return m?Date.parse(m[1]+'T'+m[2]+'Z'):NaN};
 // 1. the engine: unclean or failed exits (gateway-exit-diag.log, JSON lines) and a swapped state.db (errors.log) after `since`
-export function engineEvents(diag,errors,since){const out={unclean:0,nonzero:0,replaced:0,last:0};
+// tests: agents in .aqeelos-test-agents. SV-8 (10 Nov 2026): a deploy check deleted its throwaway agent while the
+// engine still held its state.db, and that one line became a Health issue the Fixer spent a run on; a test agent's database is never a problem
+export function engineEvents(diag,errors,since,tests=new Set()){const out={unclean:0,nonzero:0,replaced:0,last:0};
+ const throwaway=l=>{const m=/\/profiles\/([^/\s)]+)\/state\.db/.exec(l);return !!m&&(tests.has(m[1])||/^(mb|dp|pc|leadtest)-|^controls-check-/.test(m[1]))};
  for(const l of String(diag||'').split('\n')){if(!l.trim())continue;let x;try{x=JSON.parse(l)}catch{continue}const t=Date.parse(x.ts);if(!(t>since))continue;
   if(x.tag==='gateway.previous_unclean_exit'){out.unclean++;out.last=Math.max(out.last,t)}if(x.tag==='gateway.exit_nonzero'){out.nonzero++;out.last=Math.max(out.last,t)}}
- for(const l of String(errors||'').split('\n'))if(/state\.db was replaced/.test(l)){const t=logTime(l);if(t>since){out.replaced++;out.last=Math.max(out.last,t)}}
+ for(const l of String(errors||'').split('\n'))if(/state\.db was replaced/.test(l)&&!throwaway(l)){const t=logTime(l);if(t>since){out.replaced++;out.last=Math.max(out.last,t)}}
  return out}
 export function engineProblems(e){const out=[];
  if(e.unclean||e.nonzero)out.push({topic:'health|aqeelos|engine-exit',text:'The engine stopped uncleanly',detail:[e.unclean&&e.unclean+' unclean exit(s)',e.nonzero&&e.nonzero+' exit(s) with an error'].filter(Boolean).join(', ')+' since the last check (~/.hermes/logs/gateway-exit-diag.log).'});

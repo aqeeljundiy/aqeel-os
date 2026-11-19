@@ -153,7 +153,11 @@ test('engine: unclean and failed exits and a swapped state.db since the last che
  const err='2026-11-06 16:32:34,049 ERROR hermes_state: FATAL: state.db was replaced underneath the gateway\n2026-11-07 05:20:00,000 ERROR hermes_state: FATAL: state.db was replaced underneath the gateway';
  const e=engineEvents(diag,err,since);assert.deepEqual([e.unclean,e.nonzero,e.replaced],[1,1,1]);
  assert.deepEqual(engineProblems(e).map(x=>x.topic),['health|aqeelos|engine-exit','health|aqeelos|state-db']);
- assert.deepEqual(engineProblems(engineEvents(diag,err,Date.parse('2026-11-07T06:00:00Z'))),[])});
+ assert.deepEqual(engineProblems(engineEvents(diag,err,Date.parse('2026-11-07T06:00:00Z'))),[]);
+ // a deploy check's throwaway agent or a listed test agent is not a problem; a real agent still is
+ const line=a=>'2026-11-07 05:30:00,000 ERROR hermes_state: FATAL: state.db was replaced underneath the gateway; refusing further writes. (/home/u/.hermes/profiles/'+a+'/state.db)';
+ assert.equal(engineEvents('',line('mb-zq9xk'),since).replaced,0);assert.equal(engineEvents('',line('qa-bot'),since,new Set(['qa-bot'])).replaced,0);
+ assert.equal(engineEvents('',line('sales-agent'),since,new Set(['qa-bot'])).replaced,1)});
 test('tool servers: the latest registration line, and flapping in the last hour',()=>{const now=Date.parse('2026-11-07T06:00:00Z');
  const L=(t,f)=>'2026-11-07 '+t+',100 INFO tools.mcp_tool: MCP: registered 158 tool(s) from 6 server(s)'+(f?' ('+f.length+' failed: '+f.map(x=>x+' (connection refused by '+x+')').join('; ')+')':'');
  const log=[L('05:10:00',['higgsfield','notion']),L('05:20:00',['higgsfield']),L('05:30:00',['higgsfield','notion']),L('05:40:00',['higgsfield']),L('05:50:00',['higgsfield','notion']),

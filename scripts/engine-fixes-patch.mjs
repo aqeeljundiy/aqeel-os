@@ -61,10 +61,50 @@
 // 13) aqeelos:mcp-auth-park-fast (7 Nov 2026). Higgsfield was on 9 agents with no sign-in. At every engine start each
 //    copy answered 401, but wrapped in "both transports failed", so the engine tried it 3 times (~11 s) per agent, one
 //    after another, before it started Telegram: channels came back 2.5 minutes late. A wrapped 401/403 now parks at once.
+// 14) aqeelos:script-no-bili-proxy (19 Nov 2026). The billion-context plugin points HTTPS_PROXY at its own local proxy
+//    inside the engine process (meant for the model's traffic), and every script-only schedule inherited it: the main agent's
+//    daily fee approval script (00:01) failed on 19 Nov with "ProxyError: Unable to connect to proxy
+//    127.0.0.1:48197" (issue i24e19fb5) because that proxy was down for a moment; the script talks to a shop API
+//    and never to a model. A script schedule now gets back the proxy settings the plugin replaced (none on our boxes).
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 
 export const FIXES=[
+ {tag:'aqeelos:script-no-bili-proxy',name:'script-only schedules never go through the model proxy',file:'cron/scheduler_script.py',edits:[
+  {why:'the helper',
+   from:'def _run_job_script(\n',
+   to:`# aqeelos:script-no-bili-proxy (19 Nov 2026): the billion-context plugin routes the engine's model traffic through its
+# local proxy by setting HTTPS_PROXY / SSL_CERT_FILE in os.environ, and every script schedule inherited them: a fee approval
+# script failed with "Unable to connect to proxy" when that proxy was down (i24e19fb5). Scripts never call a model, so
+# they get back exactly what the plugin replaced (its own backup), or nothing.
+def _aq_unroute_bili(env):
+    try:
+        backup, applied = None, False
+        for mod in list(sys.modules.values()):
+            st = getattr(mod, "_state", None)
+            if getattr(mod, "_ENV_ROUTED_KEYS", None) and isinstance(st, dict) and st.get("env_applied"):
+                applied = True
+                backup = st.get("env_backup") if isinstance(st.get("env_backup"), dict) else None
+                break
+        ca = str(env.get("SSL_CERT_FILE") or env.get("HERMES_CA_BUNDLE") or "")
+        if not applied and "billion-context" not in ca:
+            return env
+        for key in ("HTTPS_PROXY", "https_proxy", "HERMES_CA_BUNDLE", "SSL_CERT_FILE"):
+            val = (backup or {}).get(key)
+            if val and "billion-context" not in str(val):
+                env[key] = val
+            else:
+                env.pop(key, None)
+    except Exception:
+        pass
+    return env
+
+
+def _run_job_script(
+`},
+  {why:'the script env',
+   from:'        env = build_subprocess_env(strip_launch_profile=True)\n        env.update(env_overlay)\n',
+   to:'        env = _aq_unroute_bili(build_subprocess_env(strip_launch_profile=True))  # aqeelos:script-no-bili-proxy\n        env.update(env_overlay)\n'}]},
  {tag:'aqeelos:mcp-auth-park-fast',name:'a tool server that answers 401/403 at start is parked at once, not tried 3 times',file:'tools/mcp_tool_errors.py',edits:[
   {why:'the failure classifier',
    from:'                 or getattr(getattr(root, "response", None), "status_code", None) in (401, 403))\n    return "permanent" if permanent else "transient"\n',

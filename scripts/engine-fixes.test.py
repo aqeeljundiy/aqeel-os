@@ -432,6 +432,35 @@ def a_wrapped_401_at_start_parks_at_once():
     assert m._classify_mcp_failure(TimeoutError("HTTP 500 from POST x")) == "transient"
 
 
+@test
+def script_schedules_do_not_inherit_the_model_proxy():
+    # 19 Nov 2026 (i24e19fb5): a daily approval script went through billion-context's proxy and failed when it was down
+    m = load('cron.scheduler_script', 'cron/scheduler_script.py')
+    bili = types.ModuleType('aq_test_bili')
+    bili._ENV_ROUTED_KEYS = ("HTTPS_PROXY",)
+    bili._state = {"env_applied": True, "env_backup": {"HTTPS_PROXY": None, "SSL_CERT_FILE": "/etc/ssl/own.pem"}}
+    # the real plugin may be loaded by an earlier test in this process; only the test's own copy may answer here
+    real = {n: x for n, x in list(sys.modules.items()) if n != 'aq_test_bili' and getattr(x, '_ENV_ROUTED_KEYS', None)}
+    for n in real:
+        sys.modules.pop(n, None)
+    sys.modules['aq_test_bili'] = bili
+    try:
+        env = {"HTTPS_PROXY": "http://127.0.0.1:48197", "https_proxy": "http://127.0.0.1:48197", "PATH": "/bin",
+               "SSL_CERT_FILE": "/home/x/.local/share/billion-context/ca/combined-ca.pem",
+               "HERMES_CA_BUNDLE": "/home/x/.local/share/billion-context/ca/root-ca.pem"}
+        out = m._aq_unroute_bili(dict(env))
+        assert "HTTPS_PROXY" not in out and "https_proxy" not in out and "HERMES_CA_BUNDLE" not in out
+        assert out["SSL_CERT_FILE"] == "/etc/ssl/own.pem" and out["PATH"] == "/bin"
+        bili._state = {"env_applied": False}
+        own = {"HTTPS_PROXY": "http://corp-proxy:3128", "PATH": "/bin"}
+        assert m._aq_unroute_bili(dict(own)) == own  # a proxy the plugin did not set stays
+    finally:
+        sys.modules.pop('aq_test_bili', None)
+        sys.modules.update(real)
+    src = open(os.path.join(FIXED, 'cron/scheduler_script.py'), encoding='utf-8').read()
+    assert '_aq_unroute_bili(build_subprocess_env(' in src
+
+
 failed = 0
 for fn in tests:
     try:
