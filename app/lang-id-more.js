@@ -1468,7 +1468,7 @@ Object.assign(ID,{
  'Team':'Tim','Teams':'Tim','No team':'Tanpa tim','Test agent':'Agen uji','Resume now':'Lanjutkan sekarang','Resume':'Lanjutkan','Pause until…':'Jeda sampai…',
  'Hasn’t messaged aqeelOS yet':'Belum pernah mengirim pesan ke aqeelOS','1 agent has no team. The owner hears about it.':'1 agen belum punya tim. Pemilik diberi tahu tentangnya.',
  'See it':'Lihat','See them':'Lihat','Members':'Anggota','New member':'Anggota baru','Add a team':'Tambah tim','Team name':'Nama tim','Remove team':'Hapus tim','The owner':'Pemilik',
- 'Pause alerts':'Jeda peringatan','Alerts are on':'Peringatan menyala','Alerts are on again.':'Peringatan menyala lagi.','Alerts go to':'Peringatan dikirim ke','Alerts for the owner':'Peringatan untuk pemilik',
+ 'Pause alerts':'Jeda peringatan','Alerts are on':'Peringatan menyala','Alerts are on again.':'Peringatan menyala lagi.','Alerts go to':'Peringatan dikirim ke','Reports and model changes go to':'Laporan dan perubahan model dikirim ke','Where alerts go':'Ke tempat peringatan dikirim','Topic number (optional)':'Nomor topik (opsional)','The topic is a number.':'Topik berupa angka.','Alerts for the owner':'Peringatan untuk pemilik',
  'Teams decide who hears about problems, so only admins see them.':'Tim menentukan siapa yang diberi tahu soal masalah, jadi hanya admin yang melihatnya.',
  'A test agent still shows its problems on System › Health, but nobody is alerted about it and the fixer does not reach out for it.':'Agen uji tetap menampilkan masalahnya di Sistem › Kesehatan, tapi tidak ada yang diberi peringatan dan perbaikan otomatis tidak menghubungi siapa pun untuknya.',
  'The owner hears when a fix needs a person.':'Pemilik diberi tahu saat sebuah perbaikan butuh orang.',

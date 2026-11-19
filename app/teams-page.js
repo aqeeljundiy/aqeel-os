@@ -38,6 +38,8 @@ const Teams={
   const to=t?(ch?(t.name||ch.name):'A channel that is no longer connected, so the main agent’s own chat is used'):(d.channels.length?'Not chosen: the main agent’s own chat ('+d.channels[0].name+')':'No channel yet: alerts wait in the bell');
   return `<div class="tm-row tm-first"><div class="txt"><b>Alerts go to</b><p>${esc(to)}</p></div>
     <div class="km-act"><button class="small" data-act="tm-alert-test">${icon('send',14)}Send test</button><button class="small" data-act="tm-alert-to">Change</button></div></div>
+   <div class="tm-row"><div class="txt"><b>Reports and model changes go to</b><p>${esc(d.info?(d.channels.some(c=>c.id===d.info.channel)?d.info.name||d.info.chat||'':'A channel that is no longer connected, so they go where alerts go'):'Where alerts go')}</p></div>
+    <div class="km-act"><button class="small" data-act="tm-info-to">Change</button></div></div>
    <div class="tm-row"><div class="txt"><b>${p?'Paused until '+esc(Teams.when(p.until)):'Alerts are on'}</b><p>${p?esc(p.why||'')+'. Alerts are logged, not sent. Automatic engine restarts and fixer reloads wait too.':'Pause them for a long build or a quiet evening. Automatic engine restarts and fixer reloads wait while paused.'}</p></div>
     <div class="km-act">${p?'<button class="small" data-act="tm-resume">Resume now</button>':''}<button class="small" data-act="tm-pause">${p?'Change':'Pause until…'}</button></div></div>`},
 
@@ -113,17 +115,22 @@ ACT['tm-team']=b=>{const isNew=b.dataset.i==='new',t=isNew?{name:'',agents:[],me
 ACT['tm-fixer-agent']=b=>{const f=Teams.d.fixer;menu(b,Teams.d.agents.map(a=>({label:Teams.name(a.id),sub:a.id==='default'?'The main agent':'',ava:agentAvatar(a.id,20),on:a.id===f.agent,run:()=>{if(a.id!==f.agent)Teams.saveFixer({agent:a.id})}})),{search:Teams.d.agents.length>12,matchWidth:true})};
 
 // where alerts go: a channel the main agent can send on, and the chat on it (setup, so a dialog)
-ACT['tm-alert-to']=()=>{const D=Teams.d,t=D.alerts||{};
- const d=drawer('Alerts go to',`<p class="hint" style="margin-top:0">Alerts for the owner come from the main agent. Pick the channel and, if it reaches more than one person, the chat.</p>
+// kind 'info': reports and model changes, with an optional Telegram topic (owner, 19 Nov 2026: model changes belong in the Notifications topic)
+const alertTo=kind=>{const D=Teams.d,info=kind==='info',t=(info?D.info:D.alerts)||{},[tChat,tTopic]=String(t.chat||'').split(/:(?=\d+$)/);
+ const d=drawer(info?'Reports and model changes go to':'Alerts go to',`<p class="hint" style="margin-top:0">${info?'Model changes and other reports that need nothing from you. Not chosen: they go where alerts go.':'Alerts for the owner come from the main agent. Pick the channel and, if it reaches more than one person, the chat.'}</p>
   <label for="alCh">Channel</label><select id="alCh"><option value="">The main agent’s own chat (default)</option>${D.channels.map(c=>`<option value="${esc(c.id)}"${c.id===t.channel?' selected':''}>${esc(c.name)}</option>`).join('')}</select>
-  <div id="alChatBox" hidden><label for="alChat">Chat</label><select id="alChat"></select></div><p class="km-err"></p>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="alSave">Save</button>`);
+  <div id="alChatBox" hidden><label for="alChat">Chat</label><select id="alChat"></select></div>${info?`<div id="alTopicBox" hidden><label for="alTopic">Topic number (optional)</label><input id="alTopic" inputmode="numeric" maxlength="9" value="${esc(tTopic||'')}" placeholder="2"><p class="hint">For a Telegram group with topics: the number at the end of a message link in that topic.</p></div>`:''}<p class="km-err"></p>`,`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="alSave">Save</button>`);
  const ch=d.querySelector('#alCh'),cb=d.querySelector('#alChatBox'),chat=d.querySelector('#alChat'),err=d.querySelector('.km-err');
  const load=async()=>{err.textContent='';if(!ch.value){cb.hidden=true;return}chat.innerHTML='<option value="">Loading…</option>';chat._sync?.();cb.hidden=false;
-  try{const r=await post(UI,'/ui/alerts/chats',{channel:ch.value});chat.innerHTML='<option value="">Your own chat on it (default)</option>'+r.chats.map(c=>`<option value="${esc(c.id)}"${c.id===t.chat?' selected':''}>${esc(c.name)}</option>`).join('');chat._sync?.()}
+  try{const r=await post(UI,'/ui/alerts/chats',{channel:ch.value});chat.innerHTML='<option value="">Your own chat on it (default)</option>'+r.chats.map(c=>`<option value="${esc(c.id)}"${c.id===(info?tChat:t.chat)?' selected':''}>${esc(c.name)}</option>`).join('');chat._sync?.();
+   const tb=d.querySelector('#alTopicBox');if(tb)tb.hidden=!/telegram/.test(ch.value)}
   catch(e){err.textContent=e.message;cb.hidden=true}};
  ch.onchange=load;load();
  d.querySelector('#alSave').onclick=async e=>{const b=e.currentTarget;b.disabled=true;const o=chat.selectedOptions[0];
-  try{const r=await put(UI,'/ui/alerts',{channel:ch.value,chat:cb.hidden?'':chat.value,chatName:!cb.hidden&&chat.value?o?.textContent:''});Teams.d.alerts=r.alerts;closeLayers();Teams.repaint();toast('Saved. Send a test to check it arrives.')}catch(x){err.textContent=x.message;b.disabled=false}}};
+  const tp=info?String(d.querySelector('#alTopic')?.value||'').trim():'';if(tp&&!/^\d{1,9}$/.test(tp)){err.textContent='The topic is a number.';b.disabled=false;return}
+  const c=cb.hidden?'':chat.value,full=tp&&c?c+':'+tp:c,nm=!cb.hidden&&chat.value?(o?.textContent||'')+(tp?', topic '+tp:''):'';
+  try{const r=await put(UI,'/ui/alerts',{kind:info?'info':'',channel:ch.value,chat:full,chatName:nm});if(info)Teams.d.info=r.info;else Teams.d.alerts=r.alerts;closeLayers();Teams.repaint();toast(info?'Saved.':'Saved. Send a test to check it arrives.')}catch(x){err.textContent=x.message;b.disabled=false}}};
+ACT['tm-alert-to']=()=>alertTo('alerts');ACT['tm-info-to']=()=>alertTo('info');
 ACT['tm-alert-test']=async b=>{b.disabled=true;try{const r=await post(UI,'/ui/alerts/test',{});toast(r.bell?'No channel to you yet, so the test is in the bell.':'Test sent on '+r.sent+'.')}catch(e){toast('Not sent: '+e.message+' It is in the bell instead.','err')}b.disabled=false};
 
 // Pause alerts until…: quick picks in a popover, or a day and time in a small dialog
