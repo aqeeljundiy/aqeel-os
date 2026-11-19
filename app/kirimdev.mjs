@@ -25,6 +25,7 @@
 // - brands never mix: a line takes only events for its own phoneNumberId, and whatsapp_reply refuses a number that
 //   wrote to another line and not to this one
 import {reviewPrompt,parseReview} from './kirim-review.mjs';
+import {createCatalog,money} from './price-catalog.mjs';
 import {customerHistory} from './customer-history.mjs';
 import {orderContextOf} from './paid-labels.mjs';
 import {readStore,writeStore} from './store.mjs';
@@ -154,7 +155,7 @@ const engineDown=t=>ENGINE_DOWN.test(String(t||''));
 export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bridge=BRIDGE,checkEvery=10*60e3,pollEvery=20e3,runAgent,describeImage=null,reviewReply=null,paidSince=null,qrSince=null,telegram,teamGroup=async()=>null,tell=async()=>{},problem=null,solved=async()=>{},log=m=>console.log(m),activity=async()=>{},fetchImpl=fetch,now=()=>Date.now(),PUBLIC_URL,wait=ms=>new Promise(r=>setTimeout(r,ms)),maxRuns=2,docLinks=null,mediaLink=null,receiptFinal=()=>{},echoWait=4000,setTimer=setTimeout,clearTimer=clearTimeout,routeOf=async()=>'',engineRestarting=async()=>false}){
  const pub=()=>String(PUBLIC_URL??publicUrl()).replace(/\/+$/,'');   // the address given (tests) or the install's current one
  const ASK_MIN=30;   // minutes a handoff may wait for the team's answer before Health shows it
- const CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
+ const catalog=createCatalog({DATA,log}),CONF=path.join(DATA,'kirimdev.json'),SEC=path.join(DATA,'kirimdev-secrets.json'),ST=path.join(DATA,'kirimdev-state.json');
  const readJson=async(f,d)=>{try{return JSON.parse(await readFile(f,'utf8'))}catch{return d}};
  const put=(f,v,mode=0o600)=>writeStore(f,JSON.stringify(v,null,1),{mode});   // store.mjs: atomic, one at a time per file, refused while the file is unreadable
  let st=null,loading=null,chain=Promise.resolve();const queue=fn=>{const p=chain.then(fn);chain=p.catch(()=>{});return p};
@@ -437,6 +438,10 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   // the line's own fixed facts for the check (kirimdev.json lines.<agent>.reviewFacts), e.g. a strike-through price set by the team that
   // breaks the line's general rule: the check held Randy's pen at ~Rp1.500.000~ again and again although Amri set it (19 Nov 2026)
   for(const f of Array.isArray(line.reviewFacts)?line.reviewFacts.slice(0,20):[])if(String(f).trim())facts.push(String(f).trim().slice(0,400));
+  // the line's price list held by aqeelOS (price-catalog.mjs, what quote_order and create_payment charge): the check never saw it and held
+  // right prices as "not backed by any source" (Gilang's Tirzepatide 10mg Rp3.600.000, 17 Nov 2026)
+  const cat=await catalog.of(agent).catch(()=>null),pl=Object.values(cat?.products||{}).slice(0,80);
+  if(pl.length)facts.push('Selling prices in the price list aqeelOS charges from (a price that matches this list is backed): '+pl.map(x=>x.name+' '+money(x.price,cat.currency||line.payment?.currency||'Rp')).join('; ')+'.');
   let r;try{r=parseReview(await reviewReply(agent,reviewPrompt({newMessages,history,draft:g.parts,language:line.language||'',facts})))}
   catch(e){if(providerUnavailable(e.message,{now:now()})||engineDown(e.message))throw e;r={ok:false,problems:['the reply could not be checked before sending ('+String(e.message).slice(0,120)+')']}}
   if(r.ok)return g;log('kirimdev '+agent+': the check before sending held a reply: '+r.problems.join(' | ').slice(0,300));
