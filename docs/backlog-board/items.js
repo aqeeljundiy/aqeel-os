@@ -1,6 +1,6 @@
 // One list for BACKLOG.md and the board. status: todo | doing | you | check | done.
 window.BOARD = {
- "updated": "19 Nov 2026, 04:48 UTC",
+ "updated": "19 Nov 2026, 05:29 UTC",
  "areas": {
   "fixer": "Fixer",
   "sales": "Customer lines (Kirimdev)",
@@ -15,10 +15,10 @@ window.BOARD = {
    "id": "FX-1",
    "area": "fixer",
    "p": 1,
-   "status": "check",
+   "status": "done",
    "server": "Both",
    "title": "Unblock the Fixer: its isolation check fails",
-   "detail": "Fixed 19 Nov in three steps: the fixer has its own profile pinned to aq-fixer (a75c37d); a reused run folder no longer ends a new run after 5 s (a790ed2); the check makes its own work folder (dc78812, P&P had none). Elkiya: proofs run to the end again. P&P: deploying the last step.",
+   "detail": "Fixed 19 Nov in three steps (a75c37d, a790ed2, dc78812): its own profile pinned to aq-fixer, a reused run folder no longer ends a run, the check makes its own work folder. Check passed on Elkiya (03:51) and P&P (04:48); proofs run to the end.",
    "refs": [
     "i4739f042",
     "i58e99224",
@@ -210,10 +210,10 @@ window.BOARD = {
    "id": "KD-10",
    "area": "sales",
    "p": 1,
-   "status": "todo",
+   "status": "done",
    "server": "Elkiya",
    "title": "Bundle price: approved Rp3.900.000 and a custom price link",
-   "detail": "The quote still uses the old bundle price; a bundle payment link can't be made without a custom price option. Update the price list (no prices from the model).",
+   "detail": "Checked 19 Nov: the price list charges the Reta+Pen bundle as one item at Rp3.900.000 and IG5 applies on top; no custom price needed.",
    "refs": [
     "i4168befc",
     "if04e2b00"
@@ -692,30 +692,30 @@ window.BOARD = {
    "id": "RO-1",
    "area": "roles",
    "p": 1,
-   "status": "you",
+   "status": "done",
    "server": "Both",
    "title": "Review the roles design and answer 4 questions",
-   "detail": "docs/roles-design.md: what you own decides what you can do. Questions: Kirimdev for agent owners; is \"anyone may message\" inside the P&P Slack a guard; Builder agent limit; can admins approve guards.",
+   "detail": "Approved 19 Nov with the owner's four answers: Kirimdev stays admin-only; only outside-facing channels need his OK to open to anyone; 5 agents per Builder; only the owner approves a guard.",
    "refs": []
   },
   {
    "id": "RO-2",
    "area": "roles",
    "p": 2,
-   "status": "todo",
+   "status": "done",
    "server": "Both",
    "title": "Agent-scope rule, guards and the role checks",
-   "detail": "agentScope(u, agent) in users.mjs, one guard() for open doors / spending / owner's accounts, people-check matrix for Member, Builder, Admin. On the test copy.",
+   "detail": "Built 19 Nov (2d1ec2b): app/role-scope.mjs; the gate lets an agent's owner or editor use its channel and webhook routes, never the main agent; the open-door guard asks the owner; rights matrix updated (one intended change).",
    "refs": []
   },
   {
    "id": "RO-3",
    "area": "roles",
    "p": 2,
-   "status": "todo",
+   "status": "check",
    "server": "Both",
    "title": "Channels for Builders",
-   "detail": "Their agents only; admin-only rows hidden; a change restarts one agent, never everyone.",
+   "detail": "Built 19 Nov (2d1ec2b, 24ed2bb): Channels in the menu for anyone who owns or edits an agent, their agents only, restart that one agent from the page. Deploying; to see as Aldillah.",
    "refs": []
   },
   {
@@ -732,20 +732,20 @@ window.BOARD = {
    "id": "RO-5",
    "area": "roles",
    "p": 3,
-   "status": "todo",
+   "status": "doing",
    "server": "Both",
    "title": "Webhooks, Memory, agent Files, Activity for Builders",
-   "detail": "",
+   "detail": "19 Nov: Memory and Webhooks in an owner's menu (69b0154). Left: agent workspace Files and Activity.",
    "refs": []
   },
   {
    "id": "RO-6",
    "area": "roles",
    "p": 3,
-   "status": "todo",
+   "status": "check",
    "server": "Both",
    "title": "Menu from scopes; Creator becomes Builder; move people",
-   "detail": "Nothing taken away. P&P first, checked with a test account, then Elkiya.",
+   "detail": "19 Nov (69b0154): Creator is Builder; new installs give Builders terminal and file tools; existing rights unchanged. People keep their role.",
    "refs": []
   },
   {

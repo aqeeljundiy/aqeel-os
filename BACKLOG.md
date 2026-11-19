@@ -18,9 +18,9 @@ _Last updated: 19 Nov 2026 (everything open in one checklist; board in sync)_
 The board shows the same list by status. `[~]` = fixed or doing, to check live. Priority 1 first. Fixer ids in brackets (Health › Fixer).
 
 **Fixer**
-- [~] **FX-1** P1 · Both · Unblock the Fixer: its isolation check fails (fixed, to check live). Fixed 19 Nov in three steps: the fixer has its own profile pinned to aq-fixer (a75c37d); a reused run folder no longer ends a new run after 5 s (a790ed2); the check makes its own work folder (dc78812, P&P had none). Elkiya: proofs run to the end again. P&P: deploying the last step. [i4739f042, i58e99224, i32f78955, i9acabc70]
 - [~] **FX-2** P2 · Elkiya · Quick fixes made live could be lost on the next update (fixed, to check live). Fixed by the Fixer, waiting to be checked (reported 277 times). Check no live-only change is left on the box that main lacks. [i9530ba20]
 - [~] **FX-3** P3 · Elkiya · New issues wrongly marked urgent for two agents (fixed, to check live). Waiting to be checked. [i5b45a23c]
+- [x] **FX-1** P1 · Both · Unblock the Fixer: its isolation check fails. Fixed 19 Nov in three steps (a75c37d, a790ed2, dc78812): its own profile pinned to aq-fixer, a reused run folder no longer ends a run, the check makes its own work folder. Check passed on Elkiya (03:51) and P&P (04:48); proofs run to the end. [i4739f042, i58e99224, i32f78955, i9acabc70]
 - [x] **FX-4** P3 · Elkiya · Health check flags separate background helpers as duplicate work. Fixed 19 Nov (e25809e): the engine's code kernels (one per session) are never counted as a script running twice. [i7768eb6f]
 - [x] **FX-5** P3 · Both · Clean out Fixer items with no title. 19 Nov: untitled items read and handled one by one (closed with evidence, or fixed below). [i73d2e707, i427ff007, ib69acf62, i04f68157]
 - [x] **FX-6** P3 · Both · Give unnamed keys a plain name and purpose. 19 Nov: descriptions set for the Elkiya Creative bot token, the PnP Design key and Pixel's Slack bot token. [i3783c4a3, i54c9d693, i160b59d0]
@@ -34,7 +34,6 @@ The board shows the same list by status. `[~]` = fixed or doing, to check live. 
 - [~] **KD-6** P1 · Elkiya · Card payment links, not only QRIS (fixed, to check live). Waiting to be checked. [i512d2725]
 - [~] **KD-7** P1 · Elkiya · Payment status: paid orders confirmed, no false "no payment" (fixed, to check live). Biomarkers can't confirm a payment the provider marked paid; Continue Support says no payment was made when listing options. Waiting to be checked. [i5db7aedb, i1b25ec10]
 - [~] **KD-8** P1 · Elkiya · Paid orders reach the team with the buyer's order details (fixed, to check live). Two reports, waiting to be checked. [i52af1a58, icb4dab9c]
-- [ ] **KD-10** P1 · Elkiya · Bundle price: approved Rp3.900.000 and a custom price link. The quote still uses the old bundle price; a bundle payment link can't be made without a custom price option. Update the price list (no prices from the model). [i4168befc, if04e2b00]
 - [~] **KD-11** P1 · Elkiya · Free pen or 5% code: one or the other, said up front (fixed, to check live). Done 19 Nov: Randy's instructions say the free pen needs the total AFTER the 5% code above Rp5jt; if the code drops it below, he says so at once and lets the customer choose (Amri's fix). Before: Amri #6: Randy offered the free pen at 5.2 jt, then after the 5% code (4.94 jt) didn't, and the customer felt lied to. price-catalog checks the free item before the discount; the rule is one or the other. Fix the check, and Randy explains the choice before the code is used.
 - [~] **KD-12** P1 · Elkiya · A customer reply leaked internal planning notes again (fixed, to check live). Second time. Waiting to be checked; add the case to the exit guard's leak tests. [i5e349bf6]
 - [~] **KD-17** P1 · Elkiya · After payment: confirmation, pen tutorial, cartridge, calibration (fixed, to check live). Built and live 19 Nov (e093c70): after a confirmed payment aqeelOS sends the line's list once: confirmation, and for pen orders the pen, cartridge and calibration tutorials with videos (vial orders: mixing). Set on Randy and Gilang. Before: Amri #9: Randy skips what the SOP says to send after a payment. Make it a fixed step after a paid status. Also: protocol PDFs couldn't be sent after setting protocols. [i19b649d9]
@@ -47,6 +46,7 @@ The board shows the same list by status. `[~]` = fixed or doing, to check live. 
 - [~] **KD-18** P2 · Elkiya · Randy reads his full instructions and the website quiz answers (fixed, to check live). Waiting to be checked. [id051b007, i77296280]
 - [~] **KD-19** P2 · Elkiya · Biomarkers Support lost seven instruction lines (fixed, to check live). Waiting to be checked: compare with its last good version. [ibd8a5021]
 - [~] **KD-20** P2 · Elkiya · Tester safety on deploys (fixed, to check live). Deploy check no longer writes into a real tester's chat (done 17 Nov, 7f8a6e7); keep the tester pause after a restart; test chats got an engine error instead of a reply (08baebe). Check live and close. [i877d1a2d, i87c8beb0, ic88fca57]
+- [x] **KD-10** P1 · Elkiya · Bundle price: approved Rp3.900.000 and a custom price link. Checked 19 Nov: the price list charges the Reta+Pen bundle as one item at Rp3.900.000 and IG5 applies on top; no custom price needed. [i4168befc, if04e2b00]
 
 **P&P agents**
 - [ ] **PP-2** P1 · P&P · Fakhri's Wood Origins Airtable to Sheet sync **(waiting on you)**. 19 Nov: the tool bridge works (Google and n8n answer); Airtable fails because Fakhri's Airtable sign-in expired and Airtable refused the renewal, and the Sheets API is off in P&P's Google Cloud project. Fakhri signs in again (OW-9) and you switch on the Sheets API (OW-8); then I run the sync. Before: Tool bridge signature still rejected after the 17 Nov fix, so the sheet sync stopped and the daily 06:00 WIB lead sync keeps failing. Fix the signature, run the sync once, watch the next morning's run. [i6c13dcf5, i0772eb6f, i20f9b25b, i9cda9d1a, i1c6ea691]
@@ -83,13 +83,13 @@ The board shows the same list by status. `[~]` = fixed or doing, to check live. 
 - [x] **EN-9** P3 · Elkiya · Schedule wake-up card only offers Keep as it is. Fixed 13 Nov (77a30d3). [i3ca9594f]
 
 **Roles**
-- [ ] **RO-1** P1 · Both · Review the roles design and answer 4 questions **(waiting on you)**. docs/roles-design.md: what you own decides what you can do. Questions: Kirimdev for agent owners; is "anyone may message" inside the P&P Slack a guard; Builder agent limit; can admins approve guards.
-- [ ] **RO-2** P2 · Both · Agent-scope rule, guards and the role checks. agentScope(u, agent) in users.mjs, one guard() for open doors / spending / owner's accounts, people-check matrix for Member, Builder, Admin. On the test copy.
-- [ ] **RO-3** P2 · Both · Channels for Builders. Their agents only; admin-only rows hidden; a change restarts one agent, never everyone.
+- [~] **RO-3** P2 · Both · Channels for Builders (fixed, to check live). Built 19 Nov (2d1ec2b, 24ed2bb): Channels in the menu for anyone who owns or edits an agent, their agents only, restart that one agent from the page. Deploying; to see as Aldillah.
 - [ ] **RO-4** P2 · Both · Keys and Health tabs on each agent. Its own keys (never shown in full); its status, held errors, Fixer items, restarts. Needs-you about the agent goes to its owner.
-- [ ] **RO-5** P3 · Both · Webhooks, Memory, agent Files, Activity for Builders
-- [ ] **RO-6** P3 · Both · Menu from scopes; Creator becomes Builder; move people. Nothing taken away. P&P first, checked with a test account, then Elkiya.
+- [~] **RO-5** P3 · Both · Webhooks, Memory, agent Files, Activity for Builders (doing). 19 Nov: Memory and Webhooks in an owner's menu (69b0154). Left: agent workspace Files and Activity.
+- [~] **RO-6** P3 · Both · Menu from scopes; Creator becomes Builder; move people (fixed, to check live). 19 Nov (69b0154): Creator is Builder; new installs give Builders terminal and file tools; existing rights unchanged. People keep their role.
+- [x] **RO-1** P1 · Both · Review the roles design and answer 4 questions. Approved 19 Nov with the owner's four answers: Kirimdev stays admin-only; only outside-facing channels need his OK to open to anyone; 5 agents per Builder; only the owner approves a guard.
 - [x] **DN-2** P1 · Both · Roles design written. docs/roles-design.md.
+- [x] **RO-2** P2 · Both · Agent-scope rule, guards and the role checks. Built 19 Nov (2d1ec2b): app/role-scope.mjs; the gate lets an agent's owner or editor use its channel and webhook routes, never the main agent; the open-door guard asks the owner; rights matrix updated (one intended change).
 
 **Owner items**
 - [ ] **OW-1** P1 · Elkiya · Paste Donna's issues from this morning **(waiting on you)**. Sent on Telegram, which I can't read. Most are probably already in the Fixer lists above.
