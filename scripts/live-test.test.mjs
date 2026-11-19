@@ -78,3 +78,8 @@ test('the engine media tests run on the engine as this version patches it, not o
  const i=src.indexOf('engine-fixes.test.py');assert.ok(i>0);const near=src.slice(Math.max(0,i-700),i+200);
  assert.match(near,/engine-fixes-patch\.mjs'\),E,pf\]/,'the live engine is patched into a temporary copy first');
  assert.match(near,/ENGINE_FIXED:pt\.ok\?pf:E/,'the tests read the patched copy')});
+
+test('the deploy gives the live test 25 minutes and names a run that runs out (20 Nov 2026)',async()=>{
+ // two Kirimdev tries wait 300 s or more each: at 900 s a slow run was cut off with no output and undid a version that had passed
+ const sh=(await import('node:fs')).readFileSync(new URL('./box-live.sh',import.meta.url),'utf8');
+ assert.match(sh,/timeout 1500 node [^\n]*scripts\/live-test\.mjs/);assert.match(sh,/\[ "\$rc" = 124 \] && echo "✗ the live test ran out of time/)});

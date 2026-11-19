@@ -168,8 +168,11 @@ tmux kill-session -t "=ui" 2>/dev/null || true   # "=" = exactly ui (a bare -t u
 # failure shows on System › Health, and the owner hears about it only if putting it back fails too. LIVE_TEST=0 skips it.
 if [ "${LIVE_TEST:-1}" != 0 ] && [ -f ~/apps/hermes-ui/scripts/live-test.mjs ]; then
  echo "· live test (about 5 minutes)…"
- rc=0; lt=$(cd ~/apps/hermes-ui && timeout 900 node --env-file=$HOME/.hermes/.env --env-file=$HOME/apps/hermes-ui.env scripts/live-test.mjs --since "$T0" --sha "$SHA" 2>&1) || rc=$?   # set -e: keep going to the undo
+ # 25 minutes (20 Nov 2026): two Kirimdev tries wait 300 s or more each, so a slow run passed 900 s, was cut off with no output and
+ # undid a version whose own run had passed; a run that still runs out says so
+ rc=0; lt=$(cd ~/apps/hermes-ui && timeout 1500 node --env-file=$HOME/.hermes/.env --env-file=$HOME/apps/hermes-ui.env scripts/live-test.mjs --since "$T0" --sha "$SHA" 2>&1) || rc=$?   # set -e: keep going to the undo
  echo "$lt" | tail -12
+ [ "$rc" = 124 ] && echo "✗ the live test ran out of time (25 minutes) before it finished"
  [ "$rc" = 0 ] || { aq_undo "the live test failed"; exit 1; }
 fi
 AQ_STAGE=done
