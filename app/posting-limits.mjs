@@ -133,7 +133,7 @@ export function headlessLook({chrome='/opt/aqeelos/chrome/chrome',wait=9000}={})
  // one look at a time on the box (each is a whole Chrome)
  return url=>{const p=chain.then(()=>Promise.race([once(url),new Promise((_,rej)=>setTimeout(()=>rej(Error('the check took too long')),60000))]));chain=p.catch(()=>{});return p}}
 
-export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconnect=async()=>{},sig,setKey,readConfig,pick,look=headlessLook(),event=async()=>{},solved=async()=>{},engineTools=async()=>null,lastAnswer=async()=>'',telegram=async()=>false,signAll=null,nameOf=a=>a,log=m=>console.log(m),now=()=>Date.now(),retryMs=40000}){
+export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconnect=async()=>{},sig,setKey,readConfig,pick,look=headlessLook(),event=async()=>{},solved=async()=>{},unflag=async()=>{},engineTools=async()=>null,lastAnswer=async()=>'',telegram=async()=>false,signAll=null,nameOf=a=>a,log=m=>console.log(m),now=()=>Date.now(),retryMs=40000}){
  // every signature in the agents' folders is kept current by relay-heal.mjs (signAll: (label, agent) => signature, from relay-keys.mjs); ensure() runs it
  const heal=signAll?createRelayHeal({HERMES_HOME,WORK,sign:signAll,readConfig,pick,log}):null;
  const FILE=path.join(DATA,'posting-limits.json'),LOGS=path.join(DATA,'posting-log');let db=null;
@@ -219,8 +219,8 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
  // record_post (the agent's tool) and /posting-record (the posting scripts): what was just posted. With a ticket from guard() it closes that ticket;
  // without one it closes the oldest open ticket of that kind from the last half hour, or counts as a new post. A post over the limits, or made while the
  // pause file is there, is recorded and answered as an error that says to stop. Comments (and threads with a link) are looked up on the public page.
- async function record(a,{post_url,ref,text,lead,kind,ticket}={}){const r=await rulesOf(a);if(!r?.on)return {isError:true,text:'You have no posting limits in aqeelOS, so nothing to record.'};
-  const t=String(text||'').trim(),u0=String(post_url||ref||'').trim(),u=/^https:\/\/\S+$/.test(u0)?u0:'',id=u?'':u0.slice(0,200);kind=normKind(kind,r);
+ async function record(a,{post_url,ref,text,lead,kind,ticket,reply_to}={}){const r=await rulesOf(a);if(!r?.on)return {isError:true,text:'You have no posting limits in aqeelOS, so nothing to record.'};
+  const t=String(text||'').trim(),rt=String(reply_to||'').trim().slice(0,300),u0=String(post_url||ref||'').trim(),u=/^https:\/\/\S+$/.test(u0)?u0:'',id=u?'':u0.slice(0,200);kind=normKind(kind,r);
   if(u0&&!u&&!ticket&&post_url)return {isError:true,text:'post_url is the full https:// link of the post you replied to.'};
   const open=['pending','sending','unrecorded'];
   const got=await exclusive(a,async()=>{const l=await entries(a);
@@ -229,9 +229,9 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
    if(!e&&!t&&kind==='comment')return {err:'Give the exact text you posted.'};
    const stop=await stoppedFor(a,r,kind),lateRec=e?.status==='unrecorded';
    const before=e?null:decideKind(r,l,kind,{now:now(),stopped:stop});
-   if(e){Object.assign(e,{status:'checking',at:now(),post:u,ref:id,text:t.slice(0,2000),lead:lead==='warm'?'warm':'hot'});if(lateRec){e.late=true;delete e.unrecordedAt}
+   if(e){Object.assign(e,{status:'checking',at:now(),post:u,ref:id,text:t.slice(0,2000),lead:lead==='warm'?'warm':'hot',...(rt?{replyTo:rt}:{})});if(lateRec){e.late=true;delete e.unrecordedAt}
     if(stop)e.over=decideKind(r,[],kind,{now:now(),stopped:true}).reason}
-   else{e={id:randomBytes(5).toString('hex'),at:now(),kind,post:u,ref:id,text:t.slice(0,2000),lead:lead==='warm'?'warm':'hot',status:'checking'};if(!before.allow)e.over=before.reason;l.push(e)}
+   else{e={id:randomBytes(5).toString('hex'),at:now(),kind,post:u,ref:id,text:t.slice(0,2000),lead:lead==='warm'?'warm':'hot',status:'checking',...(rt?{replyTo:rt}:{})};if(!before.allow)e.over=before.reason;l.push(e)}
    await keep(a);return {e}});
   if(got.err)return {isError:true,text:got.err};if(got.again)return {text:'Already recorded.'};
   const e=got.e;const l=await entries(a);
@@ -254,9 +254,15 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
  // day is told to the agent in the record's answer (so it stops), and shown under Bottlenecks with the alert chat told, so a
  // person deletes the extra one. Their next message has its own link, so a real conversation is never flagged.
  const hm=(ms,tz)=>{try{return new Date(ms).toLocaleTimeString('en-GB',{timeZone:tz||undefined,hour:'2-digit',minute:'2-digit'})}catch{return new Date(ms).toISOString().slice(11,16)}};
+ // 20 Nov 2026 (CH-4): Threads Manager asked "udah berapa lama?", the person answered "4 bulan" under the same post and it answered
+ // again: a conversation, flagged three times as a repeat (the owner was asked to delete good replies). A reply that names the
+ // message it answers (reply_to) is a repeat only when that message was already answered; with no reply_to, an answer after one
+ // of ours that asked a question is the conversation going on.
+ const sameAsk=(prev,e)=>prev.replyTo&&e.replyTo?prev.replyTo===e.replyTo:!(prev.replyTo||e.replyTo)&&!/\?/.test(String(prev.text||''));
+ const prevOf=(e,l)=>l.filter(x=>x.id!==e.id&&x.post===e.post&&kindOf(x)==='comment'&&!['pending','sending'].includes(x.status)&&e.at-x.at<24*3600e3&&e.at>=x.at).sort((x,y)=>y.at-x.at)[0];
  async function repeatOf(a,r,e,l){if(kindOf(e)!=='comment'||!e.post)return '';
-  const prev=l.filter(x=>x.id!==e.id&&x.post===e.post&&kindOf(x)==='comment'&&!['pending','sending'].includes(x.status)&&e.at-x.at<24*3600e3&&e.at>=x.at).sort((x,y)=>y.at-x.at)[0];
-  if(!prev)return '';e.repeatOf=prev.id;await keep(a);
+  const prev=prevOf(e,l);
+  if(!prev||!sameAsk(prev,e))return '';e.repeatOf=prev.id;await keep(a);
   const who=nameOf(a),q=x=>'"'+String(x.text||'').replace(/\s+/g,' ').slice(0,120)+'"';
   const title=who+' answered the same post twice';
   const detail='Post: '+e.post+'. First at '+hm(prev.at,r.tz)+': '+q(prev)+'. Again at '+hm(e.at,r.tz)+': '+q(e)+'. Open the post and delete the extra reply, keep the first. '+who+' was told not to send to this post again.';
@@ -294,7 +300,12 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
   const x=silentPosting({gates,entries:l,now:now(),stopped:stop,tools:await engineTools(a).catch(()=>null),answer:await lastAnswer(a).catch(()=>'')});
   if(x)await event('silent',x.text,x.detail,{topic,agent:a}).catch(()=>{});else await solved(a,topic).catch(()=>{})}
  let ticks=0;
- async function tick(){if(busy)return;busy=true;try{await load();if(++ticks%10===0)await ensure().catch(x=>log('posting ensure: '+x.message));for(const a of Object.keys(db.agents)){const r=await rulesOf(a);if(!r?.on)continue;await expire(a,r).catch(x=>log('posting expire: '+x.message));await unrecordedItem(a).catch(x=>log('posting unrecorded: '+x.message));const l=await entries(a);await silence(a,r,l.filter(x=>x.status!=='pending')).catch(x=>log('posting silence: '+x.message));
+ // flags made by the older rule that the rule above no longer calls repeats are taken back once per start (their Bottlenecks items too)
+ let unflagged=false;
+ async function reflag(a){const l=await entries(a);let ch=false;for(const e of l){if(!e.repeatOf)continue;const p=l.find(x=>x.id===e.repeatOf);if(p&&sameAsk(p,e))continue;
+   delete e.repeatOf;ch=true;await unflag('repeat|'+a+'|'+e.post).catch(()=>{});log('posting: '+a+' '+e.post+' is a conversation, not a repeat; flag taken back')}
+  if(ch)await keep(a)}
+ async function tick(){if(busy)return;busy=true;try{await load();if(!unflagged){unflagged=true;for(const a of Object.keys(db.agents))await reflag(a).catch(x=>log('posting reflag: '+x.message))}if(++ticks%10===0)await ensure().catch(x=>log('posting ensure: '+x.message));for(const a of Object.keys(db.agents)){const r=await rulesOf(a);if(!r?.on)continue;await expire(a,r).catch(x=>log('posting expire: '+x.message));await unrecordedItem(a).catch(x=>log('posting unrecorded: '+x.message));const l=await entries(a);await silence(a,r,l.filter(x=>x.status!=='pending')).catch(x=>log('posting silence: '+x.message));
    const e=l.find(x=>(x.status==='unchecked'&&now()-x.at>60e3)||(x.status==='checking'&&now()-x.at>120e3))||   // 'checking' for over 2 minutes: the app restarted during the look (audit M15)
     l.find(x=>x.status==='visible'&&!x.rechecked&&now()-x.at>=r.recheckMin*60e3&&now()-x.at<6*3600e3)||
     // SV-5 (19 Nov 2026): a post flagged missing was never looked at again, so a comment that showed up later (visible 2.5 hours on)

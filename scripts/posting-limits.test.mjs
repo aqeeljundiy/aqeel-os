@@ -104,3 +104,13 @@ test('a post flagged missing that shows up later clears its Health item and the 
  const id=(await x.pl.view('ct')).recent[0].id;x.tick(10*60e3);await x.pl.tick();assert.equal((await x.pl.view('ct')).recent[0].status,'missing');   // not before recheckMin
  x.tick(21*60e3);await x.pl.tick();assert.equal((await x.pl.view('ct')).recent[0].status,'visible');
  assert.deepEqual(x.solved.at(-1),['ct','comment|'+id]);assert.doesNotMatch(await x.pl.gate('ct'),/not visible/);assert.equal(x.tg.length,1)});
+
+// CH-4, 20 Nov 2026: a conversation under one post (our question, their answer, our follow-up) was flagged as a repeat
+test('a follow-up after our question, or a reply to a different message (reply_to), is not a repeat; the same reply_to is',async()=>{
+ const q='udah berapa lama kak di wegovy?',f='oh iya 4 bulan itu udah cukup lama kak',g='iya kak, simpan di kulkas';
+ const x=await rig({pages:['p\n'+q+'\n'+f+'\n'+g]});await x.pl.set('ct',{rules:R});const u='https://www.threads.com/@continue.peptides/post/Df5ypxFiqg7';
+ let r=await x.pl.record('ct',{post_url:u,text:q});x.tick(45*60e3);r=await x.pl.record('ct',{post_url:u,text:f});
+ assert.doesNotMatch(r.text,/REPEAT/,'their answer to our question');assert.equal(x.events.filter(e=>e[0]==='repeat').length,0);
+ x.tick(10*60e3);r=await x.pl.record('ct',{post_url:u,text:g,reply_to:u+'/c1'});x.tick(10*60e3);r=await x.pl.record('ct',{post_url:u,text:g+'!',reply_to:u+'/c2'});
+ assert.doesNotMatch(r.text,/REPEAT/,'a different message answered');
+ x.tick(10*60e3);r=await x.pl.record('ct',{post_url:u,text:'lagi',reply_to:u+'/c2'});assert.match(r.text,/REPEAT/,'the same message answered twice')});

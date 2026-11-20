@@ -1628,7 +1628,7 @@ async function ensureCustomerServer(){if(!LIVE_APP)return;for(const a of Object.
 if(LIVE_APP)setTimeout(()=>ensureCustomerServer().catch(e=>console.warn('customer tools',e.message)),40000).unref();
 /* Run rules (posting-limits.mjs, 5 Nov 2026): per agent, its schedules one at a time (one browser), and posting limits
    with a public, signed-out check of every post. Live box only: the gate script names this app's port, and checks run once */
-const postingLimits=createPostingLimits({DATA,WORK:path.join(homedir(),'workspaces'),HERMES_HOME,PORT,live:LIVE_APP,signAll:relayKeys.sign,
+const postingLimits=createPostingLimits({DATA,WORK:path.join(homedir(),'workspaces'),HERMES_HOME,PORT,live:LIVE_APP,signAll:relayKeys.sign,unflag:topic=>bottlenecks.resolve(topic),
  reconnect:a=>withAgent(a,async()=>{const m=(x,b)=>fetch(`${DASH.origin}/api/mcp/servers${x}?profile=${encodeURIComponent(a)}`,{method:b?'POST':'DELETE',headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'},body:b?JSON.stringify(b):undefined});
   await m('/aqeelos-notify');const r=await m('',{name:'aqeelos-notify',url:`http://127.0.0.1:${PORT}/mcp/notify/${a}/${relay.sig(a)}`});if(!r.ok)throw Error('MCP '+r.status)}),sig:a=>relay.sig(a),setKey,readConfig,pick,nameOf:a=>NAMES[a]||a,
  // a post the public cannot see is an agent problem: System › Health, Bottlenecks and one alert to the owner (agent-health.mjs)
