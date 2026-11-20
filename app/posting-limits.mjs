@@ -256,9 +256,14 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
  const hm=(ms,tz)=>{try{return new Date(ms).toLocaleTimeString('en-GB',{timeZone:tz||undefined,hour:'2-digit',minute:'2-digit'})}catch{return new Date(ms).toISOString().slice(11,16)}};
  // 20 Nov 2026 (CH-4): Threads Manager asked "udah berapa lama?", the person answered "4 bulan" under the same post and it answered
  // again: a conversation, flagged three times as a repeat (the owner was asked to delete good replies). A reply that names the
- // message it answers (reply_to) is a repeat only when that message was already answered; with no reply_to, an answer after one
- // of ours that asked a question is the conversation going on.
- const sameAsk=(prev,e)=>prev.replyTo&&e.replyTo?prev.replyTo===e.replyTo:!(prev.replyTo||e.replyTo)&&!/\?/.test(String(prev.text||''));
+ // message it answers (reply_to) is a repeat only when that message was already answered. With no reply_to, it is a repeat when
+ // it says much the same thing again (the 12 Nov case: one answer reworded five times) or came within 20 minutes of ours
+ // without our first one asking anything (the 15 Nov case: two runs 11 minutes apart); a later, different answer is the conversation.
+ const FILLER=new Set('kak udah iya itu yang aja ada sama juga kalau kalo soal biar emang sih nya dan atau ini buat karena jadi tapi lagi masih udh bisa the and for you'.split(' '));
+ const words=t=>new Set((String(t||'').toLowerCase().match(/[a-z0-9]{3,}/g)||[]).filter(w=>!FILLER.has(w)));
+ const overlap=(a,b)=>{const A=words(a),B=words(b);if(!A.size||!B.size)return 0;let n=0;for(const w of A)if(B.has(w))n++;return n/Math.min(A.size,B.size)};
+ const sameAsk=(prev,e)=>prev.replyTo&&e.replyTo?prev.replyTo===e.replyTo:prev.replyTo||e.replyTo?false:
+  overlap(prev.text,e.text)>=0.6||(e.at-prev.at<20*60e3&&!/\?/.test(String(prev.text||'')));
  const prevOf=(e,l)=>l.filter(x=>x.id!==e.id&&x.post===e.post&&kindOf(x)==='comment'&&!['pending','sending'].includes(x.status)&&e.at-x.at<24*3600e3&&e.at>=x.at).sort((x,y)=>y.at-x.at)[0];
  async function repeatOf(a,r,e,l){if(kindOf(e)!=='comment'||!e.post)return '';
   const prev=prevOf(e,l);

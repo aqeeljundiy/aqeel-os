@@ -114,3 +114,9 @@ test('a follow-up after our question, or a reply to a different message (reply_t
  x.tick(10*60e3);r=await x.pl.record('ct',{post_url:u,text:g,reply_to:u+'/c1'});x.tick(10*60e3);r=await x.pl.record('ct',{post_url:u,text:g+'!',reply_to:u+'/c2'});
  assert.doesNotMatch(r.text,/REPEAT/,'a different message answered');
  x.tick(10*60e3);r=await x.pl.record('ct',{post_url:u,text:'lagi',reply_to:u+'/c2'});assert.match(r.text,/REPEAT/,'the same message answered twice')});
+
+test('without reply_to: a later, different answer is a conversation; a reworded answer is a repeat',async()=>{
+ const x=await rig({pages:['p']});await x.pl.set('ct',{rules:R});const u='https://www.threads.com/@cove.example/post/Dfconvo2';
+ let r=await x.pl.record('ct',{post_url:u,text:'kak itu 4x maksudnya sebulan ya, tiap klinik hitungnya beda'});
+ x.tick(3*3600e3);r=await x.pl.record('ct',{post_url:u,text:'soal kisaran per bulan aku ga berani sebut angka kak'});assert.doesNotMatch(r.text,/REPEAT/);
+ x.tick(2*3600e3);r=await x.pl.record('ct',{post_url:u,text:'soal kisaran per bulan aku ga berani sebut angka ya kak, maaf'});assert.match(r.text,/REPEAT/,'the same answer reworded')});
