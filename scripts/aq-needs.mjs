@@ -3,6 +3,7 @@
 //   node scripts/aq-needs.mjs                                   list items with numbered choices
 //   node scripts/aq-needs.mjs answer <id> <choice> [--value N] [--text "..."]
 //   node scripts/aq-needs.mjs issue <issue id> resort|close "<reason>"   sort a wrongly sorted Health issue again, or close it
+//   node scripts/aq-needs.mjs done <event|e… or report|r… id> "<reason>"   an alert or report that is already solved
 import {readFile} from 'node:fs/promises';import path from 'node:path';import {fileURLToPath} from 'node:url';
 const env=process.env,root=path.dirname(fileURLToPath(import.meta.url));
 const DATA=path.resolve(env.UI_DATA_DIR||path.join(root,'..','..','hermes-ui-data')),PORT=Number(env.UI_PORT)||4400;
@@ -20,4 +21,7 @@ else if(cmd==='answer'){if(!id||!choice)die('Usage: answer <id> <choice> [--valu
  const r=await call('POST','/local/answer',o);console.log('Done: '+JSON.stringify(r))}
 else if(cmd==='issue'){const reason=rest.join(' ').trim();if(!/^i[0-9a-f]{8}$/.test(id||'')||!['resort','close'].includes(choice)||!reason)die('Usage: issue <issue id, like i7d96eb8c> resort|close "<reason>"');
  const r=await call('POST','/local/issue',{id,action:choice,reason});console.log('Done: '+JSON.stringify(r))}
-else die('Usage: aq-needs.mjs | aq-needs.mjs answer <id> <choice> [--value N] [--text "..."] | aq-needs.mjs issue <id> resort|close "<reason>"');
+// an alert or an agent's report that is already solved (20 Nov 2026: Airtable alerts stayed after Airtable worked again): marked done, as on Health
+else if(cmd==='done'){const reason=[choice,...rest].filter(Boolean).join(' ').trim();if(!/^(event\|e|report\|r)[0-9a-f]{6,}$/.test(id||'')||!reason)die('Usage: done <event|e… or report|r… id> "<why it is solved>"');
+ const r=await call('POST','/local/done',{id,reason});console.log('Done: '+JSON.stringify(r))}
+else die('Usage: aq-needs.mjs | aq-needs.mjs answer <id> <choice> [--value N] [--text "..."] | aq-needs.mjs issue <id> resort|close "<reason>" | aq-needs.mjs done <id> "<reason>"');

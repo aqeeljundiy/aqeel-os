@@ -15,3 +15,9 @@ test('dispatch by kind',async()=>{const calls=[];const deps={conflicts:{decide:a
  await assert.rejects(answerItem({items,id:'apps|x',choice:'a',...deps}),/Do this one on Health: Reconnect/);
  await assert.rejects(answerItem({items,id:'nope',choice:'a',...deps}),e=>e.status===404);
  assert.deepEqual(viewOf(items[3]).health,'Reconnect');assert.equal(viewOf(items[1]).choices.at(-1).key,'other')});
+
+// aq-needs.mjs done: an alert or report already solved is marked done; only one that is in Needs you, with a reason
+test('local done: marks an event or report done only when it is listed and a reason is given',async()=>{const {localDone}=await import('../app/local-owner.mjs');
+ const marked=[],out=[];const send=(res,code,body)=>out.push([code,body]);const run=b=>localDone({},null,{needs:async()=>[{id:'event|eabc123'}],done:async id=>marked.push(id),readBody:async()=>JSON.stringify(b),send});
+ await run({id:'event|eabc123',reason:'Airtable works again'});await run({id:'event|eabc124',reason:'x'});await run({id:'event|eabc123'});await run({id:'issue|i1',reason:'x'});
+ assert.deepEqual(marked,['event|eabc123']);assert.deepEqual(out.map(x=>x[0]),[200,404,400,400])});
