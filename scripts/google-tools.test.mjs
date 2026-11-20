@@ -117,6 +117,14 @@ test('drive read exports Google files as text, refuses binaries; upload is multi
  assert.match(u.text,/Uploaded "n\.csv".*U1/);const c=calls.at(-1);assert.match(c.o.headers['content-type'],/^multipart\/related; boundary=/);
  const body=c.o.body.toString();assert.match(body,/"mimeType":"application\/vnd.google-apps.spreadsheet"/);assert.match(body,/"parents":\["F1234567890"\]/);assert.match(body,/a,b\n1,2/)});
 
+test('drive create_folder and copy go into the chosen parent',async()=>{const {t,calls}=await make({files:{'google_token.json':own()},routes:[
+  ['POST',/drive\/v3\/files\?supportsAllDrives/,()=>({status:200,body:{id:'FO1',name:'Pixel',webViewLink:'https://drive/FO1'}})],
+  ['POST',/drive\/v3\/files\/S1234567890\/copy/,()=>({status:200,body:{id:'C1',name:'Tasks copy',webViewLink:'https://drive/C1'}})]]});
+ assert.match((await t.call('bot','google_drive',{action:'create_folder',name:'Pixel',folder:'https://drive.google.com/drive/folders/P1234567890'})).text,/Created folder "Pixel".*FO1/);
+ let b=JSON.parse(calls.at(-1).o.body);assert.equal(b.mimeType,'application/vnd.google-apps.folder');assert.deepEqual(b.parents,['P1234567890']);
+ assert.match((await t.call('bot','google_drive',{action:'copy',file:'S1234567890',name:'Tasks copy',folder:'FO1'})).text,/Copied to "Tasks copy".*C1/);
+ b=JSON.parse(calls.at(-1).o.body);assert.equal(b.name,'Tasks copy');assert.deepEqual(b.parents,['FO1'])});
+
 test('docs: create with text, append at the end, read',async()=>{const {t,calls}=await make({files:{'google_token.json':own()},routes:[
   ['POST',/documents$/,()=>({status:200,body:{documentId:'DOC1'}})],['POST',/documents\/DOC1:batchUpdate/,()=>({status:200,body:{}})],
   ['GET',/documents\/DOC1$/,()=>({status:200,body:{title:'Notes',body:{content:[{paragraph:{elements:[{textRun:{content:'Hello\n'}}]}}]}}})]]});
