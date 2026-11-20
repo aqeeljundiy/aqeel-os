@@ -29,15 +29,21 @@ export async function liveDrift({live,repo,git=gitOut}){
  for(const d of DIRS)for(const r of await walk(path.join(live,d),d,[])){if(known.has(r)||SKIP.test(r))continue;const s=await stat(path.join(live,r)).catch(()=>null);if(s&&s.mtimeMs>since+1000)added.push(r)}
  return {ok:true,commit,changed:changed.sort(),removed:removed.sort(),added:added.sort()}}
 
-export function createLiveDrift({DATA,live,repo,settle=10*60e3,now=()=>Date.now(),git}){const F=path.join(DATA,'live-drift.json');
+export function createLiveDrift({DATA,live,repo,settle=10*60e3,behindAfter=2*3600e3,now=()=>Date.now(),git}){const G=git||gitOut;const F=path.join(DATA,'live-drift.json');
  const read=async()=>{try{return JSON.parse(await readFile(F,'utf8'))}catch{return {}}};
  const write=async d=>{await mkdir(DATA,{recursive:true});await writeStore(F,JSON.stringify(d,null,1))};
  async function check(){const r=await liveDrift({live,repo,git});if(!r.ok)return r;const prev=await read();
   const files=[...r.changed,...r.removed.map(f=>f+' (removed)'),...r.added.map(f=>f+' (new)')];
   // the clock restarts when the commit changes (a deploy) or the box was clean in between
   const since=files.length?(prev.commit===r.commit&&prev.files?.length?prev.since:now()):0;
-  await write({commit:r.commit,at:now(),since,files:files.slice(0,200),count:files.length});return {...r,files}}
+  // every server runs the same version (owner, 20 Nov 2026: "the goal is for them to get patched equally"): GitHub's main has newer
+  // app code than this box runs, e.g. after a deploy here was undone while the other server took it. Said once it lasts `behindAfter`.
+  let behind=null;if(await G(['fetch','-q','origin','main'],repo)!=null){const n=+String(await G(['rev-list','--count',r.commit+'..origin/main','--',...DIRS],repo)||'0').trim()||0;
+   if(n>0){const head=String(await G(['rev-parse','--short=8','origin/main'],repo)||'').trim(),fl=String(await G(['diff','--name-only',r.commit,'origin/main','--',...DIRS],repo)||'').split('\n').filter(Boolean);
+    behind={count:n,head,files:fl.slice(0,50),since:prev.behind&&prev.commit===r.commit?prev.behind.since:now()}}}
+  await write({commit:r.commit,at:now(),since,files:files.slice(0,200),count:files.length,...(behind?{behind}:{})});return {...r,files,behind}}
  // the one Health item, or null
- async function item(){const s=await read();if(!s.files?.length||now()-s.since<settle)return null;
-  return {commit:s.commit,since:s.since,at:s.at,count:s.count||s.files.length,files:s.files.slice(0,50)}}
+ async function item(){const s=await read();if(s.files?.length&&now()-s.since>=settle)return {commit:s.commit,since:s.since,at:s.at,count:s.count||s.files.length,files:s.files.slice(0,50)};
+  if(s.behind&&now()-s.behind.since>=behindAfter)return {behind:true,commit:s.commit,head:s.behind.head,since:s.behind.since,at:s.at,count:s.behind.count,files:s.behind.files};
+  return null}
  return {check,item}}
