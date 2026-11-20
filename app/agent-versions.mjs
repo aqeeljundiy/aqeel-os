@@ -252,6 +252,7 @@ export function createAgentVersions({guard=()=>null,DATA,HERMES_HOME,DASH,DASH_T
   // the change, so nothing is undone and no issue is filed; it is asked again after the account's reset time, if known
   const lim=ok?null:providerUnavailable(why,{now:now(),strict:true});   // strict: an answer that only talks about a 429 or a limit is not one (audit M3)
   if(lim){limits?.note(why,{now:now()});unsure=true}
+  if(!ok&&!lim&&ENGINE_NOT_READY.test(why))unsure=true
   if(unsure){await lock(a,async()=>{const d1=await load(a);if(d1.watch){d1.watch.due=lim?retryAt(lim,{now:now(),fallback:10*60e3}):now()+4*60e3;
    if(lim&&!d1.events.slice(-1).some(e=>e.kind==='unavailable'&&now()-e.at<HOUR))d1.events.push({kind:'unavailable',at:now(),text:'the AI provider is not available ('+lim.kind+'), so nothing was checked: '+clip(lim.why,160)});await save(a)}});continue}
   await lock(a,async()=>{const d2=await load(a);if(!d2.watch)return;
@@ -270,9 +271,13 @@ export function createAgentVersions({guard=()=>null,DATA,HERMES_HOME,DASH,DASH_T
  // Before the provider check, "no answer" because the AI account was used up undid good changes. This finds those rollbacks
  // (an automatic rollback in the last 48 h whose last reason is a provider limit) and puts the changes back: a setting, a skill
  // and the instructions version. Anything else (schedules, webhooks) is only listed. Each rollback is restored once.
+ // the engine was not ready (restarting, draining, its connection not up yet): says nothing about an agent's change (20 Nov 2026:
+ // the 22:29 WIB engine update on P&P restarted it, five agents could not start the model connection for minutes, and their
+ // fresh skill updates were undone as if they had broken them)
+ const ENGINE_NOT_READY=/couldn'?t start the model connection|gateway (?:is )?draining|Gateway did not answer|engine (?:is )?(?:re)?starting/i;
  const AUTO='aqeelOS (automatic rollback)',redoable=x=>x.undoable!==false&&(x.kind==='setting'||x.kind==='skill');
  const reasonOf=e=>e.why||/Last reason: (.*)$/.exec(String(e.text||''))?.[1]||'';
- function falseRollbacksOf(d,{since=48*HOUR}={}){return d.events.filter(e=>e.kind==='rollback'&&e.at>=now()-since&&(providerUnavailable(reasonOf(e))||/^it did not answer \(\d+\):?$/.test(reasonOf(e).trim())&&outageAt?.(e.at))).map(e=>{
+ function falseRollbacksOf(d,{since=48*HOUR}={}){return d.events.filter(e=>e.kind==='rollback'&&e.at>=now()-since&&(providerUnavailable(reasonOf(e))||ENGINE_NOT_READY.test(reasonOf(e))||/^it did not answer \(\d+\):?$/.test(reasonOf(e).trim())&&outageAt?.(e.at))).map(e=>{
    const items=d.items.filter(x=>x.state==='undone'&&x.undoneBy===AUTO&&(e.ids?e.ids.includes(x.id):x.undoneAt>=e.at-300e3&&x.undoneAt<=e.at+1000));
    return {at:e.at,reason:clip(reasonOf(e),200),restoredAt:e.restored||null,instructions:e.instr||null,changes:items.map(x=>({id:x.id,kind:x.kind,target:x.target,what:x.what,redoable:redoable(x)}))}})}
  async function falseRollbacks(a,o){return falseRollbacksOf(await load(a),o)}

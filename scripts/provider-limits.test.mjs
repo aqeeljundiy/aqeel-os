@@ -154,3 +154,21 @@ test('every account used up: nobody moves, held until the earliest reset; one us
  assert.equal(exhaustion(pr,e=>({...u,'claude:main':null})[e.key],e=>r[e.key]).all,false,'unknown usage is not "used up"');
  assert.equal(exhaustion(pr,()=>0,()=>null,{held:()=>true}).all,true,'a provider in an outage counts');assert.equal(exhaustion([],()=>100,()=>null).all,false);
  assert.equal(entryReset([{used:100,resets:new Date(T+1e3).toISOString()},{used:44,resets:new Date(T+9e9).toISOString()},{used:100,resets:new Date(T+5e3).toISOString()}]),T+5e3)});
+
+test('auto-rollback: an engine that was not ready (restarting, draining) is no failure of the change, and such old rollbacks are put back (20 Nov 2026)',async()=>{
+ let why="it did not answer (1): aqeelOS couldn't start the model connection: Gateway draining";
+ const {v,cfg,tick}=await versions({ping:async()=>({ok:false,why})});
+ await v.mySetting('bot','stt.language','xx',{by:'Bot'});await v.arm('bot');
+ for(let k=0;k<4;k++){tick(5*60e3);await v.watchTick()}
+ assert.equal(cfg.stt.language,'xx','the change stays while the engine is not ready');const d=await v.load('bot');
+ assert.equal(d.watch.fails||0,0);assert.equal(d.events.filter(e=>e.kind==='rollback').length,0);
+ why='answered without OK: Traceback boom';tick(5*60e3);await v.watchTick();tick(5*60e3);await v.watchTick();
+ assert.equal(cfg.stt.language,'id','a real failure still rolls back')});
+
+test('a rollback made while the engine was not ready counts as a false rollback and is put back',async()=>{
+ const {v,cfg,tick}=await versions({ping:async()=>({ok:false,why:'answered without OK: boom'})});
+ await v.mySetting('bot','stt.language','xx',{by:'Bot'});await v.arm('bot');tick(4*60e3);await v.watchTick();tick(5*60e3);await v.watchTick();
+ assert.equal(cfg.stt.language,'id','rolled back');const d=await v.load('bot');const e=d.events.find(x=>x.kind==='rollback');
+ e.why="it did not answer (1): aqeelOS couldn't start the model connection: Gateway draining";   // as the 20 Nov rollbacks on P&P read
+ const r=await v.falseRollbacks('bot');assert.equal(r.length,1,'found as false');const res=await v.restoreFalseRollbacks('bot');
+ assert.equal(res[0].restored.length,1);assert.equal(cfg.stt.language,'xx','put back')});
