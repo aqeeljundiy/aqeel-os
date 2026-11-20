@@ -287,6 +287,11 @@ export function createAutomationGuard({DATA,HERMES_HOME,LIVE,listAgents,readConf
   // per agent, four issues for one problem); a new agent joining the list tells again
   for(const [n,ags] of Object.entries(signins)){const who=[...new Set(ags)].sort();
    await say('srv|'+n+'|signin|'+who.join(','),(who.length===1?nameOf(who[0])+': "'+n+'" needs someone to sign in':'"'+n+'" needs someone to sign in on '+who.length+' agents ('+who.map(nameOf).join(', ')+')'),{detail:'Its sign-in ran out, so its tools stay off until someone signs in again. Sign in under Bottlenecks or System › Health. aqeelOS will not retry it by itself.',every:Infinity})}
+  // the sign-in alert's topic is srv|<app>|signin (one per app), which forget() (srv|<agent>|<app>) never closes: when no agent
+  // needs that sign-in any more (parked → connected, a tool of it worked) the entry goes away (20 Nov 2026: Airtable on fakhri-agent)
+  db.sent||={};for(const t of Object.keys(db.sent)){const m=/^srv\|(.+)\|signin$/.exec(t);if(!m||signins[m[1]])continue;
+   delete db.sent[t];for(const k of Object.keys(db.told))if(k.startsWith('srv|'+m[1]+'|signin|'))delete db.told[k];
+   if(LIVE&&!readOnly)tell('',{info:true,resolve:t}).catch(()=>{})}
   for(const [dir,v] of Object.entries(db.venvs))if(v.state==='broken'&&!Object.values(db.servers).some(r=>r.venvs?.includes(dir))&&mayTry(v,now))out.push(repairVenv(dir).catch(e=>({ok:false,why:e.message})));
   return Promise.all(out)}
  // the fixes of earlier days, once a day in the daytime (today's wait for tomorrow)
