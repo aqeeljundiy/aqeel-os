@@ -12,7 +12,7 @@
 import {readFile,writeFile,rename,readdir,chmod,stat} from 'node:fs/promises';
 import path from 'node:path';
 import {AsyncLocalStorage} from 'node:async_hooks';
-import {Ask,SHEET_ACTIONS,NEEDS_RANGE,DELETE_REFUSED,checkBatch,buildRequests} from './google-sheet-ops.mjs';
+import {Ask,SHEET_ACTIONS,NEEDS_RANGE,DELETE_REFUSED,checkBatch,buildRequests,gridRange} from './google-sheet-ops.mjs';
 import {SERVICES} from './google-connect.mjs';
 
 const TOKEN='https://oauth2.googleapis.com/token';
@@ -220,8 +220,12 @@ export function createGoogleTools({HERMES_HOME,homeOf=a=>a==='default'?HERMES_HO
    return clip(where+' ('+rows.length+' rows'+(rend==='formulas'?', formulas as typed':'')+'):\n'+(rend==='both'?'values: '+JSON.stringify(v.values||[])+'\nformulas: '+JSON.stringify(f.values||[]):JSON.stringify(rows)))}
   if(act==='cells'){const g=await sx('get',{query:{ranges:range,includeGridData:'true',fields:'sheets(properties(title),data(startRow,startColumn,rowData(values(userEnteredValue,effectiveValue,formattedValue,userEnteredFormat(numberFormat)))))'}});
    const col=n=>{let r='';for(n++;n>0;n=Math.floor((n-1)/26))r=String.fromCharCode(65+(n-1)%26)+r;return r},out=[];
-   for(const sh of g.sheets||[])for(const d of sh.data||[])(d.rowData||[]).forEach((row,i)=>(row.values||[]).forEach((c,j)=>{const ref=(sh.properties?.title?sh.properties.title+'!':'')+col((d.startColumn||0)+j)+((d.startRow||0)+i+1);
-    out.push(c.userEnteredValue===undefined&&c.effectiveValue===undefined?{cell:ref,empty:true}:{cell:ref,entered:c.userEnteredValue,effective:c.effectiveValue,shown:c.formattedValue,numberFormat:c.userEnteredFormat?.numberFormat})}));
+   // Google leaves out empty cells at the end of a row and empty rows at the end; with a range that names both corners every cell
+   // in it is listed, the missing ones as empty (20 Nov 2026: Fakhri Agent's sync must tell a truly empty cell from an empty string)
+   for(const sh of g.sheets||[]){const gr=(()=>{try{return gridRange(range,[{title:sh.properties?.title||'',sheetId:0}])}catch{return null}})(),full=gr&&[gr.startRowIndex,gr.endRowIndex,gr.startColumnIndex,gr.endColumnIndex].every(Number.isInteger);
+    for(const d of sh.data||[]){const r0=d.startRow||0,c0=d.startColumn||0,rows=full?gr.endRowIndex-r0:(d.rowData||[]).length;
+     for(let i=0;i<rows;i++){const vals=d.rowData?.[i]?.values||[],cols=full?gr.endColumnIndex-c0:vals.length;for(let j=0;j<cols;j++){const c=vals[j]||{},ref=(sh.properties?.title?sh.properties.title+'!':'')+col(c0+j)+(r0+i+1);
+      out.push(c.userEnteredValue===undefined&&c.effectiveValue===undefined?{cell:ref,empty:true}:{cell:ref,entered:c.userEnteredValue,effective:c.effectiveValue,shown:c.formattedValue,numberFormat:c.userEnteredFormat?.numberFormat})}}}}
    if(!out.length)return 'No cells in '+range+'.';return clip(range+' ('+out.length+' cells; entered = what is stored: stringValue/numberValue/boolValue/formulaValue; empty = no value; numberFormat = date/number pattern):\n'+out.map(x=>JSON.stringify(x)).join('\n'))}
   if(act==='write'){const r=await sx('values.update',{range,query:{valueInputOption:vi},body:{values:a.values}});return 'Wrote '+(r.updatedCells??'the')+' cells in '+(r.updatedRange||range)+'.'}
   if(act==='append'){const r=await sx('values.append',{range,query:{valueInputOption:vi,insertDataOption:'INSERT_ROWS'},body:{values:a.values}});return 'Added '+(r.updates?.updatedRows??a.values.length)+' rows at '+(r.updates?.updatedRange||range)+'.'}

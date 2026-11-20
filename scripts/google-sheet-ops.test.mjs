@@ -44,7 +44,9 @@ test('cells: typed CellData (entered value, empty cells, date format) for a rang
   ['GET',/includeGridData=true/,()=>({status:200,body:{sheets:[{properties:{title:'Leads'},data:[{startRow:1,startColumn:26,rowData:[{values:[{userEnteredValue:{numberValue:46000},effectiveValue:{numberValue:46000},formattedValue:'20/11/2026',userEnteredFormat:{numberFormat:{type:'DATE',pattern:'dd/mm/yyyy'}}},{}]}]}]}]}})]]});
  const r=await S(t,{action:'cells',range:'Leads!AA2:AB2'});assert.equal(r.isError,undefined,r.text);
  assert.match(r.text,/"cell":"Leads!AA2","entered":\{"numberValue":46000\}.*"pattern":"dd\/mm\/yyyy"/);assert.match(r.text,/"cell":"Leads!AB2","empty":true/);
- assert.match(calls.at(-1).u,/ranges=Leads%21AA2%3AAB2/);assert.equal((await S(t,{action:'cells'})).isError,true)});
+ assert.match(calls.at(-1).u,/ranges=Leads%21AA2%3AAB2/);assert.equal((await S(t,{action:'cells'})).isError,true);
+ const r2=await S(t,{action:'cells',range:'Leads!AA2:AC3'});assert.match(r2.text,/\(6 cells/,'every cell of the range, the ones Google left out as empty');
+ assert.match(r2.text,/"cell":"Leads!AC2","empty":true/);assert.match(r2.text,/"cell":"Leads!AC3","empty":true/);});
 
 test('formulas: written as typed, read back as formula and computed value',async()=>{const {t,calls}=await make({routes:[
   ['GET',/values\/Sales!A1%3AB2/,u=>({status:200,body:{range:'Sales!A1:B2',values:/valueRenderOption=FORMULA/.test(u)?[['Sum','=SUM(B1:B1)'],['x',3]]:[['Sum',3],['x',3]]}})],
