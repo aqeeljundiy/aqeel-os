@@ -79,7 +79,7 @@ esac
 `;
  for(const n of ['iptables','ip6tables'])exe(bin+'/'+n,ipt);exe(bin+'/ss','#!/bin/bash\nexit 0\n');
  writeFileSync(H+'/.aqeelos-agent-ports','a1 40 9600\n');
- writeFileSync(H+'/scan',['9333 1001 lo node /x/apps/hermes-ui/scripts/adspower-bridge.mjs','19600 2015 lo /opt/aqeelos/chrome/chrome --remote-debugging-port=19600','4471 2016 lo','22 0 any sshd: /usr/sbin/sshd -D'].join('\n')+'\n');
+ writeFileSync(H+'/scan',['9333 1001 lo node /x/apps/hermes-ui/scripts/adspower-bridge.mjs','19600 2015 lo /opt/aqeelos/chrome/chrome --remote-debugging-port=19600','4471 2016 lo','22 0 any sshd: /usr/sbin/sshd -D','41234 1001 lo','5055 1001 any'].join('\n')+'\n');
  const stubs=`id(){ case "$*" in "-u claude") echo 1001;; "-u aq-wake") echo 999;; "-u ag-a1") echo 2015;; *) return 1;; esac; }; devtools_scan(){ cat '${H}/scan'; }; OWNER=${user}; `;
  const run=body=>lib(H,stubs+body,{PATH:bin+':'+process.env.PATH});
  const status=()=>JSON.parse(readFileSync(H+'/'+FW_STATUS,'utf8'));
@@ -93,7 +93,7 @@ test('the status file: what was wanted, what is there, the running copy\'s sum, 
  r=b.run('devtools_fw full; echo rc=$?');assert.match(r.out,/rc=0/,r.out+r.err);
  const s=b.status();const now=Date.now()/1000;assert.ok(Math.abs(s.at-now)<60);
  assert.equal(s.script,SUM,'the sum of the copy that runs');assert.equal(s.ok,true);assert.equal(s.why,'');assert.deepEqual(s.errors,[]);
- assert.equal(s.listeners,4);assert.deepEqual(s.unseen,['4471 2016 lo'],'not root\'s, no program: said');
+ assert.equal(s.listeners,6);assert.deepEqual(s.unseen,['4471 2016 lo','5055 1001 any'],'not root\'s, no program: said; the box user\'s own loopback one is not (P&P i9d5a8634), its wide one is');
  const t=s.tools.iptables;assert.equal(t.installed,true);assert.equal(t.version,'iptables v1.8.10 (nf_tables)');assert.equal(t.owner,'yes');assert.equal(t.hooked,true);
  assert.ok(t.wanted.includes(R(9333)),'the bridge is wanted');assert.deepEqual(t.missing,[]);
  assert.ok(t.present.includes('-A AQ-DEVTOOLS '+R(9333).slice(4)),'iptables -S of the chain');assert.equal(t.wanted.length,t.present.length);
