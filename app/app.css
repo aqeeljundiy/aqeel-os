@@ -3323,3 +3323,4 @@ button.sf-more:focus-visible{outline:2px solid var(--blue-2);outline-offset:0}
 /* work level per agent (Accounts › Which agent uses what, 20 Nov 2026) */
 .use-ctl .use-lv{margin-right:8px}
 @media (max-width:720px){.use-ctl{flex-wrap:wrap;gap:8px}.use-ctl .use-lv{margin-right:0}}
+.ul-budget{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 4px;font-size:13px;color:var(--ink-2)}

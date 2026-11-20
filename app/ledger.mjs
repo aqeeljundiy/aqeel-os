@@ -56,10 +56,30 @@ export function createLedger({HERMES_HOME,users=null,agentName=a=>a,accounts=nul
   for(const a of new Set(ls.map(l=>l.a)))await sessionsOf(a);const acc=await acctLookup();
   const info=(a,s)=>{const x=sess.get(a+'|'+s);return x?{...x,owner:ownerOf(s,x)||''}:{owner:ownerOf(s,null)||''}};
   const acctOf=l=>l.acct?(l.pv==='antigravity-subscription'?(l.acct==='main'?'first account':l.acct):l.acct):/claude-subscription/.test(l.pv||'')?(acc['claude:'+(acc._assign?.[l.a]||'main')]||''):'';
-  return {days,agent:agent||null,...aggregate(ls,{info,acctOf,agentName,personName}),estimatedNote:'Google AI plan calls are estimated from the size of each request and answer: its tool reports no token counts.'}}
- return {report,lines}}
+  return {days,agent:agent||null,budgets:await budgetStatus(HERMES_HOME).catch(()=>[]),...aggregate(ls,{info,acctOf,agentName,personName}),estimatedNote:'Google AI plan calls are estimated from the size of each request and answer: its tool reports no token counts.'}}
+ return {report,lines,home:HERMES_HOME}}
 
 // the route (admins: every agent and person), wired in server.mjs with one line: GET /ui/usage/ledger?days=7[&agent=…]
-export async function ledgerRoute(ledger,req,res,p,url,{admin,send}){if(p!=='/ui/usage/ledger')return false;
+const body=req=>new Promise(r=>{let t='';req.on('data',d=>{t+=d;if(t.length>2048)req.destroy()});req.on('end',()=>r(t));req.on('error',()=>r(''))});
+export async function ledgerRoute(ledger,req,res,p,url,{admin,send}){
+ // PUT /ui/usage/budget {agent, tokens}: an agent's daily budget (0 takes it away)
+ if(p==='/ui/usage/budget'&&req.method==='PUT'){if(!admin)return send(res,403,{error:'Only admins set budgets.'}),true;let b={};try{b=JSON.parse(await body(req))}catch{}
+  const a=String(b.agent||'');if(!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(a))return send(res,400,{error:'Unknown agent.'}),true;
+  try{const r=await setBudget(ledger.home,a,b.tokens);return send(res,200,{ok:true,budget:r.agents[a]||0}),true}catch(e){return send(res,409,{error:e.message}),true}}
+ if(p!=='/ui/usage/ledger')return false;
  if(!admin)return send(res,403,{error:'Only admins see usage for every agent and person.'}),true;
  try{return send(res,200,await ledger.report({days:url.searchParams.get('days'),agent:String(url.searchParams.get('agent')||'')})),true}catch(e){return send(res,500,{error:e.message}),true}}
+
+// ---- daily budgets per agent (owner, 20 Nov 2026): tokens a day, from the same ledger. Health warns at 80% and at 100%
+// (design-guard.mjs lists them with the other cost items); nothing is ever stopped. Kept in usage-ledger/budgets.json.
+const budgetFile=H=>path.join(H,'usage-ledger','budgets.json');
+export async function readBudgets(H){try{const j=JSON.parse(await readFile(budgetFile(H),'utf8'));return j&&typeof j.agents==='object'?j:{agents:{}}}catch{return {agents:{}}}}
+export async function setBudget(H,agent,tokens){const {writeStore}=await import('./store.mjs');const {mkdir}=await import('node:fs/promises');const b=await readBudgets(H);
+ const n=Math.round(+tokens||0);if(n>0)b.agents[agent]=n;else delete b.agents[agent];await mkdir(path.dirname(budgetFile(H)),{recursive:true});await writeStore(budgetFile(H),JSON.stringify(b,null,1));return b}
+// what each agent with a budget used since local midnight: [{agent, used, budget, pct}]
+export async function budgetStatus(H){const b=await readBudgets(H),names=Object.keys(b.agents);if(!names.length)return [];
+ const mid=new Date();mid.setHours(0,0,0,0);const since=mid.getTime()/1000,used={};
+ for(const day of new Set([new Date(since*1000).toISOString().slice(0,10),new Date().toISOString().slice(0,10)]))
+  for(const r of (await readFile(path.join(H,'usage-ledger',day+'.jsonl'),'utf8').catch(()=>'')).split('\n')){if(r[0]!=='{')continue;let l;try{l=JSON.parse(r)}catch{continue}
+   if(l.t<since)continue;const a=String(l.a).split('--')[0];if(b.agents[a])used[a]=(used[a]||0)+(l.in||0)+(l.cr||0)+(l.cw||0)+(l.out||0)}
+ return names.map(a=>({agent:a,used:used[a]||0,budget:b.agents[a],pct:Math.round((used[a]||0)/b.agents[a]*100)}))}

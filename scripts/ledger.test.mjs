@@ -16,3 +16,11 @@ test('five views of the same calls, every provider, with what the tokens were sp
 test('a call with no session details is still counted, as a chat or as background work',()=>{
  assert.deepEqual(placeOf({p:'api_server'},()=>null),{key:'chat:api_server',name:'Chats in aqeelOS',kind:'chat'});
  assert.equal(placeOf({p:'cron'},()=>null).name,'A scheduled run');assert.equal(providerName('openai-codex'),'ChatGPT plan');assert.equal(providerName('xai'),'xAI (Grok)')});
+
+test('daily budgets: saved per agent, today’s use against it (copies of an agent count for it), 0 takes it away',async()=>{
+ const {mkdtemp,mkdir,writeFile}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const path=(await import('node:path')).default;
+ const {setBudget,budgetStatus,readBudgets}=await import('../app/ledger.mjs');const H=await mkdtemp(path.join(tmpdir(),'bud-'));await mkdir(path.join(H,'usage-ledger'),{recursive:true});
+ const now=Date.now()/1000,day=new Date().toISOString().slice(0,10);
+ await writeFile(path.join(H,'usage-ledger',day+'.jsonl'),[{t:now-60,a:'donna',in:500,cr:300,out:100},{t:now-30,a:'donna--copy',in:100},{t:now-20,a:'threads',in:999}].map(x=>JSON.stringify(x)).join('\n')+'\n');
+ await setBudget(H,'donna',1000);const st=await budgetStatus(H);assert.deepEqual(st,[{agent:'donna',used:1000,budget:1000,pct:100}]);
+ await setBudget(H,'donna',0);assert.deepEqual((await readBudgets(H)).agents,{});assert.deepEqual(await budgetStatus(H),[])});

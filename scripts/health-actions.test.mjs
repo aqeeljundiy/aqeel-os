@@ -44,7 +44,8 @@ const SAMPLES={
  schedule:[{kind:'schedule',id:'sched|a|j|1',agent:'a',title:'x',job:{id:'j',name:'J'}}],
  stopped:[{kind:'stopped',id:'event|e',agent:'a',title:'x'}],
  kirimdev:[{kind:'kirimdev',id:'event|e',title:'x'}],
- repeat:[{kind:'repeat',id:'event|e',agent:'a',title:'A answered the same post twice',data:{post:'https://www.threads.com/@x/post/1'}}]};
+ repeat:[{kind:'repeat',id:'event|e',agent:'a',title:'A answered the same post twice',data:{post:'https://www.threads.com/@x/post/1'}}],
+ budget:[{kind:'budget',id:'budget|a',agent:'a',agentName:'A',title:'A used 85% of its daily budget',text:'850k of 1M tokens today.'}]};
 // kinds that have nothing to press by design (the fixer has them; personNeed is null for them)
 const NO_BUTTON=new Set(['system']);
 

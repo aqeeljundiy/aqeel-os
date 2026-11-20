@@ -23,6 +23,8 @@ async function ulDrill(panel,days,key){const box=panel.querySelector('.ul-drill'
  const a=d.agent?.[0]||d.total,top=(l,n=6)=>l.slice(0,n).map(r=>`<li><span>${esc(r.name)}</span><small>${esc(r.provider&&r.name!==r.provider?r.provider:'')}</small><b>${ulNum(r.tokens)}</b></li>`).join('');
  box.innerHTML=`<h3>What ${esc(a.name||'it')} spends tokens on</h3>${ulAnatomy(d.total.an)}
   <div class="ul-cols"><div><h4>Schedules and chats</h4><ul class="ul-list">${top(d.schedule)}</ul></div><div><h4>Models</h4><ul class="ul-list">${top(d.model,4)}</ul><h4>Accounts</h4><ul class="ul-list">${top(d.provider,4)}</ul></div></div>
+  <div class="ul-budget">${(()=>{const b=(d.budgets||[]).find(x=>x.agent===key);return b?`<span>Daily budget <b>${ulNum(b.budget)}</b> tokens · today ${ulNum(b.used)} (${b.pct}%)</span>`:'<span>No daily budget. Health warns at 80% of one; nothing is ever stopped.</span>'})()}
+   <button class="ghost small" data-act="ul-budget" data-agent="${esc(key)}" data-cur="${esc(String((d.budgets||[]).find(x=>x.agent===key)?.budget||''))}">${icon('gauge',14)}${(d.budgets||[]).some(x=>x.agent===key)?'Change budget':'Set a daily budget'}</button></div>
   <p class="hint">${d.total.calls.toLocaleString()} AI calls, ${ulNum(Math.round(d.total.tokens/Math.max(1,d.total.calls)))} tokens each on average. Most of a call is usually reading: a smaller instruction set, fewer tools or shorter tool results lower every call.</p>`}
 {const base=PAGES.usage;PAGES.usage=async(p,el)=>{const gone=pageTok(el);await base(p,el);if(gone()||S.me?.admin===false)return;
  const days={'7 days':7,'30 days':30,'90 days':90}[S.tab.usage||'7 days'];
@@ -36,3 +38,7 @@ async function ulDrill(panel,days,key){const box=panel.querySelector('.ul-drill'
  panel._ulDraw=draw;draw()}}
 ACT['ul-view']=a=>{ULedger.view=a.dataset.v;ULedger.open=null;a.closest('.ul')?._ulDraw?.()};
 ACT['ul-open']=a=>{ULedger.open=ULedger.open===a.dataset.key?null:a.dataset.key;a.closest('.ul')?._ulDraw?.()};
+
+ACT['ul-budget']=async a=>{const cur=a.dataset.cur||'',v=await promptBox('Daily token budget for '+ident(a.dataset.agent).name,'Tokens a day (empty takes the budget away). Health warns at 80%; nothing is stopped.',cur,'Save');if(v==null)return;
+ const n=Math.round(+String(v).replace(/[^0-9.]/g,'')*(/m/i.test(v)?1e6:/k/i.test(v)?1e3:1))||0;
+ try{await put(UI,'/ui/usage/budget',{agent:a.dataset.agent,tokens:n});toast(n?'Budget saved':'Budget taken away');const p=a.closest('.ul');p?._ulDraw?.()}catch(e){fail(e)}};

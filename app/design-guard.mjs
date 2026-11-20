@@ -20,6 +20,7 @@ import {readStore,writeStore} from './store.mjs';
 import {readFile,writeFile,rename,mkdir,stat,chmod,realpath,open} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
+import {budgetStatus} from './ledger.mjs';
 import {commandOf,cleanHook,fallbackScript,isTrusted} from './event-hooks.mjs';
 import {GATE_PREFIX,CHECK_PREFIX,MIN_CADENCE,cadenceOf,suggestCheck,checkBody} from './run-gates.mjs';
 
@@ -359,12 +360,15 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
  const big=n=>n>=1e6?(n/1e6).toFixed(1).replace(/\.0$/,'')+'M':n>=1e3?Math.round(n/1e3)+'k':String(n);
  // one Health item per agent
  async function needs(admin=true,opt={}){if(!admin)return [];
-  return (await review(opt)).map(({agent:a,jobs:l})=>{const n=l.length,w=l.filter(j=>j.how!=='slim'),wasted=w.reduce((s,j)=>s+j.silent,0),c=l.filter(j=>j.how==='slim');
+  // an agent's daily token budget (System › Usage, ledger.mjs): a warning from 80%, never a stop
+  const budgets=(await budgetStatus(HERMES_HOME).catch(()=>[])).filter(b=>b.pct>=80).map(b=>({id:'budget|'+b.agent,kind:'budget',agent:b.agent,agentName:names(b.agent),
+   title:names(b.agent)+(b.pct>=100?' is over its daily budget':' used '+b.pct+'% of its daily budget'),text:big(b.used)+' of '+big(b.budget)+' tokens today. Nothing is stopped. Raise the budget on System › Usage, or make its heavy schedules lighter.',created:now()}));
+  return [...budgets,...(await review(opt)).map(({agent:a,jobs:l})=>{const n=l.length,w=l.filter(j=>j.how!=='slim'),wasted=w.reduce((s,j)=>s+j.silent,0),c=l.filter(j=>j.how==='slim');
    const title=w.length?names(a)+': '+(w.length===1?'a schedule':w.length+' schedules')+' woke the AI '+wasted+' times this week for nothing'+(c.length?', '+(c.length===1?'one':c.length)+' costs too much':'')
     :names(a)+': '+(n===1?'a schedule':n+' schedules')+' used '+big(c.reduce((s,j)=>s+j.tokens,0))+' tokens this week';
    const line=j=>j.how==='slim'?'“'+j.name+'” used '+big(j.tokens)+' tokens in '+days+' days ('+j.runs+' runs, about '+big(Math.round(j.tokens/j.runs))+' each'+(j.prev?', '+(j.tokens/j.prev).toFixed(1).replace(/\.0$/,'')+'× the week before':'')+'). Better: '+j.better+'.'
     :'“'+j.name+'” started the AI '+j.runs+' times in '+days+' days and '+j.silent+' of them said nothing ('+big(j.tokens)+' tokens). Better: '+j.better+'.';
-   return {id:'design|'+a,kind:'design',agent:a,agentName:names(a),title,text:l.map(line).join(' '),jobs:l,created:cache?.at||now()}})}
+   return {id:'design|'+a,kind:'design',agent:a,agentName:names(a),title,text:l.map(line).join(' '),jobs:l,created:cache?.at||now()}})]}
  // what the Health buttons "Make it a check" and "Start it from an event" ask the agent, in a new chat of its own (bottlenecks.js askDesign):
  // the same request the owner made of Donna AI by hand on 13 Nov 2026, with the exact call that attaches it. Nothing changes until the agent
  // makes that call, and the call goes through before() like any other, so the rules stay the same.
