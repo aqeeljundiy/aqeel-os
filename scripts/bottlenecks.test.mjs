@@ -58,12 +58,13 @@ await t('a post answered twice asks a person to delete the extra reply and shows
  assert.match(personNeed({kind:'repeat',title:'Cove answered the same post twice'}),/delete the extra reply/);
  assert.equal(forPopup([{id:'event|e1',kind:'repeat',agent:'ct',title:'Cove answered the same post twice'}]).length,1)});
 // 20 Nov 2026: alerts kept showing for 7 days after their issue was closed or gone
-await t('an alert whose issue is closed, fixed, gone or expired is dropped; open or unknown issues and other kinds stay',async()=>{
+await t('an alert whose issue is closed, fixed, gone or expired is dropped, and one the issue list no longer has; open issues and other kinds stay',async()=>{
  const {dropFinishedAlerts,issueOfAlert}=await import('../app/bottlenecks.mjs');
  const a=(id,t)=>({kind:'alerts',title:'X needs a person',text:t||'Problem: y\n\naqeelOS fixes the rest (issue '+id+' on System › Health).'});
  const items=[a('i00000001'),a('i00000002'),a('i00000003'),a('i00000004'),a('i00000005'),a(null,'no id here'),{kind:'signin',text:'issue i00000001'}];
  const iss=[{id:'i00000001',state:'closed'},{id:'i00000002',state:'gone'},{id:'i00000003',state:'needs_human'},{id:'i00000004',state:'expired'}];
  assert.equal(issueOfAlert(items[0]),'i00000001');assert.equal(issueOfAlert(items[6]),null);
  const kept=dropFinishedAlerts(items,iss);
- assert.deepEqual(kept.map(x=>issueOfAlert(x)||x.kind),['i00000003','i00000005','alerts','signin'])});
+ assert.deepEqual(kept.map(x=>issueOfAlert(x)||x.kind),['i00000003','alerts','signin'],'an issue the list does not have (older finished ones are left out) is over too');
+ assert.equal(dropFinishedAlerts(items,[]).length,items.length,'no list: nothing dropped')});
 console.log(n+' passed');
