@@ -13,7 +13,7 @@ import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
 import {providerUnavailable} from './provider-limits.mjs';import {stuckAgents} from './stuck-limit.mjs';
 import {providerPlugins} from './code-agent.mjs';import {enableReloaded} from './agent-reload.mjs';
-import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';
+import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';import {withExtras,chosenAccount,chooseAccount,splitSlug} from './model-accounts.mjs';
 import {accountStates} from './account-state.mjs';
 import {groupEntries,planGroups,normalise,nextPick,rankMembers,moves24,stepAgent,pinState,afterMove,pinFromEvents,upGate,movesToday,singleFlight,DAY_MAX} from './account-pools.mjs';
 
@@ -198,7 +198,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   try{const j=await options(profile);
    const allow=(await load()).allow||[];const v=(j.providers||[]).filter(p=>p.authenticated&&(!SKIP.test(p.slug)||allow.includes(p.slug))&&p.slug!=='gemini-subscription').map(p=>({slug:p.slug,name:p.name,models:p.models||[],
     windows:(p.usage?.windows||[]).map(w=>({label:w.label,used:Math.round(Number(w.used_percent)||0),resets:w.resets_at||null,scope:w.scope||'account'})),details:p.usage?.details||[]}));
-   await agyFill(v);await deadFill(v,profile);provCache.set(profile,{t:Date.now(),v});return withPics(v,profile)}catch{if(hit)hit.r=0;return hit?withPics(hit.v,profile):null}}
+   await agyFill(v);await deadFill(v,profile);await withExtras(v,{HERMES_HOME}).catch(()=>{});provCache.set(profile,{t:Date.now(),v});return withPics(v,profile)}catch{if(hit)hit.r=0;return hit?withPics(hit.v,profile):null}}
  // Google AI plan (Antigravity): the engine reports no limits for it, so they are read from Google with agy's own sign-in (usage-extra.mjs, every 10 min).
  const agy=createAgyQuota({log:m=>console.log(m)});
  async function deadFill(v,profile){const dead=await deadLogins(path.join(profile==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',profile),'auth.json'));
@@ -232,7 +232,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  const PLUGIN_KEY='claude:';
  async function agentRoute(profile){const dir=profile==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',profile);const y=await readFile(path.join(dir,'config.yaml'),'utf8').catch(()=>'');
   const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
- async function entryOf(d,profile){const r=await agentRoute(profile);return r.provider===PLUGIN||!r.provider?PLUGIN_KEY+(d.assign[profile]||'main'):'p:'+r.provider}
+ async function entryOf(d,profile){const r=await agentRoute(profile);if(r.provider===PLUGIN||!r.provider)return PLUGIN_KEY+(d.assign[profile]||'main');const c=await chosenAccount(profile,r.provider,{HERMES_HOME}).catch(()=>'');return 'p:'+r.provider+(c?'#'+c:'')}   // one account of a provider with several: model-accounts.mjs
  const isClaude=m=>/claude|opus|sonnet|haiku/i.test(String(m||''));
  const must=async(p,why)=>{const r=await p;if(!r?.ok)throw new Error(why+': '+String(r?.err||r?.out||'the engine did not accept the change').slice(0,200));return r};
  async function useEntry(d,profile,e,why){
@@ -241,9 +241,10 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    if(!e.model&&!isClaude((await agentRoute(profile)).model)){const pl=await options(profile).then(j=>(j.providers||[]).find(p=>p.slug===PLUGIN)).catch(()=>null);const m=(pl?.models||[]).find(isClaude)||pl?.models?.[0];
     if(!m)throw new Error('The Claude sign-in on '+profile+' offers no model yet');await must(setKey(profile,'model.default',m),'Could not set the Claude model')}}
   else{// only switch an agent to a provider THAT agent is signed in to (sign-ins are per agent)
-   const slug=e.key.slice(2);const ok=await options(profile).then(j=>(j.providers||[]).find(p=>p.slug===slug&&p.authenticated)||false).catch(()=>false);
+   const {base:slug,acct}=splitSlug(e.key.slice(2));const ok=await options(profile).then(j=>(j.providers||[]).find(p=>p.slug===slug&&p.authenticated)||false).catch(()=>false);
    if(!ok)throw new Error(profile+' is not signed in to '+slug+'; sign in on that agent first');
    await must(setKey(profile,'model.provider',slug),'Could not switch '+profile);
+   if(!await chooseAccount(profile,slug,acct,{HERMES_HOME,setKey}).catch(()=>false)&&acct)throw new Error('Could not point '+profile+' at that '+slug+' account');
    if(!e.model&&ok.models?.length){const cur=(await agentRoute(profile)).model;if(!ok.models.includes(cur))await must(setKey(profile,'model.default',ok.models[0]),'Could not set the model')}
    await update(x=>event(x,{t:Date.now(),profile,to:e.key,why:why||''}))}
   if(e.model)await must(setKey(profile,'model.default',e.model),'Could not set the model');
@@ -259,16 +260,21 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  // another provider's windows: a week-long window counts as the week, the rest as the session
  const isWeek=w=>/week|7\s*d|seven/i.test(String(w.label||w.name||w.id||''))||Number(w.hours||w.window_hours||0)>=24*6;
  const providerUsed=ws=>{const wk=ws.filter(isWeek),se=ws.filter(w=>!isWeek(w));const m=l=>Math.max(0,...l.map(w=>w.used||0));if(!wk.length)return m(se);if(!se.length)return m(wk);return pickUse(m(se),m(wk))};
+ // the windows that count for an agent on a provider account: the account's own, else (Google AI plan: one window per model family,
+ // 20 Nov 2026) the family of the model the agent uses, so Most room first can rank Google accounts too
+ const famOf=m=>/claude|opus|sonnet|haiku/i.test(m||'')?'Claude':/gemini/i.test(m||'')?'Gemini':'Other';
+ const acctWins=(p,model)=>{const own=(p.windows||[]).filter(w=>w.scope!=='model'&&w.scope!=='image');if(own.length)return own;
+  return (p.windows||[]).filter(w=>w.scope==='model'&&String(w.label||'').startsWith(famOf(model)))};
  // null = unknown (a check that failed or timed out, a subscription that reports no windows): never a reason to move,
  // never a target. A Claude account that answered "signed out" has no room (100).
  function usageOf(key,det,prov,model){if(key.startsWith(PLUGIN_KEY)){const v=det[key.slice(PLUGIN_KEY.length)];if(!v?.checked)return null;if(!v.signedIn)return 100;return v.usage?claudeUsed(v.usage,model):v.limit?100:null}   // v.limit: its last refusal said "at its limit until…"
-  const p=(prov||[]).find(x=>x.slug===key.slice(2));if(!p)return null;const ws=(p.windows||[]).filter(w=>w.scope!=='model'&&w.scope!=='image');
+  const p=(prov||[]).find(x=>x.slug===key.slice(2));if(!p)return null;const ws=acctWins(p,model);
   if(!ws.length)return SUBS.test(p.slug+' '+p.name)?null:0;return providerUsed(ws)}
 
  // the two windows a pool ranks by: percent used of the 5-hour (session) one and of the week, null when not reported
  const windowsOf=(key,det,prov,model)=>{if(key.startsWith(PLUGIN_KEY)){const u=det[key.slice(PLUGIN_KEY.length)]?.usage;if(!u)return {sess:null,week:null};
    return {sess:u.session?.used??null,week:Math.max(u.week?.used||0,/opus/i.test(model||'')?u.opus?.used||0:0,/sonnet/i.test(model||'')?u.sonnet?.used||0:0)}}
-  const ws=((prov||[]).find(x=>x.slug===key.slice(2))?.windows||[]).filter(w=>w.scope!=='model'&&w.scope!=='image'),m=l=>l.length?Math.max(...l.map(w=>w.used||0)):null;
+  const p0=(prov||[]).find(x=>x.slug===key.slice(2)),ws=p0?acctWins(p0,model):[],m=l=>l.length?Math.max(...l.map(w=>w.used||0)):null;
   return {sess:m(ws.filter(w=>!isWeek(w))),week:m(ws.filter(isWeek))}};
  // Most room first needs usage that can be read: Claude accounts, a subscription that reports windows (ChatGPT through the engine,
  // Google AI Pro through agy's quota, usage-extra.mjs), or a provider that reports account windows now. A plain API key reports none.
@@ -562,6 +568,10 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    if(!b.noSkills&&/^[a-z0-9][a-z0-9_-]{0,63}$/.test(n)&&n!=='default')await giveSkills(n).catch(e=>console.warn('skills for',n,e.message));
    try{const r=await setupAgent(n);accountHooks.afterSetup?.(n);return send(res,200,r)}catch(e){return send(res,400,{error:e.message})}}
   const d=await load();
+  // schedules that run on another account than their agent's model (a job's own provider): Used by counts them too
+  async function jobUse(){const out={};for(const a of (await agentNames()).filter(x=>!x.includes('--'))){let j;try{j=JSON.parse(await readFile(path.join(homeOf(a),'cron','jobs.json'),'utf8'))}catch{continue}
+   for(const x of (Array.isArray(j)?j:j.jobs||[]))if(x.provider&&!x.no_agent&&x.enabled!==false&&x.state!=='paused'){const c=await chosenAccount(a,x.provider,{HERMES_HOME}).catch(()=>'');(out['p:'+x.provider+(c?'#'+c:'')]||=[]).push({agent:a,name:x.name||x.id})}}
+   return out}
   if(p==='/ui/accounts'&&req.method==='GET'){const fresh=new URL(req.url,'http://x').searchParams.has('fresh');const list=await Promise.all(all(d).map(a=>details(a,fresh,true)));
    const ag=(await agents()).filter(see);const pv=await providers(fresh),prov=pv||[];
    // what is signed out right now, from what this read already has (the banner and the card's Reconnect)
@@ -572,7 +582,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const groups=groupsOf(d,prov).map(g=>({id:g.id,kind:g.kind,mode:g.mode,canRoom:g.canRoom,pool:g.pool,alone:g.alone,members:g.members,next:g.pool?nextPick(g.members.map(e=>reading(e,detNow,prov,e.model,onIt)),{lim}):null}));
    const moves=moves24((await tailOf(path.join(DATA,'model-moves.jsonl'))).split('\n'),{see});
    const so=await signedOut();
-   return send(res,200,{accounts:list,providers:prov,groups,solo:d.solo||[],moves24:moves,priority:d.priority||[],orders:Object.fromEntries(Object.entries(d.orders||{}).filter(([n])=>see(n))),labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:so,keys:accountHooks.keyStatus?.()||{},states:statesNow(list,prov,accountHooks.keyStatus?.()||{},Object.fromEntries(so.map(x=>[x.key,1]))),allow:d.allow||[]})}
+   return send(res,200,{levels:Object.fromEntries(Object.entries(d.levels||{}).filter(([n])=>see(n))),jobUse:await jobUse().catch(()=>({})),accounts:list,providers:prov,groups,solo:d.solo||[],moves24:moves,priority:d.priority||[],orders:Object.fromEntries(Object.entries(d.orders||{}).filter(([n])=>see(n))),labels:d.labels||{},route,assign:Object.fromEntries(ag.map(n=>[n,d.assign[n]||'main'])),auto:d.auto||{on:false,threshold:90},events:(d.events||[]).filter(e=>see(e.profile)),signedOut:so,keys:accountHooks.keyStatus?.()||{},states:statesNow(list,prov,accountHooks.keyStatus?.()||{},Object.fromEntries(so.map(x=>[x.key,1]))),allow:d.allow||[]})}
   // a Needs-you button (need-action.mjs unlist-account): one account out of the priority list, the rest as it is
   if(p==='/ui/accounts/unlist'&&req.method==='POST'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const k=String(b.key||'');if(!(d.priority||[]).some(e=>e.key===k))return send(res,400,{error:'That account is not in the priority list.'});return send(res,200,await unlist(k))}
   if(p==='/ui/accounts/priority'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,16384))}catch{}
@@ -588,7 +598,9 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    let own=null;if(Array.isArray(b.order)){const main=d.priority||[],seenE=new Set();own=b.order.filter(e=>e&&typeof e.key==='string').map(e=>({key:e.key,model:String(e.model||'').slice(0,120),...(e.off?{off:true}:{})}))
      .filter(e=>main.some(m=>entryKey(m)===entryKey(e))&&!seenE.has(entryKey(e))&&seenE.add(entryKey(e))).slice(0,20);
     if(!own.length||own.every(e=>e.off))return send(res,400,{error:'Keep at least one model on for this agent.'})}
-   await update(x=>{x.orders||={};if(own)x.orders[n]=own;else delete x.orders[n]});d.orders={...(d.orders||{})};if(own)d.orders[n]=own;else delete d.orders[n];
+   // a work level (Light, Standard, Heavy) is the order the page worked out for it; any other order is the agent's own (20 Nov 2026)
+   const lv=['light','standard','heavy'].includes(b.level)&&own?b.level:'';
+   await update(x=>{x.orders||={};x.levels||={};if(own)x.orders[n]=own;else delete x.orders[n];if(lv)x.levels[n]=lv;else delete x.levels[n]});d.orders={...(d.orders||{})};if(own)d.orders[n]=own;else delete d.orders[n];d.levels={...(d.levels||{})};if(lv)d.levels[n]=lv;else delete d.levels[n];
    autoTick().catch(()=>{});accountHooks.backupSync?.('order of '+n);return send(res,200,{agent:n,order:own,effective:orderOf(d,n)})}
   // one provider's accounts: Most room first, or In my order (the page offers Most room only where usage can be read)
   if(p==='/ui/accounts/group-mode'&&req.method==='PUT'){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const kind=String(b.kind||''),mode=String(b.mode||'');

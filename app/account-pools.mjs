@@ -8,7 +8,8 @@ export const SPREAD=10;   // points of room one agent already on a member costs 
 export const HYST=15;     // points a member must be better by to pull an agent that is between chats
 
 // which accounts belong together: every Claude subscription is one provider; another provider is its own
-export const kindOf=key=>String(key).startsWith('claude:')?'claude':String(key);
+// every account of one provider is one kind, like every Claude account: 'p:openai-codex' and 'p:openai-codex#a1b2' (model-accounts.mjs)
+export const kindOf=key=>String(key).startsWith('claude:')?'claude':String(key).split('#')[0];
 export const entryId=e=>e.key+'|'+(e.model||'');
 
 // flat list → groups in the person's order, one per provider (owner, 12 Nov 2026: "the same option for every provider"):

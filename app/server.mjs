@@ -43,7 +43,7 @@ import {createReconciler,createAgentGate,statSig,ledgerSig} from './reconcile.mj
 import {createConnect,firstModelFor} from './connect.mjs';
 import {createOptins,appNames,solvedIssues} from './agent-optins.mjs';
 import {isConnector as isConnectorEntry} from './connectors.mjs';
-import {createAntigravity} from './antigravity.mjs';import {createModelPools} from './model-pools.mjs';
+import {createAntigravity} from './antigravity.mjs';import {createModelPools} from './model-pools.mjs';import {createLedger,ledgerRoute} from './ledger.mjs';
 import {createSlackQuiet,slackQuietPlan} from './slack-quiet.mjs';
 import {holdWrites,withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';import {alertTitle} from './alert-title.mjs';
 import {createSchedules} from './schedules.mjs';
@@ -940,7 +940,6 @@ async function needsFor(u){const admin=users.isAdmin(u);if(admin)await freshSign
     // the message that led to it is from the agent's newest chat, whoever's: a member sees it only when that chat is theirs
     // a member sees (and counts) only what they can act on themselves (7 Nov 2026, clean-install test: members saw the
     // count of admin-only items they could not do anything about)
-    // alerts about an issue that is already closed, fixed, gone or expired are not shown (bottlenecks.mjs dropFinishedAlerts)
     const issueList=items.some(x=>issueOfAlert(x))?(await issues.list().catch(()=>({items:[]}))).items:[];
     const shown=forPopup(dropFinishedAlerts(items,issueList)).filter(x=>admin||memberCan(x));if(admin&&shown.some(x=>['apps','report','alerts','channel'].includes(x.kind))){const c=await needCtx();const il=shown.some(x=>x.kind==='alerts')?(await issues.list().catch(()=>({items:[]}))).items:[];for(const x of shown)if(['apps','report','alerts'].includes(x.kind)){const iid=x.kind==='alerts'?/issue (i[0-9a-f]{8})/.exec(x.title+' '+x.text)?.[1]:null;/* the issue the message is about: by its id, else the open one whose need the message quotes (the sorter's message names no id) */const iss=x.kind==='alerts'?(iid&&il.find(i=>i.id===iid))||il.find(i=>(i.state==='needs_human'||i.state==='stuck')&&i.need&&String(x.text||'').includes(i.need))||null:null;const a=itemActs(x,c,iss);if(a.length)x.acts=a}}return admin?shown:shown.map(x=>x.from&&users.ownerOf(x.from.chat)!==u.id?{...x,from:null}:x)}
 // the optional evening line in the bell (System › Settings › Notifications, off by default): once a day at 19:00 local
@@ -1123,7 +1122,7 @@ async function adoptFirstModel(slug){const agents=['default',...(await listAgent
  const m=firstModelFor(o?.providers,slug);if(!m)return;
  for(const a of bare){await setKey(a,'model.provider',m.provider);await setKey(a,'model.default',m.model)}console.log('first model account: '+m.provider+' / '+m.model+' for '+bare.join(', '))}
 const connect=createConnect({HERMES_HOME,DASH,DASH_TOKEN,live:LIVE_APP,afterSave:slug=>adoptFirstModel(slug)});accountHooks.keyStatus=()=>connect.status();accountHooks.keyCheck=()=>connect.checkAll();
-const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});const pools=createModelPools({HERMES_HOME,hcmd,listAgents});
+const antigravity=createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff:(a,k)=>accountHooks.moveOff?accountHooks.moveOff(a,k):null});const pools=createModelPools({HERMES_HOME,hcmd,listAgents});const ldg=createLedger({HERMES_HOME,users:()=>users,agentName,accounts:accountsApi.backup});
 async function agentModel(a){const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml'),'utf8').catch(()=>'');const k=key=>((new RegExp('^model:[\\s\\S]*?\\n\\s+'+key+':\\s*(\\S+)','m').exec(y)||[])[1]||'').replace(/^["']|["']$/g,'');return {provider:k('provider'),model:k('default')}}
 // per-account sign-in limit (signin-guard.mjs): one Health item per account that is being guessed at, with the numbers and never a password
 const signInGuard=createSignInGuard({file:path.join(DATA,'signin-guard.json'),free:Number(env.UI_SIGNIN_FREE_TRIES)||5,ipOf:r=>clientIp(r),deviceOf:r=>cookieId(r),onLock:({kind,id,count,addresses,windowMin})=>{const x=users.byId(id),who=x?(x.email||x.name||id):id;
@@ -2456,6 +2455,7 @@ const server=createServer(async(req,res)=>{
    if(p.startsWith('/ui/help/'))return help.handle(req,res,u,url);
    if((p==='/ui/install'||p.startsWith('/ui/install/'))&&await install.handle(req,res,u,url))return;
    if(await pools.handle(req,res,p,{admin:users.isAdmin(u),send,readBody}))return;
+   if(await ledgerRoute(ldg,req,res,p,url,{admin:users.isAdmin(u),send}))return;
    if(await systemRoutes(req,res,p,url,u))return;
    // the bell's list (news.mjs): the same on every device, read and cleared per person; the app adds a person's own news
    if(p==='/ui/news'&&req.method==='GET')return send(res,200,{items:await news.list(u,users.isAdmin(u)),needs:await needsFor(u).catch(()=>null)});   // null: not known this time, the bell keeps its last count (OPS-14)

@@ -261,6 +261,9 @@ export function proofPrompt(i,fix,{reloaded=null,recheck=false,deployed=false,tu
 const MODEL_OK=/^[\w.:\/\[\]@-]{1,100}$/,EFFORT_OK=/^(minimal|low|medium|high|xhigh|max)$/;
 // kind 'sort' (sorting a new issue, one short call) falls back to the proof run's model, at low effort
 // ctx.escalate false (the caller found the earlier tries too costly or without a result): the fix model runs the last try too
+// a fixer model can name its provider: 'openai-codex::gpt-6.2-sol', 'antigravity-subscription::gemini-3.8-flash-high' (20 Nov 2026,
+// the owner: the fixer can run on any signed-in model, not only Claude). A plain model name runs on the fixer agent's own provider.
+export const providerOf=m=>{const i=String(m||'').indexOf('::');return i>0&&/^[a-z][a-z0-9_.-]{1,60}$/.test(m.slice(0,i))?{provider:m.slice(0,i),model:m.slice(i+2)}:{provider:'',model:String(m||'')}};
 export function fixerModel(pol,kind,attempt,ctx={}){const m=pol?.fixer?.models||{},e=pol?.fixer?.effort||{};const esc=kind==='fix'&&attempt>=TRIES&&m.escalate&&ctx.escalate!==false;
  const model=String((esc?m.escalate:kind==='sort'?m.sort||m.proof:m[kind])||''),effort=String((esc?e.escalate||e.fix:kind==='sort'?e.sort||'low':e[kind])||'');
  return {model:MODEL_OK.test(model)?model:'',effort:EFFORT_OK.test(effort)?effort:''}}
@@ -655,7 +658,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  async function clearFull(){if(!db.fullAsked)return;db.fullAsked=0;await save();await fullOk().catch(()=>{})}
  async function spawnRun({dir,agent,minutes,model='',effort='',turns=0,lean=false,confine=null}){if(!confine?.env?.TERMINAL_SSH_USER)throw new Error('A fixer run never starts without its own user (aq-fixer).');const out=await open(path.join(dir,'out.txt'),'w',0o600);
   try{const script='timeout -k 20 '+minutes*60+' "$1" -p "$2" chat --query-file "$3/prompt.txt" -Q --source tool ${4:+-m "$4"} ${5:+--reasoning "$5"} ${6:+--max-turns "$6"} ${7:+--ignore-rules} "${@:8}" </dev/null; printf %s "$?" > "$3/exit"';
-   const p=spawn('bash',['-c',script,'aqeelos-fixer',bin,agent,dir,model||'',effort||'',turns?String(Math.floor(turns)):'',lean?'1':'',...(confine?.args||[])],{detached:true,cwd:fixerHome,env:{...(confine?.env||{}),HOME:fixerHome,USER:process.env.USER||'claude',PATH:path.join(fixerHome,'.local','bin')+':/usr/local/bin:/usr/bin:/bin',LANG:'C.UTF-8',TERM:'dumb',AQEELOS_FIXER:'1'},stdio:['ignore',out.fd,out.fd]});
+   const p=spawn('bash',['-c',script,'aqeelos-fixer',bin,agent,dir,providerOf(model).model||'',effort||'',turns?String(Math.floor(turns)):'',lean?'1':'',...(providerOf(model).provider?['--provider',providerOf(model).provider]:[]),...(confine?.args||[])],{detached:true,cwd:fixerHome,env:{...(confine?.env||{}),HOME:fixerHome,USER:process.env.USER||'claude',PATH:path.join(fixerHome,'.local','bin')+':/usr/local/bin:/usr/bin:/bin',LANG:'C.UTF-8',TERM:'dumb',AQEELOS_FIXER:'1'},stdio:['ignore',out.fd,out.fd]});
    await new Promise((res,rej)=>{p.once('spawn',res);p.once('error',rej)});p.unref();return p.pid}finally{await out.close().catch(()=>{})}}
  const exists=f=>stat(f).then(()=>true,()=>false);
  // the code side of the hard rules, after a fix run: every changed file has a backup that exists, no listed file was
@@ -859,7 +862,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
 // its answer is the last line of what it prints
 export function engineSortRun({bin,home,dir}){return async({prompt,agent,model='',effort=''})=>{await mkdir(dir,{recursive:true,mode:0o700});
  const f=path.join(dir,'sort-'+randomBytes(4).toString('hex')+'.txt');await writeFile(f,prompt,{mode:0o600});
- try{return await new Promise((res,rej)=>{let out='';const script='timeout -k 10 120 "$1" -p "$2" chat --query-file "$3" -Q --source tool --max-turns 1 --ignore-rules -t "" ${4:+-m "$4"} ${5:+--reasoning "$5"} </dev/null';
-  const p=spawn('bash',['-c',script,'aqeelos-sort',bin,agent,f,model||'',effort||''],{cwd:home,env:{HOME:home,USER:process.env.USER||'claude',PATH:path.join(home,'.local','bin')+':/usr/local/bin:/usr/bin:/bin',LANG:'C.UTF-8',TERM:'dumb',AQEELOS_FIXER:'1'},stdio:['ignore','pipe','pipe']});
+ try{return await new Promise((res,rej)=>{let out='';const script='timeout -k 10 120 "$1" -p "$2" chat --query-file "$3" -Q --source tool --max-turns 1 --ignore-rules -t "" ${4:+-m "$4"} ${5:+--reasoning "$5"} "${@:6}" </dev/null';
+  const pm=providerOf(model),p=spawn('bash',['-c',script,'aqeelos-sort',bin,agent,f,pm.model||'',effort||'',...(pm.provider?['--provider',pm.provider]:[])],{cwd:home,env:{HOME:home,USER:process.env.USER||'claude',PATH:path.join(home,'.local','bin')+':/usr/local/bin:/usr/bin:/bin',LANG:'C.UTF-8',TERM:'dumb',AQEELOS_FIXER:'1'},stdio:['ignore','pipe','pipe']});
   p.stdout.on('data',d=>{out+=d;if(out.length>200000)out=out.slice(-100000)});p.stderr.on('data',()=>{});p.on('error',rej);p.on('close',()=>res(out))})}
  finally{await rm(f,{force:true}).catch(()=>{})}}}

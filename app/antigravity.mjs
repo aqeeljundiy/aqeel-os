@@ -9,6 +9,7 @@ import {randomBytes} from 'node:crypto';
 import {homedir} from 'node:os';
 import path from 'node:path';
 import {swr} from './swr.mjs';
+import {writeStore} from './store.mjs';
 
 const BIN=path.join(homedir(),'.local','bin','agy'),WORK=path.join(homedir(),'.cache','agy-work'),SESSION='agy-login';
 const run=(cmd,args,o={})=>new Promise(res=>execFile(cmd,args,{timeout:o.timeout||20000,cwd:o.cwd,maxBuffer:4e6,env:{...process.env,...(o.home?{HOME:o.home}:{}),PATH:path.join(homedir(),'.local','bin')+':'+process.env.PATH}},(e,out,err)=>res({ok:!e,out:String(out||''),err:String(err||e?.message||'')})));
@@ -19,7 +20,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const ACCTS=path.join(homedir(),'.gemini','aqeelos-accounts.json'),EXTRA=path.join(homedir(),'.aqeelos','agy');
 const agyDir=home=>path.join(home,'.gemini','antigravity-cli');
 const readAccts=async()=>{try{const j=JSON.parse(await readFile(ACCTS,'utf8'));return Array.isArray(j.accounts)?j.accounts.filter(a=>/^g[0-9a-f]{6}$/.test(a.id||'')):[]}catch{return []}};
-const writeAccts=async l=>{await mkdir(path.dirname(ACCTS),{recursive:true});await writeFile(ACCTS,JSON.stringify({accounts:l},null,1))};
+const writeAccts=async l=>{await mkdir(path.dirname(ACCTS),{recursive:true});await writeStore(ACCTS,JSON.stringify({accounts:l},null,1))};
 
 export function createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff=async()=>null}){
  // signed in or not is agy listing models (a CLI run of 5-30 s): the last answer is used at once and asked again behind the
@@ -88,7 +89,7 @@ export function createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff=async()=>
  // second guard behind the text-only agent: agy's own permission list denies every action it could take
  async function denyAll(){for(const home of [homedir(),...(await readAccts()).map(a=>a.home)]){const f=path.join(agyDir(home),'settings.json');let cur={};try{cur=JSON.parse(await readFile(f,'utf8'))}catch{}
   const deny=['command(*)','read_file(*)','write_file(*)','read_url(*)','execute_url(*)','mcp(*)','unsandboxed(*)'];
-  const next={...cur,permissions:{...(cur.permissions||{}),allow:[],ask:[],deny}};if(JSON.stringify(next)!==JSON.stringify(cur)){await mkdir(path.dirname(f),{recursive:true});await writeFile(f,JSON.stringify(next,null,2))}}}
+  const next={...cur,permissions:{...(cur.permissions||{}),allow:[],ask:[],deny}};if(JSON.stringify(next)!==JSON.stringify(cur)){await mkdir(path.dirname(f),{recursive:true});await writeStore(f,JSON.stringify(next,null,2))}}}
  // the engine plugin, installed for every agent and switched on (only once agy is signed in)
  async function enableAll(){await denyAll();const src=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','antigravity-subscription');if(!await stat(src).then(()=>true,()=>false))return;
   for(const a of await listAgents()){if(a.includes('--'))continue;const dst=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'plugins','antigravity-subscription');

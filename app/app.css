@@ -600,13 +600,6 @@ body.dragging .screen-float{transition:none}
 .ag-pick{display:flex;flex-direction:column}.ag-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border)}.ag-row:first-child{border-top:0}
 .ag-row .t{flex:1;min-width:0}.ag-row .t b{display:block;font-size:14px}.ag-row .t small{display:block;font-size:12.5px;color:var(--muted)}
 .acct-agents .th{margin-right:4px}
-/* more ChatGPT or Google accounts on one card (20 Nov 2026): one quiet row each, Remove at the end */
-.acct-pool{display:flex;flex-direction:column;gap:2px;margin-top:10px}
-.acct-pool .th{font-size:12px;color:var(--muted);margin-bottom:2px}
-.acct-pool-row{display:flex;align-items:center;gap:8px;min-height:36px;padding:2px 0;border-top:1px solid var(--border)}
-.acct-pool-row b{font-weight:600;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acct-pool-row small{color:var(--muted);font-size:12px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-
 /* real service logos */
 .logo.img{background:var(--surface);border:1px solid var(--border);padding:7px;overflow:hidden}
 .logo.img img{width:100%;height:100%;object-fit:contain;display:block;border-radius:var(--r-sm)}
@@ -3301,3 +3294,32 @@ button.sf-more:focus-visible{outline:2px solid var(--blue-2);outline-offset:0}
 .ord-list{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;transition:opacity .2s}.ord-list.off{opacity:.55}
 .ord-row{min-width:0;display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);transition:opacity .2s,background .2s}
 .ord-row.is-off{opacity:.55}.ord-row.is-off .ord-t{text-decoration:line-through}.ord-n{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--blue-soft);color:var(--blue-deep);font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}.ord-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* System › Usage: every AI call, every provider (usage-ledger.js, 20 Nov 2026) */
+.ul .ul-top{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.ul .ul-top h2{margin:0}.ul .ul-views{flex-wrap:wrap}
+.ul-an{display:flex;height:12px;border-radius:var(--r-pill);overflow:hidden;background:var(--soft);margin:14px 0 8px}
+.ul-an i{display:block;height:100%;transition:width var(--t-med,.22s) var(--ease,ease)}
+.ul-p0{background:#6b8afd}.ul-p1{background:#a78bfa}.ul-p2{background:#38bdf8}.ul-p3{background:#f59e0b}.ul-p4{background:#34d399}
+.ul-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--ink-2);margin-bottom:14px}
+.ul-legend span{display:inline-flex;align-items:center;gap:6px}.ul-legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.ul-legend small{color:var(--muted)}
+.ul-tbl{display:flex;flex-direction:column;font-size:13px}
+.ul-h,.ul-r{display:grid;grid-template-columns:minmax(0,2.4fr) repeat(4,minmax(52px,.7fr)) minmax(90px,1.2fr);gap:10px;align-items:center;padding:8px 6px}
+.ul-h{color:var(--muted);font-size:11.5px;letter-spacing:.03em;text-transform:uppercase;border-bottom:1px solid var(--border)}
+.ul-r{border-bottom:1px solid var(--border);min-height:44px}.ul-r.click{cursor:pointer;border-radius:var(--r-sm)}.ul-r.click:hover,.ul-r.open{background:var(--soft)}
+.ul-r>span:not(.ul-n):not(.ul-share){font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.ul-n{display:flex;flex-direction:column;min-width:0}.ul-n b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ul-n small{color:var(--muted);font-size:11.5px}
+.ul-est{color:var(--amber,#d97706)!important}
+.ul-share{display:flex;align-items:center;gap:8px}.ul-share i{display:block;height:6px;border-radius:3px;background:var(--blue);opacity:.75;min-width:2px;flex:0 0 auto;max-width:70%}
+.ul-share b{font-weight:600;font-size:12px}
+.ul-drill{padding:12px 10px 16px;border-bottom:1px solid var(--border);animation:ulIn var(--t-med,.22s) var(--ease,ease)}
+.ul-drill h3{margin:0;font-size:14px}.ul-drill h4{margin:12px 0 6px;font-size:12px;color:var(--muted);font-weight:600}
+.ul-cols{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}.ul-list{list-style:none;margin:0;padding:0}
+.ul-list li{display:flex;gap:8px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px}.ul-list li span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ul-list small{color:var(--muted)}.ul-list b{font-variant-numeric:tabular-nums;font-weight:600}
+@keyframes ulIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@media (max-width:720px){.ul-h,.ul-r{grid-template-columns:minmax(0,1.6fr) minmax(44px,.6fr) minmax(70px,1fr)}.ul-h>span:nth-child(3),.ul-h>span:nth-child(4),.ul-h>span:nth-child(5),.ul-r>span:nth-child(3),.ul-r>span:nth-child(4),.ul-r>span:nth-child(5){display:none}.ul-cols{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){.ul-an i,.ul-drill{transition:none;animation:none}}
+/* work level per agent (Accounts › Which agent uses what, 20 Nov 2026) */
+.use-ctl .use-lv{margin-right:8px}
+@media (max-width:720px){.use-ctl{flex-wrap:wrap;gap:8px}.use-ctl .use-lv{margin-right:0}}
