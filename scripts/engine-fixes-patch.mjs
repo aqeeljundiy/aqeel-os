@@ -24,6 +24,8 @@
 //    asked to wait a short while (a rate limit with its reset time, up to 15 min), the one more try waits until then
 //    instead of 8 s, which only failed a second time while the hold lasted.
 //    20 Nov 2026 (aqeelos:retry-wait-from-text): the turn often carries no reset time, so the wait is read from its error text.
+//    20 Nov 2026 (aqeelos:skills-skip-browsers): a skill's bundled Playwright browsers (ms-playwright) are skipped like .venv, so
+//    the SEO skill's 700 MB of browsers no longer time out the push into an agent's own terminal on every session (AU-14).
 // 5) aqeelos:clone-no-bot-tokens (6 Nov 2026). A cloned agent dropped the channel keys the engine knows by prefix
 //    (TELEGRAM_..., SLACK_...), but kept bot tokens saved under another name (COVE_SUPPORT_BOT_TOKEN), so two agents
 //    polled one Telegram bot and kicked each other off. Every ..._BOT_TOKEN / ..._APP_TOKEN key now counts as a channel
@@ -546,6 +548,10 @@ def _aq_wait_for(agent_result, now=None):
 
 def _aq_wait_for(agent_result, now=None):
 `}]},
+ {tag:'aqeelos:skills-skip-browsers',name:'a skill\'s bundled browsers are not pushed into an agent\'s own terminal',file:'agent/skill_utils.py',edits:[
+  {why:'the folders a skill installs for itself',
+   from:'    ".venv", "venv", "node_modules", "site-packages", "__pycache__",\n',
+   to:'    ".venv", "venv", "node_modules", "site-packages", "__pycache__",\n    "ms-playwright",  # aqeelos:skills-skip-browsers (20 Nov 2026: a 700 MB browser bundle timed out every push)\n'}]},
  {tag:'aqeelos:phone-redaction-setting',name:'phone-number masking is its own per-agent setting',file:'agent/redact.py',edits:[
   {why:'the per-agent switch',
    from:'    with _REDACT_ENABLED_LOCK:\n        _REDACT_ENABLED_BY_HOME[home_key] = enabled\n    return enabled\n',

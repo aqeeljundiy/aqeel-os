@@ -468,6 +468,13 @@ def script_schedules_do_not_inherit_the_model_proxy():
 
 
 failed = 0
+@test
+def a_skills_bundled_browsers_are_not_pushed_into_an_agents_terminal():
+    m = load('agent.skill_utils', 'agent/skill_utils.py')
+    assert "ms-playwright" in m.EXCLUDED_SKILL_DIRS and ".venv" in m.EXCLUDED_SKILL_DIRS
+    assert m.is_excluded_skill_path("/x/skills/seo/seo/ms-playwright/chromium-1255/chrome")
+
+
 for fn in tests:
     try:
         fn()
