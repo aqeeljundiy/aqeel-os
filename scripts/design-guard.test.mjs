@@ -371,3 +371,18 @@ test('Health: a schedule only the agent can redesign has Make it a check (and St
    assert.deepEqual(calls.find(c=>c[0]==='send'),['send','ASK check']);
    assert.equal(calls.some(c=>c[0]==='switchAgent'),agent!=='default','the main agent\'s own chat; another agent is switched to first');
    if(job.events.length){calls.length=0;a[1][1]();await new Promise(r=>setImmediate(r));assert.equal(calls.find(c=>c[0]==='post')[3].choice,'event')}}}finally{x.close()}});
+
+// 20 Nov 2026: Continue Threads' answering runner used 300M tokens in 785 runs (17% silent) and was never flagged
+test('cost: a schedule over 40M tokens a week, over 250k a run, or twice the week before is listed with Ask to make it lighter; keep holds until it doubles',async()=>{const x=await make();
+ try{await withJobs(x,[{id:'c1',name:'Answer DMs and replies',prompt:CHECKIN},{id:'c2',name:'Own posts',prompt:CHECKIN},{id:'s1',name:'Outbound DMs',prompt:CHECKIN},{id:'n1',name:'Fine',prompt:CHECKIN}]);
+  const wk=Date.UTC(2026,10,11,12,0)-8*86400e3;
+  await writeFile(path.join(x.H,'profiles','bot','cron','usage_audit.jsonl'),audit('c1',40,2,{tokens:1.2e6})+audit('c2',20,0,{tokens:300000})+audit('s1',60,0,{tokens:200000})+audit('s1',60,0,{tokens:50000,at:wk})+audit('n1',40,3)+audit('n1',40,3,{at:wk}));
+  const [it]=await x.G.needs(true,{force:true});assert.equal(it.kind,'design');
+  assert.deepEqual(it.jobs.map(j=>[j.job,j.how,j.label]),[['c1','slim','Ask to make it lighter'],['c2','slim','Ask to make it lighter'],['s1','slim','Ask to make it lighter']]);
+  assert.match(it.title,/^Bot: 3 schedules used 66M tokens this week$/);
+  assert.match(it.text,/“Answer DMs and replies” used 48M tokens in 7 days \(40 runs, about 1\.2M each\)\. Better: most of that is the AI reading/);
+  assert.match(it.text,/“Outbound DMs” used 12M tokens .*4× the week before/);
+  const ask=await x.G.decide('bot','c1','slim');assert.match(ask.ask,/"Answer DMs and replies" \(id c1\) used 48M tokens/);assert.match(ask.ask,/never read a big file whole every run/);assert.match(ask.ask,/ONE saved script/);
+  assert.deepEqual(await x.G.decide('bot','c1','keep'),{ok:true,kept:true});
+  assert.deepEqual((await x.G.needs(true,{force:true}))[0].jobs.map(j=>j.job),['c2','s1'],'kept until its tokens double')
+ }finally{x.close()}});

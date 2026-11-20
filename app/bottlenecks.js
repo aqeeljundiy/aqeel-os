@@ -76,6 +76,7 @@ const Bottlenecks={items:[],
   if(x.kind==='design')return x.jobs.flatMap(j=>{const n=(x.jobs.length>1?' · '+Bottlenecks.short(j.name):'');
    const ask=(choice,label,primary)=>[label+n,()=>this.askDesign(x,j,choice),primary];
    return [...(j.mechanical?[[j.label+n,async()=>{await post(UI,'/ui/design-guard/decide',{agent:x.agent,job:j.job,choice:'apply'});toast(j.how==='script'?'Done · it runs as a script with no AI now':'Done · a check runs before each start now')},true]]
+    :j.how==='slim'?[ask('slim','Ask to make it lighter',true)]
     :[ask('check',j.checked?'Ask for a sharper check':'Make it a check',true),...(j.events?.length?[ask('event','Start it from an event',false)]:[])]),
     ['Keep as it is'+n,async()=>{await post(UI,'/ui/design-guard/decide',{agent:x.agent,job:j.job,choice:'keep'});toast('Kept as it is')},false]]});
   // a conflict: one button per side, and Something else (a number for timing and limits, else the words)

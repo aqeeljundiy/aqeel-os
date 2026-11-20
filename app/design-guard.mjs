@@ -189,7 +189,7 @@ export function ownCheckScript({agent,user,local=false,key,cwd,cmd}){return ['#!
 export const STEP0_NOTE='aqeelOS: the check of this schedule (its step 0 script) has already run before you started, and what it printed is given to you with this run. Do not run it again; go on from its output.';
 
 export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ownOf,jobs,updateJob,eventRules={get:async()=>[],set:async()=>{}},record=async()=>{},homes=async()=>[],names=a=>a,skipAgent=async()=>false,
- sshKey=path.join(HERMES_HOME,'agent-ssh','id_ed25519'),now=()=>Date.now(),log=m=>console.log(m),minRuns=12,minSilent=.8,days=7}){
+ sshKey=path.join(HERMES_HOME,'agent-ssh','id_ed25519'),now=()=>Date.now(),log=m=>console.log(m),minRuns=12,minSilent=.8,days=7,costTokens=40e6,costPerRun=250e3,spikeMin=10e6}){
  const FILE=path.join(DATA,'design-guard.json'),HOOKS=path.join(DATA,'event-hooks.json');
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const key=(a,id)=>a+'/'+id;
@@ -319,6 +319,8 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
   const s=suggestCheck((j.name||'')+' '+(j.prompt||''));
   if(s&&!checked)return {how:'check',mechanical:true,label:'Add a check',checks:s.checks+(/--dms/.test(s.checks)?' --max-idle 60':''),text:'a check with no AI ('+s.what+') can decide whether the AI starts'};
   return {how:'ask',mechanical:false,checked:checked||ev,events:ev?[]:eventsFor((j.name||'')+' '+(j.prompt||'')),text:checked||ev?'it has a check or an event already, and most runs still find nothing: ask '+names(a)+' for a sharper check':'ask '+names(a)+' to start it from an event, or to write a small check script that prints only when there is work'}}
+ // a schedule that costs too much although it does work: the agent is asked to make it lighter (askFor 'slim')
+ const slimAdvice=(a,j,checked)=>({how:'slim',mechanical:false,label:'Ask to make it lighter',checked,text:'most of that is the AI reading the same instructions, files and tool lists again on every call. Ask '+names(a)+' to make it lighter: no whole big files, a saved script for the steps that repeat, one AI call that writes the batch'+(checked?'':', and a check so it starts only when there is work')});
  // apply the mechanical conversion of one schedule (the Health button, and agent-care for a clean echo). Returns what was done.
  async function convert(a,jobId,{by='aqeelOS'}={}){await load();const j=(await jobs(a)).find(x=>x.id===jobId);if(!j)throw Error('That schedule is gone.');
   if(!/^[\w-]{1,64}$/.test(String(jobId)))throw Error('Unknown schedule');const adv=await adviceFor(a,j);if(!adv?.mechanical)throw Error('Nothing here can be changed by a button. Ask the agent for the better design.');const o=await own(a);
@@ -335,29 +337,46 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
 
  // ---- the feedback loop: the engine's run records, 7 days ----
  const TAIL=8*1024*1024;
- async function runsOf(a,since){const out={};let text='';
+ async function runsOf(a,since,before=0){const out={};let text='';
   try{const h=await open(path.join(home(a),'cron','usage_audit.jsonl'),'r');try{const {size}=await h.stat(),n=Math.min(size,TAIL),b=Buffer.alloc(n);await h.read(b,0,n,size-n);text=b.toString('utf8')}finally{await h.close()}}catch{return out}
-  for(const l of text.split('\n')){if(l[0]!=='{')continue;let r;try{r=JSON.parse(l)}catch{continue}const t=Date.parse(r.ts);if(!(t>=since)||!r.job_id)continue;
-   const x=out[r.job_id]||={runs:0,silent:0,tokens:0};x.runs++;if(r.response_silent===true)x.silent++;x.tokens+=+r.total_tokens||0}
+  for(const l of text.split('\n')){if(l[0]!=='{')continue;let r;try{r=JSON.parse(l)}catch{continue}const t=Date.parse(r.ts);if(!r.job_id||!(t>=(before||since)))continue;
+   const x=out[r.job_id]||={runs:0,silent:0,tokens:0,prev:0};if(t<since){x.prev+=+r.total_tokens||0;continue}x.runs++;if(r.response_silent===true)x.silent++;x.tokens+=+r.total_tokens||0}
   return out}
  // every agent's schedules that mostly woke the AI for nothing. Kept for an hour (Health asks often); force reads again.
  async function review({force=false}={}){await load();if(!force&&cache&&now()-cache.at<3600e3)return cache.v;const since=now()-days*86400e3,v=[];
-  for(const a of await homes()){if(await Promise.resolve(skipAgent(a)).catch(()=>false))continue;const runs=await runsOf(a,since);if(!Object.keys(runs).length)continue;
+  for(const a of await homes()){if(await Promise.resolve(skipAgent(a)).catch(()=>false))continue;const runs=await runsOf(a,since,since-days*86400e3);if(!Object.keys(runs).length)continue;
    const list=await Promise.resolve(jobs(a)).catch(()=>[]),found=[];
-   for(const j of list){const r=runs[j.id];if(!r||j.no_agent||j.enabled===false||j.state==='paused'||j.state==='completed'||r.runs<minRuns||r.silent/r.runs<minSilent||db.kept[key(a,j.id)])continue;
-    const adv=await adviceFor(a,j);if(!adv)continue;found.push({job:j.id,name:j.name||j.id,runs:r.runs,silent:r.silent,tokens:r.tokens,how:adv.how,mechanical:adv.mechanical,label:adv.label||'',better:adv.text,...(adv.how==='ask'?{checked:!!adv.checked,events:adv.events||[]}:{})})}
+   for(const j of list){const r=runs[j.id];if(!r||j.no_agent||j.enabled===false||j.state==='paused'||j.state==='completed')continue;
+    // 20 Nov 2026: a schedule that always does something can still cost far too much (Continue Threads' answering runner: 300M tokens in
+    // 785 runs, 17% silent, never flagged). Costly: 40M+ tokens a week, or 250k+ a run; spiking: twice the week before and 10M+
+    const k=db.kept[key(a,j.id)],wasteful=r.runs>=minRuns&&r.silent/r.runs>=minSilent&&!k,
+     costly=(r.tokens>=costTokens||r.runs>=minRuns&&r.tokens/r.runs>=costPerRun)&&!(k?.tokens&&r.tokens<2*k.tokens),spike=r.prev>0&&r.tokens>=2*r.prev&&r.tokens>=spikeMin&&!(k?.tokens&&r.tokens<2*k.tokens);
+    if(!wasteful&&!costly&&!spike)continue;
+    const adv=wasteful?await adviceFor(a,j):slimAdvice(a,j,await hasCheck(a,j.id));if(!adv)continue;
+    found.push({job:j.id,name:j.name||j.id,runs:r.runs,silent:r.silent,tokens:r.tokens,...(spike?{prev:r.prev}:{}),cost:costly||spike,how:adv.how,mechanical:adv.mechanical,label:adv.label||'',better:adv.text,...(adv.how==='ask'?{checked:!!adv.checked,events:adv.events||[]}:{})})}
    if(found.length)v.push({agent:a,jobs:found.sort((x,y)=>y.silent-x.silent)})}
   cache={at:now(),v};return v}
  const big=n=>n>=1e6?(n/1e6).toFixed(1).replace(/\.0$/,'')+'M':n>=1e3?Math.round(n/1e3)+'k':String(n);
  // one Health item per agent
  async function needs(admin=true,opt={}){if(!admin)return [];
-  return (await review(opt)).map(({agent:a,jobs:l})=>{const n=l.length,wasted=l.reduce((s,j)=>s+j.silent,0);return {id:'design|'+a,kind:'design',agent:a,agentName:names(a),
-   title:names(a)+': '+(n===1?'a schedule':n+' schedules')+' woke the AI '+wasted+' times this week for nothing',
-   text:l.map(j=>'“'+j.name+'” started the AI '+j.runs+' times in '+days+' days and '+j.silent+' of them said nothing ('+big(j.tokens)+' tokens). Better: '+j.better+'.').join(' '),jobs:l,created:cache?.at||now()}})}
+  return (await review(opt)).map(({agent:a,jobs:l})=>{const n=l.length,w=l.filter(j=>j.how!=='slim'),wasted=w.reduce((s,j)=>s+j.silent,0),c=l.filter(j=>j.how==='slim');
+   const title=w.length?names(a)+': '+(w.length===1?'a schedule':w.length+' schedules')+' woke the AI '+wasted+' times this week for nothing'+(c.length?', '+(c.length===1?'one':c.length)+' costs too much':'')
+    :names(a)+': '+(n===1?'a schedule':n+' schedules')+' used '+big(c.reduce((s,j)=>s+j.tokens,0))+' tokens this week';
+   const line=j=>j.how==='slim'?'“'+j.name+'” used '+big(j.tokens)+' tokens in '+days+' days ('+j.runs+' runs, about '+big(Math.round(j.tokens/j.runs))+' each'+(j.prev?', '+(j.tokens/j.prev).toFixed(1).replace(/\.0$/,'')+'× the week before':'')+'). Better: '+j.better+'.'
+    :'“'+j.name+'” started the AI '+j.runs+' times in '+days+' days and '+j.silent+' of them said nothing ('+big(j.tokens)+' tokens). Better: '+j.better+'.';
+   return {id:'design|'+a,kind:'design',agent:a,agentName:names(a),title,text:l.map(line).join(' '),jobs:l,created:cache?.at||now()}})}
  // what the Health buttons "Make it a check" and "Start it from an event" ask the agent, in a new chat of its own (bottlenecks.js askDesign):
  // the same request the owner made of Donna AI by hand on 13 Nov 2026, with the exact call that attaches it. Nothing changes until the agent
  // makes that call, and the call goes through before() like any other, so the rules stay the same.
  async function askFor(a,jobId,choice){const j=(await Promise.resolve(jobs(a)).catch(()=>[])).find(x=>x.id===jobId);if(!j)throw Error('That schedule is gone.');
+  if(choice==='slim'){const r2=(cache?.v||[]).find(x=>x.agent===a)?.jobs.find(x=>x.job===jobId);
+   return {ok:true,agent:a,ask:'Health found that your schedule "'+clip(j.name||j.id,80)+'" (id '+j.id+')'+(r2?' used '+big(r2.tokens)+' tokens in '+days+' days ('+r2.runs+' runs, about '+big(Math.round(r2.tokens/r2.runs))+' each)':' costs far too much')+
+    '. Almost all of it is reading, not writing: every AI call reads your instructions, your tool list and every file you opened again. Make it lighter without changing what it does: '+
+    '1) never read a big file whole every run: keep a short card of the rules this schedule needs (under 2,000 words) and search the big files only when a case is not on the card; '+
+    '2) the steps that repeat every run (open a page, list what is new, send, record) go into ONE saved script in your folder that you reuse, not a new script each run; '+
+    '3) the AI only writes: one call for the whole batch, with only what it needs; '+
+    (r2&&!(await hasCheck(a,j.id))?'4) attach a check (my_schedules check_script) so the AI starts only when there is work; ':'')+
+    'test it on one run, then change the schedule with my_schedules. Tell me in two sentences what you changed and what a run costs now.'}}
   const adv=await adviceFor(a,j);if(!adv||adv.mechanical)throw Error('A button applies the better design for this one.');
   const r=(cache?.v||[]).find(x=>x.agent===a)?.jobs.find(x=>x.job===jobId),seen=r?' started the AI '+r.runs+' times in '+days+' days and '+r.silent+' of them said nothing':' mostly starts the AI for nothing',
    head='Health found that your schedule "'+clip(j.name||j.id,80)+'" (id '+j.id+')'+seen+'. ',end=' Do not change what the schedule does. Tell me in one sentence what starts it now.';
@@ -369,8 +388,9 @@ export function createDesignGuard({HERMES_HOME,DATA,WORK,PORT=4400,sig=()=>'',ow
    '. The events aqeelOS sees: '+eventHelp()+'. If none of them really starts this work, make it a check instead (a small script that prints only when there is work, attached with check_script).'+end}}
  // the Health buttons: "apply" the conversion, "check" or "event" (ask the agent, above), or "keep" the schedule as it is (stored, never asked again)
  async function decide(a,jobId,choice){await load();if(!/^[a-z0-9][a-z0-9_-]{0,80}$/.test(String(a))||!/^[\w-]{1,64}$/.test(String(jobId)))throw Error('Unknown schedule');
-  if(choice==='keep'){db.kept[key(a,jobId)]={at:now()};await save();cache=null;return {ok:true,kept:true}}
-  if(choice==='check'||choice==='event')return askFor(a,jobId,choice);
+  // keep: shown again only when its tokens double from here (a cost item) or never (a schedule that mostly said nothing)
+  if(choice==='keep'){const r=(cache?.v||[]).find(x=>x.agent===a)?.jobs.find(x=>x.job===jobId);db.kept[key(a,jobId)]={at:now(),...(r?.cost?{tokens:r.tokens}:{})};await save();cache=null;return {ok:true,kept:true}}
+  if(choice==='check'||choice==='event'||choice==='slim')return askFor(a,jobId,choice);
   if(choice!=='apply')throw Error('Unknown choice');return convert(a,jobId,{by:'the owner (Health)'})}
 
  // ---- "why this trigger" for the schedule cards: {"<agent>|<job id>": {kind, label, detail, why}} ----
