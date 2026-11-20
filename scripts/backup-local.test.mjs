@@ -65,8 +65,10 @@ test('Health: one item when the newest good backup is over 48 h old, again at mo
 // the free space is watched; below the limit the pipeline is killed, the cause is said, and no half file or note is left behind.
 test('the disk watchdog stops a backup that is filling the disk, says so, and leaves nothing behind',{skip:process.platform==='win32'&&'process groups are Linux-only'},async()=>{
  let n=0;const s=scene({LOWFREE:1e9,WATCH:50,disk:async()=>({free:++n<2?1e12:2e8,dev:'d'})});const bin=s.T+'/bin';mkdirSync(bin);
- // a tar that never ends, so only the watchdog can stop it
- writeFileSync(bin+'/tar','#!/bin/sh\nwhile :; do head -c 100000 /dev/zero; sleep 0.05; done\n');chmodSync(bin+'/tar',0o755);
+ // a tar that runs far longer than the watchdog needs (20 s), so only the watchdog can stop it in time; it ends by itself after
+ // that (21 Nov 2026: a run of this test was cut off on 19 Nov, the watchdog went with it, and the endless tar wrote 146 GB of zeros
+ // into /tmp on Elkiya over 29 hours, 92% of the disk). A watchdog that fails still fails the test: the backup then just finishes.
+ writeFileSync(bin+'/tar','#!/bin/sh\ni=0\nwhile [ $i -lt 400 ]; do head -c 100000 /dev/zero; sleep 0.05; i=$((i+1)); done\n');chmodSync(bin+'/tar',0o755);
  const was=process.env.PATH;process.env.PATH=bin+path.delimiter+was;
  try{await assert.rejects(()=>s.b.run('by hand'),e=>/disk filled up while packing/.test(e.message)&&!/141/.test(e.message));
   assert.equal((await s.b.status()).last.ok,false);assert.deepEqual(readdirSync(s.TMP),[]);assert.deepEqual(readdirSync(s.LOCALDIR),[],'no half file, no notes')}
