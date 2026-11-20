@@ -3,7 +3,7 @@
    what its tokens are spent on: the parts of its requests (instructions, tool list, chat history, tool results, newest
    message), its schedules and chats, and the models and accounts it ran on. Google AI plan calls are estimated
    (its tool reports no token counts) and say so. Admins only; a member's own use stays on the page as before. ---------- */
-const UL={view:'agent',open:null};
+const ULedger={view:'agent',open:null};
 const ulNum=n=>n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(n>=1e7?0:1)+'M':n>=1e3?Math.round(n/1e3)+'k':String(n||0);
 const UL_PARTS=[['sys','Instructions','The agent’s rules, memory and context, sent with every call'],['tools','Tool list','The description of every tool it may use'],
  ['hist','Chat history','Earlier messages in the same chat or run'],['toolres','Tool results','What its tools returned (pages, files, command output)'],['last','Newest message','The message it is answering']];
@@ -14,11 +14,11 @@ function ulAnatomy(an){const t=UL_PARTS.reduce((s,[k])=>s+(an[k]||0),0)||1;
 function ulRows(d,view){const rows=d[view]||[],tot=d.total.tokens||1,sub=r=>view==='model'?r.provider:view==='provider'?(r.account?'':'one account'):view==='schedule'?r.agentName+' · '+(r.kind==='schedule'?'scheduled':r.kind==='aux'?'background':'chats'):'';
  if(!rows.length)return '<p class="hint">No AI calls recorded in this period yet. The record starts with the engine update of 20 Nov 2026.</p>';
  return `<div class="ul-tbl" role="table"><div class="ul-h" role="row"><span>${esc(UL_VIEWS.find(v=>v[0]===view)[1])}</span><span>Calls</span><span>Read</span><span>Cached</span><span>Written</span><span>Share</span></div>
- ${rows.map(r=>`<div class="ul-r${view==='agent'?' click':''}${UL.open===r.key&&view==='agent'?' open':''}" role="row" ${view==='agent'?`data-act="ul-open" data-key="${esc(r.key)}" tabindex="0"`:''}>
+ ${rows.map(r=>`<div class="ul-r${view==='agent'?' click':''}${ULedger.open===r.key&&view==='agent'?' open':''}" role="row" ${view==='agent'?`data-act="ul-open" data-key="${esc(r.key)}" tabindex="0"`:''}>
   <span class="ul-n"><b>${esc(r.name)}</b>${sub(r)?`<small>${esc(sub(r))}</small>`:''}${r.est?`<small class="ul-est" title="Estimated from request and answer sizes">${r.est===r.calls?'estimated':r.est+' estimated'}</small>`:''}</span>
   <span>${r.calls.toLocaleString()}</span><span>${ulNum(r.read)}</span><span>${ulNum(r.cached)}</span><span>${ulNum(r.written)}</span>
   <span class="ul-share"><i style="width:${Math.max(1,r.tokens/tot*100)}%"></i><b>${Math.round(r.tokens/tot*100)}%</b></span></div>
-  ${view==='agent'&&UL.open===r.key?'<div class="ul-drill" data-for="'+esc(r.key)+'"><div class="skel" style="height:120px"></div></div>':''}`).join('')}</div>`}
+  ${view==='agent'&&ULedger.open===r.key?'<div class="ul-drill" data-for="'+esc(r.key)+'"><div class="skel" style="height:120px"></div></div>':''}`).join('')}</div>`}
 async function ulDrill(panel,days,key){const box=panel.querySelector('.ul-drill');if(!box)return;let d;try{d=await UI('/ui/usage/ledger?days='+days+'&agent='+encodeURIComponent(key))}catch(e){box.innerHTML=alertBox(esc(e.message));return}
  const a=d.agent?.[0]||d.total,top=(l,n=6)=>l.slice(0,n).map(r=>`<li><span>${esc(r.name)}</span><small>${esc(r.provider&&r.name!==r.provider?r.provider:'')}</small><b>${ulNum(r.tokens)}</b></li>`).join('');
  box.innerHTML=`<h3>What ${esc(a.name||'it')} spends tokens on</h3>${ulAnatomy(d.total.an)}
@@ -30,9 +30,9 @@ async function ulDrill(panel,days,key){const box=panel.querySelector('.ul-drill'
  let d;try{d=await UI('/ui/usage/ledger?days='+days)}catch(e){if(!gone())panel.innerHTML='<h2>Every AI call, every provider</h2>'+alertBox(esc(e.message||'Could not read the usage record.'));return}if(gone())return;
  const draw=()=>{const t=d.total,est=t.calls?Math.round(t.est/t.calls*100):0;
   panel.innerHTML=`<div class="ul-top"><div><h2>Every AI call, every provider</h2><p class="sub">${ulNum(t.tokens)} tokens in ${t.calls.toLocaleString()} calls over ${days} days${est?` · ${est}% estimated (Google AI plan)`:''}. Read is what the AI had to read, cached is the part the provider remembered (cheaper), written is its answers.</p></div>
-   <div class="seg-mini ul-views" role="tablist">${UL_VIEWS.map(([k,l])=>`<button role="tab" aria-selected="${UL.view===k}" class="${UL.view===k?'on':''}" data-act="ul-view" data-v="${k}">${esc(l)}</button>`).join('')}</div></div>
-   ${t.calls?ulAnatomy(t.an):''}${ulRows(d,UL.view)}`;
-  if(UL.open&&UL.view==='agent')ulDrill(panel,days,UL.open)};
+   <div class="seg-mini ul-views" role="tablist">${UL_VIEWS.map(([k,l])=>`<button role="tab" aria-selected="${ULedger.view===k}" class="${ULedger.view===k?'on':''}" data-act="ul-view" data-v="${k}">${esc(l)}</button>`).join('')}</div></div>
+   ${t.calls?ulAnatomy(t.an):''}${ulRows(d,ULedger.view)}`;
+  if(ULedger.open&&ULedger.view==='agent')ulDrill(panel,days,ULedger.open)};
  panel._ulDraw=draw;draw()}}
-ACT['ul-view']=a=>{UL.view=a.dataset.v;UL.open=null;a.closest('.ul')?._ulDraw?.()};
-ACT['ul-open']=a=>{UL.open=UL.open===a.dataset.key?null:a.dataset.key;a.closest('.ul')?._ulDraw?.()};
+ACT['ul-view']=a=>{ULedger.view=a.dataset.v;ULedger.open=null;a.closest('.ul')?._ulDraw?.()};
+ACT['ul-open']=a=>{ULedger.open=ULedger.open===a.dataset.key?null:a.dataset.key;a.closest('.ul')?._ulDraw?.()};
