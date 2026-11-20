@@ -175,3 +175,31 @@ group, 19 Nov 2026). Now `_observe_group_message` appends it to `<hermes home>/a
 (newest 300 kept, mode 600) when the group is allowed; the agent is not run. `extra.observe_unmentioned_group_messages: false`
 turns it off for an agent. The `aqeelos-group-context` plugin adds the last 72 hours of that file (40 messages at most) as
 context before a reply in that group; `whatsapp: {group_context: false}` in an agent's config.yaml turns that off.
+
+## v0.23.3: the same fixes for the newer engine (21 Nov 2026, AU-21)
+
+On 20 Nov an "Update tonight" moved P&P's engine from v0.22.5 (bf0203a) to v0.23.3 (caafe538), 17,312 upstream commits later.
+8 of these patches no longer applied, so P&P ran without them and every deploy failed its engine check. `v0.23.3/` holds the
+same fixes written for that version's code, under the same names. The patch steps (17 and 17b, `engine-patch-layers.mjs`
+`applyWithVariants`) use the original when it is in place or applies, else the first version copy that is in place or applies
+(newest version folder first), else report a misfit. A copy with no diff in it means upstream does that fix itself there.
+
+- shared-skills: the same code; only the `import os` hunk moved (upstream added imports around it).
+- engine-hand-edits: persona branding (the "You run on X" line is gone upstream, so nothing to brand there), skills cache key,
+  fallback notice, schedules not wrapped (upstream's `_should_wrap_cron_response`; a broken config still wraps), channel grants
+  listed and revocable (both pairing folder layouts; a revoke also clears the running adapters' allowlists), the silent request
+  for strangers (People waiting), titled sessions keep their launch flags, Telegram retries a stale session (now the class
+  attribute `MAX_POLLING_CONFLICT_RETRIES = 1000`), the WhatsApp bridge add-ons, per-chat SSH sockets, the shared-skills guards.
+  Not needed: the voice note transcribed twice (upstream fixed it). Also recognises the real old default SOUL.md ("You are
+  Hermes Agent…"), which the wording step had renamed out of the legacy list, and the engine tests that check our behaviour
+  (strangers filed silently, Telegram retries, the brand in restart and settings messages) are updated to it.
+- harness-idle-stop: `tools/browser_tool_lifecycle.py` became `tools/browser_session_lifecycle.py` (`_janitor`); the stop at
+  exit is upstream's own now.
+- uploads-readable: the same chmod in `stream_upload_to_path`.
+- route-order: the same gate; the codex app-server call site moved. `aqeelos_route.active()` keeps it on in every real run and
+  off only inside the engine's own test sandbox (HERMES_TEST_SANDBOX_HOME), so upstream's fallback tests still test upstream.
+- whatsapp-observe-group: the same, on the new early return in the WhatsApp adapter.
+- mcp-sse-event-cap and drain-counts-delegations: upstream does both (empty copies).
+
+Engine updates now run only to a version every one of these fits (`app/engine-updates.mjs` fitCheck, `ENGINE_SIM_TARGET` in
+`scripts/engine-sim.sh`), for Update tonight, Adaptive and the Update button alike.

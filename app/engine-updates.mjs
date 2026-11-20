@@ -166,6 +166,16 @@ export function createEngineUpdates({guard=null,DATA,HERMES_HOME,PORT,LIVE,dash,
   if(!plan.rollback)return record({kind:'check-failed',trigger,from:pre.version,to:toV,problems:check.problems,reason:plan.reason});
   try{const at=await rollback(plan.to);step('checking the engine again');const again=await selfCheck(pre,at);return record({kind:'rolled-back',trigger,from:plan.version,to:toV,problems:check.problems,after:again.problems})}
   catch(e){return record({kind:'check-failed',trigger,from:pre.version,to:toV,problems:check.problems,reason:'going back failed: '+e.message})}}
+ // 21 Nov 2026: an update runs only to a version every aqeelOS engine change fits (scripts/engine-sim.sh with ENGINE_SIM_TARGET):
+ // on 20 Nov "Update tonight" moved P&P to v0.23.3, where 10 of them no longer applied, so the engine ran without those fixes
+ // and every deploy after it failed its engine check. Checked once per version and app copy; a check that cannot run blocks too.
+ const fitCache=new Map();
+ async function fitCheck(tag){if(!tag)return {ok:false,reason:'which version the engine would move to is unknown'};const k=tag+'|'+(process.env.AQEELOS_SHA||'');const c=fitCache.get(k);if(c&&Date.now()-c.at<6*3600e3)return c;
+  await git('fetch','--tags','--quiet','origin');const sim=new URL('../scripts/engine-sim.sh',import.meta.url).pathname,app=new URL('..',import.meta.url).pathname;
+  const r=await run('bash',[sim,app],{timeout:900e3,env:{...process.env,ENGINE_SIM_TARGET:tag}});
+  const names=r.out.split('\n').filter(l=>/^\s+\S+\.patch$|^\s+\S/.test(l)&&!/^\s*[·✓✗!]/.test(l)).map(l=>l.trim()).slice(0,12);
+  const v={at:Date.now(),ok:r.ok,reason:r.ok?'':r.code===1?names.length+' aqeelOS engine change(s) do not fit '+tag+' yet ('+names.join(', ')+'); they must be ported first (engine/patches)':'the patch check could not run: '+(r.out+r.err).trim().split('\n').pop().slice(0,200)};
+  fitCache.set(k,v);return v}
  async function runUpdate(trigger,t){if(active)return;active={step:'checking first',trigger,to:t?.tag,at:Date.now()};try{
    const pre=await snapshot();await load();db.running={pre,trigger,to:t?.tag||null,at:pre.at};await save();
    step('updating');await resetForUpdate();let r;try{r=await dash('/hermes/update',{method:'POST',body:'{}'})}catch(e){r={ok:false,message:e.message}}
@@ -174,7 +184,8 @@ export function createEngineUpdates({guard=null,DATA,HERMES_HOME,PORT,LIVE,dash,
   catch(e){console.warn('engine update',e.message);await record({kind:'failed',trigger,to:t?.tag,reason:e.message})}finally{active=null;tCache.v=null}}
 
  // the Update button: what is true now is kept first (server.mjs calls this before passing the press on), then followed
- async function beforeManual(){if(active)return false;active={step:'updating',trigger:'by hand',at:Date.now()};try{const pre=await snapshot();await load();db.running={pre,trigger:'by hand',at:pre.at};await save();
+ async function beforeManual(){if(active)return false;
+  {const t=await target({manual:true}).catch(()=>null);if(!t?.none){const f=await fitCheck(t?.tag);if(!f.ok)return {error:'Not updated: '+f.reason+'.'}}}active={step:'updating',trigger:'by hand',at:Date.now()};try{const pre=await snapshot();await load();db.running={pre,trigger:'by hand',at:pre.at};await save();
    setTimeout(()=>{waitAction().then(st=>afterUpdate(pre,{trigger:'by hand'},st)).catch(e=>record({kind:'failed',trigger:'by hand',reason:e.message})).finally(()=>{active=null;tCache.v=null})},1000);return true}
   catch(e){active=null;throw e}}
 
@@ -197,6 +208,7 @@ export function createEngineUpdates({guard=null,DATA,HERMES_HOME,PORT,LIVE,dash,
   const t=await target({manual});
   if(t.none){db.night={key,done:true};if(manual)db.tonight=false;await save();return}   // nothing to do tonight
   const c=R.conditions({now,win,tz,target:t,busy:busy(),lastUserAt:await lastUserAt(),jobs:await jobs()});
+  const f=c.ok?await fitCheck(t.tag):null;if(f&&!f.ok){db.night={key,why:{reason:f.reason,to:t.tag||null,ready:true,manual}};await save();return}
   if(c.ok){db.night={key,done:true};db.tonight=false;await save();return runUpdate(manual?'tonight':'night',t)}
   db.night={key,why:{reason:c.reason,to:t.tag||null,ready:!!t.ok,manual}};await save()}
  if(LIVE){setInterval(()=>tick().catch(e=>console.warn('engine updates',e.message)),5*60e3).unref();
@@ -208,4 +220,4 @@ export function createEngineUpdates({guard=null,DATA,HERMES_HOME,PORT,LIVE,dash,
   return {mode:db.mode,tonight:!!db.tonight,window:win&&{label:win.label,start:win.start,end:win.end,at:win.at||null},running:active?{step:active.step,trigger:active.trigger,to:active.to||null,at:active.at}:null,waiting:db.night?.why?.reason||null,log:db.log.slice(0,12)}}
  async function setMode(m){if(!R.MODES.includes(m))throw new Error('Unknown setting');await load();db.mode=m;await save();return status()}
  async function setTonight(on){await load();db.tonight=!!on;if(on){tCache.v=null;if(!db.night?.done)delete db.night}await save();return status()}
- return {status,setMode,setTonight,beforeManual,busy:()=>!!active,tick,routeCheck,snapshot}}
+ return {status,setMode,setTonight,beforeManual,fitCheck,busy:()=>!!active,tick,routeCheck,snapshot}}

@@ -1,0 +1,2 @@
+# Not needed on v0.23.3: upstream passes max_sse_event_size=_MCP_HTTP_MAX_BODY_BYTES (10 MB) in tools/mcp_tool_transport.py itself
+# (pins mcp==2.3.0, its own test tests/tools/test_mcp_large_sse_event.py). An empty copy counts as in place (engine-patch-layers.mjs).

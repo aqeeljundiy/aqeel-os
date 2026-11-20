@@ -33,3 +33,11 @@ test('a model too small for the agent\'s requests says so',async()=>{const {buil
  const c=buildCatalog(o,{need:300_000}),ms=c.providers[0].models;
  assert.match(ms.find(m=>m.id==='gpt-6-mini-128k').warn,/Too small for this agent/);assert.equal(ms.find(m=>m.id==='gpt-6').warn,'');
  assert.equal(buildCatalog(o).providers[0].models[0].warn,'','no record, no warning')});
+
+test('only failures the model is to blame for count against it',async()=>{const {modelFault}=await import('../app/ledger.mjs');
+ assert.equal(modelFault({err:'invalid_request_error',msg:'tool_use ids must be unique',code:400}),true);
+ assert.equal(modelFault({err:'context_length_exceeded',msg:'prompt is too long',code:400}),true);
+ for(const l of [{err:'rate_limit_error',code:429},{err:'error',msg:'Individual quota reached',code:400},{err:'overloaded_error',code:529},
+  {err:'APIConnectionError',msg:'Connection reset'},{err:'error',msg:'x',retry:true},{err:'authentication_error',code:401},{err:'error',msg:'Request timed out'}])
+  assert.equal(modelFault(l),false,JSON.stringify(l));
+ assert.equal(modelFault({in:5}),false,'a call that worked')});

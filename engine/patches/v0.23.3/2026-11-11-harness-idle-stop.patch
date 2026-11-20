@@ -1,0 +1,99 @@
+diff --git a/tools/browser_session_lifecycle.py b/tools/browser_session_lifecycle.py
+index 3fafa2a7..7fa91914 100644
+--- a/tools/browser_session_lifecycle.py
++++ b/tools/browser_session_lifecycle.py
+@@ -331,6 +331,15 @@ def cleanup_inactive_sessions() -> None:
+         _cleanup_one_inactive(key, elapsed)
+ 
+ 
++def stop_idle_harness_daemons() -> None:
++    """aqeelos:harness-idle-stop — stop the browser_exec harness daemons idle past ``HARNESS_DAEMON_IDLE_S``
++    (``BROWSER_SESSION_INACTIVITY_TIMEOUT`` when longer); the next browser_exec respawns one."""
++    from tools.browser_use_cli import HARNESS_DAEMON_IDLE_S, stop_idle_harness_daemons as _stop_idle
++    stopped = _stop_idle(max(HARNESS_DAEMON_IDLE_S, _bs().BROWSER_SESSION_INACTIVITY_TIMEOUT))
++    if stopped:
++        logger.info("Stopped %d idle browser-harness daemon(s)", len(stopped))
++
++
+ def _janitor() -> None:
+     """Every 30 s: close idle sessions; reap orphans at startup AND every BROWSER_ORPHAN_REAP_INTERVAL."""
+     bs = _bs()
+@@ -341,6 +350,7 @@ def _janitor() -> None:
+             _best_effort("Orphan reap", reap_orphaned_browser_sessions)
+         cycle += 1
+         _best_effort("Inactive browser cleanup", cleanup_inactive_sessions)
++        _best_effort("Harness daemon idle stop", stop_idle_harness_daemons)  # aqeelos:harness-idle-stop
+         for _ in range(30):  # 1 s granularity so stop is quick
+             if not bs._cleanup_running:
+                 break
+diff --git a/tools/browser_use_cli.py b/tools/browser_use_cli.py
+index 9ee3b6af..4046b054 100644
+--- a/tools/browser_use_cli.py
++++ b/tools/browser_use_cli.py
+@@ -619,6 +619,13 @@ _OWN_DURING_CALL_S = 0.5
+ # swap (/browser connect|disconnect) leaves later calls in the old browser until these are stopped.
+ _driven_daemons: dict[tuple[str, ...], str] = {}  # daemon identity -> home
+ _driven_daemons_lock = threading.Lock()
++# aqeelos:harness-idle-stop — a harness daemon never exits by itself (not even when its Chrome closes under it) and a
++# long-lived gateway stopped its daemons only at profile cleanup, so they piled up idle for days (Elkiya, 10 Nov 2026:
++# 35 orphans of ~45 MB, every one's Chrome long gone). The cleanup thread now stops a daemon after
++# HARNESS_DAEMON_IDLE_S without a call (BROWSER_SESSION_INACTIVITY_TIMEOUT when longer); the next call respawns one.
++HARNESS_DAEMON_IDLE_S = 1800
++_daemon_last_used: dict[tuple[str, ...], float] = {}  # daemon identity -> when its last call ended
++_daemon_inflight: dict[tuple[str, ...], int] = {}  # daemon identity -> calls running on it now
+ _live_generation = functools.partial(_lazy_call, "tools.browser_session_cdp", "live_cdp_generation", 0,
+                                      "live CDP generation lookup failed")  # this profile's publish count
+ # Route cache key -> whether its last browser_exec ran on the hybrid local sidecar.
+@@ -636,9 +643,26 @@ def stop_harness_daemons(home_key: Optional[str] = None) -> None:
+         daemons = sorted(key for key, home in _driven_daemons.items() if home_key in (None, home))
+         for key in daemons:
+             _driven_daemons.pop(key, None)
++            _daemon_last_used.pop(key, None)
+     _reload_daemons(daemons)
+ 
+ 
++def stop_idle_harness_daemons(max_idle_s: float, now: Optional[float] = None) -> list:
++    """aqeelos:harness-idle-stop — stop the daemons this process drove that ran no call for ``max_idle_s``
++    seconds (never one with a call running), through the same ``--reload`` as ``stop_harness_daemons``."""
++    now = time.time() if now is None else now
++    with _driven_daemons_lock:
++        for key in [k for k in _daemon_last_used if k not in _driven_daemons]:
++            _daemon_last_used.pop(key, None)
++        idle = sorted(key for key in _driven_daemons
++                      if not _daemon_inflight.get(key) and now - _daemon_last_used.get(key, now) > max_idle_s)
++        for key in idle:
++            _driven_daemons.pop(key, None)
++            _daemon_last_used.pop(key, None)
++    _reload_daemons(idle)
++    return idle
++
++
+ def _published_daemon_pid(env: dict) -> Optional[int]:
+     """The pid the harness published for the daemon ``env`` drives (``harness_pid_file``: JSON
+     ``{"pid", "started"}`` or a bare pid), or None when there is none."""
+@@ -849,6 +873,11 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
+         with _driven_daemons_lock:
+             daemon = daemon_identity(env)
+             _driven_daemons[daemon] = hermes_home_key()
++            _daemon_inflight[daemon] = _daemon_inflight.get(daemon, 0) + 1
++        # aqeelos:harness-idle-stop — the cleanup thread is what stops idle daemons; a call on a CDP override or a
++        # Browser Use direct-API cloud browser never started it
++        _lazy_call("tools.browser_session_lifecycle", "start_cleanup_thread", None,
++                   "browser cleanup thread start failed")
+         # The first call starts the daemon and may run long (navigation, user code): own it as soon as
+         # it publishes its pid, so a Hermes killed mid-call takes it along (the call's end owns it too).
+         from agent.periodic_scheduler import schedule
+@@ -866,6 +895,13 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
+         finally:
+             owning.cancel(wait=5)  # an in-flight check finishes before the post-call one runs
+             _record_driven_tab(env, task_id)  # only a call that ran: the supervisor is this call's browser's
++            with _driven_daemons_lock:  # aqeelos:harness-idle-stop
++                left = _daemon_inflight.get(daemon, 1) - 1
++                if left > 0:
++                    _daemon_inflight[daemon] = left
++                else:
++                    _daemon_inflight.pop(daemon, None)
++                _daemon_last_used[daemon] = time.time()
+ 
+     if bot_desktop_browser:
+         from tools.browser_session import run_fenced

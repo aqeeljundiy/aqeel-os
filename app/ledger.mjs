@@ -87,10 +87,15 @@ export async function budgetStatus(H){const b=await readBudgets(H),names=Object.
 
 // per model, for one agent: calls that worked and calls that failed in the last `days` (the pickers warn about a model that keeps
 // failing that agent's work, model-catalog.mjs; the model trials in accounts.mjs move an agent back off one)
+// a failed call the model is to blame for (tool calls it got wrong, a request too long for it, a model it does not know) as against
+// one the provider or the line is (quota, rate limits, sign-in, billing, overload, timeouts, network: the account auto-switch and
+// the provider holds handle those). Only model faults count against a model in the pickers and the model trials.
+const NOT_MODEL=/quota|rate.?limit|usage.?limit|too many requests|overload|capacity|timed? ?out|timeout|connect|network|socket|ECONN|EPIPE|unavailable|temporar|billing|credit|payment|sign.?in|log.?in|auth|token expired|forbidden|503|502|529/i;
+export const modelFault=l=>!!l?.err&&![401,402,403,408,409,425,429,500,502,503,504,520,522,524,529].includes(Number(l.code))&&!l.retry&&!NOT_MODEL.test(String(l.err)+' '+String(l.msg||''));
 // _p95: the size (tokens read) of this agent's larger requests, so a picker can say a model's context is too small for it
 export async function modelStats(H,agent,{days=7,since=0}={}){const from=Math.max(since/1000||0,Date.now()/1000-days*86400),out={},sizes=[];
  for(let i=Math.ceil(days);i>=0;i--){const day=new Date(Date.now()-i*864e5).toISOString().slice(0,10);
   for(const r of (await readFile(path.join(H,'usage-ledger',day+'.jsonl'),'utf8').catch(()=>'')).split('\n')){if(r[0]!=='{')continue;let l;try{l=JSON.parse(r)}catch{continue}
-   if(l.t<from||String(l.a).split('--')[0]!==agent)continue;const k=l.pv+'|'+l.m,x=out[k]||={calls:0,errors:0,last:''};if(l.err){x.errors++;x.last=String(l.msg||l.err).slice(0,160)}else{x.calls++;sizes.push((l.in||0)+(l.cr||0)+(l.cw||0))}}}
+   if(l.t<from||String(l.a).split('--')[0]!==agent)continue;const k=l.pv+'|'+l.m,x=out[k]||={calls:0,errors:0,outages:0,last:''};if(l.err){if(modelFault(l)){x.errors++;x.last=String(l.msg||l.err).slice(0,160)}else x.outages++}else{x.calls++;sizes.push((l.in||0)+(l.cr||0)+(l.cw||0))}}}
  sizes.sort((a,b)=>a-b);Object.defineProperty(out,'_p95',{value:sizes.length?sizes[Math.min(sizes.length-1,Math.floor(sizes.length*.95))]:0});
  return out}

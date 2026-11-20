@@ -1,0 +1,2 @@
+# Not needed on v0.23.3: gateway/run_shutdown.py has _active_async_delegation_count() itself; it is in _active_work_count
+# (/api/status active_agents, idle exit), _awaitable_work_count and the drain (delegations wait on the cron deadline).

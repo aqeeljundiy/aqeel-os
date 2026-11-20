@@ -2129,7 +2129,7 @@ async function hermesCall(req,res,u,url){
  // An engine update starts from the engine's own files: aqeelOS's renames (aqeelOS instead of Hermes in what people
  // read) are put back to the original first, so the update never clashes with them; they are applied again after it.
  // What was true before is kept first, so the same check as a night update runs after it (engine-updates.mjs).
- if(p==='/hapi/hermes/update'&&req.method==='POST'&&users.isAdmin(u)){if(backups.busy())return send(res,409,{error:'A restore is running. Update after it finishes.'});if(await engineUpd.beforeManual().catch(e=>{console.warn('engine update: before',e.message);return true})===false)return send(res,409,{error:'An engine update is already running.'});await engineReset();setTimeout(()=>engineWatch().catch(()=>{}),120000)}
+ if(p==='/hapi/hermes/update'&&req.method==='POST'&&users.isAdmin(u)){if(backups.busy())return send(res,409,{error:'A restore is running. Update after it finishes.'});{const b=await engineUpd.beforeManual().catch(e=>{console.warn('engine update: before',e.message);return {error:'Not updated: the check before the update failed ('+e.message+').'}});if(b===false)return send(res,409,{error:'An engine update is already running.'});if(b?.error)return send(res,409,{error:b.error})}await engineReset();setTimeout(()=>engineWatch().catch(()=>{}),120000)}
  // a member's file calls must stay in their own folder
  if(!users.isAdmin(u)&&p.startsWith('/hapi/files')){
   // no path would list the engine's own default folder: a member's goes to their home instead

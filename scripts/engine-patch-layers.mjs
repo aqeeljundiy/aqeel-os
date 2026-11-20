@@ -38,3 +38,18 @@ export function applyLayers(engine,files){
   if(inPlace){r.inPlace.push(f);continue}
   try{g(['apply','--check',file]);g(['apply',file]);r.applied.push(f)}catch{r.misfit.push(f)}}
  return r}
+
+// Patches for newer engine versions (21 Nov 2026): engine/patches/<engine version>/<same name>.patch is the same fix written for
+// that version's code (v0.23.3 rewrote much of what our 22 Oct patches touched). For each patch the original is used when it is
+// in place or applies; otherwise the first version-specific copy that is in place or applies (variantsOf lists them, newest
+// engine first); otherwise the original, which then reports as a misfit. Returns applyLayers' answer plus `variant`
+// ({name: version folder}) for the ones that came from a version folder.
+export function applyWithVariants(engine,files,variantsOf=()=>[]){
+ const ok=(args,f)=>{try{execFileSync('git',['-C',engine,'apply',...args,f],{stdio:'pipe'});return true}catch{return false}};
+ const st=layerState(engine,files),variant={};
+ const chosen=files.map((f,i)=>{if(st[i].inPlace||ok(['--check'],f))return f;
+  // a copy with no diff in it says "upstream does this itself on that version": in place, nothing to apply
+  for(const v of variantsOf(f))if(!patchPaths(readFileSync(v,'utf8')).length&&!/^@@/m.test(readFileSync(v,'utf8'))){variant[path.basename(f)]=path.basename(path.dirname(v))+', upstream';return null}
+   else if(ok(['--reverse','--check'],v)||ok(['--check'],v)){variant[path.basename(f)]=path.basename(path.dirname(v));return v}
+  return f});
+ const r=applyLayers(engine,chosen.filter(Boolean));r.inPlace.push(...files.filter((f,i)=>!chosen[i]).map(f=>path.basename(f)));return {...r,variant}}

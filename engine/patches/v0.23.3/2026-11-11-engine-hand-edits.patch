@@ -1,0 +1,749 @@
+diff --git a/.gitignore b/.gitignore
+index aa9b2789..99de304b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -339,3 +339,6 @@ infografico/
+ /pm/.lock.json.lock
+ 
+ apps/desktop/.dist-build*
++
++# local backups
++*.bak*
+diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
+index 81f78506..10a22585 100644
+--- a/agent/prompt_builder.py
++++ b/agent/prompt_builder.py
+@@ -28,6 +28,11 @@ from agent.skill_utils import (
+     iter_skill_index_files, parse_frontmatter, skill_matches_apps, skill_matches_environment,
+     skill_matches_platform, skill_matches_platform_list,
+ )
++try:  # aqeelos:shared-skills: the shared tier's scope file joins the skills prompt cache key
++    from agent.skill_utils import shared_scope_signature
++except ImportError:  # shared-skills patch not applied on this engine
++    def shared_scope_signature() -> tuple:
++        return ()
+ from tools.threat_patterns import scan_for_threats as _scan_for_threats
+ from utils import atomic_json_write, file_cache_version
+ 
+@@ -157,10 +162,13 @@ def _strip_yaml_frontmatter(content: str) -> str:
+     return (content[end + 4:].lstrip("\n") or content) if end != -1 else content
+ 
+ 
++from hermes_cli.branding import BRAND_NAME, BRAND_MAKER, _BRAND_INTRO, _BRAND_RUN  # noqa: F401
++
++
+ DEFAULT_AGENT_IDENTITY = (
+     # A behavior spec (sizing rule, named prohibitions, earned-depth escape hatch), not a trait list — trait
+     # lists change nothing. Maintainer rule: models UNDER-explore by default; never re-add an exploration-thrift line.
+-    "You are aqeelOS, built by aqeelOS. Be direct: match the length of your reply to the weight of the ask "
++    _BRAND_INTRO + " Be direct: match the length of your reply to the weight of the ask "
+     "— a one-line question gets a one-line answer, and finished work gets a short report of what changed, what's "
+     "verified, and what's left, never a replay of the process. No filler (\"Great question,\" \"I'd be happy to\"), no "
+     "restating the request back, no re-summarizing what you already said, no narrating tool calls the user can see. "
+@@ -1393,7 +1401,7 @@ def _build_skills_system_prompt_inner(
+         tuple(sorted(str(t) for t in (available_tools or set()))),
+         tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
+         _platform_hint, tuple(sorted(disabled)), tuple(sorted(compact_categories or ())),
+-        _oneshot_prompt_variant(), tuple(plugin_rows),
++        _oneshot_prompt_variant(), tuple(plugin_rows), shared_scope_signature(),
+     )
+     snapshot = _load_skills_snapshot(skills_dir, manifest)
+     app_gated = snapshot is not None and any(
+diff --git a/agent/turn_finalizer.py b/agent/turn_finalizer.py
+index 15f42bd3..9576e2f1 100644
+--- a/agent/turn_finalizer.py
++++ b/agent/turn_finalizer.py
+@@ -560,7 +560,26 @@ def apply_llm_output_transform(
+         _aq_fb = getattr(agent, "_provider_fallback_route", None) if getattr(agent, "_provider_fallback_active", False) else None
+         # aqeelos:backup-note-owner: only where the people running the agents read it, never to customers
+         _aq_where = str(platform or getattr(agent, "platform", "") or "").lower()
+-        if _aq_where in ("api_server", "telegram", "slack", "discord") and isinstance(_aq_fb, (list, tuple)) and len(_aq_fb) == 2 and isinstance(final_response, str) and final_response.strip():
++        # aqeelos:fallback-notice: setting display.fallback_notice = owner_dm_only (default) | all | off.
++        # Never in groups or customer channels by default; every fallback is logged for health checks.
++        _aq_mode = "owner_dm_only"
++        try:
++            from hermes_cli.config import load_config as _aq_lc
++            _aq_mode = str(((_aq_lc() or {}).get("display") or {}).get("fallback_notice") or "owner_dm_only").lower()
++        except Exception:
++            pass
++        _aq_ok_here = _aq_where in ("api_server", "telegram", "slack", "discord")
++        if _aq_mode == "off":
++            _aq_ok_here = False
++        elif _aq_mode != "all" and _aq_where != "api_server":
++            try:
++                from gateway.session_context import get_session_env as _aq_ge
++                _aq_ok_here = _aq_ok_here and str(_aq_ge("HERMES_SESSION_CHAT_TYPE") or "").lower() == "dm"
++            except Exception:
++                _aq_ok_here = False
++        if isinstance(_aq_fb, (list, tuple)) and len(_aq_fb) == 2:
++            (logger or logging.getLogger(__name__)).warning("aqeelos-fallback-used platform=%s fallback=%s/%s notice_shown=%s", _aq_where, _aq_fb[0], _aq_fb[1], _aq_ok_here)
++        if _aq_ok_here and isinstance(_aq_fb, (list, tuple)) and len(_aq_fb) == 2 and isinstance(final_response, str) and final_response.strip():
+             def _aq_brand(p, m):
+                 s = str(m or "").lower(); q = str(p or "").lower()
+                 for k, n in (("claude", "Claude"), ("opus", "Claude"), ("sonnet", "Claude"), ("haiku", "Claude"), ("gpt", "GPT"), ("codex", "GPT"), ("gemini", "Gemini")):
+diff --git a/cron/scheduler_delivery.py b/cron/scheduler_delivery.py
+index 05457970..368fbad8 100644
+--- a/cron/scheduler_delivery.py
++++ b/cron/scheduler_delivery.py
+@@ -1714,7 +1714,7 @@ def _should_wrap_cron_response(job: dict, user_cfg: Any) -> bool:
+     if not isinstance(cron_cfg, dict):
+         return True
+     # Truthiness, as the inline check this replaces used; YAML yields real bools here.
+-    return bool(cron_cfg.get("wrap_response", True))
++    return bool(cron_cfg.get("wrap_response", False))  # aqeelOS: schedules not wrapped unless asked
+ 
+ 
+ def _deliver_result(
+diff --git a/gateway/pairing.py b/gateway/pairing.py
+index 1348f0b4..c17a8c6b 100644
+--- a/gateway/pairing.py
++++ b/gateway/pairing.py
+@@ -12,6 +12,7 @@ import hashlib
+ import json
+ import logging
+ import os
++import re
+ import secrets
+ import threading
+ import time
+@@ -432,13 +433,60 @@ class PairingStore:
+         with self._lock:
+             return bool(_matching_ids(platform, self._load_approved(platform), user_id))
+ 
++    # aqeelOS: every grant must be visible. Allowlist entries in the profile's .env
++    # (PLATFORM_ALLOWED_USERS / GROUP_ALLOWED_*) are listed too and can be revoked.
++    def _env_file(self):
++        # <home>/platforms/pairing (current layout) or a legacy <home>/pairing
++        home = self._dir.parent.parent if self._dir.parent.name == "platforms" else self._dir.parent
++        return home / ".env"
++
++    def _env_grants(self) -> dict:
++        out = {}
++        try:
++            for line in self._env_file().read_text().splitlines():
++                k, _, v = line.partition("=")
++                k = k.strip()
++                m = re.fullmatch(r"([A-Z]+?)(_GROUP)?_ALLOWED_(USERS|CHATS)", k)
++                if not m or k.startswith("GATEWAY"):
++                    continue
++                for uid in _split_allowlist(v.strip().strip('"\'')):
++                    if uid != "*":
++                        out.setdefault((m.group(1).lower(), uid), k)
++        except OSError:
++            pass
++        return out
++
+     def list_approved(self, platform: str | None = None) -> list:
+-        """List approved users, optionally filtered by platform."""
+-        return [
++        """List approved users, optionally filtered by platform (pairing store + .env allowlists)."""
++        rows = [
+             {"platform": p, "user_id": uid, **info}
+             for p in self._platforms(platform, "approved")
+             for uid, info in self._load_json(self._approved_path(p)).items()
+         ]
++        seen = {(r["platform"], str(r["user_id"])) for r in rows}
++        for (p, uid), key in self._env_grants().items():
++            if (platform and p != platform) or (p, uid) in seen:
++                continue
++            rows.append({"platform": p, "user_id": uid, "user_name": ("Group " if "GROUP" in key else "") + "(added in settings file)", "source": key})
++        return rows
++
++    def _revoke_env(self, platform: str, user_id: str) -> bool:
++        f = self._env_file()
++        try:
++            lines = f.read_text().splitlines()
++        except OSError:
++            return False
++        hit = False
++        for i, line in enumerate(lines):
++            k, _, v = line.partition("=")
++            if (platform, str(user_id)) in {(pp, u) for (pp, u), kk in self._env_grants().items() if kk == k.strip()}:
++                ids = [u for u in _split_allowlist(v.strip().strip('"\'')) if u != str(user_id)]
++                lines[i] = k + "=" + ",".join(ids)
++                hit = True
++        if hit:
++            lines = [l for l in lines if not re.fullmatch(r"[A-Z_]+_ALLOWED_(USERS|CHATS)=", l.strip())]
++            f.write_text("\n".join(lines) + "\n")
++        return hit
+ 
+     def _approve_user(self, platform: str, user_id: str, user_name: str = "") -> None:
+         """Add a user to the approved list. Must be called under self._locked()."""
+@@ -457,8 +505,11 @@ class PairingStore:
+         with self._locked():
+             approved = self._load_json(path)
+             matching_ids = _matching_ids(platform, approved, user_id)
++            env_hit = self._revoke_env(platform, user_id)  # aqeelOS: .env-only grants are revocable too
+             if not matching_ids:
+-                return False
++                if env_hit:
++                    _sync_live_adapter_allowlist_remove(platform, user_id)
++                return env_hit
+             # An unexpired code issued before the revoke would otherwise re-grant access
+             # without a fresh request. Same lock as both approval paths, so an in-flight
+             # approval either lands before this (and is revoked) or finds no entry.
+diff --git a/gateway/run_inbound.py b/gateway/run_inbound.py
+index f0185409..43ad33de 100644
+--- a/gateway/run_inbound.py
++++ b/gateway/run_inbound.py
+@@ -142,6 +142,14 @@ class GatewayInboundMixin(
+             platform_name, source.user_id, source.user_name or "", hermes_home=display_hermes_home(),
+         )
+         logger.warning("Unauthorized user (ignored): %s", hint)
++        # aqeelOS: still file a silent request so the owner sees it under Channels › Who can message
++        # (People waiting). Nothing is sent to the sender; the code is discarded.
++        try:
++            _store = self._pairing_store_for(source)
++            if _store is not None and source.user_id:
++                await asyncio.to_thread(_store.generate_code, platform_name, source.user_id, source.user_name or "")
++        except Exception:
++            logger.debug("Silent pairing request failed on %s", platform_name, exc_info=True)
+         notifier = getattr(self, "_unauthorized_owner_notifier", None)
+         if notifier is None:
+             notifier = self._unauthorized_owner_notifier = UnauthorizedOwnerNotifier()
+diff --git a/hermes_cli/config_defaults.py b/hermes_cli/config_defaults.py
+index 67e4fe76..1b61469e 100644
+--- a/hermes_cli/config_defaults.py
++++ b/hermes_cli/config_defaults.py
+@@ -1785,7 +1785,7 @@ DEFAULT_CONFIG = {
+         },
+         # Wrap delivered cron responses with a task-name header and "The agent cannot see this
+         # message" footer. False = clean output.
+-        "wrap_response": True,
++        "wrap_response": False,
+         "delivery": {  # Delivery behaviour for cron output sent through a live gateway adapter.
+             # Mark cron deliveries FINAL so the platform pushes them (Telegram's "important" mode
+             # otherwise sends with disable_notification=True and briefs look undelivered). False =
+diff --git a/hermes_cli/default_soul.py b/hermes_cli/default_soul.py
+index 980b7d07..ed76f1a1 100644
+--- a/hermes_cli/default_soul.py
++++ b/hermes_cli/default_soul.py
+@@ -6,8 +6,10 @@
+ # never re-add it here either.
+ # DEFAULT_AGENT_IDENTITY only serves sessions with no SOUL.md at all (e.g. skip_context_files), which is not
+ # the common case. See #95681.
++from hermes_cli.branding import _BRAND_INTRO
++
+ DEFAULT_SOUL_MD = (
+-    "You are aqeelOS, built by aqeelOS. Be direct: match the length of your reply to the weight of "
++    _BRAND_INTRO + " Be direct: match the length of your reply to the weight of "
+     "the ask — a one-line question gets a one-line answer, and finished work gets a short report of what "
+     "changed, what's verified, and what's left, never a replay of the process. No filler (\"Great question,\" "
+     "\"I'd be happy to\"), no restating the request back, no re-summarizing what you already said, no narrating "
+@@ -48,6 +50,17 @@ _LEGACY_TEMPLATE_SOULS = (
+         "being verbose unless otherwise directed below. Be targeted and efficient in your exploration and "
+         "investigations."
+     ),
++    # aqeelOS: the same old default as installs really have it on disk. The engine wording step renames the name in the
++    # string above, so a real "You are Hermes Agent, ..." file would no longer be recognised; the name is split so that
++    # step leaves this one alone.
++    (
++        "You are " + "Her" + "mes Agent, an intelligent AI assistant created by Nous Research. You are helpful, "
++        "knowledgeable, and direct. You assist users with a wide range of tasks including answering questions, "
++        "writing and editing code, analyzing information, creative work, and executing actions via your tools. "
++        "You communicate clearly, admit uncertainty when appropriate, and prioritize being genuinely useful over "
++        "being verbose unless otherwise directed below. Be targeted and efficient in your exploration and "
++        "investigations."
++    ),
+     # ASCII-dashed variant seeded by scripts/install.ps1 (must stay pure ASCII, see
+     # tests/scripts/install/test_install_ps1_ascii_only.py); upgrading converges Windows installs on the em-dash text.
+     DEFAULT_SOUL_MD.replace("\u2014", "--"),
+diff --git a/hermes_cli/gateway_session_store.py b/hermes_cli/gateway_session_store.py
+index d8927b8a..43fa3654 100644
+--- a/hermes_cli/gateway_session_store.py
++++ b/hermes_cli/gateway_session_store.py
+@@ -710,13 +710,15 @@ def session_store():
+     return GatewaySessionStore()
+ 
+ 
+-def create_titled_session(title):
++def create_titled_session(title, launch=None):
+     """``chat -c <title> --create-if-missing`` for the classic CLI: the gateway's ``session.create``
+     with ``title`` (it resolves-or-creates under one owner lock), so this process writes no row.
+     Main's ``_create_titled_session`` minted the id and wrote the row itself, with no cwd stamp
+     (``row_cwd`` ""). Returns the id, or None when the gateway refused (the caller prints main's
+     "could not be created" copy)."""
+-    params = _creation_policy({})
++    # The caller's explicit launch flags (-t, -m, ...) are the new session's frozen route: created
++    # without them, the resume that follows refuses the very flags it was launched with (exit 2).
++    params = _creation_policy(launch or {})
+     params["cwd"] = _launch_cwd()
+     params["source"] = "cli"  # main's titled row is `cli` (hermes_cli.main._create_titled_session)
+     params["row_cwd"] = ""
+diff --git a/hermes_cli/main.py b/hermes_cli/main.py
+index d53aef18..2396c0d1 100644
+--- a/hermes_cli/main.py
++++ b/hermes_cli/main.py
+@@ -1264,7 +1264,7 @@ def _resolve_continue_arg(args, *, use_tui: bool) -> None:
+                     new_sid = _create_titled_session(continue_val)
+                 else:
+                     from hermes_cli.gateway_session_store import create_titled_session
+-                    new_sid = create_titled_session(continue_val)
++                    new_sid = create_titled_session(continue_val, vars(args))
+                 if new_sid:
+                     args.resume = new_sid
+                 else:
+diff --git a/plugins/platforms/telegram/adapter.py b/plugins/platforms/telegram/adapter.py
+index ca52d2f0..c94f6be2 100644
+--- a/plugins/platforms/telegram/adapter.py
++++ b/plugins/platforms/telegram/adapter.py
+@@ -451,6 +451,8 @@ class TelegramAdapter(TelegramContactMixin, TelegramHeldInboundMixin, TelegramRe
+     RICH_MESSAGE_MAX_CHARS = 32768  # Bot API 10.1 rich cap; above it use legacy chunking
+     _SPLIT_THRESHOLD = 4000  # chunk near this length ⇒ a client-side split continuation is almost certain
+     MEDIA_GROUP_WAIT_SECONDS = 1.5  # default album debounce; extra.media_group_wait_seconds overrides
++    # aqeelOS: a stale Telegram session is retried (capped at 60 s apart) instead of the adapter going fatal after 5 tries
++    MAX_POLLING_CONFLICT_RETRIES = 1000
+     HELD_INBOUND_MAX = 64  # inbound events held across a disconnect window; oldest dropped first
+     _GENERAL_TOPIC_THREAD_ID = "1"
+     # send() can race a disconnect blip; failing "Not connected" (retryable=False) parks the answer in the
+@@ -2241,9 +2243,9 @@ class TelegramAdapter(TelegramContactMixin, TelegramHeldInboundMixin, TelegramRe
+             return
+         self._polling_conflict_count += 1
+         self._polling_conflict_quiet_since, self._polling_conflict_quiet_banked = None, 0.0
+-        MAX_CONFLICT_RETRIES = 5
+-        # 15s, 25s, 35s, 45s, 55s — clears Telegram's ~30s session window without hammering the API.
+-        RETRY_DELAY = 10 + (self._polling_conflict_count * 10)  # seconds
++        MAX_CONFLICT_RETRIES = self.MAX_POLLING_CONFLICT_RETRIES  # aqeelOS: never give up on a stale-session conflict (upstream: 5)
++        # 20s, 30s ... capped at 60s — keeps retrying until Telegram releases the old session.
++        RETRY_DELAY = min(60, 10 + (self._polling_conflict_count * 10))  # seconds
+         if self._polling_conflict_count <= MAX_CONFLICT_RETRIES:
+             logger.warning(
+                 "[%s] Telegram polling conflict (%d/%d) — previous session still "
+diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.js
+index 07aa559a..45c58812 100644
+--- a/scripts/whatsapp-bridge/bridge.js
++++ b/scripts/whatsapp-bridge/bridge.js
+@@ -19,6 +19,9 @@
+  *   node bridge.js --port 3000 --session ~/.hermes/whatsapp/session
+  */
+ 
++import dns from 'node:dns';
++// VPN egress has no working IPv6; prefer IPv4 for WhatsApp media hosts.
++dns.setDefaultResultOrder('ipv4first');
+ import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage, getAggregateVotesInPollMessage, decryptPollVote, getKeyAuthor, jidNormalizedUser } from '@whiskeysockets/baileys';
+ import express from 'express';
+ import { Boom } from '@hapi/boom';
+@@ -35,6 +38,7 @@ import { attachPasskeyFlow, loadPasskeySigner } from './passkey_socket.js';
+ import { matchesAllowedSender, matchesAllowedUser, matchesInboundWhatsAppGroup, parseAllowedUsers } from './allowlist.js';
+ import { createOutboundIdTracker } from './outbound_ids.js';
+ import { classifyOwnerMessageGate } from './owner_message_gate.js';
++import { watchGroupMessage } from './group_watch.js';
+ import { bridgeAuthProof, createBridgeAuthMiddleware } from './bridge_auth.js';
+ import {
+   addMentions,
+@@ -620,6 +624,8 @@ async function startSocket() {
+       const senderAltId = normalizeWhatsAppId(msg.key.participantAlt || msg.key.remoteJidAlt || '');
+       const resolvedSenderId = senderAltId.endsWith('@s.whatsapp.net') ? senderAltId : senderId;
+       const isGroup = chatId.endsWith('@g.us');
++      // aqeelOS add-on: read-only log of watched groups (never replies; see group_watch.js)
++      if (isGroup) watchGroupMessage(sock, SESSION_DIR, msg, chatId, downloadMediaMessage);
+       const senderNumber = resolvedSenderId.replace(/@.*/, '');
+       emitDebugEvent({
+         stage: 'upsert',
+@@ -813,7 +819,20 @@ async function startSocket() {
+         senderNumber,
+         botIds,
+         isGroup,
+-        downloadMedia: async (mediaMsg) => downloadMediaMessage(mediaMsg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage }),
++        downloadMedia: async (mediaMsg) => {
++          // Retry: this box's VPN egress makes single media fetches flaky.
++          let lastErr;
++          for (let attempt = 1; attempt <= 3; attempt += 1) {
++            try {
++              return await downloadMediaMessage(mediaMsg, 'buffer', {}, { logger, reuploadRequest: sock.updateMediaMessage });
++            } catch (err) {
++              lastErr = err;
++              console.warn(`[bridge] media download attempt ${attempt} failed: ${err?.message || err}`);
++              await new Promise((r) => setTimeout(r, 1500 * attempt));
++            }
++          }
++          throw lastErr;
++        },
+         cacheDirs: {
+           image: IMAGE_CACHE_DIR,
+           document: DOCUMENT_CACHE_DIR,
+diff --git a/scripts/whatsapp-bridge/group_watch.js b/scripts/whatsapp-bridge/group_watch.js
+new file mode 100644
+index 00000000..9c94798f
+--- /dev/null
++++ b/scripts/whatsapp-bridge/group_watch.js
+@@ -0,0 +1,75 @@
++// Local add-on (aqeelOS): READ-ONLY watch of chosen WhatsApp groups.
++// Groups are picked by name in <session>/../watch_groups.txt (one name per line).
++// Messages are only written to <session>/../group_watch/<group>/<date>.jsonl
++// (documents saved next to them). This never sends, reacts or marks as read,
++// and it runs before the reply gate, so watched groups can stay blocked for replies.
++import path from 'path';
++import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
++
++const nameCache = new Map();
++
++function watchedNames(base) {
++  const f = path.join(base, 'watch_groups.txt');
++  if (!existsSync(f)) return [];
++  return readFileSync(f, 'utf8').split('\n').map(s => s.trim().toLowerCase()).filter(Boolean);
++}
++
++function textOf(m) {
++  if (!m) return '';
++  const c = m.ephemeralMessage?.message || m.viewOnceMessage?.message || m.viewOnceMessageV2?.message || m;
++  if (c.conversation) return c.conversation;
++  if (c.extendedTextMessage?.text) return c.extendedTextMessage.text;
++  if (c.imageMessage) return '[photo]' + (c.imageMessage.caption ? ' ' + c.imageMessage.caption : '');
++  if (c.videoMessage) return '[video]' + (c.videoMessage.caption ? ' ' + c.videoMessage.caption : '');
++  if (c.audioMessage) return c.audioMessage.ptt ? '[voice note]' : '[audio]';
++  if (c.documentMessage) return '[file] ' + (c.documentMessage.fileName || '') + (c.documentMessage.caption ? ' ' + c.documentMessage.caption : '');
++  if (c.documentWithCaptionMessage?.message?.documentMessage) {
++    const d = c.documentWithCaptionMessage.message.documentMessage;
++    return '[file] ' + (d.fileName || '') + (d.caption ? ' ' + d.caption : '');
++  }
++  if (c.stickerMessage) return '[sticker]';
++  if (c.reactionMessage) return '[reaction] ' + (c.reactionMessage.text || '');
++  if (c.protocolMessage) return '';
++  return '[other]';
++}
++
++export async function watchGroupMessage(sock, sessionDir, msg, chatId, downloadMediaMessage) {
++  try {
++    if (!chatId || !chatId.endsWith('@g.us')) return;
++    const base = path.resolve(sessionDir, '..');
++    const names = watchedNames(base);
++    if (!names.length) return;
++    let name = nameCache.get(chatId);
++    if (!name) {
++      try { name = (await sock.groupMetadata(chatId)).subject || ''; } catch { name = ''; }
++      if (name) nameCache.set(chatId, name);
++    }
++    if (!name || !names.includes(name.trim().toLowerCase())) return;
++    const text = textOf(msg.message);
++    if (!text) return;
++    const slug = name.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || chatId;
++    const dir = path.join(base, 'group_watch', slug);
++    if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
++    writeFileSync(path.join(dir, 'chat_id.txt'), chatId + '\n');
++    const ts = Number(msg.messageTimestamp) ? Number(msg.messageTimestamp) * 1000 : Date.now();
++    const day = new Date(ts + 7 * 3600 * 1000).toISOString().slice(0, 10);
++    const entry = {
++      time: new Date(ts).toISOString(),
++      fromMe: !!msg.key?.fromMe,
++      sender: msg.key?.participantAlt || msg.key?.participant || '',
++      name: msg.pushName || '',
++      text: text.slice(0, 8000),
++    };
++    const c = msg.message;
++    const doc = c?.documentMessage || c?.documentWithCaptionMessage?.message?.documentMessage;
++    if (doc && downloadMediaMessage) {
++      try {
++        const buf = await downloadMediaMessage(msg, 'buffer', {});
++        const fname = `${day}_${(doc.fileName || 'file').replace(/[^\w.\- ]+/g, '_')}`;
++        writeFileSync(path.join(dir, fname), buf, { mode: 0o600 });
++        entry.saved_file = fname;
++      } catch (e) { entry.saved_file_error = String(e?.message || e).slice(0, 200); }
++    }
++    appendFileSync(path.join(dir, `${day}.jsonl`), JSON.stringify(entry) + '\n', { mode: 0o600 });
++  } catch {}
++}
+diff --git a/scripts/whatsapp-bridge/inbox_log.js b/scripts/whatsapp-bridge/inbox_log.js
+new file mode 100644
+index 00000000..ed4fc0c8
+--- /dev/null
++++ b/scripts/whatsapp-bridge/inbox_log.js
+@@ -0,0 +1,54 @@
++// Local add-on (aqeelOS): read-only inbox log for direct chats.
++// Active only when <session>/../inbox_log.enabled exists. Text only, no groups/status,
++// files chmod 600, entries older than 7 days are deleted. Never sends anything.
++import path from 'path';
++import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
++
++const KEEP_DAYS = 7;
++
++function textOf(m) {
++  if (!m) return '';
++  const c = m.ephemeralMessage?.message || m.viewOnceMessage?.message || m.viewOnceMessageV2?.message || m;
++  if (c.conversation) return c.conversation;
++  if (c.extendedTextMessage?.text) return c.extendedTextMessage.text;
++  if (c.imageMessage) return '[photo]' + (c.imageMessage.caption ? ' ' + c.imageMessage.caption : '');
++  if (c.videoMessage) return '[video]' + (c.videoMessage.caption ? ' ' + c.videoMessage.caption : '');
++  if (c.audioMessage) return c.audioMessage.ptt ? '[voice note]' : '[audio]';
++  if (c.documentMessage) return '[file] ' + (c.documentMessage.fileName || '');
++  if (c.stickerMessage) return '[sticker]';
++  if (c.locationMessage || c.liveLocationMessage) return '[location]';
++  if (c.contactMessage) return '[contact] ' + (c.contactMessage.displayName || '');
++  if (c.reactionMessage) return '[reaction] ' + (c.reactionMessage.text || '');
++  if (c.protocolMessage) return '';
++  return '';
++}
++
++export function logInboxMessage(sessionDir, msg, { chatId, senderAltId }) {
++  try {
++    const base = path.resolve(sessionDir, '..');
++    if (!existsSync(path.join(base, 'inbox_log.enabled'))) return;
++    if (!chatId || chatId.endsWith('@g.us') || chatId.includes('broadcast') || chatId.endsWith('@newsletter')) return;
++    const text = textOf(msg.message);
++    if (!text) return;
++    const dir = path.join(base, 'inbox');
++    if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
++    const ts = Number(msg.messageTimestamp) ? Number(msg.messageTimestamp) * 1000 : Date.now();
++    const day = new Date(ts + 7 * 3600 * 1000).toISOString().slice(0, 10); // WIB date
++    const file = path.join(dir, `${day}.jsonl`);
++    const entry = {
++      time: new Date(ts).toISOString(),
++      fromMe: !!msg.key?.fromMe,
++      chat: chatId,
++      number: (senderAltId || '').endsWith('@s.whatsapp.net') ? senderAltId.split('@')[0] : '',
++      name: msg.key?.fromMe ? 'me' : (msg.pushName || ''),
++      text: text.slice(0, 4000),
++    };
++    appendFileSync(file, JSON.stringify(entry) + '\n', { mode: 0o600 });
++    try { chmodSync(file, 0o600); } catch {}
++    const cutoff = Date.now() - KEEP_DAYS * 86400 * 1000;
++    for (const f of readdirSync(dir)) {
++      const m = f.match(/^(\d{4}-\d{2}-\d{2})\.jsonl$/);
++      if (m && Date.parse(m[1] + 'T23:59:59+07:00') < cutoff) unlinkSync(path.join(dir, f));
++    }
++  } catch {}
++}
+diff --git a/tests/agent/test_prompt_builder.py b/tests/agent/test_prompt_builder.py
+index e7434120..bb130430 100644
+--- a/tests/agent/test_prompt_builder.py
++++ b/tests/agent/test_prompt_builder.py
+@@ -360,8 +360,10 @@ class TestBuildContextFilesPrompt:
+         fake_home.mkdir()
+         with patch("pathlib.Path.home", return_value=fake_home):
+             result = build_context_files_prompt(cwd=str(tmp_path))
++        from hermes_cli.branding import BRAND_NAME
++
+         assert "Project Context" in result
+-        assert "Hermes Agent" in result
++        assert BRAND_NAME in result
+ 
+     def test_loads_agents_md(self, tmp_path):
+         (tmp_path / "AGENTS.md").write_text("Use Ruff for linting.")
+diff --git a/tests/cron/test_scheduler.py b/tests/cron/test_scheduler.py
+index f8f15a33..41a10e19 100644
+--- a/tests/cron/test_scheduler.py
++++ b/tests/cron/test_scheduler.py
+@@ -1300,7 +1300,7 @@ class TestRunJobModelResolution:
+             success, _, _, error = _run_owned_job(job, tmp_path, fake_db)
+ 
+         assert success is False
+-        assert "Hermes stopped because your settings file" in error
++        assert " stopped because your settings file" in error
+         mock_agent_cls.assert_not_called()
+ 
+ class TestRunJobSkillBacked:
+diff --git a/tests/gateway/test_grid_sweep_gateway_diagnostics.py b/tests/gateway/test_grid_sweep_gateway_diagnostics.py
+index 786180ee..7c464c73 100644
+--- a/tests/gateway/test_grid_sweep_gateway_diagnostics.py
++++ b/tests/gateway/test_grid_sweep_gateway_diagnostics.py
+@@ -46,7 +46,7 @@ async def test_shutdown_notice_to_active_chats_and_home_channel_honors_policy(tm
+         assert chats == [], adapter.sent_calls
+     else:
+         assert sorted(chats) == sorted([source.chat_id, "home-chat"])
+-        assert all("Hermes is shutting down" in m for _c, m, _meta in adapter.sent_calls)
++        assert all(" is shutting down" in m for _c, m, _meta in adapter.sent_calls)
+ 
+ 
+ @pytest.mark.asyncio
+@@ -68,7 +68,7 @@ async def test_in_chat_restart_ack_to_requester_is_never_suppressed(tmp_path, mo
+ 
+     assert len(adapter.sent_calls) == 1
+     chat_id, message, metadata = adapter.sent_calls[0]
+-    assert chat_id == source.chat_id and "Hermes is restarting" in message
++    assert chat_id == source.chat_id and " is restarting" in message
+     assert metadata["telegram_reply_to_message_id"] == "restart-command"
+ 
+ 
+@@ -90,7 +90,8 @@ async def test_unauthorized_owner_hint_honors_policy_and_stranger_stays_silent(t
+     chats = [c for c, _m, _meta in adapter.sent_calls]
+     assert "dm-777" not in chats
+     assert chats.count("home-1") == (0 if setting is True else 1)
+-    assert runner.pairing_store.list_pending("telegram") == []
++    # aqeelOS: the stranger is filed once as a silent request (People waiting), whatever the owner-hint setting
++    assert [str(p.get("user_id")) for p in runner.pairing_store.list_pending("telegram")] == ["777"]
+ 
+ 
+ def _bg_runner():
+diff --git a/tests/gateway/test_telegram_conflict.py b/tests/gateway/test_telegram_conflict.py
+index d9cb9aaf..8156b57f 100644
+--- a/tests/gateway/test_telegram_conflict.py
++++ b/tests/gateway/test_telegram_conflict.py
+@@ -319,6 +319,7 @@ async def test_conflict_retry_progress_does_not_reset_retry_ladder(monkeypatch):
+ async def test_polling_conflict_becomes_fatal_after_retries(monkeypatch):
+     """After exhausting retries, the conflict should become fatal."""
+     adapter = TelegramAdapter(PlatformConfig(enabled=True, token="***"))
++    adapter.MAX_POLLING_CONFLICT_RETRIES = 5  # aqeelOS default is 1000 (test_aqeelos_conflict_retries_default); the ladder's end at 5
+     fatal_handler = AsyncMock()
+     adapter.set_fatal_error_handler(fatal_handler)
+ 
+@@ -800,3 +801,8 @@ async def test_conflict_callback_disarms_before_scheduling(monkeypatch):
+     for _ in range(10):
+         await asyncio.sleep(0)
+     await _cancel_heartbeat(adapter)
++
++
++def test_aqeelos_conflict_retries_default():
++    """aqeelOS: a stale Telegram session is retried 1000 times (60 s apart at most), never fatal after 5."""
++    assert TelegramAdapter.MAX_POLLING_CONFLICT_RETRIES == 1000
+diff --git a/tests/gateway/test_telegram_conflict_reconnect.py b/tests/gateway/test_telegram_conflict_reconnect.py
+index 3a13614c..92a23cd0 100644
+--- a/tests/gateway/test_telegram_conflict_reconnect.py
++++ b/tests/gateway/test_telegram_conflict_reconnect.py
+@@ -22,6 +22,7 @@ def _exhausted_conflict_adapter(handler):
+     """A real adapter one 409 away from the end of its own ladder (the 200 s budget is already spent)."""
+     adapter = TelegramAdapter(PlatformConfig(enabled=True, token="123:abc"))
+     adapter._app = SimpleNamespace(updater=SimpleNamespace(stop=AsyncMock(), running=False))
++    adapter.MAX_POLLING_CONFLICT_RETRIES = 5  # aqeelOS retries 1000 times; the end of the ladder is tested at upstream's 5
+     adapter._polling_conflict_count = 5
+     adapter.set_fatal_error_handler(handler)
+     return adapter
+diff --git a/tests/gateway/test_unauthorized_dm_behavior.py b/tests/gateway/test_unauthorized_dm_behavior.py
+index 49f3bdd8..a084cc08 100644
+--- a/tests/gateway/test_unauthorized_dm_behavior.py
++++ b/tests/gateway/test_unauthorized_dm_behavior.py
+@@ -282,7 +282,8 @@ async def test_unauthorized_whatsapp_dm_can_be_ignored(monkeypatch):
+     )
+ 
+     assert result is None
+-    runner.pairing_store.generate_code.assert_not_called()
++    # aqeelOS: an ignored sender files a silent request (Channels › Who can message › People waiting); nothing is sent to them
++    runner.pairing_store.generate_code.assert_called_once()
+     adapter.send.assert_not_awaited()
+ 
+ 
+@@ -312,7 +313,8 @@ async def test_signal_with_allowlist_ignores_unauthorized_dm(monkeypatch):
+     )
+ 
+     assert result is None
+-    runner.pairing_store.generate_code.assert_not_called()
++    # aqeelOS: an ignored sender files a silent request (Channels › Who can message › People waiting); nothing is sent to them
++    runner.pairing_store.generate_code.assert_called_once()
+     adapter.send.assert_not_awaited()
+ 
+ 
+@@ -332,7 +334,8 @@ async def test_telegram_with_allowlist_ignores_unauthorized_dm(monkeypatch):
+     )
+ 
+     assert result is None
+-    runner.pairing_store.generate_code.assert_not_called()
++    # aqeelOS: an ignored sender files a silent request (Channels › Who can message › People waiting); nothing is sent to them
++    runner.pairing_store.generate_code.assert_called_once()
+     adapter.send.assert_not_awaited()
+ 
+ 
+@@ -352,7 +355,8 @@ async def test_global_allowlist_ignores_unauthorized_dm(monkeypatch):
+     )
+ 
+     assert result is None
+-    runner.pairing_store.generate_code.assert_not_called()
++    # aqeelOS: an ignored sender files a silent request (Channels › Who can message › People waiting); nothing is sent to them
++    runner.pairing_store.generate_code.assert_called_once()
+     adapter.send.assert_not_awaited()
+ 
+ 
+diff --git a/tests/gateway/test_unauthorized_sender_notices.py b/tests/gateway/test_unauthorized_sender_notices.py
+index 690d0bdc..c99c9ca9 100644
+--- a/tests/gateway/test_unauthorized_sender_notices.py
++++ b/tests/gateway/test_unauthorized_sender_notices.py
+@@ -43,7 +43,9 @@ async def test_ignored_dm_sends_nothing_to_stranger_and_notifies_owner_once(tmp_
+     assert chats.count("home-1") == 1, "the owner is told once per sender, not per message"
+     assert "TELEGRAM_ALLOWED_USERS" in adapter.sent_calls[0][1] and "777" in adapter.sent_calls[0][1]
+     assert any("TELEGRAM_ALLOWED_USERS" in r.getMessage() for r in caplog.records)
+-    assert runner.pairing_store.list_pending("telegram") == [], "an ignored sender must not create pairing state"
++    # aqeelOS: the ignored sender is filed once as a silent request (Channels › Who can message › People waiting); the code is never sent
++    pending = runner.pairing_store.list_pending("telegram")
++    assert [str(p.get("user_id")) for p in pending] == ["777"], pending
+ 
+ 
+ def test_owner_hint_neutralizes_hostile_display_name():
+diff --git a/tests/hermes_cli/test_chat_c_fail_loudly.py b/tests/hermes_cli/test_chat_c_fail_loudly.py
+index 1ea78d04..1af323b7 100644
+--- a/tests/hermes_cli/test_chat_c_fail_loudly.py
++++ b/tests/hermes_cli/test_chat_c_fail_loudly.py
+@@ -147,7 +147,7 @@ class TestChatCFailLoudlyOnStderr:
+ 
+         created = []
+         monkeypatch.setattr(store_mod, "create_titled_session",
+-                            lambda title: created.append(title) or "local-" + "a" * 64, raising=False)
++                            lambda title, launch=None: created.append(title) or "local-" + "a" * 64, raising=False)
+         args = type(
+             "Args",
+             (),
+diff --git a/tests/tools/test_ssh_environment.py b/tests/tools/test_ssh_environment.py
+index 37318498..96a5a5ee 100644
+--- a/tests/tools/test_ssh_environment.py
++++ b/tests/tools/test_ssh_environment.py
+@@ -185,12 +185,13 @@ class TestControlSocketPath:
+             f"{env.control_socket} (+{self._SSH_CONTROLMASTER_SUFFIX} = {total_len})"
+         )
+ 
+-    def test_path_is_deterministic_across_instances(self):
+-        """Same (user, host, port) must yield the same control socket so
+-        ControlMaster reuse works across reconnects."""
++    def test_each_environment_has_its_own_master(self):
++        """Two chats on one target must not share a ControlMaster: one chat's cleanup()
++        (-O exit) would cut the other's running command off with exit 255."""
+         first = SSHEnvironment(host="example.com", user="alice", port=2222)
+         second = SSHEnvironment(host="example.com", user="alice", port=2222)
+-        assert first.control_socket == second.control_socket
++        assert first.control_socket != second.control_socket
++        assert first._control_sockets() == [first.control_socket] or second.control_socket not in first._control_sockets()
+ 
+     def test_path_differs_for_different_targets(self):
+         """Different (user, host, port) triples must produce different paths."""
+diff --git a/tools/credential_files.py b/tools/credential_files.py
+index 26189054..151fa8fe 100644
+--- a/tools/credential_files.py
++++ b/tools/credential_files.py
+@@ -203,7 +203,15 @@ def _walk_skill_tree(root: Path) -> Iterator[tuple[Path, list[Path]]]:
+     not ``is_excluded_skill_path()``: that also prunes ``references/``, ``templates/``, ``assets/``,
+     ``scripts/`` — progressive-disclosure files and bundled scripts the sandbox does execute.
+     """
++    try:  # aqeelos:shared-skills: the main profile's skills tier only carries skills in this profile's scope
++        from agent.skill_utils import is_out_of_scope_skill_path, is_shared_skill_path
++        scoped = is_shared_skill_path(root)
++    except ImportError:  # no shared tier without the shared-skills patch, so nothing to scope
++        scoped = False
+     for dirpath, dirnames, filenames in os.walk(root):
++        if scoped and is_out_of_scope_skill_path(dirpath):
++            dirnames[:] = []
++            continue
+         dirnames[:] = sorted(d for d in dirnames if d not in EXCLUDED_SKILL_DIRS)
+         base = Path(dirpath)
+         yield base, [f for f in (base / n for n in filenames) if not f.is_symlink() and f.is_file()]
+diff --git a/tools/environments/file_sync.py b/tools/environments/file_sync.py
+index 0de27089..8ec28553 100644
+--- a/tools/environments/file_sync.py
++++ b/tools/environments/file_sync.py
+@@ -466,6 +466,13 @@ class FileSyncManager:
+         if self._is_upload_only_host_path(host_path, upload_only_host_paths):
+             logger.debug("sync_back: skipping upload-only credential file %s", remote_path)
+             return 0
++        try:  # aqeelos:shared-skills: the main profile's skills are read-only to other profiles
++            from agent.skill_utils import is_shared_skill_path
++            if is_shared_skill_path(host_path):
++                logger.debug("sync_back: skipping shared skill file %s", remote_path)
++                return 0
++        except Exception:
++            pass
+ 
+         if pushed_hash is not None and os.path.exists(host_path) and _sha256_file(host_path) != pushed_hash:
+             # aqeelos:quiet-usage-sync: skills/.usage.json only counts skill use; last write wins without a warning
+diff --git a/tools/environments/ssh.py b/tools/environments/ssh.py
+index 5fbf4f03..bdb45730 100644
+--- a/tools/environments/ssh.py
++++ b/tools/environments/ssh.py
+@@ -119,9 +119,10 @@ class SSHEnvironment(BaseEnvironment):
+         # limit (raw user@host:port + SSH's 16-byte suffix under a deep $TMPDIR exceeds it), and
+         # stability across reconnects keeps ControlMaster reuse working. A probe gets its own
+         # per-instance socket so its cleanup() can never close the agent's shared master.
+-        socket_key = f"{user}@{host}:{port}"
+-        if probe_only:
+-            socket_key = f"{socket_key}:probe:{self._session_id}"
++        # aqeelos: every environment (one per chat) gets its own master: cleanup() sends ``-O exit``,
++        # and a master shared by all chats of one agent in a gateway cut off other chats' running
++        # commands (exit 255) whenever any one chat ended.
++        socket_key = f"{user}@{host}:{port}:{'probe' if probe_only else 'env'}:{self._session_id}"
+         _socket_id = hashlib.sha256(socket_key.encode()).hexdigest()[:16]
+         self.control_socket = self.control_dir / f"{_socket_id}.sock"
+         self._sync_manager = None  # cleanup() reads it; set before anything below can raise

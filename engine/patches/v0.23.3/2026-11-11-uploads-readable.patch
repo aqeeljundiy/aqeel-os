@@ -1,0 +1,13 @@
+diff --git a/hermes_cli/web_routers/files.py b/hermes_cli/web_routers/files.py
+index 08df7512..3d9b2b7e 100644
+--- a/hermes_cli/web_routers/files.py
++++ b/hermes_cli/web_routers/files.py
+@@ -1052,6 +1052,8 @@ async def stream_upload_to_path(
+                     raise HTTPException(status_code=413, detail=too_large)
+                 # Only the read stays on the event loop, so an abort still reaches the cleanup below.
+                 await asyncio.to_thread(out.write, chunk)
++        # aqeelos:uploads-readable — mkstemp makes the file 0600; uploads must be readable by the agents that receive them
++        os.chmod(tmp_path, 0o644)
+         await asyncio.to_thread(os.replace, tmp_path, target)
+         renamed = True
+     except PermissionError:

@@ -57,3 +57,24 @@ test('plain unified diffs (no diff --git line) layer the same way: in place is d
  writeFileSync(path.join(s.E,'f.py'),LAYERED);
  assert.deepEqual(layerState(s.E,[s.p1,s.p2]).map(x=>x.inPlace),[true,true]);
  writeFileSync(path.join(s.E,'f.py'),BASE);const r=applyLayers(s.E,[s.p1,s.p2]);assert.deepEqual(r.applied,['2026-11-11-a.patch','2026-11-12-b.patch']);assert.equal(s.f(),LAYERED);s.done()});
+
+test('a newer engine: the version folder copy is used when the original no longer fits, and the original when it does',async()=>{
+ const {applyWithVariants}=await import('./engine-patch-layers.mjs');const s=setup();
+ // the "new engine" rewrote line three, so p1 no longer applies; its copy for v9.9.9 targets the new text
+ writeFileSync(path.join(s.E,'f.py'),BASE.replace('three','tres'));s.git('commit','-qam','new engine');
+ const V=path.join(s.P,'v9.9.9');mkdirSync(V);writeFileSync(path.join(s.E,'f.py'),BASE.replace('three','TRES'));writeFileSync(path.join(V,path.basename(s.p1)),s.git('diff'));s.git('checkout','-q','f.py');
+ const r=applyWithVariants(s.E,[s.p1],f=>[path.join(V,path.basename(f))]);
+ assert.deepEqual(r.applied,[path.basename(s.p1)]);assert.deepEqual(r.misfit,[]);assert.equal(r.variant[path.basename(s.p1)],'v9.9.9');assert.match(s.f(),/TRES/);
+ const again=applyWithVariants(s.E,[s.p1],f=>[path.join(V,path.basename(f))]);assert.deepEqual([again.applied,again.misfit],[[],[]],'in place the second time');
+ s.done()});
+
+test('the original wins on the engine it was written for; no copy fits means a misfit',async()=>{
+ const {applyWithVariants}=await import('./engine-patch-layers.mjs');const s=setup();
+ const r=applyWithVariants(s.E,[s.p1],()=>[s.p2]);assert.deepEqual(r.variant,{});assert.deepEqual(r.applied,[path.basename(s.p1)]);s.done();
+ const t=setup();writeFileSync(path.join(t.E,'f.py'),'all\nnew\n');t.git('commit','-qam','x');
+ const m=applyWithVariants(t.E,[t.p1],()=>[t.p2]);assert.deepEqual(m.misfit,[path.basename(t.p1)]);t.done()});
+
+test('an empty copy for a version means upstream does it there: in place, nothing applied',async()=>{
+ const {applyWithVariants}=await import('./engine-patch-layers.mjs');const s=setup();
+ writeFileSync(path.join(s.E,'f.py'),'all\nnew\n');s.git('commit','-qam','x');const V=path.join(s.P,'v9.9.9');mkdirSync(V);writeFileSync(path.join(V,path.basename(s.p1)),'# upstream does this since v9.9.9\n');
+ const r=applyWithVariants(s.E,[s.p1],f=>[path.join(V,path.basename(f))]);assert.deepEqual([r.applied,r.misfit,r.inPlace],[[],[],[path.basename(s.p1)]]);assert.equal(s.f(),'all\nnew\n');s.done()});
