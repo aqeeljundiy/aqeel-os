@@ -94,3 +94,8 @@ test('the live test\'s agent check does not ask a model while the provider is on
  assert.equal(s.skipped,true);assert.equal(s.inconclusive,true);assert.equal(s.resetAt,h.until);assert.match(s.why,/on hold.*session limit.*test agent was not asked/);
  assert.equal(readHold(DATA,now+31*60e3),null,'over');assert.equal(holdSkip(null),null);assert.equal(holdSkip({until:now-1},now),null);
  assert.deepEqual(summary([{name:'agent',...s}]),{ok:true,failed:[]},'a skipped, inconclusive check never undoes a deploy')});
+
+test('a failed fast-switching sweep says why on its ✗ line, the only line Health keeps (i04f6f8cd, 21 Nov 2026)',()=>{
+ const sh=readFileSync(new URL('./box-check.sh',import.meta.url),'utf8'),l=sh.split('\n').find(x=>x.includes('fast page switching found problems'));
+ assert.ok(l,'the sweep line is there');assert.match(l,/✗ fast page switching found problems \(twice\): \$\(echo "\$s"/,'the detail is on the ✗ line itself');
+ assert.deepEqual(failuresIn('✗ fast page switching found problems (twice): {"bad":2,"pages":["/x"]}'),['fast page switching found problems (twice): {"bad":2,"pages":["/x"]}'])});
