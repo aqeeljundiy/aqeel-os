@@ -101,3 +101,8 @@ test('a long Sheets read: cut for the chat, whole for a script, and the two neve
  const [chat,script]=await Promise.all([g.call('bot','google_sheets',args),g.call('bot','google_sheets',args,{full:true})]);
  assert.match(chat.text,/cut at 40000 characters/);assert.ok(chat.text.length<41000);
  assert.doesNotMatch(script.text,/cut at/);assert.ok(script.text.includes('rec00000000002999'))});
+
+test('a failed tool call is logged with a short reason, long numbers masked (21 Nov 2026)',async()=>{
+ const {whyShort}=await import('../app/tool-bridge.mjs');
+ assert.equal(whyShort('\n Unable to parse range: Leads!A1 for +6281234567890\nsecond line'),'Unable to parse range: Leads!A1 for +#');
+ assert.equal(whyShort(''),'no reason given');assert.equal(whyShort('x'.repeat(300)).length,100)});

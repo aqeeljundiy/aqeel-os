@@ -20,6 +20,8 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {homeOf as engineHomeOf} from './agentops.mjs';
 import {readFileSync} from 'node:fs';
+// why a tool call failed, short enough for the log: first line, long numbers masked (21 Nov 2026: 25 failed Sheets calls on P&P, no reason kept)
+export const whyShort=t=>String(t||'').split('\n').find(l=>l.trim())?.trim().replace(/\d{5,}/g,'#').slice(0,100)||'no reason given';
 
 // how an agent learns it: a tool in aqeelos-notify, which every agent has (17 Nov 2026: the repo's skills are off on installs made before
 // them, so the skill alone never reached Fakhri Agent). Its answer is the skill's text, so there is one how-to.
@@ -59,7 +61,7 @@ export function createToolBridge({HERMES_HOME,WORK,PORT,sig,python,readConfig,go
   if(!server||!tool)return fail(400,'Say which server and tool: {"server":"airtable","tool":"list_records_for_table","arguments":{…}}, or {"op":"list"}.');
   const args=body.arguments&&typeof body.arguments==='object'?body.arguments:{},timeout=Math.min(Math.max(Number(body.timeout)||120,5),600);
   if(server==='google'){if(!googleTools||!googleTools.TOOLS.some(t=>t.name===tool))return fail(404,'Google tools: '+(googleTools?googleTools.TOOLS.map(t=>t.name).join(', '):'none'));
-   const r=await googleTools.call(a,tool,args,{full:true});log('tool bridge: '+a+' google.'+tool+(r.isError?' (refused or failed)':''));return {status:200,json:{ok:true,isError:!!r.isError,text:r.text,structured:null}}}
+   const r=await googleTools.call(a,tool,args,{full:true});log('tool bridge: '+a+' google.'+tool+(r.isError?' (refused or failed: '+whyShort(r.text)+')':''));return {status:200,json:{ok:true,isError:!!r.isError,text:r.text,structured:null}}}
   if(!servers.includes(server))return fail(404,server+' is not a tool server this agent can call from a script. Yours: '+(servers.join(', ')||'none')+', and google.');
   let w;try{w=await worker(a,server)}catch(e){return fail(e.status||502,e.message)}
   if(!w.tools.includes(tool))return fail(404,server+' has no tool '+tool+' for this agent. Its tools: '+w.tools.join(', '));
