@@ -133,7 +133,7 @@ export function headlessLook({chrome='/opt/aqeelos/chrome/chrome',wait=9000}={})
  // one look at a time on the box (each is a whole Chrome)
  return url=>{const p=chain.then(()=>Promise.race([once(url),new Promise((_,rej)=>setTimeout(()=>rej(Error('the check took too long')),60000))]));chain=p.catch(()=>{});return p}}
 
-export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconnect=async()=>{},sig,setKey,readConfig,pick,look=headlessLook(),event=async()=>{},solved=async()=>{},unflag=async()=>{},engineTools=async()=>null,lastAnswer=async()=>'',telegram=async()=>false,signAll=null,nameOf=a=>a,log=m=>console.log(m),now=()=>Date.now(),retryMs=40000}){
+export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconnect=async()=>{},sig,setKey,readConfig,pick,look=headlessLook(),event=async()=>{},solved=async()=>{},engineTools=async()=>null,lastAnswer=async()=>'',telegram=async()=>false,signAll=null,nameOf=a=>a,log=m=>console.log(m),now=()=>Date.now(),retryMs=40000}){
  // every signature in the agents' folders is kept current by relay-heal.mjs (signAll: (label, agent) => signature, from relay-keys.mjs); ensure() runs it
  const heal=signAll?createRelayHeal({HERMES_HOME,WORK,sign:signAll,readConfig,pick,log}):null;
  const FILE=path.join(DATA,'posting-limits.json'),LOGS=path.join(DATA,'posting-log');let db=null;
@@ -308,8 +308,10 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
  // flags made by the older rule that the rule above no longer calls repeats are taken back once per start (their Bottlenecks items too)
  let unflagged=false;
  async function reflag(a){const l=await entries(a);let ch=false;for(const e of l){if(!e.repeatOf)continue;const p=l.find(x=>x.id===e.repeatOf);if(p&&sameAsk(p,e))continue;
-   delete e.repeatOf;ch=true;await unflag('repeat|'+a+'|'+e.post).catch(()=>{});log('posting: '+a+' '+e.post+' is a conversation, not a repeat; flag taken back')}
-  if(ch)await keep(a)}
+   delete e.repeatOf;ch=true;await solved(a,'repeat|'+a+'|'+e.post).catch(()=>{});log('posting: '+a+' '+e.post+' is a conversation, not a repeat; flag taken back')}
+  if(ch)await keep(a);
+  // and any post with no flagged answer left loses its item (an earlier start took the flag back but missed the item)
+  for(const post of new Set(l.filter(x=>x.post&&kindOf(x)==='comment').map(x=>x.post)))if(!l.some(x=>x.post===post&&x.repeatOf))await solved(a,'repeat|'+a+'|'+post).catch(()=>{})}
  async function tick(){if(busy)return;busy=true;try{await load();if(!unflagged){unflagged=true;for(const a of Object.keys(db.agents))await reflag(a).catch(x=>log('posting reflag: '+x.message))}if(++ticks%10===0)await ensure().catch(x=>log('posting ensure: '+x.message));for(const a of Object.keys(db.agents)){const r=await rulesOf(a);if(!r?.on)continue;await expire(a,r).catch(x=>log('posting expire: '+x.message));await unrecordedItem(a).catch(x=>log('posting unrecorded: '+x.message));const l=await entries(a);await silence(a,r,l.filter(x=>x.status!=='pending')).catch(x=>log('posting silence: '+x.message));
    const e=l.find(x=>(x.status==='unchecked'&&now()-x.at>60e3)||(x.status==='checking'&&now()-x.at>120e3))||   // 'checking' for over 2 minutes: the app restarted during the look (audit M15)
     l.find(x=>x.status==='visible'&&!x.rechecked&&now()-x.at>=r.recheckMin*60e3&&now()-x.at<6*3600e3)||

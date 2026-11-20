@@ -120,3 +120,8 @@ test('without reply_to: a later, different answer is a conversation; a reworded 
  let r=await x.pl.record('ct',{post_url:u,text:'kak itu 4x maksudnya sebulan ya, tiap klinik hitungnya beda'});
  x.tick(3*3600e3);r=await x.pl.record('ct',{post_url:u,text:'soal kisaran per bulan aku ga berani sebut angka kak'});assert.doesNotMatch(r.text,/REPEAT/);
  x.tick(2*3600e3);r=await x.pl.record('ct',{post_url:u,text:'soal kisaran per bulan aku ga berani sebut angka ya kak, maaf'});assert.match(r.text,/REPEAT/,'the same answer reworded')});
+
+test('at start, a post with no flagged answer left loses its Bottlenecks item',async()=>{
+ const x=await rig({pages:['p']});await x.pl.set('ct',{rules:R});const u='https://www.threads.com/@cove.example/post/Dfconvo3';
+ await x.pl.record('ct',{post_url:u,text:'kak itu 4x maksudnya sebulan ya'});x.tick(3*3600e3);await x.pl.record('ct',{post_url:u,text:'soal kisaran per bulan aku ga berani sebut angka'});
+ await x.pl.tick();assert.ok(x.solved.some(s=>s[0]==='ct'&&s[1]==='repeat|ct|'+u),'the item for this post is solved')});
