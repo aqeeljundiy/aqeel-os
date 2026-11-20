@@ -99,3 +99,9 @@ test('a failed fast-switching sweep says why on its ✗ line, the only line Heal
  const sh=readFileSync(new URL('./box-check.sh',import.meta.url),'utf8'),l=sh.split('\n').find(x=>x.includes('fast page switching found problems'));
  assert.ok(l,'the sweep line is there');assert.match(l,/✗ fast page switching found problems \(twice\): \$\(echo "\$s"/,'the detail is on the ✗ line itself');
  assert.deepEqual(failuresIn('✗ fast page switching found problems (twice): {"bad":2,"pages":["/x"]}'),['fast page switching found problems (twice): {"bad":2,"pages":["/x"]}'])});
+
+test('a test copy leaves agent-trash out and skips unreadable files, so the night checks can start (AU-22, 21 Nov 2026)',()=>{
+ // cp -a stopped on deleted agents' files owned by their own users, and the night's checks ended before any page was checked
+ for(const f of ['box-check.sh','fixer-testcopy.sh','test-people.sh']){const sh=readFileSync(new URL('./'+f,import.meta.url),'utf8');
+  assert.doesNotMatch(sh,/cp -a ~\/apps\/hermes-ui-data \$D\/data/,f+': no plain cp of the data folder');
+  assert.match(sh,/tar -C ~\/apps\/hermes-ui-data --exclude=\.\/agent-trash --ignore-failed-read -cf - \. 2>\/dev\/null \| tar -C \$D\/data -xf -/,f)}});

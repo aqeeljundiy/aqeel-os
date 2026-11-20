@@ -26,7 +26,7 @@ rm -rf $STAGE && aq_private $STAGE
 for p in app assets backlog engine extension scripts code-installer; do [ -e "$W/$p" ] && cp -a "$W/$p" $STAGE/; done
 if [ "$ISO" = 1 ]; then D=$HOME/.testcopy; else D=/tmp/ppl; fi
 aq_private $D; chmod -R go-rwx $D 2>/dev/null || true
-if [ ! -f $D/env ]; then rm -rf $D/data; if [ "$ISO" = 1 ]; then mkdir -p $D/data; else cp -a ~/apps/hermes-ui-data $D/data; fi; chmod -R go-rwx $D/data
+if [ ! -f $D/env ]; then rm -rf $D/data; if [ "$ISO" = 1 ]; then mkdir -p $D/data; else { mkdir -p $D/data && tar -C ~/apps/hermes-ui-data --exclude=./agent-trash --ignore-failed-read -cf - . 2>/dev/null | tar -C $D/data -xf -; }; fi; chmod -R go-rwx $D/data
  [ "$ISO" = 1 ] || node -e "const fs=require('fs'),f=process.argv[1];const d=JSON.parse(fs.readFileSync(f,'utf8'));delete d.ownerPw;fs.writeFileSync(f,JSON.stringify(d,null,1))" $D/data/users.json 2>/dev/null || true
  PW=$(head -c 12 /dev/urandom | base64 | tr -d "/+="); echo "$PW" > $D/pw
  printf "UI_PASSWORD_HASH=%s\nUI_INSECURE_COOKIE=1\nUI_DATA_DIR=%s\nUI_PORT=4402\nUI_HOST=127.0.0.1\nAQEELOS_LIVE=0\n" "$(node $STAGE/app/server.mjs hash "$PW")" "$D/data" > $D/env; fi

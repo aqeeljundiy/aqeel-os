@@ -34,7 +34,9 @@ if [ "$HEAVY" != 1 ]; then cd /tmp/aq-stage; echo "· light checks (FULL_CHECK=1
 else
 # the test copy's own data and password (made again if the box restarted and /tmp was emptied)
 aq_private $D; chmod -R go-rwx $D 2>/dev/null || true
-if [ ! -f $D/env ]; then rm -rf $D/data; cp -a ~/apps/hermes-ui-data $D/data; chmod -R go-rwx $D/data
+# the test copy's data: everything but agent-trash (deleted agents' files, some owned by their own users: cp stopped on them,
+# so the night's checks ended before any page was checked on 20 and 21 Nov), and a file the box user cannot read is skipped
+if [ ! -f $D/env ]; then rm -rf $D/data; { mkdir -p $D/data && tar -C ~/apps/hermes-ui-data --exclude=./agent-trash --ignore-failed-read -cf - . 2>/dev/null | tar -C $D/data -xf -; }; chmod -R go-rwx $D/data
  # the test copy signs in with its own password: on an install whose owner set one in the app, that one would win and every check would be signed out
  # and with the password alone: once the owner has an email, sign-in wants it, and every check that signs in with the password
  # only (pages, fast page switching, controls, actions) was refused, "Enter your email." (EN-10, 19 Nov 2026: the night check failed on it)

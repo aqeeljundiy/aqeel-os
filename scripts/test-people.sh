@@ -6,7 +6,7 @@ umask 077
 D=/tmp/ppl; [ -L $D ] && { echo "✗ $D is a link; refusing to use it"; exit 1; }; mkdir -p $D; [ -O $D ] || { echo "✗ $D is not this user's own folder"; exit 1; }; chmod 700 $D; chmod -R go-rwx $D 2>/dev/null
 [ -f $D/pid ] && kill $(cat $D/pid) 2>/dev/null; sleep 1
 if [ "$1" = fresh ] || [ ! -f $D/env ]; then
- rm -rf $D/data; cp -a ~/apps/hermes-ui-data $D/data
+ rm -rf $D/data; { mkdir -p $D/data && tar -C ~/apps/hermes-ui-data --exclude=./agent-trash --ignore-failed-read -cf - . 2>/dev/null | tar -C $D/data -xf -; }
  PW=$(head -c 12 /dev/urandom | base64 | tr -d "/+="); echo "$PW" > $D/pw
  printf "UI_PASSWORD_HASH=%s\nUI_INSECURE_COOKIE=1\nUI_DATA_DIR=%s\nUI_PORT=4402\nUI_HOST=127.0.0.1\nAQEELOS_LIVE=0\n" "$(node ~/apps/hermes-ui/app/server.mjs hash "$PW")" "$D/data" > $D/env
 fi
