@@ -153,3 +153,8 @@ test('the Sheets API switched off in the Google Cloud project: says so, who can 
  const r=await S(t,{action:'list_sheets'});assert.equal(r.isError,true);assert.match(r.text,/sheets API is switched off in this install's Google Cloud project/);assert.match(r.text,/owner or an admin of that Google Cloud project/);assert.match(r.text,/console\.developers\.google\.com\/apis\/api\/sheets\.googleapis\.com/);assert.match(r.text,/report_bottleneck/);
  const l=await make({locked:true,filesCall:async()=>({status:403,json:{error:{code:403,message:msg}}})});assert.match((await l.t.call('bot','google_sheets',{action:'list_sheets',spreadsheet:'OWN'})).text,/switched off in this install/);
  assert.match(apiOff('x'),/this tool cannot work yet/)});
+
+test('batch writes: every batchUpdate asks for no spreadsheet and no grid data back, and the tool says so',async()=>{const {t,batches}=await make();
+ await S(t,{action:'batch_update',requests:[{autoResizeDimensions:{dimensions:{sheetId:0,dimension:'COLUMNS',startIndex:0,endIndex:2}}}],include_spreadsheet_in_response:false,response_include_grid_data:false});
+ const b=batches.at(-1);assert.equal(b.includeSpreadsheetInResponse,false);assert.equal(b.responseIncludeGridData,false);
+});
