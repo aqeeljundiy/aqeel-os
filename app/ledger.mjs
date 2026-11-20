@@ -12,8 +12,9 @@ const PROVIDER_NAME={'claude-subscription-directsdk-experimental':'Claude plan',
 export const providerName=p=>PROVIDER_NAME[p]||(p?String(p).replace(/^custom:/,'').replace(/-/g,' '):'Unknown');
 export const PARTS=['sys','tools','hist','toolres','last'];
 
-const blank=()=>({calls:0,read:0,cached:0,written:0,est:0,an:{sys:0,tools:0,hist:0,toolres:0,last:0}});
-function add(t,l){t.calls++;t.read+=(l.in||0)+(l.cw||0);t.cached+=l.cr||0;t.written+=l.out||0;if(l.est)t.est++;for(const k of PARTS)t.an[k]+=l.an?.[k]||0}
+const blank=()=>({calls:0,errors:0,read:0,cached:0,written:0,est:0,an:{sys:0,tools:0,hist:0,toolres:0,last:0}});
+function add(t,l){if(l.err){t.errors=(t.errors||0)+1;return}   // a failed call (engine api_request_error): counted, no tokens
+ t.calls++;t.read+=(l.in||0)+(l.cw||0);t.cached+=l.cr||0;t.written+=l.out||0;if(l.est)t.est++;for(const k of PARTS)t.an[k]+=l.an?.[k]||0}
 const tokensOf=t=>t.read+t.cached+t.written;
 
 // one call's schedule: a scheduled run's name (its session title), a chat, or background work (titles, compression)
@@ -83,3 +84,13 @@ export async function budgetStatus(H){const b=await readBudgets(H),names=Object.
   for(const r of (await readFile(path.join(H,'usage-ledger',day+'.jsonl'),'utf8').catch(()=>'')).split('\n')){if(r[0]!=='{')continue;let l;try{l=JSON.parse(r)}catch{continue}
    if(l.t<since)continue;const a=String(l.a).split('--')[0];if(b.agents[a])used[a]=(used[a]||0)+(l.in||0)+(l.cr||0)+(l.cw||0)+(l.out||0)}
  return names.map(a=>({agent:a,used:used[a]||0,budget:b.agents[a],pct:Math.round((used[a]||0)/b.agents[a]*100)}))}
+
+// per model, for one agent: calls that worked and calls that failed in the last `days` (the pickers warn about a model that keeps
+// failing that agent's work, model-catalog.mjs; the model trials in accounts.mjs move an agent back off one)
+// _p95: the size (tokens read) of this agent's larger requests, so a picker can say a model's context is too small for it
+export async function modelStats(H,agent,{days=7,since=0}={}){const from=Math.max(since/1000||0,Date.now()/1000-days*86400),out={},sizes=[];
+ for(let i=Math.ceil(days);i>=0;i--){const day=new Date(Date.now()-i*864e5).toISOString().slice(0,10);
+  for(const r of (await readFile(path.join(H,'usage-ledger',day+'.jsonl'),'utf8').catch(()=>'')).split('\n')){if(r[0]!=='{')continue;let l;try{l=JSON.parse(r)}catch{continue}
+   if(l.t<from||String(l.a).split('--')[0]!==agent)continue;const k=l.pv+'|'+l.m,x=out[k]||={calls:0,errors:0,last:''};if(l.err){x.errors++;x.last=String(l.msg||l.err).slice(0,160)}else{x.calls++;sizes.push((l.in||0)+(l.cr||0)+(l.cw||0))}}}
+ sizes.sort((a,b)=>a-b);Object.defineProperty(out,'_p95',{value:sizes.length?sizes[Math.min(sizes.length-1,Math.floor(sizes.length*.95))]:0});
+ return out}

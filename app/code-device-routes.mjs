@@ -5,6 +5,7 @@ import {stat,realpath} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {accountHooks} from './accounts.mjs';
 import {readConfig} from './agentops.mjs';
+import {buildCatalog} from './model-catalog.mjs';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
 import {hostSetting,onlineCodeOn,ONLINE_CODE_MSG} from './install-routes.mjs';
@@ -70,7 +71,10 @@ export function createCodeDeviceRoutes({API_KEY,GATE,NAMES,accountsApi,agentDefa
     try{const o=await fetch(GATE.origin+(a&&a!=='default'?'/p/'+encodeURIComponent(a):'')+'/api/model/options',{headers:{authorization:'Bearer '+API_KEY},signal:AbortSignal.timeout(20000)}).then(x=>x.ok?x.json():null);
      // every model the chat's menu has (any provider): Code's one model list, for a person's computer too (25 Oct 2026);
      // Code runs Claude models on Claude Code, ChatGPT models on Codex and the rest on the engine (the box's copy only)
-     const allow=await accountHooks.allowList?.().catch(()=>[])||[];if(o)engineModels=(o.providers||[]).filter(pv=>pv.authenticated&&pv.slug!=='gemini-subscription'&&(pv.models||[]).length&&(!/nous/i.test((pv.slug||'')+' '+(pv.name||''))||allow.includes(pv.slug))&&(pv.slug!=='anthropic'||allow.includes('anthropic'))).map(pv=>({provider:pv.slug,name:codeProvName(pv),models:(pv.models||[]).filter(m=>typeof m==='string'&&users.modelOk(who,pv.slug,m))})).filter(x=>x.models.length);
+     const allow=await accountHooks.allowList?.().catch(()=>[])||[];
+     // the same list as the chat's picker (model-catalog.mjs, 21 Nov 2026): groups, Google's efforts folded, each model's efforts
+     if(o)engineModels=buildCatalog(o,{allow}).providers.map(c=>{const pv=(o.providers||[]).find(x=>x.slug===c.provider)||{},ok=m=>m.effortIds?Object.values(m.effortIds).some(v=>users.modelOk(who,c.provider,v)):users.modelOk(who,c.provider,m.id),ms=c.models.filter(ok);
+      return {provider:c.provider,name:codeProvName(pv),group:c.group,models:ms.map(m=>m.id),efforts:Object.fromEntries(ms.map(m=>[m.id,m.efforts])),names:Object.fromEntries(ms.map(m=>[m.id,m.name])),effortIds:Object.fromEntries(ms.filter(m=>m.effortIds).map(m=>[m.id,m.effortIds])),isNew:ms.filter(m=>m.isNew).map(m=>m.id),warn:Object.fromEntries(ms.filter(m=>m.warn).map(m=>[m.id,m.warn]))}}).filter(x=>x.models.length);
      if(o){models={claude:[],codex:[],gemini:[]};for(const pv of o.providers||[]){if(!pv.authenticated)continue;const k=pv.slug==='claude-subscription-directsdk-experimental'?'claude':pv.slug==='openai-codex'?'codex':/^gemini/.test(pv.slug)?'gemini':'';if(!k)continue;
       for(const m of pv.models||[])if(typeof m==='string'&&users.modelOk(who,pv.slug,m)&&!models[k].includes(m))models[k].push(m)}}}catch{}
     // engine: every model (and Default with the priority list) runs on the engine; a computer's projects through the code bridge
@@ -95,7 +99,7 @@ export function createCodeDeviceRoutes({API_KEY,GATE,NAMES,accountsApi,agentDefa
      // the other agents attached to this message: the engine may ask them (code_ask_agent) while the turn goes on
      const attached=[a,...new Set((Array.isArray(b.agents)?b.agents:[]).map(String).filter(x=>x!==a))].slice(0,6);for(const x of attached.slice(1))if(!may.includes(x)||await isTestAgent(x))return send(res,403,{error:'You can’t use one of the attached agents.'}),true;
      // a member: within their daily limit (Chat and Code together) and only on models they may use, as in Chat
-     let provider=String(b.provider||''),model=String(b.model||'');if(!/^[\w.:/@+-]{0,120}(\[[0-9]{1,4}[km]\])?$/.test(provider+model))return send(res,400,{error:'Invalid model name.'}),true;   // [1m]: the Claude sign-in's context suffix (15 Nov 2026)
+     let provider=String(b.provider||''),model=String(b.model||'');{const eff=String(b.effort||''),o=await accountHooks.options?.(a).catch(()=>null);if(o&&provider&&model){const c=buildCatalog(o),m=c.providers.find(x=>x.provider===provider)?.models.find(x=>x.id===model);if(m?.effortIds)model=m.effortIds[eff]||m.effortIds[m.defaultEffort]}}   // model-catalog.mjsif(!/^[\w.:/@+-]{0,120}(\[[0-9]{1,4}[km]\])?$/.test(provider+model))return send(res,400,{error:'Invalid model name.'}),true;   // [1m]: the Claude sign-in's context suffix (15 Nov 2026)
      if(!users.isAdmin(who)){const lim=users.limitOf(who);if(lim?.tokens){const t=await usage.today(await listAllProfiles(),who.id,users.ownerOf);if(t.tokens+await code.usedToday(who.id)>=lim.tokens)return send(res,429,{error:'You reached today\'s limit. It resets at midnight.'}),true}
       const allowed=users.allowedModels(who);if(allowed){const d=await agentModel(a),isDef=!model||model===d.model&&(!provider||provider===d.provider);
        if(!isDef){if(!users.modelOk(who,provider,model))return send(res,403,{error:'You can\'t use that model. Ask the owner.'}),true}

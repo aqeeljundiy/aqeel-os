@@ -40,9 +40,11 @@ async function models(agent,act){if(Date.now()-codexModels.at>600000||!codexMode
  const add=(h,m)=>{if(m.id&&!modelIdOk(m.id))return;const off=why(h);out[h].push(m);out.list.push({harness:h,id:m.id,name:m.name,description:off||m.description,off,...(m.engineId?{engineId:m.engineId}:{})})};
  add(dh,{id:'',name:'Default'+(d.model?' ('+niceModel(String(d.model).split('/').pop())+')':''),description:'The agent’s own model, with the Models page’s priority list and auto-switch.',efforts:EFFORTS[dh],defaultEffort:'',isDefault:true});
  for(const pv of r.engineModels)for(const m of pv.models){const h=H(pv.provider),c=h==='codex'?own.codex.find(x=>x.id===m):h==='claude'?own.claude.find(x=>x.id===m):null;
-  add(h,{id:h==='aqeelos'?pv.provider+'::'+m:m,name:niceModel(String(m).split('/').pop())+' · '+pv.name,description:pv.name+(pv.provider===d.provider&&m===d.model?' · the agent’s own model':''),efforts:c?.efforts?.length?c.efforts:h==='codex'?['low','medium','high']:EFFORTS[h],defaultEffort:c?.defaultEffort||'',...(h!=='aqeelos'&&engine?{engineId:pv.provider+'::'+m}:{})});
+  // the efforts and name from aqeelOS's one model list (model-catalog.mjs), so Code offers what the chat offers
+  const ef=Array.isArray(pv.efforts?.[m])?pv.efforts[m]:null,nm=(pv.names?.[m]||niceModel(String(m).split('/').pop()))+((pv.isNew||[]).includes(m)?' · New':'');
+  add(h,{id:h==='aqeelos'?pv.provider+'::'+m:m,name:nm+' · '+pv.name,description:pv.warn?.[m]||pv.name+(pv.provider===d.provider&&m===d.model?' · the agent’s own model':''),efforts:ef||(c?.efforts?.length?c.efforts:h==='codex'?['low','medium','high']:EFFORTS[h]),defaultEffort:c?.defaultEffort||'',...(h!=='aqeelos'&&engine?{engineId:pv.provider+'::'+m}:{})});
   // the same model on the engine, for a computer whose Claude Code or Codex is not signed in: chat's accounts work here too
-  if(h!=='aqeelos'&&engine)out.aqeelos.push({id:pv.provider+'::'+m,name:niceModel(String(m).split('/').pop())+' · '+pv.name,description:pv.name,efforts:EFFORTS.aqeelos,defaultEffort:''})}
+  if(h!=='aqeelos'&&engine)out.aqeelos.push({id:pv.provider+'::'+m,name:nm+' · '+pv.name,description:pv.name,efforts:ef||EFFORTS.aqeelos,defaultEffort:''})}
  return out}
 const root=path.dirname(fileURLToPath(import.meta.url));
 // home-screen app (app/pwa.mjs, 12 Nov 2026): this copy's own icons drawn from aqeelOS's mark, the manifest and the head tags on every page; when it runs

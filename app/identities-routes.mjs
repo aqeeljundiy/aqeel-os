@@ -118,6 +118,11 @@ async function logo(req,res){
    if(p==='/ui/accounts/setup-agent'&&req.method==='POST'&&!users.isAdmin(u)){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}const n=String(b.name||'');
     if(users.level(u,n)!=='owner')return send(res,403,{error:'Only the owner of this agent can finish its setup.'}),true;
     return accountsApi(req,res,p,send,async()=>JSON.stringify({name:n}),a=>users.level(u,a)==='owner'),true}
+   // the one model list (model-catalog.mjs): anyone who may chat with that agent gets its list, the same the engine's own model
+   // options give them (the chat's and Code's pickers read it)
+   if(p==='/ui/accounts/models'&&req.method==='GET'){const a=String(url.searchParams.get('agent')||'default');
+    if(users.gate(u,'/gapi/api/model/options','GET',new URLSearchParams(),a))return send(res,403,{error:'You can’t use that agent.'}),true;
+    return accountsApi(req,res,p,send,readBody,x=>x===a),true}
    const no=users.gate(u,p,req.method,url.searchParams,'default');if(no)return send(res,no.status,{error:no.error}),true;
    // connecting, reconnecting, renaming and removing a model account, its priority and switching: admins only, every
    // route the same way (25 Oct; before, adding a Claude account and sending its code were open to any signed-in admin

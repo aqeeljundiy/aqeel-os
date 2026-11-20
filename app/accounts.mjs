@@ -13,7 +13,7 @@ import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
 import {providerUnavailable} from './provider-limits.mjs';import {stuckAgents} from './stuck-limit.mjs';
 import {providerPlugins} from './code-agent.mjs';import {enableReloaded} from './agent-reload.mjs';
-import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';import {withExtras,chosenAccount,chooseAccount,splitSlug} from './model-accounts.mjs';
+import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';import {withExtras,chosenAccount,chooseAccount,splitSlug} from './model-accounts.mjs';import {createModelCatalog} from './model-catalog.mjs';import {modelStats} from './ledger.mjs';
 import {accountStates} from './account-state.mjs';
 import {groupEntries,planGroups,normalise,nextPick,rankMembers,moves24,stepAgent,pinState,afterMove,pinFromEvents,upGate,movesToday,singleFlight,DAY_MAX} from './account-pools.mjs';
 
@@ -189,6 +189,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  const SKIP=/^(nous|anthropic|custom)$|claude-subscription/,ALLOWABLE=/^(nous|anthropic)$/;
  // subscriptions report windows; one that reports none has unknown room (only pay-per-use counts as 0)
  const SUBS=/subscription|codex|antigravity|agy/i;
+ const catalogs=()=>catalogs.c||=createModelCatalog({DATA,options:p=>options(p),allow:async()=>(await load()).allow||[],stats:a=>modelStats(HERMES_HOME,a)});   // the one model list (model-catalog.mjs)
  const options=profile=>fetch(GATE+(!profile||profile==='default'?'':'/p/'+encodeURIComponent(profile))+'/api/model/options',{headers:{authorization:'Bearer '+(process.env.API_SERVER_KEY||'')},signal:AbortSignal.timeout(20000)}).then(r=>{if(!r.ok)throw new Error('options '+r.status);return r.json()});
  const provCache=new Map();   // agent → {t,v}
  // null when that agent's gateway did not answer (and nothing was read before): callers skip instead of guessing
@@ -235,7 +236,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  async function entryOf(d,profile){const r=await agentRoute(profile);if(r.provider===PLUGIN||!r.provider)return PLUGIN_KEY+(d.assign[profile]||'main');const c=await chosenAccount(profile,r.provider,{HERMES_HOME}).catch(()=>'');return 'p:'+r.provider+(c?'#'+c:'')}   // one account of a provider with several: model-accounts.mjs
  const isClaude=m=>/claude|opus|sonnet|haiku/i.test(String(m||''));
  const must=async(p,why)=>{const r=await p;if(!r?.ok)throw new Error(why+': '+String(r?.err||r?.out||'the engine did not accept the change').slice(0,200));return r};
- async function useEntry(d,profile,e,why){
+ async function useEntry(d,profile,e,why){const was=await agentRoute(profile).catch(()=>({}));
   if(e.key.startsWith(PLUGIN_KEY)){await assign(d,profile,e.key.slice(PLUGIN_KEY.length),why);await must(setKey(profile,'model.provider',PLUGIN),'Could not switch '+profile+' to Claude');
    // a Claude account needs a Claude model: one left from another provider (gpt-5…) would fail every message
    if(!e.model&&!isClaude((await agentRoute(profile)).model)){const pl=await options(profile).then(j=>(j.providers||[]).find(p=>p.slug===PLUGIN)).catch(()=>null);const m=(pl?.models||[]).find(isClaude)||pl?.models?.[0];
@@ -248,6 +249,8 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    if(!e.model&&ok.models?.length){const cur=(await agentRoute(profile)).model;if(!ok.models.includes(cur))await must(setKey(profile,'model.default',ok.models[0]),'Could not set the model')}
    await update(x=>event(x,{t:Date.now(),profile,to:e.key,why:why||''}))}
   if(e.model)await must(setKey(profile,'model.default',e.model),'Could not set the model');
+  // a new model is on trial for two hours (trialTick below): if it keeps failing this agent's work, the agent moves on
+  {const to=await agentRoute(profile).catch(()=>({}));if(was.model&&to.model&&(to.model!==was.model||to.provider!==was.provider))await update(x=>{(x.trials||={})[profile]={at:Date.now(),key:e.key,from:was,to}})}
   accountHooks.backupSync?.('model changed');   // its backup list starts below where it is now (backup-models.mjs)
  }
  // Claude use for a model: the 5-hour and weekly windows, plus the weekly Opus or Sonnet window when the model is one
@@ -348,7 +351,18 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
    const worst=claudeUsed(v.usage,(await agentRoute(profile)).model);if(worst<th)continue;
    const best=accts.filter(a=>a.id!==cur&&det[a.id]?.signedIn&&det[a.id]?.usage).sort((x,y)=>headroom(det[y.id])-headroom(det[x.id]))[0];
    if(best&&headroom(det[best.id])>100-th)await assign(d,profile,best.id,`${v.label||cur} reached ${worst}%`).catch(e=>console.warn('auto-switch',e.message))}}
- if(LIVE_APP)setInterval(()=>autoTick().catch(()=>{}),5*60000).unref();   // a test copy never switches real agents
+ if(LIVE_APP)setInterval(()=>{autoTick().catch(()=>{});trialTick().catch(e=>console.warn('model trial',e.message))},5*60000).unref();
+ // Model trials (owner, 21 Nov 2026: "whenever we cross LLMs, the function of the agent doesn't break"): for two hours after an
+ // agent's model or provider changed, its calls are read from the usage ledger. 3 failed calls or more, at least as many as
+ // the ones that worked, moves it to the next entry in its order (at most 3 times a day); after two quiet hours the trial ends.
+ const TRIAL_MS=2*3600e3;
+ async function trialTick(){const d=await load(),t=Date.now();
+  for(const [profile,tr] of Object.entries(d.trials||{})){if(t-tr.at>TRIAL_MS){await update(x=>{if(x.trials?.[profile]?.at===tr.at)delete x.trials[profile]});continue}
+   const st=Object.values(await modelStats(HERMES_HOME,profile,{days:1,since:tr.at}).catch(()=>({}))),c=st.reduce((s,x)=>s+x.calls,0),er=st.reduce((s,x)=>s+x.errors,0);
+   if(er<3||er<c)continue;const today=(d.events||[]).filter(e=>e.profile===profile&&/^model trial/.test(e.why||'')&&t-e.t<864e5).length;
+   await update(x=>{if(x.trials?.[profile]?.at===tr.at)delete x.trials[profile]});if(today>=3){console.warn('model trial: '+profile+' failed again, no more moves today');continue}
+   const why='model trial: '+(tr.to.model||'the new model')+' failed '+er+' of '+(c+er)+' calls';const to=await accountHooks.moveOff(profile,tr.key,why).catch(()=>null);
+   console.log('model trial:',profile,tr.key,'→',to||'nowhere to go',why)}}   // a test copy never switches real agents
  // Route order step (a) (route-order.mjs): does another signed-in account of this agent's pool have room for the model it runs? Then the
  // engine must not leave that model: the agent is moved there (auto-switch, now). Only claimed while auto-switch is on and can still move
  // this agent today, so a "yes" never leaves an agent failing with nobody to move it. Signed-out and unreadable members have no room.
@@ -499,6 +513,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   for(const k of keepQueueKeys(await readConfig(name),env))await setKey(name,k,'false')};
  // a provider going away (Google AI Pro signed out): the agent's first priority entry it can really use; null when none
  accountHooks.allowList=async()=>(await load()).allow||[];
+ accountHooks.options=p=>options(p);   // what the engine offers an agent (Code's model list, model-catalog.mjs)
  // Who has a skill, and changing that (Abilities › Skills › Access). key: "<category>/<skill>" or the skill's name.
  // The agent that built it (the first agent other than the main one that held it) owns it and always keeps it;
  // agents added get a copy at once; agents removed lose theirs (moved to skills-removed, never deleted); "Every agent"
@@ -520,9 +535,9 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   if(every)for(const a of Object.keys(rec))if(rec[a]&&src.rel in rec[a]&&!has[a]&&!gain.includes(a))delete rec[a][src.rel];   // taken off before: every agent means every agent
   gKeep();for(const a of lose)await trimSkills(a).catch(()=>0);
   console.log('skill',src.rel,every?'for every agent':'for '+want.join(', '),'· gave',gain.length,'· took from',lose.length);return {owner,holders,gain,lose}};
- accountHooks.moveOff=async(profile,key)=>{const d=await load();for(const e of orderOf(d,profile)){if(e.key===key)continue;
+ accountHooks.moveOff=async(profile,key,why='Google AI Pro signed out')=>{const d=await load();for(const e of orderOf(d,profile)){if(e.key===key)continue;
   if(e.key.startsWith(PLUGIN_KEY)){const a=all(d).find(x=>x.id===e.key.slice(PLUGIN_KEY.length));if(!a||!(await details(a)).signedIn)continue}
-  try{await useEntry(d,profile,e,'Google AI Pro signed out');return e.key}catch(er){console.warn('move off',profile,e.key,er.message)}}return null};
+  try{await useEntry(d,profile,e,why);return e.key}catch(er){console.warn('move off',profile,e.key,er.message)}}return null};
  /* ---------- Code: a run for an agent uses the account that agent is on here ----------
     Claude: the account's folder (main: Claude's default place, so no folder). Another provider: its name only; Code
     has no way to use the engine's own sign-in for it (see codeRoute's caller in server.mjs). */
@@ -572,6 +587,10 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   async function jobUse(){const out={};for(const a of (await agentNames()).filter(x=>!x.includes('--'))){let j;try{j=JSON.parse(await readFile(path.join(homeOf(a),'cron','jobs.json'),'utf8'))}catch{continue}
    for(const x of (Array.isArray(j)?j:j.jobs||[]))if(x.provider&&!x.no_agent&&x.enabled!==false&&x.state!=='paused'){const c=await chosenAccount(a,x.provider,{HERMES_HOME}).catch(()=>'');(out['p:'+x.provider+(c?'#'+c:'')]||=[]).push({agent:a,name:x.name||x.id})}}
    return out}
+  // GET /ui/accounts/models?agent=: the one model list the chat's and Code's pickers show for that agent (model-catalog.mjs)
+  if(p==='/ui/accounts/models'&&req.method==='GET'){const n=String(new URL(req.url,'http://x').searchParams.get('agent')||'default');
+   if(!/^[a-z0-9][a-z0-9_-]{0,63}(--[a-z0-9_-]{1,64})?$/.test(n)||!see(n))return send(res,400,{error:'Unknown agent.'});
+   try{return send(res,200,await catalogs().catalog(n))}catch(e){return send(res,502,{error:'The engine did not list its models: '+e.message})}}
   if(p==='/ui/accounts'&&req.method==='GET'){const fresh=new URL(req.url,'http://x').searchParams.has('fresh');const list=await Promise.all(all(d).map(a=>details(a,fresh,true)));
    const ag=(await agents()).filter(see);const pv=await providers(fresh),prov=pv||[];
    // what is signed out right now, from what this read already has (the banner and the card's Reconnect)

@@ -64,7 +64,11 @@ const Chat={
  /* ---------- models ---------- */
  async loadModels(){
   try{const d=await G('/api/model/options');const out=[];
-   for(const p of d.providers||[]){if(!usableProvider(p))continue;for(const m of p.models||[])out.push({id:m,provider:p.slug,providerName:provLabel(p),label:modelLabel(m),reasoning:p.capabilities?.[m]?.reasoning!==false,current:p.is_current&&m===d.model})}
+   // the one model list, shared with Code (model-catalog.mjs: groups, Google's efforts folded, each model's efforts, new ones); the
+   // engine's own list when it cannot be read
+   const cat=await UI('/ui/accounts/models?agent='+encodeURIComponent(S.profile||'default')).catch(()=>null);
+   if(cat?.providers?.length)for(const p of cat.providers)for(const m of p.models)out.push({id:m.id,provider:p.provider,providerName:p.name,group:p.group,label:m.effortIds?m.name:modelLabel(m.id),reasoning:m.efforts.length>0,efforts:m.efforts,effortIds:m.effortIds||null,defaultEffort:m.defaultEffort,context:m.context,isNew:m.isNew,current:m.current,warn:m.warn||''});
+   else for(const p of d.providers||[]){if(!usableProvider(p))continue;for(const m of p.models||[])out.push({id:m,provider:p.slug,providerName:provLabel(p),label:modelLabel(m),reasoning:p.capabilities?.[m]?.reasoning!==false,current:p.is_current&&m===d.model})}
    this.usage=Object.fromEntries((d.providers||[]).filter(p=>p.usage?.windows?.length).map(p=>[p.slug,p.usage.windows]));this.defProv=d.provider;
    this.provWarn=Object.fromEntries((d.providers||[]).filter(p=>p.warning).map(p=>[p.slug,String(p.warning)]));this.modelsErr=null;
    // Current provider first, then everything else signed in.
@@ -74,7 +78,9 @@ const Chat={
   }catch(e){this.modelsErr=e;if(!this.models)this.models=[]}
  },
  cur(){return this.model||this.defaultModel||{}},
- setModel(m){this.model=m?{id:m.id,provider:m.provider}:null;store.set('model',this.model);this.paintComposerBar();toast('Model: '+(m?m.label:'default'))},
+ // the picked model's full entry (its efforts, a folded Google model's names per effort)
+ curModel(){const c=this.cur();return (this.models||[]).find(x=>x.id===c.id&&x.provider===c.provider)||null},
+ setModel(m){this.model=m?{id:m.id,provider:m.provider}:null;store.set('model',this.model);{const mm=this.curModel();if(mm?.efforts?.length&&!mm.efforts.includes(this.effort))this.setEffort(mm.defaultEffort)}this.paintComposerBar();toast('Model: '+(m?m.label:'default'))},
  setEffort(e){this.effort=e;store.set('effort:'+(S.profile||'default'),e);this.paintComposerBar()},
  // the composer's model list: one group per account ("Provider (n models)"), its warning under it, searchable by name, id or account
  modelMenu(el){const ms=this.models||[],cur=this.cur(),ad=!S.me||S.me.admin;
@@ -83,12 +89,12 @@ const Chat={
   const groups=new Map();for(const m of ms){if(!groups.has(m.provider))groups.set(m.provider,[]);groups.get(m.provider).push(m)}
   // a pick here is for this chat only; the agent's own model is set on Models › Agents' models (1 Nov 2026)
   const items=[{header:'Model for this chat only'},{label:'Default ('+modelLabel(this.defaultModel?.id)+')',sub:'The agent’s own model',icon:'cpu',on:!this.model,run:()=>this.setModel(null)}];
-  for(const [slug,l] of groups){items.push('-',{header:l[0].providerName+' ('+plural(l.length,'model')+')',title:slug});if(this.provWarn?.[slug])items.push({label:this.provWarn[slug],icon:'alert',disabled:true,find:slug});
-   items.push(...l.map(m=>({label:m.label,title:m.id,find:m.id+' '+slug+' '+m.providerName,icon:'cpu',on:!!this.model&&m.id===cur.id&&m.provider===cur.provider,run:()=>this.setModel(m)})))}
+  for(const [slug,l] of groups){items.push('-',{header:(l[0].group&&l[0].group!=='Other'&&!new RegExp(l[0].group,'i').test(l[0].providerName)?l[0].group+' · ':'')+l[0].providerName+' ('+plural(l.length,'model')+')',title:slug});if(this.provWarn?.[slug])items.push({label:this.provWarn[slug],icon:'alert',disabled:true,find:slug});
+   items.push(...l.map(m=>({label:m.label+(m.isNew?' · New':''),sub:m.warn||(m.effortIds?'Effort picks '+m.efforts.join(', '):''),title:m.id,find:m.id+' '+slug+' '+m.providerName+' '+(m.group||''),icon:'cpu',on:!!this.model&&m.id===cur.id&&m.provider===cur.provider,run:()=>this.setModel(m)})))}
   items.push('-',{label:'Refresh models',icon:'refresh',run:()=>this.reloadModels()},...(ad?[{label:'Sign in to more models…',icon:'key',run:()=>go('/models/models')}]:[]));
   menu(el,items,{search:ms.length>8})},
  async reloadModels(){const b=$('[data-menu=model]');b?.classList.add('is-busy');await this.loadModels();this.paintComposerBar();const n=$('[data-menu=model]');if(n)this.modelMenu(n);if(this.modelsErr)toast("Couldn't load models: "+(this.modelsErr.message||this.modelsErr),'err')},
- effortMenu(el){menu(el,[{header:'How hard it thinks'},...EFFORTS.map(e=>({label:EFFORT_LABEL[e],sub:e==='none'?'No thinking: fastest':e==='ultra'?'The most thinking the model allows':'',on:e===this.effort,run:()=>this.setEffort(e)}))])},
+ effortMenu(el){const mm=this.curModel(),ef=mm?.efforts?.length?mm.efforts:EFFORTS;menu(el,[{header:'How hard it thinks'},...ef.map(e=>({label:EFFORT_LABEL[e],sub:e==='none'?'No thinking: fastest':e==='ultra'?'The most thinking the model allows':'',on:e===this.effort,run:()=>this.setEffort(e)}))])},
  // the folder a new chat starts in: the agent's projects (one row per folder) and repositories it found, newest first
  async workspaceMenu(el,w){if(!w){try{w=await H('/chat/workspaces')}catch(e){return fail(e)}}
   const home=String(w.home||boxHome()).replace(/\/+$/,''),short=p=>{p=String(p||'');return p===home?'~':p.startsWith(home+'/')?'~'+p.slice(home.length):p};
@@ -371,7 +377,7 @@ const Chat={
   // name with the agent's default account (Gemini sent to the Claude account, 18 Oct)
   // the lock makes the engine use exactly this model on this account (and remember both for the chat); without it
   // a chat's earlier model name beats the request and runs on the agent's default account
-  if(m.id&&m.provider){body.model=m.id;body.provider=m.provider;body.require_model_lock=true}
+  if(m.id&&m.provider){const full=this.curModel();body.model=full?.effortIds?full.effortIds[this.effort]||full.effortIds[full.defaultEffort]:m.id;body.provider=m.provider;body.require_model_lock=true}
   body.model_options={reasoning_effort:this.effort};
   const ctl=new AbortController();s.abort=ctl;s.conn='connecting';let gotResp=false;s.runModel='';if(this.id===id)this.paintComposerBar();
   try{const r=await G('/api/sessions/'+encodeURIComponent(id)+'/chat/stream',{method:'POST',body,raw:true,signal:ctl.signal});

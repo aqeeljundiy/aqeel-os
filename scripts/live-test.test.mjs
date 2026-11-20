@@ -83,3 +83,10 @@ test('the deploy gives the live test 25 minutes and names a run that runs out (2
  // two Kirimdev tries wait 300 s or more each: at 900 s a slow run was cut off with no output and undid a version that had passed
  const sh=(await import('node:fs')).readFileSync(new URL('./box-live.sh',import.meta.url),'utf8');
  assert.match(sh,/timeout 1500 node [^\n]*scripts\/live-test\.mjs/);assert.match(sh,/\[ "\$rc" = 124 \] && echo "✗ the live test ran out of time/)});
+
+test('a tester outside WhatsApp\'s 24 h window is not written to (the reply could never be sent)',async()=>{
+ const {windowOpen}=await import('./live-test.mjs');const now=1_800_000_000_000,t={phone:'+62 811-111'};
+ assert.equal(windowOpen('x',t,{'x|62811111':now-29*3600e3},now),false,'last wrote 29 h ago');
+ assert.equal(windowOpen('x',t,{},now),false,'never wrote');
+ assert.equal(windowOpen('x',t,{'x|62811111':now-2*3600e3},now),true);
+ assert.equal(windowOpen('x',t,{'x|62811111':now-23.8*3600e3},now),false,'closes during the check')});

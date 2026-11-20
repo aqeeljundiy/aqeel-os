@@ -528,6 +528,20 @@ def _post_api(api_request_id="", session_id="", platform="", task_id="", model="
         logger.debug("aqeelos-live ledger: %s", e)
 
 
+def _api_err(api_request_id="", session_id="", platform="", task_id="", model="", provider="", status_code=None, retryable=None, error=None, **_):
+    """a failed AI call: one ledger line with err (aqeelOS, 21 Nov 2026: a model that fails an agent's work is moved off by itself,
+    accounts.mjs model trials, and the pickers say which models failed which work)"""
+    try:
+        agent, _ = _agent_and_root()
+        _pending.pop(str(api_request_id), None)
+        e = error or {}
+        _write_ledger({"t": round(time.time(), 1), "a": agent, "s": session_id or "", "p": platform or "", "task": str(task_id or "")[:80], "m": model or "",
+                       "pv": provider or "", "acct": _acct_of(provider), "err": str(e.get("type") or "error")[:60], "msg": str(e.get("message") or "")[:200],
+                       "code": status_code, "retry": bool(retryable), "in": 0, "cr": 0, "cw": 0, "out": 0, "an": {}})
+    except Exception as ex:
+        logger.debug("aqeelos-live ledger err: %s", ex)
+
+
 def _post_aux(session_id="", platform="", task_id="", model="", provider="", usage=None, api_duration=0, aux_task="", **_):
     try:
         agent, _ = _agent_and_root()
@@ -641,3 +655,4 @@ def register(ctx) -> None:
     ctx.register_hook("pre_api_request", _pre_api)
     ctx.register_hook("post_api_request", _post_api)
     ctx.register_hook("post_auxiliary_call", _post_aux)
+    ctx.register_hook("api_request_error", _api_err)
