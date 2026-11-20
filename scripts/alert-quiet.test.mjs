@@ -31,3 +31,11 @@ test('automation guard: say() skips test agents and holds, and a fix is told onl
  q='test';await g._say('srv|tester|s1|found|1','tester broken');q='hold';await g._say('srv|a|s1|found|1','a broken');assert.equal(sent.length,0);
  q=null;await g._say('fixed|a|s1|1','a works again');assert.equal(sent.length,0,'nothing was told, so no fixed note');
  await g._say('srv|a|s2|found|1','a s2 broken');await g._say('fixed|a|s2|2','a s2 works again');assert.equal(sent.length,2);assert.equal(sent[1][1].info,true)});
+
+// i2aa4ed68 (20 Nov 2026): the Airtable sign-in alert (srv|<app>|signin) stayed open after Fakhri's agent reconnected: nothing closed it
+test('a sign-in alert closes once no agent needs that sign-in any more',async()=>{const d=await mkdtemp(path.join(tmpdir(),'guard-'));
+ await writeFile(path.join(d,'automation-guard.json'),JSON.stringify({sent:{'srv|airtable|signin':1,'srv|notion|other':1},told:{'srv|airtable|signin|fakhri':1}}));
+ const sent=[];const g=createAutomationGuard({DATA:d,HERMES_HOME:d,LIVE:true,listAgents:async()=>[],readConfig:async()=>({}),withAgent:async()=>{},setKey:async()=>{},dash:async()=>({}),tell:async(t,o)=>{sent.push([t,o])}});
+ await g._fixPass();const db=await g._db();
+ assert.equal(db.sent['srv|airtable|signin'],undefined,'the sign-in alert is gone');assert.equal(db.sent['srv|notion|other'],1,'other alerts stay');
+ assert.deepEqual(Object.keys(db.told),[],'its told record too');assert.ok(sent.some(([,o])=>o?.resolve==='srv|airtable|signin'),'and the alert is resolved')});
