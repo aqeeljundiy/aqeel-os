@@ -11,7 +11,7 @@ import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStat
 import {allowed,trim,setRule,ownerOf} from './skills-policy.mjs';import {follow} from './skill-follow.mjs';
 import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
-import {providerUnavailable} from './provider-limits.mjs';
+import {providerUnavailable} from './provider-limits.mjs';import {stuckAgents} from './stuck-limit.mjs';
 import {providerPlugins} from './code-agent.mjs';import {enableReloaded} from './agent-reload.mjs';
 import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';
 import {accountStates} from './account-state.mjs';
@@ -297,6 +297,10 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   // back home: an entry higher in the list is used again once it has this share free (owner's setting, 20% by default)
   const backAt=100-(Number(d.auto?.backFree)||20);
   const det=Object.fromEntries(await Promise.all(accts.map(async a=>[a.id,await details(a)])));
+  // a sign-in that answers "rate limit" on every run for hours (stuck-limit.mjs, AU-10): the agent moves to the signed-in account with the most room
+  if(on)for(const profile of stuckAgents(await readFile(path.join(HERMES_HOME,'logs','aqeelos-dropped.jsonl'),'utf8').catch(()=>''),Date.now(),p=>Math.max(0,...(d.events||[]).filter(e=>e.profile===p).map(e=>e.t)))){const cur=d.assign[profile]||'main';
+   if(movesToday(d.moved?.[profile])>=DAY_MAX)continue;const best=accts.filter(a=>a.id!==cur&&det[a.id]?.signedIn).sort((x,y)=>headroom(det[y.id])-headroom(det[x.id]))[0];
+   if(best)await assign(d,profile,best.id,'rate limit on every run for hours on '+(det[cur]?.label||cur)).then(()=>console.log('auto-switch:',profile,cur,'to',best.id,'(rate limit on every run)'),e=>console.warn('auto-switch',e.message))}
   if((d.priority||[]).length){
    // every entry used up: nobody is moved (there is nowhere to go; it only flipped agents between full accounts). Held until the earliest
    // reset, said once on Health (d.exhausted, one item, not one per agent) and told to the fixer (accountHooks.exhausted)
