@@ -19,8 +19,8 @@ const Connect={
   for(const [k,v] of Object.entries(env))if(v.category==='provider'&&v.provider&&/_(API_KEY|TOKEN|KEY)$/.test(k)&&!/^(ANTHROPIC_TOKEN|CLAUDE_CODE_OAUTH_TOKEN|HERMES_)/.test(k))get(v.provider,v.provider_label).key={slug:v.provider};
   // the engine's sign-ins; xAI's and MiniMax's join their key under one name
   for(const o of oa.providers||[]){if(/^(anthropic|claude-code)$/.test(o.id))continue;const base=o.id.replace(/-(oauth|acp)$/,'');const x=get(P.has(base)?base:o.id,o.name);
-   x.signin=o.flow==='external'?{kind:'external',id:o.id,cmd:o.cli_command||''}:{kind:'engine',id:o.id,flow:o.flow}}
-  if(agy?.installed)Object.assign(get('antigravity-subscription'),{sub:'Gemini and Claude on your Google plan',signin:{kind:'google'}});
+   x.signin=o.flow==='external'?{kind:'external',id:o.id,cmd:o.cli_command||''}:{kind:'engine',id:o.id,flow:o.flow};if(o.id==='openai-codex')x.many=true}
+  if(agy?.installed)Object.assign(get('antigravity-subscription'),{sub:'Gemini and Claude on your Google plan',signin:{kind:'google'},many:true});
   Object.assign(get('custom'),{name:'Your own endpoint',sub:'Any OpenAI-compatible address',key:{slug:'custom'},custom:true,many:true,logo:''});
   const rank=x=>{const i=CX_FIRST.indexOf(x.id);return x.custom?999:i<0?(x.signin?.kind==='external'&&!x.key?500:100):i};
   return [...P.values()].sort((a,b)=>rank(a)-rank(b)||a.name.localeCompare(b.name))},
@@ -36,15 +36,15 @@ const Connect={
   setTimeout(()=>d.querySelector('.drawer-body input:not([type=checkbox])')?.focus(),40)},
  async add(){const d=Connect.open('Add account');let list;try{list=await Connect.list()}catch(e){if(d.isConnected)Connect.view(d,'Add account',alertBox(esc(e.message||'Could not load the providers.'),{act:'acct-new'}),`<button class="ghost" data-act="close">Close</button>`);return}if(d.isConnected)Connect.pick(d,list)},
  pick(d,list){const way=p=>p.sub||(p.signin&&p.key?'Sign in or use an API key':p.signin?(p.signin.kind==='external'?'Signs in through its own app on the AI box':'Sign in with your plan'):'API key');
-  const on=p=>!p.many&&((p.signin&&Connect.have(p,'signin'))||(p.key&&Connect.have(p,'key')));
+  const on=p=>(!p.many||p.signin?.kind!=='claude'&&!p.custom)&&((p.signin&&Connect.have(p,'signin'))||(p.key&&Connect.have(p,'key')));
   Connect.view(d,'Add account',`${list.length>10?`<div class="search cx-q">${icon('search',16)}<input id="cxQ" placeholder="Search providers" autocomplete="off" aria-label="Search providers"></div>`:''}
    <div class="cx-list" role="list">${list.map((p,i)=>`<button class="cx-row" role="listitem" data-id="${esc(p.id)}" ${st(i)}>${logoImg(p.logo,p.name[0].toUpperCase())}<span class="txt"><b>${esc(p.name)}${on(p)?' <span class="chip ok">Connected</span>':''}</b><small>${esc(way(p))}</small></span>${icon('chevR',16)}</button>`).join('')}</div>
-   <p class="hint cx-one">Claude and your own endpoints can be added more than once. Every other provider holds one account here: the engine keeps one sign-in and one key for each.</p>`,`<button class="ghost" data-act="close">Cancel</button>`);
+   <p class="hint cx-one">Claude, ChatGPT, Google AI Pro and your own endpoints can be added more than once: a connected one gets another account next to it, and agents use the one with the most room. Every other provider holds one account here.</p>`,`<button class="ghost" data-act="close">Cancel</button>`);
   const q=d.querySelector('#cxQ');if(q)q.oninput=()=>{const t=q.value.trim().toLowerCase();d.querySelectorAll('.cx-row').forEach(r=>{r.hidden=!!t&&!r.textContent.toLowerCase().includes(t)})};
   d.querySelectorAll('.cx-row').forEach(r=>r.onclick=()=>Connect.choose(d,list.find(x=>x.id===r.dataset.id),()=>Connect.pick(d,list)))},
  // exactly two ways; a provider with one of them goes straight to it
  choose(d,p,back){if(!p)return;if(!(p.signin&&p.key))return p.signin?Connect.signin(d,p,null,back):Connect.key(d,p,null,back);
-  const again=w=>Connect.have(p,w)?'<span class="cx-have">Connected already: this replaces it.</span>':'';
+  const again=w=>Connect.have(p,w)?'<span class="cx-have">'+(w==='signin'&&p.many?'Connected already: this adds another account.':'Connected already: this replaces it.')+'</span>':'';
   Connect.view(d,'Connect '+p.name,`<div class="cx-ways"><button class="cx-opt" data-way="signin">${icon('user',20)}<b>Sign in</b><small>${p.signin.kind==='external'?'Through its own app on the AI box':'With your '+esc(p.name)+' plan, in your browser'}</small>${again('signin')}</button>
    <button class="cx-opt" data-way="key">${icon('key',20)}<b>Use an API key</b><small>Paste a key from ${esc(p.name)}. aqeelOS tests it first.</small>${again('key')}</button></div>`,
    `<button class="ghost" id="cxBack">Back</button><span style="flex:1"></span><button class="ghost" data-act="close">Cancel</button>`);
@@ -64,13 +64,21 @@ const Connect={
    submit:async code=>{const r=await post(H,P+oid+'/submit'+q,{session_id:s.session_id,code});return r.ok===false||r.status==='error'?{error:(r.message||'That code did not work')+'. Paste it again, or press Try again.'}:{done:true}},
    poll:async()=>{const r=await callRaw('/hapi',P+oid+'/poll/'+encodeURIComponent(s.session_id)+q,{keep:true});return r.status==='approved'?'done':r.status==='pending'?'pending':{error:r.error_message||(r.status==='denied'?'The sign-in was refused.':r.status==='expired'?'This code ran out of time.':'The sign-in did not finish.')}},
    cancel:()=>{if(s?.session_id)del(H,P+'sessions/'+encodeURIComponent(s.session_id)+q).catch(()=>{})}}},
-  google:()=>({start:async()=>{const r=await post(UI,'/ui/antigravity/start');return r.signedIn?{done:true}:{url:r.url,paste:true,expires:20*60000,
-    tips:['Choose the Google account that has Google AI Pro.','Allow access, then copy the code Google shows.']}},
+  google:(p,again,more)=>({start:async()=>{const r=await post(UI,'/ui/antigravity/start',more?{account:'new'}:{});return r.signedIn?{done:true}:{url:r.url,paste:true,expires:20*60000,
+    tips:[more?'Choose the other Google account, the one not connected yet.':'Choose the Google account that has Google AI Pro.','Allow access, then copy the code Google shows.']}},
    submit:async code=>{const x=await post(UI,'/ui/antigravity/code',{code});return x.ok?{done:true}:{error:x.error||'Google did not accept that code.'}},
-   cancel:()=>post(UI,'/ui/antigravity/cancel').catch(()=>{})})},
+   cancel:()=>post(UI,'/ui/antigravity/cancel').catch(()=>{})}),
+  // another ChatGPT plan into the engine's pool: the engine's own sign-in (a link and a code), then it is in the list
+  chatgptMore:p=>({start:async()=>{const r=await post(UI,'/ui/pools/chatgpt/add',{});return {url:r.url,paste:false,code:r.code,expires:r.expires||9e5,every:3000,
+    tips:['Sign in with the other ChatGPT account, the one not connected yet.','This window finishes by itself once you approve.']}},
+   submit:async()=>({error:'Approve it in the ChatGPT page: this window finishes by itself.'}),
+   poll:async()=>{const r=await UI('/ui/pools/chatgpt/add');return r.state==='done'?'done':r.state==='waiting'?'pending':{error:r.error||(r.state==='expired'?'This code ran out of time.':'The sign-in did not finish.')}},
+   cancel:()=>del(UI,'/ui/pools/chatgpt/add').catch(()=>{})})},
  async signin(d,p,again,back){const title=(again?'Reconnect ':'Connect ')+(again?.name||p.name),s=p.signin;
   if(s.kind==='external'){const own=s.cmd&&!/hermes/i.test(s.cmd);return Connect.view(d,title,`<p class="cx-p">${esc(p.name)} signs in through its own app on the AI box, not here.${own?' Run this there once:':' Ask whoever looks after the AI box to sign it in there.'}</p>${own?`<div class="cmd-copy"><code>${esc(s.cmd)}</code><button class="ghost small" data-act="copy-text" data-text="${esc(s.cmd)}">${icon('copy',14)}Copy</button></div>`:''}`,Connect.backFoot(back)),back&&(d.querySelector('#cxBack').onclick=back)}
-  const F=Connect.flows[s.kind](p,again);let over=false,timer=null;
+  // ChatGPT or Google connected already: one more account next to it (model-pools.mjs, antigravity.mjs), never a replacement
+  const more=!again&&p.many&&(s.kind==='google'||s.id==='openai-codex')&&Connect.have(p,'signin');
+  const F=more?(s.kind==='google'?Connect.flows.google(p,null,true):Connect.flows.chatgptMore(p)):Connect.flows[s.kind](p,again);let over=false,timer=null;
   Connect.view(d,title,`<p class="hint cx-wait"><span class="spinner tiny"></span> Getting the sign-in link…</p>`,Connect.backFoot(back));if(back)d.querySelector('#cxBack').onclick=back;
   const stop=()=>{clearInterval(timer);if(!over){over=true;F.cancel()}};d._stop=stop;
   let r;try{r=await F.start()}catch(e){if(!d.isConnected||d._stop!==stop)return;over=true;d._stop=null;return Connect.view(d,title,alertBox(esc(e.message||'The sign-in did not start.'),{id:'cxRetry'}),Connect.backFoot(back)),d.querySelector('#cxRetry').onclick=()=>Connect.signin(d,p,again,back),back&&(d.querySelector('#cxBack').onclick=back)}

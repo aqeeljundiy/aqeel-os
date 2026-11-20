@@ -35,7 +35,11 @@ const miniBar=(l,w)=>w?`<div class="mbar"><span class="mb-l">${l}</span><span cl
 
 PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
  setActions(`<button data-act="acct-refresh">${icon('refresh',16)}Refresh</button>${S.me?.admin!==false?`<button class="primary" data-act="acct-new">${icon('plus',16)}Add account</button>`:''}`);
- const [d,oa]=await Promise.all([UI('/ui/accounts'+(Pages._acctFresh?'?fresh=1':'')),H('/providers/oauth?profile=default').catch(()=>null)]);Pages._acctFresh=false;Pages._acct=d;if(d.allow)S.acctAllow=d.allow;if(!Chat.models)await Chat.loadModels().catch(()=>{});if(gone())return;
+ const admin0=S.me?.admin!==false,[d,oa,cx,ga]=await Promise.all([UI('/ui/accounts'+(Pages._acctFresh?'?fresh=1':'')),H('/providers/oauth?profile=default').catch(()=>null),
+  admin0?UI('/ui/pools/chatgpt').catch(()=>null):null,admin0?UI('/ui/antigravity/status').catch(()=>null):null]);
+ // more ChatGPT plans (the engine's pool) and more Google accounts (agy folders): listed on their own card, 20 Nov 2026
+ const extra={'p:openai-codex':(cx?.accounts||[]).map((a,i)=>({id:a.id,name:a.label,first:i===0,note:a.status==='exhausted'?'Out for now':a.error?'Error '+a.error:plural(a.requests,'request')})),
+  'p:antigravity-subscription':ga?.signedIn&&(ga.accounts||[]).length?[{id:'main',name:'First account',first:true,note:'Signed in'},...ga.accounts.map(a=>({id:a.id,name:a.label,note:a.signedIn?'Signed in':a.pending?'Signing in…':'Needs signing in again'}))]:[]};Pages._acctFresh=false;Pages._acct=d;if(d.allow)S.acctAllow=d.allow;if(!Chat.models)await Chat.loadModels().catch(()=>{});if(gone())return;
  const oauth=new Set((oa?.providers||[]).map(x=>x.id));
  const src=acctSources(d,oauth);Pages._acctSrc=src;Pages._acctD=d;const admin=S.me?.admin!==false;const byKey=Object.fromEntries(src.map(s=>[s.key,s]));
  // Used by: the agents really on it now (their route), not the old per-account choice
@@ -90,6 +94,7 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
   ${admin?`<button class="ghost icon acct-more-btn" data-menu="acct" data-key="${esc(s.key)}" aria-label="More for ${esc(s.name)}">${icon('more',18)}</button>`:''}</div>
   <div class="acct-st">${status(s)}</div>
   <div class="acct-lim">${limits(s)}${(s.details||[]).map(x=>`<p class="hint" style="margin:6px 0 0">${esc(x)}</p>`).join('')}</div>
+  ${(extra[s.key]||[]).length>1?`<div class="acct-pool"><span class="th">${extra[s.key].length} accounts · least used first</span>${extra[s.key].map(a=>`<div class="acct-pool-row"><b>${esc(a.name)}</b><small>${esc(a.note)}</small>${admin&&!a.first?`<button class="ghost small" data-act="pool-rm" data-key="${esc(s.key)}" data-id="${esc(a.id)}" data-name="${esc(a.name)}">Remove</button>`:''}</div>`).join('')}</div>`:''}
   <div class="acct-agents"><span class="th">Used by</span>${u.length?Access.who({users:u})+`<span class="acct-names">${esc(u.map(x=>x.name).join(', '))}</span>`:'<span class="hint" style="margin:0">No agent yet</span>'}</div></div>`};
  // an account can be in the list again with another model (more than one entry per account, 6 Nov 2026)
  const left=src.filter(s=>!(s.isTeam&&!usedBy(s.key).length)&&(!pri.some(e=>e.key===s.key)||(s.models||[]).some(m=>!pri.some(e=>e.key===s.key&&e.model===m))));
@@ -204,7 +209,8 @@ Pages.priAddMenu=el=>{const pri=Pages._pri,has=(k,m)=>pri.some(e=>e.key===k&&e.m
 Pages.acctMenu=el=>{const s=(Pages._acctSrc||[]).find(x=>x.key===el.dataset.key);if(!s)return;const pri=Pages._pri||[],gs=priGroups(),i=gs.findIndex(g=>g.members.some(e=>e.key===s.key));
  const move=dir=>{[gs[i],gs[i+dir]]=[gs[i+dir],gs[i]];saveGroups(gs)};   // an account in a group moves with its group
  const out=!(s.kind==='claude'&&s.id==='main');
- menu(el,[{label:'Reconnect',sub:s.kind==='key'?'Paste a new key':'Sign in again as this account',icon:'plug',run:()=>Pages.reconnect(s.key,s.name)},
+ const moreOf={'p:openai-codex':'ChatGPT','p:antigravity-subscription':'Google'}[s.key];
+ menu(el,[...(moreOf?[{label:'Add another '+moreOf+' account',sub:'Agents use the least used one first',icon:'plus',run:()=>Connect.add()},'-']:[]),{label:'Reconnect',sub:s.kind==='key'?'Paste a new key':'Sign in again as this account',icon:'plug',run:()=>Pages.reconnect(s.key,s.name)},
   {label:'Rename',icon:'edit',run:()=>acctRename(s)},
   {label:'Choose agents…',sub:!s.ok?'Reconnect it first':plural((Object.values(Pages._acct?.route||{})).filter(r=>r.entry===s.key).length,'agent')+' on it',icon:'user',run:()=>acctAgents(s)},'-',
   ...(i<0?[{label:'Add to priority',icon:'plus',run:()=>savePri([...pri,{key:s.key,model:''}])}]:[{label:'Move up in priority',icon:'chevU',disabled:i===0,run:()=>move(-1)},{label:'Move down in priority',icon:'chevD',disabled:i>=gs.length-1,run:()=>move(1)}]),'-',
@@ -242,3 +248,8 @@ ACT['agy-out']=async a=>{const n=a?.dataset?.name||'Google AI Pro';if(!await con
  const mv=Object.entries(r?.moved||{}),stuck=r?.stuck||[];toast(n+' removed'+(mv.length?'. Moved '+mv.map(([a])=>ident(a).name).join(', '):''));
  if(stuck.length)fail(new Error('Could not move '+stuck.map(a=>ident(a).name).join(', ')+'. Pick another model for '+(stuck.length>1?'them':'it')+' under Which agent uses what.'));reload()}catch(e){fail(e)}};
 
+
+/* ---------- an extra ChatGPT or Google account on its card (model-pools.mjs, antigravity.mjs): Remove takes only that one; agents
+   keep using the others on the same card. The first account is the card itself (its own Remove). ---------- */
+ACT['pool-rm']=async a=>{const {key,id,name}=a.dataset;if(!await confirmBox('Remove '+name+'?','Only this account goes. Agents keep using the other accounts on the card.','Remove'))return;
+ try{if(key==='p:openai-codex')await del(UI,'/ui/pools/chatgpt/'+encodeURIComponent(id));else await post(UI,'/ui/antigravity/remove',{id});toast(name+' removed');Pages._acctFresh=true;reload()}catch(e){fail(e)}};

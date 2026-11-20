@@ -600,6 +600,12 @@ body.dragging .screen-float{transition:none}
 .ag-pick{display:flex;flex-direction:column}.ag-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border)}.ag-row:first-child{border-top:0}
 .ag-row .t{flex:1;min-width:0}.ag-row .t b{display:block;font-size:14px}.ag-row .t small{display:block;font-size:12.5px;color:var(--muted)}
 .acct-agents .th{margin-right:4px}
+/* more ChatGPT or Google accounts on one card (20 Nov 2026): one quiet row each, Remove at the end */
+.acct-pool{display:flex;flex-direction:column;gap:2px;margin-top:10px}
+.acct-pool .th{font-size:12px;color:var(--muted);margin-bottom:2px}
+.acct-pool-row{display:flex;align-items:center;gap:8px;min-height:36px;padding:2px 0;border-top:1px solid var(--border)}
+.acct-pool-row b{font-weight:600;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acct-pool-row small{color:var(--muted);font-size:12px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* real service logos */
 .logo.img{background:var(--surface);border:1px solid var(--border);padding:7px;overflow:hidden}

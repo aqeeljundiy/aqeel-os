@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -56,8 +57,59 @@ def _agy_bin(command: str | None) -> str:
     return command or os.getenv("ANTIGRAVITY_SUBSCRIPTION_COMMAND") or shutil.which("agy") or str(_HOME / ".local" / "bin" / "agy")
 
 
-def _env() -> dict[str, str]:
+# More than one Google account (aqeelOS, 20 Nov 2026): agy keeps one sign-in per home folder. aqeelOS lists the extra ones in
+# ~/.gemini/aqeelos-accounts.json ({"accounts": [{"id", "label", "home"}]}); a request goes to the signed-in account used least,
+# and an account that says it is out of quota rests for an hour while the request moves on to the next one.
+_ACCTS = _HOME / ".gemini" / "aqeelos-accounts.json"
+_STATE = _HOME / ".gemini" / "aqeelos-agy-state.json"
+_QUOTA = re.compile(r"quota|rate.?limit|resource.?exhausted|\b429\b|too many requests|usage limit|limit (reached|exceeded)|exhausted", re.I)
+_state_lock = threading.Lock()
+
+
+def _agy_dir(home: Path) -> Path:
+    return home / ".gemini" / "antigravity-cli"
+
+
+def _accounts() -> list[dict]:
+    """main first, then every extra account that is signed in (its folder holds a sign-in) and not still being set up."""
+    out = [{"id": "main", "home": _HOME}]
+    try:
+        for a in json.loads(_ACCTS.read_text()).get("accounts") or []:
+            home = Path(str(a.get("home") or ""))
+            if re.fullmatch(r"g[0-9a-f]{6}", str(a.get("id") or "")) and not a.get("pending") and (_agy_dir(home) / "antigravity-oauth-token").exists():
+                out.append({"id": a["id"], "home": home})
+    except Exception:
+        pass
+    return out
+
+
+def _read_state() -> dict:
+    try:
+        return json.loads(_STATE.read_text())
+    except Exception:
+        return {}
+
+
+def _write_state(change) -> None:
+    with _state_lock:
+        st = _read_state()
+        change(st)
+        with contextlib.suppress(Exception):
+            _STATE.write_text(json.dumps(st))
+
+
+def order_accounts(accounts: list[dict], state: dict, now: float) -> list[dict]:
+    """resting accounts last (soonest back first); the rest least used first, by today's count."""
+    cool, used = state.get("cool") or {}, (state.get("used") or {}).get(time.strftime("%Y-%m-%d", time.gmtime(now))) or {}
+    fresh = [a for a in accounts if float(cool.get(a["id"], 0)) <= now]
+    rest = sorted([a for a in accounts if float(cool.get(a["id"], 0)) > now], key=lambda a: float(cool.get(a["id"], 0)))
+    return sorted(fresh, key=lambda a: int(used.get(a["id"], 0))) + rest
+
+
+def _env(home: Path | None = None) -> dict[str, str]:
     env = dict(os.environ)
+    if home is not None and home != _HOME:
+        env["HOME"] = str(home)
     env["AGY_CLI_DISABLE_AUTO_UPDATE"] = "true"
     env["PATH"] = str(_HOME / ".local" / "bin") + os.pathsep + env.get("PATH", "")
     return env
@@ -79,9 +131,24 @@ def _make_client_class():
             # a stop because Gemini reached for an agy tool of its own is tried once more, told to write the call as text
             # (reply_fix.retry_note, 19 Nov 2026); every other stop, and a second one, still ends the request
             # up to two more tries: one was not enough on 19 Nov 2026 (the schedule still failed after it); reply_fix.with_retries
-            return _with_retries(lambda t: self._run_once(t, timeout_seconds=timeout_seconds, model=model), prompt_text)
+            accts = order_accounts(_accounts(), _read_state(), time.time())
+            for n, acct in enumerate(accts):
+                try:
+                    out = _with_retries(lambda t: self._run_once(t, timeout_seconds=timeout_seconds, model=model, home=acct["home"]), prompt_text)
+                except RuntimeError as e:
+                    # out of quota: rests an hour; an extra account whose sign-in stopped working: rests 6 hours (Models › Accounts says so)
+                    rest = 3600 if _QUOTA.search(str(e)) else 6 * 3600 if acct["id"] != "main" and re.search(r"auth|sign.?in|unauthori[sz]ed|\b401\b", str(e), re.I) else 0
+                    if n + 1 < len(accts) and rest:
+                        _write_state(lambda st: st.setdefault("cool", {}).__setitem__(acct["id"], time.time() + rest))
+                        continue
+                    raise
+                day = time.strftime("%Y-%m-%d", time.gmtime())
+                _write_state(lambda st: st.__setitem__("used", {day: {**((st.get("used") or {}).get(day) or {}), acct["id"]: int(((st.get("used") or {}).get(day) or {}).get(acct["id"], 0)) + 1}}))
+                return out
+            raise RuntimeError("Antigravity: no Google account is signed in.")
 
-        def _run_once(self, prompt_text: str, *, timeout_seconds: float, model: str | None = None) -> tuple[str, str]:
+        def _run_once(self, prompt_text: str, *, timeout_seconds: float, model: str | None = None, home: Path | None = None) -> tuple[str, str]:
+            home = home or _HOME
             work = Path(tempfile.mkdtemp(prefix="aqeelos-agy-"))
             log = work / "agy.log"
             agent_dir = work / ".agents" / "agents"
@@ -96,7 +163,7 @@ def _make_client_class():
                 args += ["--model", slug]
             if effort:
                 args += ["--effort", effort]
-            proc = subprocess.Popen(args, cwd=str(work), env=_env(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            proc = subprocess.Popen(args, cwd=str(work), env=_env(home), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, text=True, encoding="utf-8")
             with self._active_process_lock:
                 self._active_processes.add(proc)
@@ -142,7 +209,8 @@ def _make_client_class():
                 stderr = (proc.stderr.read() if proc.stderr else "")[-600:]
                 shutil.rmtree(work, ignore_errors=True)
                 if conv_id:   # agy's own copy of the conversation: aqeelOS keeps the chat, agy keeps nothing
-                    for p in [*(_AGY_HOME / "conversations").glob(f"{conv_id}*"), *(_AGY_HOME / "brain").glob(f"{conv_id}*"), *(_AGY_HOME / "annotations").glob(f"{conv_id}*")]:
+                    agy_home = _agy_dir(home)
+                    for p in [*(agy_home / "conversations").glob(f"{conv_id}*"), *(agy_home / "brain").glob(f"{conv_id}*"), *(agy_home / "annotations").glob(f"{conv_id}*")]:
                         with contextlib.suppress(Exception):
                             shutil.rmtree(p) if p.is_dir() else p.unlink()
             if tool_seen:
