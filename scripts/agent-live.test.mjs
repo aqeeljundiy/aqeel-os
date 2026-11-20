@@ -88,3 +88,14 @@ test('an empty team list raises one Needs-you item per platform, again only afte
  t+=7*3600e3;await L.context('cove-support',{platform:'slack',sender:'U00000000A1'});await new Promise(r=>setTimeout(r,10));assert.deepEqual(told,['slack','slack']);
  pol={owner:{name:'Aqeel',slack:['U00000000B2']},teams:[]};t+=7*3600e3;await mk().context('cove-support',{platform:'slack',sender:'U00000000A1'});await new Promise(r=>setTimeout(r,10));
  assert.equal(told.length,2,'an owner on the list is enough')});
+
+// 20 Nov 2026: long tool outputs stayed in the run and were read again on every AI call (13 outputs = 196k of one run's 356k)
+test('tool output diet: a long reading-tool result keeps its start and end and says where the whole of it is; short ones and instructions are left alone',()=>{
+ const py=code=>JSON.parse(execFileSync('python3',['-I','-c',`import sys,json,importlib.util as u
+s=u.spec_from_file_location("g",sys.argv[1]);m=u.module_from_spec(s);s.loader.exec_module(m)
+${code}`,path.join(ENGINE,'__init__.py')],{encoding:'utf8'}));
+ const r=py(`long="A"*7000+"MIDDLE"+"Z"*7000
+c=m.cap_text(long,8000,"/w/x/.aqeelos/tool-output/1.txt")
+print(json.dumps([m.cap_text("short",8000,"f"),len(c)<9000,c.startswith("A"*5000),c.endswith("Z"*1600),"MIDDLE" in c,"/w/x/.aqeelos/tool-output/1.txt" in c,"grep -n" in c,m.cap_text(long,0,"f"),
+ "skill_view" in m.CAP_TOOLS,"memory" in m.CAP_TOOLS,"terminal" in m.CAP_TOOLS,"read_file" in m.CAP_TOOLS]))`);
+ assert.deepEqual(r,[null,true,true,true,false,true,true,null,false,false,true,true])});

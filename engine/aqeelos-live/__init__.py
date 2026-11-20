@@ -364,6 +364,58 @@ _senders = {}  # session id -> who sent the message this turn answers (group_rep
 _lock = threading.Lock()
 
 
+# Tool output diet (20 Nov 2026, the owner: "reads context and tokens as needed without overburning"). Every tool result stays
+# in the run and is read again on every later AI call: in one Continue Threads run, 13 outputs over 6,000 characters were
+# 196k of its 356k. A long result of a reading tool keeps its start and end; the whole of it is saved in the agent's folder,
+# and the agent searches that file for the part it needs. Instructions (skills, memory, tool lists) and the agent's own
+# connected apps are never cut. <root>/aqeelos-tool-cap.json: {"max": 8000, "off": ["agent", ...]}; max 0 turns it off.
+CAP_TOOLS = ("terminal", "read_file", "search_files", "execute_code", "web_extract", "web_search", "process")
+CAP_DEFAULT = 8000
+
+
+def cap_text(text, limit, saved_at):
+    """The start and end of a long tool result with a note where the whole of it is; None when it fits."""
+    if not isinstance(text, str) or limit <= 0 or len(text) <= limit:
+        return None
+    head, tail = int(limit * 0.7), int(limit * 0.2)
+    cut = len(text) - head - tail
+    note = ("\n\n[aqeelOS: " + format(cut, ",") + " characters of this output were left out to keep the run light. The whole output is in "
+            + saved_at + ": search it (grep -n 'word' FILE, or sed -n '120,160p' FILE) for the part you need instead of reading it whole.]\n\n")
+    return text[:head] + note + text[-tail:]
+
+
+def _cap_conf():
+    try:
+        _, root = _agent_and_root()
+        return json.loads((root / "aqeelos-tool-cap.json").read_text())
+    except Exception:
+        return {}
+
+
+def _cap(tool_name="", args=None, result=None, session_id="", **_):
+    try:
+        if not isinstance(result, str) or not (tool_name in CAP_TOOLS or tool_name.startswith("browser_")):
+            return None
+        agent, root = _agent_and_root()
+        conf = _cap_conf()
+        limit = int(conf.get("max", CAP_DEFAULT)) if agent not in (conf.get("off") or []) else 0
+        if limit <= 0 or len(result) <= limit:
+            return None
+        folder = Path.home() / "workspaces" / agent
+        if not folder.is_dir():
+            folder = root / "workspaces" / agent if (root / "workspaces" / agent).is_dir() else _home()
+        out = folder / ".aqeelos" / "tool-output"
+        out.mkdir(parents=True, exist_ok=True)
+        name = time.strftime("%Y%m%d-%H%M%S") + "-" + tool_name + "-" + format(abs(hash(result)) % 10**8, "08d") + ".txt"
+        (out / name).write_text(result)
+        for old in sorted(out.glob("*.txt"))[:-200]:
+            old.unlink(missing_ok=True)
+        return cap_text(result, limit, str(out / name))
+    except Exception as e:
+        logger.debug("aqeelos-live tool cap: %s", e)
+        return None
+
+
 def _context(session_id="", platform="", sender_id="", is_first_turn=False, **_):
     try:
         with _lock:
@@ -464,3 +516,4 @@ def register(ctx) -> None:
     ctx.register_hook("transform_llm_output", _transform)
     ctx.register_hook("pre_gateway_dispatch", _dispatch)
     ctx.register_hook("pre_tool_call", _pre_tool)
+    ctx.register_hook("transform_tool_result", _cap)
