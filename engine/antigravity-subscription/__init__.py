@@ -25,9 +25,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note
+    from .reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries
 except ImportError:  # loaded as a plain module (the engine's plugin loader or a test)
-    from reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note
+    from reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries
 from providers import register_provider
 from providers.base import ProviderProfile
 
@@ -78,16 +78,8 @@ def _make_client_class():
         def _run_prompt(self, prompt_text: str, *, timeout_seconds: float, model: str | None = None) -> tuple[str, str]:
             # a stop because Gemini reached for an agy tool of its own is tried once more, told to write the call as text
             # (reply_fix.retry_note, 19 Nov 2026); every other stop, and a second one, still ends the request
-            # up to two more tries: one was not enough on 19 Nov 2026 (the schedule still failed after it)
-            text = prompt_text
-            for attempt in range(3):
-                try:
-                    return self._run_once(text, timeout_seconds=timeout_seconds, model=model)
-                except RuntimeError as e:
-                    note = _retry_note(str(e))
-                    if not note or attempt == 2:
-                        raise
-                    text = prompt_text + note
+            # up to two more tries: one was not enough on 19 Nov 2026 (the schedule still failed after it); reply_fix.with_retries
+            return _with_retries(lambda t: self._run_once(t, timeout_seconds=timeout_seconds, model=model), prompt_text)
 
         def _run_once(self, prompt_text: str, *, timeout_seconds: float, model: str | None = None) -> tuple[str, str]:
             work = Path(tempfile.mkdtemp(prefix="aqeelos-agy-"))

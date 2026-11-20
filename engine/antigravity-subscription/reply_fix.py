@@ -59,3 +59,20 @@ def retry_note(error):
     return ("\n\n[aqeelOS] Your last answer tried to run a tool of your own (" + (m.group(1).strip() or "a tool") + "). You have no "
             "tools in this session. To use a tool described above (tool_search, tool_call or any other), write the call as text "
             "in the <tool_call>{...}</tool_call> format exactly as described; aqeelOS runs it and gives you the result.")
+
+
+RETRY_TRIES = 3  # the first run and two more (20 Nov 2026, i40535581: one more try was not enough, the schedule still failed)
+
+
+def with_retries(run, prompt_text, tries=RETRY_TRIES):
+    """run(text) once, and again with retry_note's note while a stop for an own agy tool step repeats, up to `tries` runs in all.
+    Any other error, or the last try's, is raised as it came."""
+    text = prompt_text
+    for attempt in range(tries):
+        try:
+            return run(text)
+        except RuntimeError as e:
+            note = retry_note(str(e))
+            if not note or attempt == tries - 1:
+                raise
+            text = prompt_text + note
