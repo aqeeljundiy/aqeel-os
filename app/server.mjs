@@ -83,7 +83,7 @@ import {createTeamFolders} from './team-folders.mjs';
 import {createBrand} from './brand.mjs';
 import {createPwa} from './pwa.mjs';
 import {createAccountAuth} from './account-auth.mjs';   // first-run owner, forgot password, recovery code (7 Nov 2026)
-import {createBottlenecks,forPopup,memberCan} from './bottlenecks.mjs';
+import {createBottlenecks,forPopup,memberCan,dropFinishedAlerts,issueOfAlert} from './bottlenecks.mjs';
 import {createInstructions} from './instructions.mjs';
 import {createNews,eveningLine} from './news.mjs';
 import {createMorning} from './morning.mjs';
@@ -940,7 +940,9 @@ async function needsFor(u){const admin=users.isAdmin(u);if(admin)await freshSign
     // the message that led to it is from the agent's newest chat, whoever's: a member sees it only when that chat is theirs
     // a member sees (and counts) only what they can act on themselves (7 Nov 2026, clean-install test: members saw the
     // count of admin-only items they could not do anything about)
-    const shown=forPopup(items).filter(x=>admin||memberCan(x));if(admin&&shown.some(x=>['apps','report','alerts','channel'].includes(x.kind))){const c=await needCtx();const il=shown.some(x=>x.kind==='alerts')?(await issues.list().catch(()=>({items:[]}))).items:[];for(const x of shown)if(['apps','report','alerts'].includes(x.kind)){const iid=x.kind==='alerts'?/issue (i[0-9a-f]{8})/.exec(x.title+' '+x.text)?.[1]:null;/* the issue the message is about: by its id, else the open one whose need the message quotes (the sorter's message names no id) */const iss=x.kind==='alerts'?(iid&&il.find(i=>i.id===iid))||il.find(i=>(i.state==='needs_human'||i.state==='stuck')&&i.need&&String(x.text||'').includes(i.need))||null:null;const a=itemActs(x,c,iss);if(a.length)x.acts=a}}return admin?shown:shown.map(x=>x.from&&users.ownerOf(x.from.chat)!==u.id?{...x,from:null}:x)}
+    // alerts about an issue that is already closed, fixed, gone or expired are not shown (bottlenecks.mjs dropFinishedAlerts)
+    const issueList=items.some(x=>issueOfAlert(x))?(await issues.list().catch(()=>({items:[]}))).items:[];
+    const shown=forPopup(dropFinishedAlerts(items,issueList)).filter(x=>admin||memberCan(x));if(admin&&shown.some(x=>['apps','report','alerts','channel'].includes(x.kind))){const c=await needCtx();const il=shown.some(x=>x.kind==='alerts')?(await issues.list().catch(()=>({items:[]}))).items:[];for(const x of shown)if(['apps','report','alerts'].includes(x.kind)){const iid=x.kind==='alerts'?/issue (i[0-9a-f]{8})/.exec(x.title+' '+x.text)?.[1]:null;/* the issue the message is about: by its id, else the open one whose need the message quotes (the sorter's message names no id) */const iss=x.kind==='alerts'?(iid&&il.find(i=>i.id===iid))||il.find(i=>(i.state==='needs_human'||i.state==='stuck')&&i.need&&String(x.text||'').includes(i.need))||null:null;const a=itemActs(x,c,iss);if(a.length)x.acts=a}}return admin?shown:shown.map(x=>x.from&&users.ownerOf(x.from.chat)!==u.id?{...x,from:null}:x)}
 // the optional evening line in the bell (System › Settings › Notifications, off by default): once a day at 19:00 local
 // time, how many things fixed themselves today and whether anything needs you
 const notifySettings=async()=>({daily:false,...await readFile(path.join(DATA,'notify.json'),'utf8').then(JSON.parse).catch(()=>({}))});

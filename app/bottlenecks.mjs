@@ -24,6 +24,12 @@ export const groupReport=t=>/removed from (the )?(telegram )?group|bot is left|k
 // page marks it and counts it with Health's Needs you, so its summary line can never say "nothing needs you" above it (UI audit 17)
 const ASKS=/\b(?:resume in|press resume|pick one|pick a\b|choose one|paste a\b|sign in again|log in again|top up|approve or decline|needs? (?:a person|you)|only you can)\b/i;
 // the sentence that asks (else what personNeed says), or '' when the item asks nothing
+// an alert about a Health issue ("... (issue i3e045990 on System › Health)") is over once that issue is: closed, fixed, gone
+// or expired (20 Nov 2026: P&P's Needs-you still listed 9 alerts whose issues were long gone, kept for their 7 days)
+export const ISSUE_DONE=new Set(['closed','fixed','gone','expired']);
+export const issueOfAlert=x=>x?.kind==='alerts'?/\bissue (i[0-9a-f]{8})\b/.exec(String(x.title||'')+' '+String(x.text||''))?.[1]||null:null;
+export function dropFinishedAlerts(items,issueList){const st=new Map((issueList||[]).map(i=>[i.id,i.state]));
+ return (items||[]).filter(x=>{const id=issueOfAlert(x);return !(id&&ISSUE_DONE.has(st.get(id)))})}
 export const askOf=x=>{const t=[x?.title,x?.text].filter(Boolean).join(' ');return t.split(/(?<=[.!?])\s+/).find(s=>ASKS.test(s))||personNeed({kind:'alerts',title:x?.title,text:x?.text})||''};
 export const asksYou=x=>!!askOf(x);
 export function personNeed(x){const k=x?.kind,t=[x?.title,x?.missing,x?.text].filter(Boolean).join(' ');
