@@ -64,6 +64,9 @@
 // 13) aqeelos:mcp-auth-park-fast (7 Nov 2026). Higgsfield was on 9 agents with no sign-in. At every engine start each
 //    copy answered 401, but wrapped in "both transports failed", so the engine tried it 3 times (~11 s) per agent, one
 //    after another, before it started Telegram: channels came back 2.5 minutes late. A wrapped 401/403 now parks at once.
+// 16) aqeelos:pause-confirm (21 Nov 2026). The engine's /pause chat command engages the global emergency stop for every agent; it sits
+//    in the bot's Telegram menu next to /stop. One tap on 20 Nov stopped all of Elkiya (customer lines too) for an hour. A plain
+//    /pause now only explains; /pause all [reason] pauses; /pause off resumes as before.
 // 15) aqeelos:pool-prefer (20 Nov 2026). The engine keeps one pool of sign-ins per provider (several ChatGPT accounts), shared by
 //    every agent. aqeelOS gives each sign-in its own account card and decides which agent uses which, like Claude accounts:
 //    credential_pool_prefer.<provider>: <entry id> in an agent's config makes that entry its first choice while it is
@@ -551,6 +554,20 @@ def _aq_wait_for(agent_result, now=None):
 
 
 def _aq_wait_for(agent_result, now=None):
+`}]},
+ {tag:'aqeelos:pause-confirm',name:'/pause from a chat asks first: only /pause all stops every agent',file:'gateway/run_busy.py',edits:[
+  {why:'a plain /pause explains what it would do; /pause all [reason] does it',
+   from:'        state = estop.get_state()\n        if state is not None and not args:\n',
+   to:`        # aqeelos:pause-confirm (21 Nov 2026): one tap on /pause in the bot's menu, next to /stop, stopped every agent on the
+        # box for an hour, customer lines included, unnoticed. Only "/pause all [reason]" pauses now; /pause alone explains.
+        if not (args.lower() == "all" or args.lower().startswith("all ")):
+            if estop.get_state() is not None:
+                return "⏸️ Everything is already paused. Send /pause off to resume."
+            return ("⚠️ /pause stops EVERY agent on this server, customer chats included, until someone sends /pause off. "
+                    "To stop only this chat, send /stop. To pause everything anyway, send: /pause all (and a reason if you like)")
+        args = args[3:].strip()
+        state = estop.get_state()
+        if state is not None and not args:
 `}]},
  {tag:'aqeelos:pool-prefer',name:'an agent can prefer one account of a provider\'s pool',file:'agent/credential_pool.py',edits:[
   {why:'the per-agent choice, read from the agent\'s own config',

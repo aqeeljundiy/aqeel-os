@@ -43,7 +43,7 @@ import {createReconciler,createAgentGate,statSig,ledgerSig} from './reconcile.mj
 import {createConnect,firstModelFor} from './connect.mjs';
 import {createOptins,appNames,solvedIssues} from './agent-optins.mjs';
 import {isConnector as isConnectorEntry} from './connectors.mjs';
-import {createAntigravity} from './antigravity.mjs';import {createModelPools} from './model-pools.mjs';import {createLedger,ledgerRoute} from './ledger.mjs';
+import {createAntigravity} from './antigravity.mjs';import {createModelPools} from './model-pools.mjs';import {createEstopWatch} from './estop-watch.mjs';import {createLedger,ledgerRoute} from './ledger.mjs';
 import {createSlackQuiet,slackQuietPlan} from './slack-quiet.mjs';
 import {holdWrites,withAgent,withFlock,setKey,readConfig,pick,agentNames,isAgent,busy as opsBusy,initStatus,getStatus,setStatus,editEnv,hermes as hcmd,python as enginePython,LIVE_APP,HELP_AGENT} from './agentops.mjs';import {alertTitle} from './alert-title.mjs';
 import {createSchedules} from './schedules.mjs';
@@ -731,7 +731,7 @@ if(LIVE_APP)setInterval(()=>later.tick().catch(e=>console.warn('quiet-hours rest
 // a minute after aqeelOS restarted the engine, every tool server is checked and fixed (automation-guard.mjs); an engine
 // update runs its own check after its restarts
 let guardT=null;function guardAfterRestart(since){if(!LIVE_APP)return;clearTimeout(guardT);guardT=setTimeout(()=>{if(engineUpd.busy())return;guard.fullCheck({repair:true,since,why:'checked after an engine restart'}).then(r=>{if(r.problems.length||r.fixed.length)console.log('automations after restart: fixed',r.fixed.join(', ')||'nothing','· still wrong:',r.problems.join('; ')||'nothing')}).catch(e=>console.warn('automations after restart',e.message))},60000);guardT.unref?.()}
-async function gatewayWatch(){if(gwStopped||gwRestarting)return;
+async function gatewayWatch(){estop.tick().catch(()=>{});if(gwStopped||gwRestarting)return;
  const pid=await gatewayPid();const inTmux=(await shx('tmux has-session -t gateway')).ok;
  if(pid&&lastGwPid&&pid!==lastGwPid&&Date.now()-lastOwnRestart>180000)noteSys('restart-self','');if(pid)lastGwPid=pid;
  // nothing running at all, twice in a row (so an engine restart in progress is not cut off): start it
@@ -957,7 +957,7 @@ const morning=createMorning({DATA,tz:()=>tzNow,send:text=>ownerSend(text,'telegr
   return {issues:(await issues._db().catch(()=>({items:[]}))).items,events:await bottlenecks.events().catch(()=>[]),activity:await news.activity({id:'owner'},true,{limit:300}).catch(()=>[]),isTest:a=>tests.has(a),names:a=>NAMES[a]||a}}});
 if(LIVE_APP)setInterval(()=>morning.tick().catch(e=>console.warn('morning line:',e.message)),5*60e3).unref();
 const newsInfo=(kind,text,detail)=>{const ok=/works again|fixed|back on|working again|passed/i.test(text);return news.add({aud:'admins',group:'ev|'+kind+'|'+String(text).replace(/\(.*?\)|[0-9]+/g,'#').replace(/\s+/g,' ').trim().slice(0,100),icon:kind==='down'?'activity':ok?'check':'refresh',kind:ok?'ok':'blue',title:text,text:detail,go:'/system/health',label:'Health'})};
-const bottlenecks=createBottlenecks({DATA,onInfo:newsInfo,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});
+const bottlenecks=createBottlenecks({DATA,onInfo:newsInfo,listAgents:()=>listAgents(),names:a=>NAMES[a]||a,dash:p=>fetch(DASH.origin+'/api'+p,{headers:{'x-hermes-session-token':DASH_TOKEN},signal:AbortSignal.timeout(20000)}).then(r=>r.json())});brand.name().then(n=>{globalThis.AQ_BRAND=n}).catch(()=>{});const estop=createEstopWatch({HERMES_HOME,bottlenecks,send:t=>ownerSend(t,'telegram'),tz:()=>tzNow});
 // a state file that cannot be read is left as is, nothing saved over it (store.mjs, audit H4): one Health item per file
 setStoreHooks({bad:(file,why)=>bottlenecks.event('store','aqeelOS cannot read '+path.basename(file),'The file is left exactly as it is and nothing is saved over it, so what it holds is not lost; changes to it are refused until it reads again. Repair '+file+' or put back its copy ('+path.basename(file)+'.last-good), then it carries on by itself. ('+why+')',{topic:'store|'+path.basename(file)}).catch(()=>{}),
  good:file=>bottlenecks.resolve('store|'+path.basename(file)).catch(()=>{})});
@@ -1981,9 +1981,7 @@ if(LIVE_APP){const sigFile=path.join(DATA,'agent-live','tool-sigs.json');const t
   const changed=Object.keys(now).filter(a=>old[a]!==now[a]);await mkdir(path.dirname(sigFile),{recursive:true});await writeFile(sigFile,JSON.stringify(now));
   if(changed.length&&Object.keys(old).length){console.log('agent tools changed for',changed.join(', '));restartLater('new or changed aqeelOS tools for '+changed.length+' agent(s)')}};
  rec.add('tool lists',{run:toolTick,reads:['cfg'],every:3600e3,why:'was every 10 min: one HTTP call per agent'})}
-/* Better design by default (design-guard.mjs): the review of every schedule an agent makes or changes, the means to make the better one
-   (script-only, a check in front, an event), and the weekly look at schedules that mostly wake the AI for nothing. No timer of its own:
-   the review is read when Health is opened (kept for an hour) and on demand (POST /ui/design-guard/review). */
+// Better design by default (design-guard.mjs; no timer: read when Health opens, POST /ui/design-guard/review)
 const designGuard=createDesignGuard({HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),PORT,sig:a=>relay.sig(a),names:a=>agentName(a),skipAgent:a=>isTestAgent(a),homes:()=>agentLive.homes(),
  ownOf:async a=>{const c=await readConfig(a).catch(()=>null)||{};return {user:pick(c,'terminal.backend')==='ssh'?String(pick(c,'terminal.ssh_user')||''):'',cwd:String(pick(c,'terminal.cwd')||path.join(homedir(),'workspaces',String(a).split('--')[0]))}},
  jobs:a=>versions.myJobs(a),updateJob:(a,id,up)=>versions.updateJob(a,id,up),record:(a,e)=>versions.noteSelfChange(String(a).split('--')[0],{...e,by:'aqeelOS',undoable:false}),
@@ -2455,6 +2453,7 @@ const server=createServer(async(req,res)=>{
    if(p.startsWith('/ui/help/'))return help.handle(req,res,u,url);
    if((p==='/ui/install'||p.startsWith('/ui/install/'))&&await install.handle(req,res,u,url))return;
    if(await pools.handle(req,res,p,{admin:users.isAdmin(u),send,readBody}))return;
+   if(await estop.route(req,res,p,{admin:users.isAdmin(u),send}))return;
    if(await ledgerRoute(ldg,req,res,p,url,{admin:users.isAdmin(u),send}))return;
    if(await systemRoutes(req,res,p,url,u))return;
    // the bell's list (news.mjs): the same on every device, read and cleared per person; the app adds a person's own news

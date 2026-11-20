@@ -47,6 +47,8 @@ export function personNeed(x){const k=x?.kind,t=[x?.title,x?.missing,x?.text].fi
   // the same public post answered twice (posting-limits.mjs repeatOf): only a person removes a public reply
   case 'repeat':return 'Open the post and delete the extra reply. Keep the first one.';
   // an agent past 80% of its daily token budget (ledger.mjs, design-guard.mjs): never stopped, a person decides
+  // the engine's emergency stop is on (estop-watch.mjs): every agent waits until a person lifts it
+  case 'estop':return 'Lift the pause, or keep it on: until then no agent takes new work.';
   case 'budget':return 'Raise its daily budget, or make its heavy schedules lighter. Nothing is stopped.';
   // schedules that start the AI every few minutes with no check (run-gates.mjs): per schedule, add a check or keep it
   case 'cadence':return 'For each schedule: add a check, or keep it as it is.';
