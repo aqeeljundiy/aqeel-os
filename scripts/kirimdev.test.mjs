@@ -554,6 +554,20 @@ test('a team member releases a held chat from Telegram with "release <last digit
  const r=await say('[Replying to: "HANDOFF (Rory)"]\n\nlepas 8123');assert.equal(r.handled,true);assert.equal(r.released,'628123');
  assert.deepEqual((await t.k._state()).holds,{});assert.match(t.posts.at(-1)[3],/no longer held, released by Mira/);assert.deepEqual(t.posts.at(-1).slice(0,3),['cove-support',-100,9],'answered in the topic it was asked in');
  assert.equal((await say('release 8123')).why,'not held','again: nothing left to release')});
+// i6cd97e7e (20 Nov 2026): the team answered a HANDOFF post but the chat stayed held, so the customer's next messages waited. A reply to the
+// post from someone on the team ends the hold 3 minutes later; anyone else, or a reply that names another number, changes nothing.
+test('a team reply to the HANDOFF post ends the hold 3 minutes later; others do not',async()=>{
+ const team=new Map([['7001','Mira']]);
+ const t=await make({kd:{teamPerson:async(a,uid)=>a==='cove-support'&&team.has(uid)?{name:team.get(uid)}:null},agentSays:q=>/NOTE: you handed|Do not hand off again/.test(q)?'Siap kak':'HANDOFF: wants a person',extra:{humanWaitMin:5,humanWaitText:'Sebentar ya kak'}});
+ await t.post(meta('628123','mau ngomong sama orang'));await t.settle();assert.equal((await t.k.status())[0].holds.length,1);
+ const quote='[Replying to: "❓ HANDOFF (Rory, Ari, +628123)\nCustomer asked: mau ngomong sama orang"]\n\n';
+ const say=(text,o={})=>t.k.teamMessage('cove-support',{chatId:-100,threadId:3,userId:'7001',text,...o});
+ assert.equal((await say(quote+'sudah saya jawab',{userId:'9999'})).handled,false,'not on the team: nothing');
+ assert.equal((await say('[Replying to: "❓ HANDOFF (Rory, Ari, +62899)"]\n\nok')).handled,false,'another number: nothing');
+ const r=await say(quote+'sudah saya jawab kak');assert.equal(r.handled,true);assert.equal(r.graced,'628123');
+ const h=Object.values((await t.k._state()).holds)[0];assert.ok(h.teamAt&&h.until-h.teamAt<=3*60e3,'the hold now ends within 3 minutes');
+ const until=h.until;assert.equal((await say(quote+'oh ya satu lagi')).graced,'628123');assert.equal(Object.values((await t.k._state()).holds)[0].until,until,'a second reply does not move it');
+ t.later(3*60e3+1000);assert.equal((await t.k.status())[0].holds.length,0,'3 minutes later the chat is no longer held')});
 test('parseRelease: release/lepas/buka and at least 4 digits; anything else is nothing',()=>{
  for(const [t,want] of [['release 4567','4567'],['Lepas 0812-0000-4567','081200004567'],['buka chat +62 812 4567','628124567'],['@team lepaskan tahanan 4567.','4567'],['[Replying to: "x"]\n\nrelease 4567','4567']])assert.equal(parseRelease(t),want,t);
  for(const t of ['release','release 312','tolong release 4567','release 4567 ya','ok','lepas aja'])assert.equal(parseRelease(t),null,t)});

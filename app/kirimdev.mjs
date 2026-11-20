@@ -303,6 +303,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  // onEvent (design-guard.mjs EVENTS): 'whatsapp.received' once per batch of customer messages, 'whatsapp.unanswered' when a handoff waited ASK_MIN minutes.
  // Told after the fact and never awaited: an event hook or an event-started run must not hold up or break the line.
  const emit=(agent,type)=>{Promise.resolve().then(()=>onEvent(agent,{type,data:{}})).catch(()=>{})};
+ const TEAM_GRACE=3*60e3;   // a team answer to a handoff ends the hold this long after it (i6cd97e7e)
  const holdOf=(agent,num)=>{const h=st.holds[agent+'|'+num];return h&&h.until>now()?h:null};
  async function ingest(agent,line,ms){let told=false;if(ms.length)st.last[agent]={at:now(),from:ms[0].from};
   const mode=modeOf(line);
@@ -732,6 +733,15 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    if(held.length!==1){await say(held.length?'✋ '+held.length+' held chats end in '+rd+': write more digits of the number.':'✋ No chat ending in '+rd+' is held for the team on '+line.persona+'.');return {handled:false,why:held.length?'which chat':'not held'}}
    const num=String(held[0].from);release(agent,num,'released by '+who+' in Telegram');for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===num)schedule(k,{debounceSec:5});await saveState();
    await say('✅ The chat ending in '+rd+' is no longer held, released by '+who+'. '+line.persona+' answers its waiting messages in a few seconds.');return {handled:true,released:num}}
+  // i6cd97e7e (20 Nov 2026): the team answered a HANDOFF post (a reply to it; the engine quotes the post, whose first line names the number)
+  // but the chat stayed held until its hold ran out, so the customer's next messages waited. A reply from someone on the line's team or
+  // approvers ends the hold TEAM_GRACE later, so the team's own answer goes first, and the waiting messages are answered then.
+  {const rq=/^\[Replying to:[^\n]*?HANDOFF[^\n]*?\+(\d{5,15})/.exec(String(text||''));if(rq&&String(userId||'')){
+   const who=(line.approvers||[]).some(x=>String(x?.telegramId||'')===String(userId))||!!(await teamPerson(agent,String(userId)).catch(()=>null));
+   const h=who&&Object.values(st.holds).find(x=>x.agent===agent&&String(x.from)===rq[1]);
+   if(h){if(!h.teamAt){h.teamAt=now();h.until=Math.min(h.until,now()+TEAM_GRACE);for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===h.from)schedule(k,{debounceSec:Math.round(TEAM_GRACE/1000)+5});
+     await saveState();log('kirimdev '+agent+': the team answered the handoff for …'+String(h.from).slice(-4)+'; the hold ends in '+Math.round(TEAM_GRACE/60e3)+' min')}
+    return {handled:true,graced:String(h.from)}}}}
   if(t.threadId&&threadId&&String(t.threadId)!==String(threadId))return {handled:false,why:'not the Questions topic'};
   const waiting=Object.values(st.drafts).filter(d=>d.agent===agent&&d.status==='waiting');if(!waiting.length)return {handled:false,why:'no draft is waiting'};
   const a=parseApproval(text);if(!a)return {handled:false,why:'not an approval'};
