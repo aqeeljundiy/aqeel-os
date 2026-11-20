@@ -40,6 +40,12 @@ test('helpers: A1 ranges become grid ranges, colours and splitting',()=>{const t
  assert.deepEqual(rgb('#ff0000'),{red:1,green:0,blue:0});assert.deepEqual(rgb('#fff'),{red:1,green:1,blue:1});assert.equal(rgb('Light Green').green>0.9,true);assert.throws(()=>rgb('banana'),Ask);
  assert.deepEqual(splitRange("'A!B'!C1"),{sheet:'A!B',rest:'C1'})});
 
+test('cells: typed CellData (entered value, empty cells, date format) for a range',async()=>{const {t,calls}=await make({routes:[
+  ['GET',/includeGridData=true/,()=>({status:200,body:{sheets:[{properties:{title:'Leads'},data:[{startRow:1,startColumn:26,rowData:[{values:[{userEnteredValue:{numberValue:46000},effectiveValue:{numberValue:46000},formattedValue:'20/11/2026',userEnteredFormat:{numberFormat:{type:'DATE',pattern:'dd/mm/yyyy'}}},{}]}]}]}]}})]]});
+ const r=await S(t,{action:'cells',range:'Leads!AA2:AB2'});assert.equal(r.isError,undefined,r.text);
+ assert.match(r.text,/"cell":"Leads!AA2","entered":\{"numberValue":46000\}.*"pattern":"dd\/mm\/yyyy"/);assert.match(r.text,/"cell":"Leads!AB2","empty":true/);
+ assert.match(calls.at(-1).u,/ranges=Leads%21AA2%3AAB2/);assert.equal((await S(t,{action:'cells'})).isError,true)});
+
 test('formulas: written as typed, read back as formula and computed value',async()=>{const {t,calls}=await make({routes:[
   ['GET',/values\/Sales!A1%3AB2/,u=>({status:200,body:{range:'Sales!A1:B2',values:/valueRenderOption=FORMULA/.test(u)?[['Sum','=SUM(B1:B1)'],['x',3]]:[['Sum',3],['x',3]]}})],
   ['PUT',/values\//,()=>({status:200,body:{updatedCells:2,updatedRange:'Sales!A1:B1'}})]]});

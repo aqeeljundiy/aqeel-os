@@ -5,9 +5,9 @@
 // the agent reads, saying what to change.
 export class Ask extends Error{}
 const ask=m=>{throw new Ask(m)};
-export const SHEET_ACTIONS=['read','write','append','create','clear','format','resize','freeze','merge','unmerge','borders','conditional_format','validation','list_sheets','add_sheet','rename_sheet','duplicate_sheet','delete_sheet','move_sheet','batch_update'];
+export const SHEET_ACTIONS=['read','write','append','create','cells','clear','format','resize','freeze','merge','unmerge','borders','conditional_format','validation','list_sheets','add_sheet','rename_sheet','duplicate_sheet','delete_sheet','move_sheet','batch_update'];
 // actions that name a range (a tab alone is enough for the others)
-export const NEEDS_RANGE=new Set(['read','write','append','clear','format','resize','merge','unmerge','borders','conditional_format','validation']);
+export const NEEDS_RANGE=new Set(['read','cells','write','append','clear','format','resize','merge','unmerge','borders','conditional_format','validation']);
 const NAMED={black:'#000000',white:'#ffffff',red:'#e53935',green:'#43a047',blue:'#1e88e5',yellow:'#fdd835',orange:'#fb8c00',purple:'#8e24aa',pink:'#ec407a',gray:'#9e9e9e',grey:'#9e9e9e',lightgray:'#eeeeee',lightgrey:'#eeeeee',lightgreen:'#c8e6c9',lightred:'#ffcdd2',lightblue:'#bbdefb',lightyellow:'#fff9c4'};
 export function rgb(c){let s=String(c??'').trim().toLowerCase().replace(/[\s_-]/g,'');s=NAMED[s]||s;const m=/^#?([0-9a-f]{6})$/.exec(s)||/^#?([0-9a-f]{3})$/.exec(s);
  if(!m)ask('"'+c+'" is not a colour. Use a hex like #ff0000 or one of: '+Object.keys(NAMED).join(', ')+'.');let h=m[1];if(h.length===3)h=[...h].map(x=>x+x).join('');
