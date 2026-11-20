@@ -42,4 +42,31 @@ check("a stop for an own tool step gets one more try with a note naming the tool
 check("a fall-back to agy's default agent is not retried", rf.retry_note("Stopped for safety: agy could not load its text-only setup and fell back to its default agent.") is None)
 check("a different agent is not retried", rf.retry_note("Stopped for safety: agy started a different agent (x).") is None)
 check("other errors are not retried", rf.retry_note("Antigravity gave no answer.") is None and rf.retry_note(None) is None)
+
+# 20 Nov 2026 (i40535581): one more try was not enough, so a repeated own-tool stop gets up to two more tries; other stops stand at once
+STOP = "Stopped for safety: agy tried to use its own tool tool_call."
+def runner(fails, err=STOP):
+    seen = []
+    def run(text):
+        seen.append(text)
+        if len(seen) <= fails:
+            raise RuntimeError(err)
+        return ("ok", "")
+    return run, seen
+run, seen = runner(2)
+check("two own-tool stops in a row: the third run answers", rf.with_retries(run, "q") == ("ok", "") and len(seen) == 3 and seen[0] == "q" and seen[2].startswith("q") and len(seen[2]) > 1)
+run, seen = runner(3)
+try:
+    rf.with_retries(run, "q")
+    raised = False
+except RuntimeError:
+    raised = True
+check("three stops in a row: the last one is raised after three runs", raised and len(seen) == 3)
+run, seen = runner(1, "Antigravity gave no answer.")
+try:
+    rf.with_retries(run, "q")
+    raised = False
+except RuntimeError:
+    raised = True
+check("any other error is raised at once, not retried", raised and len(seen) == 1)
 print(n, "passed")
