@@ -345,7 +345,9 @@ devtools_status(){
   done
   [ -n "$why" ] && ok=false
   [ -n "$FW_ERR" ] && ok=false
-  unseen=$(awk 'NF==3 && $2!=0 {print $1, $2, $3}' <<< "$scan" | sort -n | head -100)
+  # a loopback listener of the box user's own (its dev servers, its browser's random ports) is not said: it is only reachable from
+  # the box itself and the box user is the one the rules leave open; wide (any) ones and other users' are still said
+  unseen=$(awk -v own="$(id -u "$OWNER" 2>/dev/null)" 'NF==3 && $2!=0 && !($2==own && $3=="lo") {print $1, $2, $3}' <<< "$scan" | sort -n | head -100)
   n=$(grep -c . <<< "$scan")
   printf '{"at":%s,"script":"%s","ok":%s,"why":"%s","tools":{%s},"errors":%s,"listeners":%s,"unseen":%s}\n' "$(date +%s)" "$SELF_SUM" "$ok" "$(js "$why")" "$tools" "$(jlines <<< "$FW_ERR")" "${n:-0}" "$(jlines <<< "$unseen")" | own_put "$FWST"
 }
