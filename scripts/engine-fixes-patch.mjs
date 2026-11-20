@@ -64,6 +64,10 @@
 // 13) aqeelos:mcp-auth-park-fast (7 Nov 2026). Higgsfield was on 9 agents with no sign-in. At every engine start each
 //    copy answered 401, but wrapped in "both transports failed", so the engine tried it 3 times (~11 s) per agent, one
 //    after another, before it started Telegram: channels came back 2.5 minutes late. A wrapped 401/403 now parks at once.
+// 15) aqeelos:pool-prefer (20 Nov 2026). The engine keeps one pool of sign-ins per provider (several ChatGPT accounts), shared by
+//    every agent. aqeelOS gives each sign-in its own account card and decides which agent uses which, like Claude accounts:
+//    credential_pool_prefer.<provider>: <entry id> in an agent's config makes that entry its first choice while it is
+//    available; the pool's strategy picks among the rest when it is out.
 // 14) aqeelos:script-no-bili-proxy (19 Nov 2026). The billion-context plugin points HTTPS_PROXY at its own local proxy
 //    inside the engine process (meant for the model's traffic), and every script-only schedule inherited it: the main agent's
 //    daily fee approval script (00:01) failed on 19 Nov with "ProxyError: Unable to connect to proxy
@@ -548,6 +552,24 @@ def _aq_wait_for(agent_result, now=None):
 
 def _aq_wait_for(agent_result, now=None):
 `}]},
+ {tag:'aqeelos:pool-prefer',name:'an agent can prefer one account of a provider\'s pool',file:'agent/credential_pool.py',edits:[
+  {why:'the per-agent choice, read from the agent\'s own config',
+   from:'    return strategy if strategy in SUPPORTED_POOL_STRATEGIES else STRATEGY_FILL_FIRST\n',
+   to:`    return strategy if strategy in SUPPORTED_POOL_STRATEGIES else STRATEGY_FILL_FIRST
+
+
+def get_pool_prefer(provider: str) -> str:
+    # aqeelos:pool-prefer: the pool entry id this agent should use first (credential_pool_prefer.<provider>), else ''
+    config = _load_config_safe()
+    prefer = config.get("credential_pool_prefer") if config else None
+    return str(prefer.get(provider, "") or "").strip() if isinstance(prefer, dict) else ""
+`},
+  {why:'kept with the pool',
+   from:'        self._strategy = get_pool_strategy(provider)\n',
+   to:'        self._strategy = get_pool_strategy(provider)\n        self._prefer = get_pool_prefer(provider)  # aqeelos:pool-prefer\n'},
+  {why:'the preferred account first while it is available; the strategy picks among the rest',
+   from:'        if self._strategy == STRATEGY_RANDOM:\n',
+   to:'        _pref = next((e for e in available if getattr(self, "_prefer", "") and e.id == self._prefer), None)  # aqeelos:pool-prefer\n        if _pref is not None:\n            entry = _pref\n        elif self._strategy == STRATEGY_RANDOM:\n'}]},
  {tag:'aqeelos:skills-skip-browsers',name:'a skill\'s bundled browsers are not pushed into an agent\'s own terminal',file:'agent/skill_utils.py',edits:[
   {why:'the folders a skill installs for itself',
    from:'    ".venv", "venv", "node_modules", "site-packages", "__pycache__",\n',

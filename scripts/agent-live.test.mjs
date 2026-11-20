@@ -99,3 +99,18 @@ c=m.cap_text(long,8000,"/w/x/.aqeelos/tool-output/1.txt")
 print(json.dumps([m.cap_text("short",8000,"f"),len(c)<9000,c.startswith("A"*5000),c.endswith("Z"*1600),"MIDDLE" in c,"/w/x/.aqeelos/tool-output/1.txt" in c,"grep -n" in c,m.cap_text(long,0,"f"),
  "skill_view" in m.CAP_TOOLS,"memory" in m.CAP_TOOLS,"terminal" in m.CAP_TOOLS,"read_file" in m.CAP_TOOLS]))`);
  assert.deepEqual(r,[null,true,true,true,false,true,true,null,false,false,true,true])});
+
+// 20 Nov 2026: usage on every provider, and what each request was made of
+test('usage ledger: the parts of a request, real usage kept, an estimate when the provider reports none',()=>{
+ const py=code=>JSON.parse(execFileSync('python3',['-I','-c',`import sys,json,importlib.util as u
+s=u.spec_from_file_location("g",sys.argv[1]);m=u.module_from_spec(s);s.loader.exec_module(m)
+${code}`,path.join(ENGINE,'__init__.py')],{encoding:'utf8'}));
+ const r=py(`msgs=[{"role":"user","content":"a"*400},{"role":"assistant","content":"b"*200,"tool_calls":[]},{"role":"tool","content":"c"*800},{"role":"user","content":"d"*100}]
+an=m.anatomy("s"*1000,msgs,{"tools":[{"name":"x","description":"y"*300}]})
+real=m.ledger_line(agent="a",session_id="s1",platform="cron",task_id="t",model="claude",provider="p",usage={"input_tokens":100,"cache_read_tokens":900,"output_tokens":50},assistant_chars=0,tool_calls=0,duration=1.5,pre={"an":an,"approx":0,"n":3},acct="")
+est=m.ledger_line(agent="a",session_id="s1",platform="cron",task_id="t",model="gemini",provider="antigravity-subscription",usage=None,assistant_chars=400,tool_calls=1,duration=2,pre={"an":an,"approx":700,"n":3},acct="g000001")
+print(json.dumps([an,real,est]))`);
+ const [an,real,est]=r;
+ assert.equal(an.sys,1000);assert.ok(an.tools>300);assert.equal(an.toolres,800);assert.equal(an.last,100);assert.ok(an.hist>=600);
+ assert.deepEqual([real.in,real.cr,real.out,real.est,real.ms],[100,900,50,false,1500]);assert.ok(Math.abs(Object.values(real.an).reduce((a,b)=>a+b,0)-1000)<=5,'the parts add up to what was read');
+ assert.deepEqual([est.in,est.out,est.est,est.acct],[700,140,true,'g000001'])});

@@ -64,6 +64,21 @@ _ACCTS = _HOME / ".gemini" / "aqeelos-accounts.json"
 _STATE = _HOME / ".gemini" / "aqeelos-agy-state.json"
 _QUOTA = re.compile(r"quota|rate.?limit|resource.?exhausted|\b429\b|too many requests|usage limit|limit (reached|exceeded)|exhausted", re.I)
 _state_lock = threading.Lock()
+# the account each thread's last call went to, read by aqeelos-live's usage ledger
+AQEELOS_LAST_ACCOUNT: dict = {}
+
+
+def _chosen() -> str:
+    """the Google account aqeelOS chose for this agent (Models › Accounts, like Claude accounts): <agent home>/aqeelos-model-accounts.json"""
+    try:
+        from hermes_constants import get_hermes_home
+        home = Path(get_hermes_home())
+    except Exception:
+        home = Path(os.environ.get("HERMES_HOME") or _HOME / ".hermes")
+    try:
+        return str(json.loads((home / "aqeelos-model-accounts.json").read_text()).get("antigravity-subscription") or "")
+    except Exception:
+        return ""
 
 
 def _agy_dir(home: Path) -> Path:
@@ -106,6 +121,13 @@ def order_accounts(accounts: list[dict], state: dict, now: float) -> list[dict]:
     return sorted(fresh, key=lambda a: int(used.get(a["id"], 0))) + rest
 
 
+def prefer(accounts: list[dict], pick: str, state: dict, now: float) -> list[dict]:
+    """the account aqeelOS chose goes first, unless it is resting (out of quota): then the order stays as it is"""
+    if not pick or float((state.get("cool") or {}).get(pick, 0)) > now:
+        return accounts
+    return sorted(accounts, key=lambda a: 0 if a["id"] == pick else 1)
+
+
 def _env(home: Path | None = None) -> dict[str, str]:
     env = dict(os.environ)
     if home is not None and home != _HOME:
@@ -132,6 +154,7 @@ def _make_client_class():
             # (reply_fix.retry_note, 19 Nov 2026); every other stop, and a second one, still ends the request
             # up to two more tries: one was not enough on 19 Nov 2026 (the schedule still failed after it); reply_fix.with_retries
             accts = order_accounts(_accounts(), _read_state(), time.time())
+            accts = prefer(accts, _chosen(), _read_state(), time.time())   # aqeelOS decides; the order above is the safety net
             for n, acct in enumerate(accts):
                 try:
                     out = _with_retries(lambda t: self._run_once(t, timeout_seconds=timeout_seconds, model=model, home=acct["home"]), prompt_text)
@@ -144,6 +167,9 @@ def _make_client_class():
                     raise
                 day = time.strftime("%Y-%m-%d", time.gmtime())
                 _write_state(lambda st: st.__setitem__("used", {day: {**((st.get("used") or {}).get(day) or {}), acct["id"]: int(((st.get("used") or {}).get(day) or {}).get(acct["id"], 0)) + 1}}))
+                AQEELOS_LAST_ACCOUNT[threading.get_ident()] = acct["id"]
+                if len(AQEELOS_LAST_ACCOUNT) > 256:
+                    AQEELOS_LAST_ACCOUNT.clear()
                 return out
             raise RuntimeError("Antigravity: no Google account is signed in.")
 

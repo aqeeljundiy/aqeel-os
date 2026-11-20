@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import sys
 import threading
 import time
 import urllib.request
@@ -416,6 +417,126 @@ def _cap(tool_name="", args=None, result=None, session_id="", **_):
         return None
 
 
+# Usage ledger (owner, 20 Nov 2026: "tracking the usage is really important across any LLM"). One line per AI call, whatever
+# the provider, in <root>/usage-ledger/<UTC day>.jsonl: who (agent, session, channel), what (model, provider, the account
+# when the provider plugin says which), how much (tokens read, written, cached; estimated from the size of the request and
+# the answer when the provider reports none, as Google's agy does), and what the request was made of (the anatomy):
+# instructions, tool list, chat history, tool results, the newest message. aqeelOS adds the person and the schedule when
+# it reads the ledger (ledger.mjs). Nothing here can stop or slow a call: every error is swallowed.
+_pending: dict = {}
+_LEDGER_LOCK = threading.Lock()
+
+
+def _chars(x) -> int:
+    if x is None:
+        return 0
+    if isinstance(x, str):
+        return len(x)
+    try:
+        return len(json.dumps(x, ensure_ascii=False, default=str))
+    except Exception:
+        return len(str(x))
+
+
+def anatomy(system_prompt, request_messages, request) -> dict:
+    """characters per part of one request: sys (instructions), tools (the tool list), hist (earlier user and assistant turns),
+    toolres (tool results), last (the newest user message)"""
+    out = {"sys": _chars(system_prompt), "tools": 0, "hist": 0, "toolres": 0, "last": 0}
+    msgs = list(request_messages or [])
+    last_user = max((i for i, m in enumerate(msgs) if isinstance(m, dict) and m.get("role") == "user"), default=-1)
+    for i, m in enumerate(msgs):
+        if not isinstance(m, dict):
+            continue
+        role, n = m.get("role") or m.get("type") or "", _chars(m.get("content")) + _chars(m.get("tool_calls")) + _chars(m.get("output"))
+        if role == "system" or role == "developer":
+            out["sys"] += n if not system_prompt else 0
+        elif role in ("tool", "function", "function_call_output"):
+            out["toolres"] += n
+        elif i == last_user:
+            out["last"] += n
+        else:
+            out["hist"] += n
+    if isinstance(request, dict):
+        out["tools"] = _chars(request.get("tools")) or 0
+    return out
+
+
+def _acct_of(provider: str) -> str:
+    """the account the provider plugin says it used for this thread's last call (antigravity-subscription keeps one)"""
+    try:
+        for mod in list(sys.modules.values()):
+            f = getattr(mod, "AQEELOS_LAST_ACCOUNT", None)
+            if isinstance(f, dict):
+                return str(f.get(threading.get_ident()) or "")
+    except Exception:
+        pass
+    return ""
+
+
+def _pre_api(api_request_id="", system_prompt=None, request_messages=None, request=None, approx_input_tokens=0, tool_count=0, **_):
+    try:
+        if len(_pending) > 500:
+            _pending.clear()
+        _pending[str(api_request_id)] = {"an": anatomy(system_prompt, request_messages, request), "approx": int(approx_input_tokens or 0), "n": int(tool_count or 0)}
+    except Exception as e:
+        logger.debug("aqeelos-live ledger pre: %s", e)
+
+
+def ledger_line(*, agent, session_id, platform, task_id, model, provider, usage, assistant_chars, tool_calls, duration, pre, acct, aux="") -> dict:
+    u = usage or {}
+    inp = int(u.get("input_tokens") or u.get("prompt_tokens") or 0)
+    cr, cw = int(u.get("cache_read_tokens") or 0), int(u.get("cache_write_tokens") or 0)
+    out = int(u.get("output_tokens") or u.get("completion_tokens") or 0)
+    an = (pre or {}).get("an") or {}
+    est = not (inp or cr or cw or out)
+    if est:   # no usage from the provider: about 4 characters a token, the way the engine estimates too
+        inp = int((pre or {}).get("approx") or sum(an.values()) // 4)
+        out = int((assistant_chars or 0) // 4 + 40 * (tool_calls or 0))
+    total_in = inp + cr + cw
+    chars = sum(an.values()) or 1
+    parts = {k: int(round(total_in * v / chars)) for k, v in an.items()} if an else {}
+    line = {"t": round(time.time(), 1), "a": agent, "s": session_id or "", "p": platform or "", "task": str(task_id or "")[:80], "m": model or "",
+            "pv": provider or "", "acct": acct or "", "in": inp, "cr": cr, "cw": cw, "out": out, "est": est, "ms": int((duration or 0) * 1000), "an": parts,
+            "n": int((pre or {}).get("n") or 0)}
+    if aux:
+        line["aux"] = aux
+    return line
+
+
+def _write_ledger(line: dict) -> None:
+    _, root = _agent_and_root()
+    d = root / "usage-ledger"
+    d.mkdir(exist_ok=True)
+    f = d / (time.strftime("%Y-%m-%d", time.gmtime()) + ".jsonl")
+    data = (json.dumps(line, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+    with _LEDGER_LOCK:
+        fd = os.open(str(f), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o640)
+        try:
+            os.write(fd, data)
+        finally:
+            os.close(fd)
+
+
+def _post_api(api_request_id="", session_id="", platform="", task_id="", model="", provider="", usage=None, assistant_content_chars=0,
+              assistant_tool_call_count=0, api_duration=0, **_):
+    try:
+        agent, _ = _agent_and_root()
+        pre = _pending.pop(str(api_request_id), None)
+        _write_ledger(ledger_line(agent=agent, session_id=session_id, platform=platform, task_id=task_id, model=model, provider=provider, usage=usage,
+                                  assistant_chars=assistant_content_chars, tool_calls=assistant_tool_call_count, duration=api_duration, pre=pre, acct=_acct_of(provider)))
+    except Exception as e:
+        logger.debug("aqeelos-live ledger: %s", e)
+
+
+def _post_aux(session_id="", platform="", task_id="", model="", provider="", usage=None, api_duration=0, aux_task="", **_):
+    try:
+        agent, _ = _agent_and_root()
+        _write_ledger(ledger_line(agent=agent, session_id=session_id, platform=platform, task_id=task_id, model=model, provider=provider, usage=usage,
+                                  assistant_chars=0, tool_calls=0, duration=api_duration, pre=None, acct=_acct_of(provider), aux=str(aux_task or "aux")[:40]))
+    except Exception as e:
+        logger.debug("aqeelos-live ledger aux: %s", e)
+
+
 def _context(session_id="", platform="", sender_id="", is_first_turn=False, **_):
     try:
         with _lock:
@@ -517,3 +638,6 @@ def register(ctx) -> None:
     ctx.register_hook("pre_gateway_dispatch", _dispatch)
     ctx.register_hook("pre_tool_call", _pre_tool)
     ctx.register_hook("transform_tool_result", _cap)
+    ctx.register_hook("pre_api_request", _pre_api)
+    ctx.register_hook("post_api_request", _post_api)
+    ctx.register_hook("post_auxiliary_call", _post_aux)

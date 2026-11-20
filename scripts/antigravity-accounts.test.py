@@ -63,6 +63,9 @@ with tempfile.TemporaryDirectory() as t:
     ag._ACCTS.write_text("not json")
     check("a broken list leaves main", [a["id"] for a in ag._accounts()] == ["main"])
 
+check("the chosen account goes first", [a["id"] for a in ag.prefer(A, "g000002", {}, now)] == ["g000002", "main", "g000001"])
+check("a chosen account that is resting does not", [a["id"] for a in ag.prefer(A, "g000002", {"cool": {"g000002": now + 60}}, now)] == ["main", "g000001", "g000002"])
+check("no choice: the order stays", ag.prefer(A, "", {}, now) == A)
 check("quota words are recognised", all(ag._QUOTA.search(x) for x in ["RESOURCE_EXHAUSTED", "HTTP 429", "You have reached your usage limit", "quota exceeded"]))
 check("other errors are not quota", not ag._QUOTA.search("Stopped for safety: agy tried to use its own tool read_file."))
 print(n, "passed")
