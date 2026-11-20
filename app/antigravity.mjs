@@ -51,15 +51,19 @@ export function createAntigravity({HERMES_HOME,hcmd,listAgents,moveOff=async()=>
  async function code(c){c=String(c||'').trim();if(!c||c.length>2048||/[\s'"`$\\]/.test(c))throw new Error('Paste the whole code from the Google page.');
   if(login?.state!=='waiting')throw new Error('This sign-in is not running any more. Press Try again.');
   console.log('antigravity sign-in: code received');await run('tmux',['send-keys','-t',SESSION,'-l',c]);await run('tmux',['send-keys','-t',SESSION,'Enter']);
-  for(let i=0;i<12;i++){await sleep(2500);const t=(await pane()).slice(-1500);
+  for(let i=0;i<24;i++){await sleep(2500);const t=(await pane()).slice(-1500);
    if(/invalid|expired|failed|error/i.test(t)&&/code|auth/i.test(t)&&i>1){console.warn('antigravity sign-in refused:',t.replace(/\s+/g,' ').slice(-200));break}
-   if(!/authorization code/i.test(t)||i>3){const ms=login.acct?await models(login.acct.home):(await status(true)).models;if(ms?.length){login.state='done';console.log('antigravity signed in'+(login.acct?' ('+login.acct.id+')':'')+',',ms.length,'models');await stop();await kept(login.acct);seen.drop();await enableAll().catch(e=>console.warn('antigravity plugin',e.message));return {ok:true,models:ms}}}}
+   // an extra account counts as signed in once agy has saved its sign-in in that folder (20 Nov 2026: a fresh folder's agy kept
+   // showing setup screens after the code, so its model list never came within the wait and the new account was thrown away)
+   const saved=login.acct&&await stat(path.join(agyDir(login.acct.home),'antigravity-oauth-token')).then(()=>true,()=>false);
+   if(saved||!/authorization code/i.test(t)||i>3){const ms=saved?['(signed in)']:login.acct?await models(login.acct.home):(await status(true)).models;if(ms?.length){login.state='done';console.log('antigravity signed in'+(login.acct?' ('+login.acct.id+')':'')+',',ms.length,'models');await stop();await kept(login.acct);seen.drop();await enableAll().catch(e=>console.warn('antigravity plugin',e.message));return {ok:true,models:ms}}}}
+  console.warn('antigravity sign-in not confirmed'+(login.acct?' for '+login.acct.id:'')+':',(await pane()).replace(/\s+/g,' ').slice(-300));
   return {ok:false,error:'Google did not accept that code. Press Try again, sign in with the new link and paste its code (each link works once).'}}
  // closing the Connect dialog ends the sign-in here too (25 Oct): the hidden terminal goes and a code sent later is refused
  async function cancel(){if(login?.state==='waiting'){login.state='cancelled';console.log('antigravity sign-in cancelled');await stop();if(login.acct)await dropAcct(login.acct.id)}return {ok:true}}
  // an extra account: signed in = agy lists its models from that folder; kept once signed in, its folder and line gone if not
  async function signedHere(acct){return acct?!!(await models(acct.home))?.length:(await status(true)).signedIn}
- async function kept(acct){if(!acct)return;const l=await readAccts();await writeAccts(l.map(a=>a.id===acct.id?{id:a.id,label:a.label,home:a.home}:a))}
+ async function kept(acct){if(!acct)return;acct.pending=false;const l=await readAccts();await writeAccts(l.map(a=>a.id===acct.id?{id:a.id,label:a.label,home:a.home}:a))}
  async function dropAcct(id){const l=await readAccts(),a=l.find(x=>x.id===id);if(!a)return;await writeAccts(l.filter(x=>x.id!==id));if(a.home.startsWith(EXTRA+path.sep))await rm(a.home,{recursive:true,force:true});seen.drop()}
  // Remove on an extra account: its line and folder go; agents keep using the other Google accounts (the plugin reads the list each time)
  async function removeAcct(id){if(!/^g[0-9a-f]{6}$/.test(String(id||'')))throw new Error('Unknown account.');if(!(await readAccts()).some(a=>a.id===id))throw new Error('That account is not there any more.');
