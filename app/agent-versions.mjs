@@ -17,7 +17,7 @@
 //    in, skills, schedules, Kirimdev line, team group, webhooks) written into its context file, which every chat loads
 //    at its start, so it never guesses what it has.
 // Nothing here restarts the engine: settings take effect at the next reload, which the caller says.
-import {readFile,writeFile,mkdir,rename,readdir,stat,rm} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,readdir,stat,rm} from 'node:fs/promises';import {readFileSync} from 'node:fs';
 import {execFile} from 'node:child_process';
 import {createHash,createHmac,randomBytes,timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
@@ -80,7 +80,11 @@ export async function recordAgentChange(e={}){if(!current||!e.agent)return null;
  return current(e.agent,{kind,target,what,why:e.why||'',by,before:setting?{value:e.before??null}:e.before,after:setting?{value:e.after??null}:e.after,undoable:setting||kind==='webhook'})}
 export function createAgentVersions({guard=()=>null,DATA,HERMES_HOME,DASH,DASH_TOKEN,PUBLIC_URL='',listAgents,nameOf=a=>a,readConfig,setKey,pick,
  instructions=null,kirimdev=null,issues=null,health=null,teamGroups=null,selfRuns=null,bin,python=async()=>null,
- ping=null,tellOwner=async()=>{},quiet=()=>null,log=m=>console.log(m),now=()=>Date.now(),live=false,extraHealth=async()=>[],limits=null,outageAt=null}){
+ ping=null,tellOwner=async()=>{},quiet=()=>null,log=m=>console.log(m),now=()=>Date.now(),live=false,extraHealth=async()=>[],limits=null,outageAt=null,restartLog=path.join(process.env.HOME||'',  'logs','aqeelos','ui.log')}){
+ // did the engine restart in the RESTART_WINDOW before t (or just after)? ui.log has a "gateway restart:" line for each (UTC times).
+ // A "gateway did not answer" right after one is the restart; without one it may be the change itself (review 21 Nov 2026)
+ const restartNear=t=>{try{return readFileSync(restartLog,'utf8').slice(-2e6).split('\n').some(l=>{if(!/gateway restart/.test(l))return false;
+  const x=Date.parse(l.slice(0,19).replace(' ','T')+'Z');return x>=t-RESTART_WINDOW&&x<=t+2*60e3})}catch{return false}};
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const dir=a=>path.join(DATA,'agent-versions',a);
  const api=(p,o={})=>fetch(DASH+'/api'+p,{signal:AbortSignal.timeout(o.timeout||60000),...o,headers:{'x-hermes-session-token':DASH_TOKEN,'content-type':'application/json'}}).then(async r=>{const j=await r.json().catch(()=>null);if(!r.ok)throw Error(j?.detail||'HTTP '+r.status);return j});
@@ -252,7 +256,7 @@ export function createAgentVersions({guard=()=>null,DATA,HERMES_HOME,DASH,DASH_T
   // the change, so nothing is undone and no issue is filed; it is asked again after the account's reset time, if known
   const lim=ok?null:providerUnavailable(why,{now:now(),strict:true});   // strict: an answer that only talks about a 429 or a limit is not one (audit M3)
   if(lim){limits?.note(why,{now:now()});unsure=true}
-  if(!ok&&!lim&&ENGINE_NOT_READY.test(why))unsure=true
+  if(!ok&&!lim&&ENGINE_NOT_READY.test(why)&&restartNear(now()))unsure=true
   if(unsure){await lock(a,async()=>{const d1=await load(a);if(d1.watch){d1.watch.due=lim?retryAt(lim,{now:now(),fallback:10*60e3}):now()+4*60e3;
    if(lim&&!d1.events.slice(-1).some(e=>e.kind==='unavailable'&&now()-e.at<HOUR))d1.events.push({kind:'unavailable',at:now(),text:'the AI provider is not available ('+lim.kind+'), so nothing was checked: '+clip(lim.why,160)});await save(a)}});continue}
   await lock(a,async()=>{const d2=await load(a);if(!d2.watch)return;
@@ -274,10 +278,11 @@ export function createAgentVersions({guard=()=>null,DATA,HERMES_HOME,DASH,DASH_T
  // the engine was not ready (restarting, draining, its connection not up yet): says nothing about an agent's change (20 Nov 2026:
  // the 22:29 WIB engine update on P&P restarted it, five agents could not start the model connection for minutes, and their
  // fresh skill updates were undone as if they had broken them)
+ const RESTART_WINDOW=20*60e3;
  const ENGINE_NOT_READY=/couldn'?t start the model connection|gateway (?:is )?draining|Gateway did not answer|engine (?:is )?(?:re)?starting/i;
  const AUTO='aqeelOS (automatic rollback)',redoable=x=>x.undoable!==false&&(x.kind==='setting'||x.kind==='skill');
  const reasonOf=e=>e.why||/Last reason: (.*)$/.exec(String(e.text||''))?.[1]||'';
- function falseRollbacksOf(d,{since=48*HOUR}={}){return d.events.filter(e=>e.kind==='rollback'&&e.at>=now()-since&&(providerUnavailable(reasonOf(e))||ENGINE_NOT_READY.test(reasonOf(e))||/^it did not answer \(\d+\):?$/.test(reasonOf(e).trim())&&outageAt?.(e.at))).map(e=>{
+ function falseRollbacksOf(d,{since=48*HOUR}={}){return d.events.filter(e=>e.kind==='rollback'&&e.at>=now()-since&&(providerUnavailable(reasonOf(e))||ENGINE_NOT_READY.test(reasonOf(e))&&restartNear(e.at)||/^it did not answer \(\d+\):?$/.test(reasonOf(e).trim())&&outageAt?.(e.at))).map(e=>{
    const items=d.items.filter(x=>x.state==='undone'&&x.undoneBy===AUTO&&(e.ids?e.ids.includes(x.id):x.undoneAt>=e.at-300e3&&x.undoneAt<=e.at+1000));
    return {at:e.at,reason:clip(reasonOf(e),200),restoredAt:e.restored||null,instructions:e.instr||null,changes:items.map(x=>({id:x.id,kind:x.kind,target:x.target,what:x.what,redoable:redoable(x)}))}})}
  async function falseRollbacks(a,o){return falseRollbacksOf(await load(a),o)}

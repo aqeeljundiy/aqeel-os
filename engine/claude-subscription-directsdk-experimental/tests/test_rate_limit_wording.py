@@ -34,6 +34,11 @@ class RateLimitWording(unittest.TestCase):
                             ('credit balance is too low', 402)):
             self.assertEqual(directsdk.rate_limit_wording(msg, status, now=NOW), msg)
 
+    def test_plan_limit_429_untouched(self):
+        # review 21 Nov 2026: a 429 for the plan's own limit is no short wait; rewording it kept agents waiting on an empty account
+        for msg in ("Native API error: You've hit your session limit · resets 6pm (UTC)", 'API Error: 429 weekly usage limit reached'):
+            self.assertEqual(directsdk.rate_limit_wording(msg, 429, now=NOW), msg)
+
     @unittest.skipUnless(os.environ.get('HERMES_AGENT_DIR'), 'set HERMES_AGENT_DIR to check against the engine classifier')
     def test_engine_reads_rate_limit(self):
         sys.path.insert(0, os.environ['HERMES_AGENT_DIR'])

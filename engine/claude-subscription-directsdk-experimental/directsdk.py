@@ -65,6 +65,7 @@ NATIVE_ERROR_STATUS = {
 }
 
 
+_SHORT_LIMIT = re.compile(r'upstream rate-limited|temporarily limiting requests|holding outbound sends until', re.I)
 _HOLD_UNTIL = re.compile(r'holding outbound sends until (\d{4}-\d\d-\d\dT[\d:.]+Z)')
 
 
@@ -72,9 +73,11 @@ def rate_limit_wording(message, status, now=None):
     """A short rate limit worded so the engine reads it as one (CH-1, 19 Nov 2026). Anthropic's 429 says "Server is temporarily
     limiting requests (not your usage limit)", and the engine's classifier took the words "usage limit" for an empty account:
     reason billing, never retried, the line held. 197 support and Donna messages were dropped that way in 7 days on Elkiya.
-    The relay's hold time ("holding outbound sends until <ISO>") becomes "try again in N seconds", so the turn waits it out."""
+    The relay's hold time ("holding outbound sends until <ISO>") becomes "try again in N seconds", so the turn waits it out.
+    Only the relay's and Anthropic's short-limit wording is reworded, whatever the status: a 429 that says the plan's own
+    session or weekly limit is used up stays as it is, so the engine moves on instead of waiting (review 21 Nov 2026)."""
     text = str(message or '')
-    if status != 429 and 'upstream rate-limited' not in text and 'temporarily limiting requests' not in text:
+    if not _SHORT_LIMIT.search(text):
         return text
     wait = 60
     holds = _HOLD_UNTIL.findall(text)

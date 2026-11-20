@@ -105,11 +105,13 @@ test('a stuck issue at the daily cap is not restarted by a deploy today',async()
  await fx.sweep(true);assert.equal(i.state,'stuck');assert.ok(!i.capped)});
 
 // ---- auto-rollback ----
+// a ui.log with one engine restart at time ms (UTC, as the app writes it)
+const restartAt=async ms=>{const f=path.join(await mkdtemp(path.join(tmpdir(),'plr-')),'ui.log');await writeFile(f,'2020-01-01 00:00:00 other line\n'+new Date(ms).toISOString().slice(0,19).replace('T',' ')+' gateway restart: engine updated\n');return f};
 async function versions(o={}){const root=await mkdtemp(path.join(tmpdir(),'plv-'));const H=path.join(root,'hermes'),DATA=path.join(root,'data');await mkdir(path.join(H,'profiles','bot','skills','cat','one'),{recursive:true});
  await writeFile(path.join(H,'profiles','bot','skills','cat','one','SKILL.md'),'v1\n');let t=T;const told=[],filed=[],cfg={stt:{language:'id'}};const limits=createLimitState({now:()=>t});
  const v=createAgentVersions({DATA,HERMES_HOME:H,DASH:'http://127.0.0.1:1',DASH_TOKEN:'x',listAgents:async()=>['default','bot'],nameOf:a=>a==='bot'?'Bot':a,readConfig:async()=>cfg,
   setKey:async(a,k,val)=>{const p=k.split('.');let x=cfg;while(p.length>1)x=x[p.shift()]||={};x[p[0]]=val;return {ok:true}},pick:(x,k)=>k.split('.').reduce((a,b)=>a&&typeof a==='object'?a[b]:undefined,x),
-  issues:{file:async x=>{filed.push(x);return {}},forAgent:async()=>[]},ping:o.ping,tellOwner:async x=>{told.push(x)},now:()=>t,live:true,log:()=>{},limits,outageAt:o.outageAt});
+  issues:{file:async x=>{filed.push(x);return {}},forAgent:async()=>[]},ping:o.ping,tellOwner:async x=>{told.push(x)},now:()=>t,live:true,log:()=>{},limits,outageAt:o.outageAt,restartLog:o.restartLog||path.join(root,'no-ui.log')});
  return {v,cfg,told,filed,limits,tick:ms=>{t+=ms},now:()=>t,H}}
 
 test('auto-rollback: "no answer" because the provider is used up undoes nothing, files nothing, asks again after the reset',async()=>{
@@ -155,9 +157,9 @@ test('every account used up: nobody moves, held until the earliest reset; one us
  assert.equal(exhaustion(pr,()=>0,()=>null,{held:()=>true}).all,true,'a provider in an outage counts');assert.equal(exhaustion([],()=>100,()=>null).all,false);
  assert.equal(entryReset([{used:100,resets:new Date(T+1e3).toISOString()},{used:44,resets:new Date(T+9e9).toISOString()},{used:100,resets:new Date(T+5e3).toISOString()}]),T+5e3)});
 
-test('auto-rollback: an engine that was not ready (restarting, draining) is no failure of the change, and such old rollbacks are put back (20 Nov 2026)',async()=>{
- let why="it did not answer (1): aqeelOS couldn't start the model connection: Gateway draining";
- const {v,cfg,tick}=await versions({ping:async()=>({ok:false,why})});
+test('auto-rollback: an engine that was not ready right after a restart is no failure of the change (20 Nov 2026)',async()=>{
+ let why="it did not answer (1): aqeelOS couldn't start the model connection: Gateway did not answer session.create";
+ const {v,cfg,tick}=await versions({ping:async()=>({ok:false,why}),restartLog:await restartAt(T+60e3)});
  await v.mySetting('bot','stt.language','xx',{by:'Bot'});await v.arm('bot');
  for(let k=0;k<4;k++){tick(5*60e3);await v.watchTick()}
  assert.equal(cfg.stt.language,'xx','the change stays while the engine is not ready');const d=await v.load('bot');
@@ -166,9 +168,15 @@ test('auto-rollback: an engine that was not ready (restarting, draining) is no f
  assert.equal(cfg.stt.language,'id','a real failure still rolls back')});
 
 test('a rollback made while the engine was not ready counts as a false rollback and is put back',async()=>{
- const {v,cfg,tick}=await versions({ping:async()=>({ok:false,why:'answered without OK: boom'})});
+ const {v,cfg,tick}=await versions({ping:async()=>({ok:false,why:'answered without OK: boom'}),restartLog:await restartAt(T)});
  await v.mySetting('bot','stt.language','xx',{by:'Bot'});await v.arm('bot');tick(4*60e3);await v.watchTick();tick(5*60e3);await v.watchTick();
  assert.equal(cfg.stt.language,'id','rolled back');const d=await v.load('bot');const e=d.events.find(x=>x.kind==='rollback');
- e.why="it did not answer (1): aqeelOS couldn't start the model connection: Gateway draining";   // as the 20 Nov rollbacks on P&P read
+ e.why="it did not answer (1): aqeelOS couldn't start the model connection: Gateway did not answer session.create";   // as the 20 Nov rollbacks on P&P read
  const r=await v.falseRollbacks('bot');assert.equal(r.length,1,'found as false');const res=await v.restoreFalseRollbacks('bot');
  assert.equal(res[0].restored.length,1);assert.equal(cfg.stt.language,'xx','put back')});
+
+test('without an engine restart, "gateway did not answer" after a change is a failure and rolls back, and is not put back (review 21 Nov 2026)',async()=>{
+ const why="it did not answer (1): aqeelOS couldn't start the model connection: Gateway did not answer session.create";
+ const {v,cfg,tick}=await versions({ping:async()=>({ok:false,why})});   // no restart in the log: the change may have broken the gateway
+ await v.mySetting('bot','stt.language','xx',{by:'Bot'});await v.arm('bot');tick(4*60e3);await v.watchTick();tick(5*60e3);await v.watchTick();
+ assert.equal(cfg.stt.language,'id','rolled back');assert.deepEqual(await v.falseRollbacks('bot'),[],'and not taken for a false rollback')});

@@ -52,12 +52,12 @@ export function createChatReview({DATA,HERMES_HOME,python,listAgents,nameOf=a=>a
  const F=path.join(DATA,'chat-review.json');
  const read=run||(async(db,hours)=>{const p=await python().catch(()=>null);if(!p)return [];
   return new Promise(res=>execFile(p,['-c',Q,db,String(hours)],{timeout:60000,maxBuffer:5e7},(e,o)=>{try{res(e?[]:JSON.parse(o))}catch{res([])}}))});
- async function once(){const agents=(await listAgents()).filter(a=>!String(a).includes('--')),out={};
+ async function once(at=Date.now()){const agents=(await listAgents()).filter(a=>!String(a).includes('--')),out={};
   for(const a of agents){const db=a==='default'?path.join(HERMES_HOME,'state.db'):path.join(HERMES_HOME,'profiles',a,'state.db');
    const rows=await read(db,24).catch(()=>[]);const r=reviewRows(rows),s=summary(nameOf(a),r);out[a]={...r,examples:undefined};
    if(s)await problem(a,'chatreview',s.title,s.detail).catch(e=>log('chat review '+a+': '+e.message));else await ok(a,'chatreview').catch(()=>{})}
-  await mkdir(DATA,{recursive:true});await writeStore(F,JSON.stringify({at:Date.now(),agents:out},null,1));log('chat review: '+Object.keys(out).length+' agents read');return out}
+  await mkdir(DATA,{recursive:true});await writeStore(F,JSON.stringify({at:+at,agents:out},null,1));log('chat review: '+Object.keys(out).length+' agents read');return out}
   // once a day after hourUtc (21 UTC = 04:00 WIB, the quiet hours); called by Health's 5-minute tick (server.mjs), no timer of its own
  async function tick(now=new Date()){if(now.getUTCHours()<hourUtc)return false;const last=(await readStore(F,{}).catch(()=>({})))?.at||0;
-  if(new Date(last).toISOString().slice(0,10)===now.toISOString().slice(0,10))return false;await once();return true}
+  if(new Date(last).toISOString().slice(0,10)===now.toISOString().slice(0,10))return false;await once(now);return true}   // review 21 Nov 2026: store the tick's own time, so a test clock (or a late tick) compares days right
  return {once,tick}}

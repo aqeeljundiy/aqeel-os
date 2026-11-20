@@ -11,7 +11,7 @@ import {hermes as hq,setKey,readConfig,pick,editEnv,agentNames,setStatus,getStat
 import {allowed,trim,setRule,ownerOf} from './skills-policy.mjs';import {follow} from './skill-follow.mjs';
 import {swr} from './swr.mjs';
 import {createClaudeRenew} from './claude-renew.mjs';
-import {providerUnavailable} from './provider-limits.mjs';import {stuckAgents} from './stuck-limit.mjs';
+import {providerUnavailable} from './provider-limits.mjs';import {stuckAgents,STUCK_HOLD} from './stuck-limit.mjs';
 import {providerPlugins} from './code-agent.mjs';import {enableReloaded} from './agent-reload.mjs';
 import {createAgyQuota,claudeHeaderUsage,deadLogins} from './usage-extra.mjs';import {withExtras,chosenAccount,chooseAccount,splitSlug} from './model-accounts.mjs';import {createModelCatalog} from './model-catalog.mjs';import {modelStats} from './ledger.mjs';
 import {accountStates} from './account-state.mjs';
@@ -308,8 +308,11 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
   const det=Object.fromEntries(await Promise.all(accts.map(async a=>[a.id,await details(a)])));
   // a sign-in that answers "rate limit" on every run for hours (stuck-limit.mjs, AU-10): the agent moves to the signed-in account with the most room
   if(on)for(const profile of stuckAgents(await readFile(path.join(HERMES_HOME,'logs','aqeelos-dropped.jsonl'),'utf8').catch(()=>''),Date.now(),p=>Math.max(0,...(d.events||[]).filter(e=>e.profile===p).map(e=>e.t)))){const cur=d.assign[profile]||'main';
-   if(movesToday(d.moved?.[profile])>=DAY_MAX)continue;const best=accts.filter(a=>a.id!==cur&&det[a.id]?.signedIn).sort((x,y)=>headroom(det[y.id])-headroom(det[x.id]))[0];
-   if(best)await assign(d,profile,best.id,'rate limit on every run for hours on '+(det[cur]?.label||cur)).then(()=>console.log('auto-switch:',profile,cur,'to',best.id,'(rate limit on every run)'),e=>console.warn('auto-switch',e.message))}
+   const pin0=d.pins?.[profile]||pinFromEvents(d.events,profile);if(movesToday(d.moved?.[profile])>=DAY_MAX||pinState(pin0).hand)continue;const best=accts.filter(a=>a.id!==cur&&det[a.id]?.signedIn).sort((x,y)=>headroom(det[y.id])-headroom(det[x.id]))[0];
+   // pinned for STUCK_HOLD (review 21 Nov 2026: with the usual 60-minute settle the back-home step moved it straight back, since a rate
+   // limit uses no quota and the old account still looked free); a person's own placement is never overridden (skipped above)
+   if(best)await assign(d,profile,best.id,'rate limit on every run for hours on '+(det[cur]?.label||cur)).then(async()=>{const pin={at:Date.now(),until:Date.now()+STUCK_HOLD,why:'rate limit'};
+    (d.pins||={})[profile]=pin;await update(x=>{(x.pins||={})[profile]=pin});console.log('auto-switch:',profile,cur,'to',best.id,'(rate limit on every run)')},e=>console.warn('auto-switch',e.message))}
   if((d.priority||[]).length){
    // every entry used up: nobody is moved (there is nowhere to go; it only flipped agents between full accounts). Held until the earliest
    // reset, said once on Health (d.exhausted, one item, not one per agent) and told to the fixer (accountHooks.exhausted)

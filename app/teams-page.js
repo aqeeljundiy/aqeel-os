@@ -123,11 +123,12 @@ const alertTo=kind=>{const D=Teams.d,info=kind==='info',t=(info?D.info:D.alerts)
  const ch=d.querySelector('#alCh'),cb=d.querySelector('#alChatBox'),chat=d.querySelector('#alChat'),err=d.querySelector('.km-err');
  const load=async()=>{err.textContent='';if(!ch.value){cb.hidden=true;return}chat.innerHTML='<option value="">Loading…</option>';chat._sync?.();cb.hidden=false;
   try{const r=await post(UI,'/ui/alerts/chats',{channel:ch.value});chat.innerHTML='<option value="">Your own chat on it (default)</option>'+r.chats.map(c=>`<option value="${esc(c.id)}"${c.id===(info?tChat:t.chat)?' selected':''}>${esc(c.name)}</option>`).join('');chat._sync?.();
-   const tb=d.querySelector('#alTopicBox');if(tb)tb.hidden=!/telegram/.test(ch.value)}
+   const tb=d.querySelector('#alTopicBox');if(tb)tb.hidden=D.channels.find(c=>c.id===ch.value)?.platform!=='telegram'}
   catch(e){err.textContent=e.message;cb.hidden=true}};
  ch.onchange=load;load();
  d.querySelector('#alSave').onclick=async e=>{const b=e.currentTarget;b.disabled=true;const o=chat.selectedOptions[0];
-  const tp=info?String(d.querySelector('#alTopic')?.value||'').trim():'';if(tp&&!/^\d{1,9}$/.test(tp)){err.textContent='The topic is a number.';b.disabled=false;return}
+  const tb=d.querySelector('#alTopicBox'),tp=info&&tb&&!tb.hidden&&!cb.hidden?String(d.querySelector('#alTopic')?.value||'').trim():'';if(tp&&!/^\d{1,9}$/.test(tp)){err.textContent='The topic is a number.';b.disabled=false;return}
+  if(tp&&!chat.value){err.textContent='A topic needs a group: pick the chat first.';b.disabled=false;return}   // review 21 Nov 2026: a topic with no chat was dropped silently
   const c=cb.hidden?'':chat.value,full=tp&&c?c+':'+tp:c,nm=!cb.hidden&&chat.value?(o?.textContent||'')+(tp?', topic '+tp:''):'';
   try{const r=await put(UI,'/ui/alerts',{kind:info?'info':'',channel:ch.value,chat:full,chatName:nm});if(info)Teams.d.info=r.info;else Teams.d.alerts=r.alerts;closeLayers();Teams.repaint();toast(info?'Saved.':'Saved. Send a test to check it arrives.')}catch(x){err.textContent=x.message;b.disabled=false}}};
 ACT['tm-alert-to']=()=>alertTo('alerts');ACT['tm-info-to']=()=>alertTo('info');

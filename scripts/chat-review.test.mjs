@@ -24,8 +24,10 @@ test('one Health item per agent with problems, the others cleared, once a day af
   problem:async(a,k,t)=>filed.push([a,k,t]),ok:async(a,k)=>cleared.push([a,k]),log:()=>{},run:async db=>db.includes('profiles')?rows.fine:rows.default});
  assert.equal(await cr.tick(new Date('2026-11-19T10:00:00Z')),false,'not before the hour');
  assert.equal(await cr.tick(new Date('2026-11-19T21:10:00Z')),true);assert.equal(await cr.tick(new Date('2026-11-19T21:15:00Z')),false,'once a day');
- assert.deepEqual(filed.map(f=>f.slice(0,2)),[['default','chatreview']]);assert.match(filed[0][2],/^Donna's chats yesterday: .*1 unhappy/);
- assert.deepEqual(cleared,[['fine','chatreview']])});
+ assert.equal(await cr.tick(new Date('2026-11-20T21:05:00Z')),true,'and again the next day, whatever the real clock says (review 21 Nov 2026)');
+ assert.equal(JSON.parse(await (await import('node:fs/promises')).readFile(path.join(DATA,'chat-review.json'),'utf8')).at,Date.parse('2026-11-20T21:05:00Z'),'stores the tick time');
+ assert.deepEqual(filed.map(f=>f.slice(0,2)),[['default','chatreview'],['default','chatreview']]);assert.match(filed[0][2],/^Donna's chats yesterday: .*1 unhappy/);
+ assert.deepEqual(cleared,[['fine','chatreview'],['fine','chatreview']])});
 
 test('a person own mistake is no complaint (20 Nov 2026)',()=>{
  const rows=[['s1','telegram','user',1000,'Kak izin yah, aku salah pesan yang small, aku pesan ulang','group'],['s1','telegram','assistant',1010,'Siap kak','group'],

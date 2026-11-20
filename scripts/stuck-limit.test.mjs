@@ -21,3 +21,12 @@ test('turns before the agent last moved do not count, and old turns fall out of 
  assert.deepEqual(stuckAgents(log,now),['fixer-a'],'over 2 h of misses inside the 4 h window');
  assert.deepEqual(stuckAgents(log,now,a=>a==='fixer-a'?now-160*60e3:0),[],'it moved 160 min ago: only one miss since');
  assert.deepEqual(stuckAgents(log,now+3*3600e3),[],'three hours later the misses are older than the window')});
+
+test('a stuck move holds for hours so the back-home step does not undo it, and never overrides a hand placement (review 21 Nov 2026)',async()=>{
+ const {STUCK_HOLD}=await import('../app/stuck-limit.mjs');const {pinState,SETTLE}=await import('../app/account-pools.mjs');
+ const now=Date.parse('2026-11-21T00:00:00Z'),pin={at:now,until:now+STUCK_HOLD,why:'rate limit'};
+ assert.ok(STUCK_HOLD>=6*SETTLE,'held far longer than the usual settle time');
+ assert.equal(pinState(pin,now+2*SETTLE).free,false,'two hours later it still may not go back home');assert.equal(pinState(pin,now+STUCK_HOLD+1).free,true,'then it may');
+ const src=(await import('node:fs')).readFileSync(new URL('../app/accounts.mjs',import.meta.url),'utf8'),i=src.indexOf('stuckAgents(await readFile');
+ assert.match(src.slice(i,i+900),/pinState\(pin0\)\.hand\)continue/,'an agent placed by hand is skipped');
+ assert.match(src.slice(i,i+1600),/until:Date\.now\(\)\+STUCK_HOLD/,'the move writes the long pin')});

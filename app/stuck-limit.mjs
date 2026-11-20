@@ -5,6 +5,8 @@
 // engine fix aqeelos:turn-retry-once): an agent with RUNS or more rate-limited turns that never recovered, spread over SPAN or more,
 // within WINDOW, and not one that recovered, is stuck; accounts.mjs then moves it to the signed-in account with the most room.
 export const RUNS=4,SPAN=2*3600e3,WINDOW=4*3600e3;
+// a stuck move holds the agent on its new account this long, so the back-home step does not undo it within the hour
+export const STUCK_HOLD=12*3600e3;
 // the log names the main agent "main" (its session key) or "default"
 const nameOf=a=>a==='main'||!a?'default':String(a);
 // sinceOf(agent): when it last moved (ms); turns before that were on the old sign-in and do not count

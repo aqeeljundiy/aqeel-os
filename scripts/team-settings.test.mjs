@@ -47,4 +47,9 @@ await t('store: saves keep other keys and a .prev copy; pause and alerts; quiet 
  assert.deepEqual(await T.setTest('a2',true),['a2']);assert.equal(q('a2'),'test');assert.deepEqual(await T.setTest('a2',false),[]);await assert.rejects(T.setTest('ghost',true),/does not exist/)});
 // FX-3 (19 Nov 2026): saving the fixer's settings keeps fixer.urgentAgents, which the page does not send
 await t('fixer settings keep urgentAgents',()=>{const o=cleanFixer({cap:5},['a1'],{urgentAgents:['line-a','line-b']});assert.deepEqual(o.urgentAgents,['line-a','line-b']);assert.equal(o.cap,5)});
+await t('the topic field follows the channel platform, and a topic with no chat is refused, not dropped (review 21 Nov 2026)',async()=>{
+ const src=(await import('node:fs')).readFileSync(new URL('../app/teams-page.js',import.meta.url),'utf8');
+ assert.match(src,/tb\.hidden=D\.channels\.find\(c=>c\.id===ch\.value\)\?\.platform!=='telegram'/,'shown for a Telegram channel by its platform, not its id');
+ assert.doesNotMatch(src,/\/telegram\/\.test\(ch\.value\)/);
+ assert.match(src,/if\(tp&&!chat\.value\)\{err\.textContent=/,'a topic without a chat is an error')});
 console.log(n+' passed');
