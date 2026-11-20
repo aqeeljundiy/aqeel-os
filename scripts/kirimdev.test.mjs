@@ -443,6 +443,13 @@ test('a stop that is not the provider keeps the breaker, and its reason reaches 
  let runs=0;const t=await make({health:true,agentSays:async()=>{runs++;throw Error('the agent stopped (1): Gateway did not answer session.create')}});
  await t.post(meta('628123','tolong','m1'));await t.settle();assert.equal(runs,3);assert.ok(t.probs.some(x=>x[1].startsWith('stopped|')&&/Gateway did not answer session.create/.test(x[3])),'the reason is in the problem');assert.ok(!t.probs.some(x=>x[1]==='kirimdev|provider'))});
 
+// i46c89d69: a send the line itself held ("Outbound held by current line policy": a person's pause, the 24 hours, Test or Draft) is the
+// policy working, not the agent stopping: it is never retried 3 times, never handed off as 'keeps stopping' and leaves no Health problem
+test('a reply held by the line policy is not counted as the agent stopping (i46c89d69)',async()=>{
+ let runs=0;const t=await make({health:true,agentSays:async()=>{runs++;throw Error('Outbound held by current line policy')}});
+ await t.post(meta('628123','tolong','m1'));await t.settle();assert.equal(runs,1,'not retried as a failure');
+ assert.ok(!t.probs.some(x=>x[1].startsWith('stopped|')),'no keeps-stopping problem');assert.equal(t.sent.length,0)});
+
 // the protocol PDF over WhatsApp (12 Nov 2026, issue i19b649d9): Kirimdev's document message takes a public https link, never bytes
 test('sendDocument: a document message with a public https link, to a number that wrote in the last 24 hours; never in Draft or to a stranger in Test',async()=>{
  const t=await make();await t.post(meta('628123','halo'));await t.settle();const n=t.sent.length;

@@ -378,6 +378,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  // a burst of messages is answered once: the run starts a few seconds after the last one
  const FAIL_MAX=3,FAIL_WAIT=[60,300],FAIL_WINDOW=30*60e3,PROV_WAIT=[120,300,600,900],TURN_MAX=2*3600e3,ENGINE_WAIT=30,ENGINE_TRIES=20;
  const timers=new Map(),running=new Set();let active=0;
+ const HELD=/^Outbound held by current line policy/;
  // setTimer/clearTimer are injectable so tests drive the burst window themselves instead of racing a 0 s timer
  // wait for the customer to finish (owner, 14 Nov 2026: "wait a sec for customers to finish their sentence, maybe respond in 1.5
  // minutes or even 2, so you digest every message first"). Customers write in bursts of short lines with pauses longer than a few
@@ -412,6 +413,14 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    try{await answer(p.agent,line,p,key);
     if(p.superseded){later=true;delete st.turns[key];await saveState();if(st.pending[key])schedule(key,{debounceSec:quietWait(line,st.pending[key])});return}}
    catch(e){
+    // the line itself held the send (a person's pause, WhatsApp's 24 hours, Test or Draft): that is the line's policy working, not the
+    // agent stopping. Never counted toward FAIL_MAX nor handed off as 'keeps stopping' (i46c89d69: …3124 was handed off 3 times and the
+    // Health problem stayed after the team answered). During a pause the chat is answered when it ends, as for any message then.
+    if(HELD.test(String(e.message||''))){delete st.turns[key];delete st.fails?.[key];const pu=pausedUntil(p.agent,p.conversationId,p.from);
+     log('kirimdev '+p.agent+': the line held the reply to '+tail(p.from)+' ('+(pu>now()?'a person is answering':'line policy')+'); not counted as a stop');
+     if(st.stopped?.[key]){delete st.stopped[key];await solved?.(p.agent,'stopped|'+key).catch(()=>{})}
+     if(pu>now()&&st.pending[key]){later=true;schedule(key,{debounceSec:Math.ceil((pu-now())/1000)+5})}else if(st.pending[key]?.token===p.token)delete st.pending[key];
+     await saveState();return}
     // the engine was restarting (a deploy, a restart of the agents): the run, its check before sending or its second try was cut, or
     // the engine did not answer yet. That says nothing about the reply or the customer (17 Nov 2026: Gilang's reply was written, its
     // check was stopped by a deploy's restart, the second try met "Gateway did not answer session.resume", and the tester's chat went
@@ -824,7 +833,9 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
        // WhatsApp did not deliver it: the customer has nothing, so the team hears it in their topic, not only the bell (audit H7)
        await alertTeam(o.agent,line,{key:'failed|'+o.id,title:'WhatsApp did not deliver a message',detail:'Kirimdev reports: '+String(r.data.error?.code||r.data.error?.message||'failed').slice(0,120)+'. The customer did not get it.',from:o.to,conversationId:kn.conv||'',name:kn.name||''}).catch(()=>{})}}}catch(e){log('kirimdev receipt reconciliation: '+e.message)}}continue}if(o.status==='cancelled'||o.status==='held'||blocked.has(o.agent+'|'+o.to))continue;try{await deliver(o.id)}catch{blocked.add(o.agent+'|'+o.to)}}}
  // a handoff counts as answered once anything else reaches that customer on this line
- async function answered(agent,to){await state();for(const k of ['stopped|'+to])if(st.alerts[agent+'|'+k]){delete st.alerts[agent+'|'+k];await solved?.(agent,'customer|'+k).catch(()=>{})}for(const [id,a] of Object.entries(st.asked||{}))if(a.agent===agent&&a.from===String(to)&&now()-a.at>5000){delete st.asked[id];if(a.told)await solved?.(agent,'unanswered|'+id).catch(()=>{})}}
+ async function answered(agent,to){await state();for(const k of ['stopped|'+to])if(st.alerts[agent+'|'+k]){delete st.alerts[agent+'|'+k];await solved?.(agent,'customer|'+k).catch(()=>{})}
+  // a person answered the chat the agent kept stopping on: Health's 'keeps stopping on one chat' is over (i46c89d69)
+  {const conv=st.known[agent+'|'+to]?.conv||'';for(const k of Object.keys(st.stopped||{}))if(k.startsWith(agent+'|')&&(k.endsWith('|'+to)||conv&&k.endsWith('|'+conv))){delete st.stopped[k];await solved?.(agent,'stopped|'+k).catch(()=>{})}}for(const [id,a] of Object.entries(st.asked||{}))if(a.agent===agent&&a.from===String(to)&&now()-a.at>5000){delete st.asked[id];if(a.told)await solved?.(agent,'unanswered|'+id).catch(()=>{})}}
 
  // the agent's whatsapp_reply tool: only to someone who wrote to its own line in the last 24 hours (a tester in Test). Never in Draft
  // (audit H5): there only a person sends. The same text is not sent twice within 10 minutes (audit M5: a turn run again after a restart).
