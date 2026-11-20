@@ -304,7 +304,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  // Told after the fact and never awaited: an event hook or an event-started run must not hold up or break the line.
  const emit=(agent,type)=>{Promise.resolve().then(()=>onEvent(agent,{type,data:{}})).catch(()=>{})};
  const TEAM_GRACE=3*60e3;   // a team answer to a handoff ends the hold this long after it (i6cd97e7e)
- const holdOf=(agent,num)=>{const h=st.holds[agent+'|'+num];return h&&h.until>now()?h:null};
+ const holdOf=(agent,num)=>{const h=st.holds[agent+'|'+num];if(h&&h.teamAt&&now()-h.teamAt>=TEAM_GRACE){release(agent,String(num),'the team answered the handoff');return null}return h&&h.until>now()?h:null};   // after a team answer: released properly, its waits cleared too (the Fixer's version of i6cd97e7e)
  async function ingest(agent,line,ms){let told=false;if(ms.length)st.last[agent]={at:now(),from:ms[0].from};
   const mode=modeOf(line);
   for(const m of ms){const rk=agent+'|'+m.from;
