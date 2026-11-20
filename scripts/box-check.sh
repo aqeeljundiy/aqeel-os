@@ -66,7 +66,7 @@ if [ "${FLICKER_CHECK:-1}" = 0 ]; then echo "· 2/5 fast page switching: skipped
 echo "· 2/5 fast page switching and flicker (replays, jumps, pictures loading again, the bell, pop-ups, the shell drawn again, pages that move while they load)"
 sweep(){ timeout 840 node scripts/shot.mjs /tmp/sweep.png "#/chat" "" "" 1280 900 "$(cat scripts/sweep.js)" 2>&1 | head -1; }
 s=$(sweep); echo "$s" | grep -q '\\"bad\\":0' || { again "fast page switching" "$s"; s=$(sweep); }
-echo "$s" | grep -q '\\"bad\\":0' || { echo "✗ fast page switching found problems (twice):"; echo "$s" | cut -c1-900; exit 1; }
+echo "$s" | grep -q '\\"bad\\":0' || { echo "✗ fast page switching found problems (twice): $(echo "$s" | tr '\n' ' ' | cut -c1-280)"; exit 1; }   # on the ✗ line: the Health item keeps only ✗ lines and showed no reason
 # slow is not a flicker, but it is said: the pages that took over 6 s to settle (Stage.hard: the longest anyone looks at the ring)
 sp=$(printf '%s' "$s" | grep -o 'slowPages[^]]*' | sed 's/^slowPages[^[]*\[//; s/\\"//g' | cut -c1-400); [ -n "$sp" ] && echo "  · slow to load (named, not failed): $sp"
 fi
