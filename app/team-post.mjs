@@ -12,9 +12,13 @@ import path from 'node:path';
 import {homeOf as agentHome} from './agentops.mjs';
 
 export const MIRROR_LABEL='[Posted in this topic by aqeelOS, for the team; you did not write it]';
-// runs in the engine's own Python, with the agent's home as HERMES_HOME so the agent's own session store is used
+// runs in the engine's own Python, with the agent's home as HERMES_HOME so the agent's own session store is used.
+// The input travels in the environment (AQ_MIRROR), not on stdin (21 Nov 2026): the first time the engine meets an agent's home
+// it prepares it and starts the script again in a fresh interpreter, and stdin was already read by then, so the second run got
+// nothing and failed with "JSONDecodeError ... (char 0)". On Elkiya that lost every post since 14 Nov (76 logged, none kept).
+// The environment and HERMES_HOME are set before the start, so a restarted run sees the same input.
 export const MIRROR_PY=`import json,os,sys
-d=json.loads(sys.stdin.read())
+d=json.loads(os.environ['AQ_MIRROR'])
 os.environ['HERMES_HOME']=d['home']
 sys.path.insert(0,d['src'])
 from gateway.mirror import mirror_to_session
@@ -26,7 +30,8 @@ export function createTeamPost({HERMES_HOME,homeOf=agentHome,live=true,python=as
  // into the topic's conversation; resolves 'mirrored', 'no-session' or 'failed', never throws
  async function mirror(a,chatId,threadId,text){try{const py=await python();if(!py)return 'failed';
   const input=JSON.stringify({home:homeOf(a),src:path.join(HERMES_HOME,'hermes-agent'),chat:String(chatId),thread:threadId??null,text:MIRROR_LABEL+'\n'+String(text||'').slice(0,4000)});
-  const out=await new Promise(res=>{const c=run(py,['-I','-c',MIRROR_PY],{timeout:30000,maxBuffer:1e6},(e,o,er)=>res(e?'failed: '+String(er||e.message).trim().split('\n').slice(-1)[0]:String(o||'').trim().split('\n').pop()));c?.stdin?.end(input)});
+  const env={...process.env,HERMES_HOME:homeOf(a),AQ_MIRROR:input,HERMES_DISABLE_LAZY_INSTALLS:'1'};   // no prepare-and-restart: run in the engine Python the app already checked
+  const out=await new Promise(res=>{const c=run(py,['-I','-c',MIRROR_PY],{timeout:60000,maxBuffer:1e6,env},(e,o,er)=>res(e?'failed: '+(e.killed?'stopped after 60 s':String(er||e.message).trim().split('\n').slice(-1)[0]):String(o||'').trim().split('\n').pop()));c?.stdin?.end()});
   if(!/^(mirrored|no-session)$/.test(out))log('team post: not kept in the topic\'s conversation for '+a+' ('+String(out).slice(0,160)+')');return /^(mirrored|no-session)$/.test(out)?out:'failed'}
   catch(e){log('team post: not kept in the topic\'s conversation for '+a+' ('+e.message+')');return 'failed'}}
  // the post; its message id once Telegram confirmed it (false when not sent). preview:false turns link previews off.

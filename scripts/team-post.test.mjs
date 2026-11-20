@@ -8,7 +8,7 @@ async function make({ok=true,mirrorOut='mirrored',live=true}={}){const H=await m
  const sent=[],ran=[],logs=[];let done;const mirrored=new Promise(r=>done=r);
  const P=createTeamPost({HERMES_HOME:H,homeOf:a=>path.join(H,'profiles',a),live,python:async()=>'/engine/python',log:m=>logs.push(m),
   fetchFn:async(url,o)=>{sent.push([url,JSON.parse(o.body)]);return {ok:true,json:async()=>({ok,result:{message_id:77}})}},
-  run:(cmd,args,opts,cb)=>{let input='';const c={stdin:{end:x=>{input=x;ran.push([cmd,args,JSON.parse(input)]);setImmediate(()=>{cb(null,mirrorOut+'\n','');done()})}}};return c}});
+  run:(cmd,args,opts,cb)=>{const env=opts?.env||{};ran.push([cmd,args,JSON.parse(env.AQ_MIRROR||'{}'),env]);const c={stdin:{end:x=>{assert.equal(x,undefined,'nothing on stdin')}}};setImmediate(()=>{cb(null,mirrorOut+'\n','');done()});return c}});
  return {P,H,sent,ran,logs,mirrored}}
 
 test('a post goes to the topic with the agent\'s bot, then into that topic\'s conversation as a note marked as aqeelOS\'s',async()=>{const t=await make();
@@ -16,10 +16,12 @@ test('a post goes to the topic with the agent\'s bot, then into that topic\'s co
  assert.equal(t.sent[0][0],'https://api.telegram.org/bot123:abc/sendMessage');assert.deepEqual(t.sent[0][1],{chat_id:-1001,message_thread_id:3,text:'❓ HANDOFF (Rory, Ana, +628123)\nCustomer asked: dosisnya?'});
  await t.mirrored;const [cmd,args,d]=t.ran[0];assert.equal(cmd,'/engine/python');assert.deepEqual(args,['-I','-c',MIRROR_PY]);
  assert.equal(d.home,path.join(t.H,'profiles','cove-support'));assert.equal(d.src,path.join(t.H,'hermes-agent'));assert.equal(d.chat,'-1001');assert.equal(d.thread,3);
- assert.ok(d.text.startsWith(MIRROR_LABEL+'\n❓ HANDOFF'),'marked as aqeelOS\'s post, so the agent does not take it for its own words')});
+ assert.ok(d.text.startsWith(MIRROR_LABEL+'\n❓ HANDOFF'),'marked as aqeelOS\'s post, so the agent does not take it for its own words');
+ assert.equal(t.ran[0][3].HERMES_HOME,d.home,'the agent\'s home is set before Python starts, so a restarted run uses it too (21 Nov 2026)');
+ assert.equal(t.ran[0][3].HERMES_DISABLE_LAZY_INSTALLS,'1','no prepare-and-restart, which lost the input on every first run (21 Nov 2026)')});
 
 test('the engine\'s own mirror is used, as a user-role note, scoped to the agent\'s home',()=>{
- assert.match(MIRROR_PY,/from gateway\.mirror import mirror_to_session/);assert.match(MIRROR_PY,/role='user'/);assert.match(MIRROR_PY,/os\.environ\['HERMES_HOME'\]=d\['home'\]/);
+ assert.match(MIRROR_PY,/from gateway\.mirror import mirror_to_session/);assert.match(MIRROR_PY,/role='user'/);assert.match(MIRROR_PY,/os\.environ\['HERMES_HOME'\]=d\['home'\]/);assert.match(MIRROR_PY,/json\.loads\(os\.environ\['AQ_MIRROR'\]\)/);assert.doesNotMatch(MIRROR_PY,/stdin/);
  assert.match(MIRROR_PY,/mirror_to_session\('telegram',str\(d\['chat'\]\)/)});
 
 test('nothing is kept when Telegram did not take the post; a failed mirror never fails the post; no preview when asked',async()=>{
