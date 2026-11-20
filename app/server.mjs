@@ -140,7 +140,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createDesignGuard,RULE_LINES as DESIGN_RULE_LINES} from './design-guard.mjs';   // better design by default (12 Nov 2026)
 import {createAgentVersions,VERSION_TOOLS} from './agent-versions.mjs';   // self-repair kit (workstream E)
-import {createPluginSync} from './plugin-sync.mjs';import {createAgentLive} from './agent-live.mjs';
+import {createPluginSync} from './plugin-sync.mjs';import {createAgentLive} from './agent-live.mjs';import {createGroupReplies} from './group-replies.mjs';
 import {createBillionContext} from './billion-context.mjs';
 import {createRunGates} from './run-gates.mjs';
 import {createGraphify} from './graphify.mjs';
@@ -2394,7 +2394,7 @@ const accessRoutes=createAccessRoutes({access,accessAsk,agentAccess,bottlenecks,
 const mcpSecretsRoutes=createMcpSecretsRoutes({access,browserAsks,browserCardSeen,channelList,displayName,freshSignins,HERMES_HOME,listAgents,localBrowser,MCP_OAUTH_BASE,memberSecretName,NAMES,optins,ownsAgent,readBody,saveSecret,screens,secretAsks,secretDir,secretHow,security,send,sharing,signinsAt:()=>signinsAt,signinsDue,slackClientFor,startSignin,users,whyOf});
 const schedulesRoutes=createSchedulesRoutes({designGuard,postingLimits,readBody,relay,schedules,send,users});
 const identitiesRoutes=createIdentitiesRoutes({accountsApi,billion,builtins,channels,connect,DASH,DASH_TOKEN,DATA,designGuard,displayName,explain,graphify,HERMES_HOME,keysId,labels,listAgents,listAllProfiles,NAMES,okProfile,ownsAgent,pausedLoad,platCache,readBody,readIds,reconnectOne,restartGateway,runGates,security,send,setChannelOn,setDisplayName,starters,usage,users,waitingNow,withIds,writeIds});
-const hooksRoutes=createHooksRoutes({agentAccess,agentLive,customerTools:()=>customerTools,designGuard,HOOKS,issues,kirimdev,paymentCallbacks,pressKey,proxy,readBody,readRaw,send,smokeWatch,teamView,tebar,versions,WA_CLOUD});
+const hooksRoutes=createHooksRoutes({agentAccess,agentLive,customerTools:()=>customerTools,designGuard,groupReplies:createGroupReplies({readConfig,setKey,versions,restartNow:why=>restartGateway(why,{wait:true}),pid:gatewayPid,python:enginePython,mirror:teamPost.mirror,nameOf:a=>NAMES[a]||a}),HOOKS,issues,kirimdev,paymentCallbacks,pressKey,proxy,readBody,readRaw,send,smokeWatch,teamView,tebar,versions,WA_CLOUD});
 const oauthCallbackRoutes=createOAuthCallbackRoutes({DASH,DASH_TOKEN,esc,gconnect,googleConnected,HERMES_HOME,listAllProfiles,msconnect,NAMES,PUBLIC_URL,security,sharing,signinFlows:()=>signinFlows,writeAgentContext});
 const boxRoutes=createBoxRoutes({agentOps,codeBridge,eventHooks,fixerSandbox,googleFiles,kirimdev,postingLimits,readBody,relayKeys,runGates,selfRuns,send,sign,srBox,srDur,srEligible,users});
 const restartRoutes=createRestartRoutes({users,send,readBody,agentNames,backups:{busy:()=>backups.busy()},agentReload,waitingNow:()=>waitingNow(),restartGateway});

@@ -153,7 +153,76 @@ def should_roll(chat_type, platform, idle_h, tokens, age_d):
     return idle_h >= QUIET_H and (tokens >= BIG_TOKENS or age_d >= OLD_DAYS)
 
 
+# ---- 2b) did this group message tag the agent (16 Nov 2026). The engine takes "@bot" out of the text before the model
+# sees it, so an agent told the owner his tagged "check @bot" had reached it untagged. Read here from the platform's own
+# message (entities, reply), kept per chat, and sent with the next turn's context: mention, reply or none.
+_tags = {}  # session key -> mention / reply / none
+
+
+def _span(text, entity):
+    """The text an entity covers (offsets count UTF-16 units)."""
+    try:
+        b = (text or "").encode("utf-16-le")
+        off, n = int(getattr(entity, "offset", 0)), int(getattr(entity, "length", 0))
+        return b[off * 2:(off + n) * 2].decode("utf-16-le", "ignore")
+    except Exception:
+        return ""
+
+
+def tag_of(msg, bot_id, bot_username):
+    """Pure rule (tested): 'mention' when the message names the bot (@name, a text mention, /cmd@name), 'reply' when it
+    answers one of the bot's messages, else 'none'; '' when the bot is unknown."""
+    if msg is None or not (bot_id or bot_username):
+        return ""
+    want = ("@" + str(bot_username or "")).lower()
+    for text, ents in ((getattr(msg, "text", None), getattr(msg, "entities", None)), (getattr(msg, "caption", None), getattr(msg, "caption_entities", None))):
+        for e in ents or ():
+            kind = str(getattr(e, "type", "") or "").split(".")[-1].lower()
+            if kind == "mention" and bot_username and _span(text, e).strip().lower() == want:
+                return "mention"
+            if kind == "text_mention" and bot_id and str(getattr(getattr(e, "user", None), "id", "")) == str(bot_id):
+                return "mention"
+            if kind == "bot_command" and bot_username and _span(text, e).lower().endswith(want):
+                return "mention"
+    rep = getattr(getattr(msg, "reply_to_message", None), "from_user", None)
+    if rep is not None and bot_id and str(getattr(rep, "id", "")) == str(bot_id):
+        return "reply"
+    return "none"
+
+
+def _note_tag(event, gateway):
+    src = getattr(event, "source", None)
+    if src is None or gateway is None or (getattr(getattr(src, "platform", None), "value", "") or "") != "telegram":
+        return
+    if str(getattr(src, "chat_type", "") or "").lower() in ("dm", "private", "direct"):
+        return
+    msg = getattr(event, "raw_message", None)
+    bot = None
+    try:
+        bot = msg.get_bot()
+    except Exception:
+        for ad in (getattr(gateway, "adapters", None) or {}).values():
+            if getattr(getattr(ad, "platform", None), "value", "") == "telegram" and getattr(ad, "_bot", None) is not None:
+                bot = ad._bot
+                break
+    try:
+        name = getattr(bot, "username", None)
+    except Exception:
+        name = None
+    tag, key = tag_of(msg, getattr(bot, "id", None), name), gateway._session_key_for_source(src)
+    if not tag:
+        _tags.pop(key, None)  # unknown: never carry the last message's answer over to this one
+        return
+    if len(_tags) > 5000:
+        _tags.clear()
+    _tags[key] = (tag, bool(getattr(getattr(msg, "from_user", None), "is_bot", False)))
+
+
 def _dispatch(event=None, gateway=None, session_store=None, **_):
+    try:
+        _note_tag(event, gateway)
+    except Exception as e:
+        logger.debug("aqeelos-live tag: %s", e)
     try:
         src = getattr(event, "source", None)
         if src is None or gateway is None or session_store is None:
@@ -291,6 +360,7 @@ def _pre_tool(tool_name="", args=None, session_id="", turn_id="", **_):
 # ---- 1) live context ----
 
 _seen = {}  # session id -> hash of the last capability list this chat got
+_senders = {}  # session id -> who sent the message this turn answers (group_replies checks them in aqeelOS)
 _lock = threading.Lock()
 
 
@@ -298,12 +368,19 @@ def _context(session_id="", platform="", sender_id="", is_first_turn=False, **_)
     try:
         with _lock:
             last = _seen.get(session_id or "", "")
-        chat = {}
+        chat, tag = {}, ("", False)
         try:
             from gateway.session_context import get_session_env
             chat = {k: str(get_session_env("HERMES_SESSION_" + k.upper()) or "") for k in ("chat_id", "thread_id", "chat_type", "chat_name")}
+            tag = _tags.get(str(get_session_env("HERMES_SESSION_KEY") or ""), tag)
+            chat["tagged"] = tag[0]
         except Exception:
             pass
+        if session_id and sender_id:
+            with _lock:
+                if len(_senders) > 5000:
+                    _senders.clear()
+                _senders[session_id] = {"sender": str(sender_id), "tagged": tag[0], "bot": tag[1]}
         r = _post("/context", {"platform": platform or "", "sender": sender_id or "", "session": session_id or "",
                                "first": bool(is_first_turn), "seen": last, "chat": chat}, 3)
         if r.get("hash"):
@@ -353,9 +430,36 @@ def _team_view(args=None, session_id="", **_):
         return json.dumps({"error": "Team view did not answer: " + str(e)[:160]})
 
 
+GROUP_REPLIES_SCHEMA = {
+    "name": "group_replies",
+    "description": ("Whether you get this Telegram group's messages without being tagged, and switching that for THIS whole "
+                    "group (every topic, everyone in it). aqeelOS takes the chat from the conversation you are in, never "
+                    "from you. status: what your settings say for this chat id now. add: answer everyone here without a "
+                    "tag, when a person who tagged you here asks for it; remove: need a tag again, when a person here asks. "
+                    "The change is saved as one of your changes (my_changes); aqeelOS then restarts you gracefully and "
+                    "posts the confirmation in this chat. Until then say it is being switched, not that it is active; "
+                    "never claim a channel setting you have not checked here."),
+    "parameters": {"type": "object", "properties": {
+        "action": {"type": "string", "enum": ["status", "add", "remove"]},
+        "why": {"type": "string", "description": "Who asked and what they said, in a few words"}}, "required": ["action"]},
+}
+
+
+def _group_replies(args=None, session_id="", **_):
+    # the chat comes from the session the engine hands this call; the asker from the message this turn answers
+    try:
+        with _lock:
+            turn = dict(_senders.get(str(session_id or ""), {}))
+        return json.dumps(_post("/group-replies", {"session": str(session_id or ""), "sender": turn.get("sender", ""), "tagged": turn.get("tagged", ""),
+                                                   "bot": bool(turn.get("bot")), "args": args or {}}, 60))
+    except Exception as e:
+        return json.dumps({"error": "aqeelOS did not answer, so nothing changed: " + str(e)[:160]})
+
+
 def register(ctx) -> None:
     if _agent_and_root()[0] == os.environ.get("AQEELOS_MAIN_AGENT", "default"):
         ctx.register_tool("team_view", "aqeelos-team-view", TEAM_VIEW_SCHEMA, _team_view)
+    ctx.register_tool("group_replies", "aqeelos-group-replies", GROUP_REPLIES_SCHEMA, _group_replies)
     ctx.register_hook("pre_llm_call", _context)
     ctx.register_hook("transform_llm_output", _transform)
     ctx.register_hook("pre_gateway_dispatch", _dispatch)
