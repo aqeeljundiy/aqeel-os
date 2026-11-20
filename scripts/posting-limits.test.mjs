@@ -107,8 +107,8 @@ test('a post flagged missing that shows up later clears its Health item and the 
 
 // CH-4, 20 Nov 2026: a conversation under one post (our question, their answer, our follow-up) was flagged as a repeat
 test('a follow-up after our question, or a reply to a different message (reply_to), is not a repeat; the same reply_to is',async()=>{
- const q='udah berapa lama kak di wegovy?',f='oh iya 4 bulan itu udah cukup lama kak',g='iya kak, simpan di kulkas';
- const x=await rig({pages:['p\n'+q+'\n'+f+'\n'+g]});await x.pl.set('ct',{rules:R});const u='https://www.threads.com/@continue.peptides/post/Df5ypxFiqg7';
+ const q='udah berapa lama kak pakainya?',f='oh iya 4 bulan itu udah cukup lama kak',g='iya kak, simpan di kulkas';
+ const x=await rig({pages:['p\n'+q+'\n'+f+'\n'+g]});await x.pl.set('ct',{rules:R});const u='https://www.threads.com/@cove.example/post/Dfconvo1';
  let r=await x.pl.record('ct',{post_url:u,text:q});x.tick(45*60e3);r=await x.pl.record('ct',{post_url:u,text:f});
  assert.doesNotMatch(r.text,/REPEAT/,'their answer to our question');assert.equal(x.events.filter(e=>e[0]==='repeat').length,0);
  x.tick(10*60e3);r=await x.pl.record('ct',{post_url:u,text:g,reply_to:u+'/c1'});x.tick(10*60e3);r=await x.pl.record('ct',{post_url:u,text:g+'!',reply_to:u+'/c2'});
