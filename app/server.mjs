@@ -158,7 +158,7 @@ import {createCatalog} from './price-catalog.mjs';import {createPaymentProviders
 import {createCustomerTools,DEFAULT_CARD_MAX} from './customer-tools.mjs';   // customer-run sandbox (7 Nov 2026)   // old setup, checks after changes, script-only schedules (7 Nov 2026)
 import {readPicture,emojiSlugs,emojiAuto,AVATAR_TYPES} from './avatar-file.mjs';
 import {parseEnv,setEnvLine,channelWho,globalWho,removePerson,engineChange,approvedWithout,samePerson as allowSame} from './allowlist.mjs';
-import {createNotifyToolsRoutes} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';import {createSchedulesRoutes} from './schedules-routes.mjs';import {createIdentitiesRoutes} from './identities-routes.mjs';import {createHooksRoutes} from './hooks-routes.mjs';import {createOAuthCallbackRoutes} from './oauth-callback-routes.mjs';import {createBoxRoutes} from './box-routes.mjs';   // the routes that used to sit in this file (one module each)
+import {createNotifyToolsRoutes,appSettings} from './notify-tools-routes.mjs';import {createCodeDeviceRoutes} from './code-device-routes.mjs';import {createChannelsRoutes} from './channels-routes.mjs';import {createHealthRoutes} from './health-routes.mjs';import {createConnectedRoutes} from './connected-routes.mjs';import {createSystemRoutes} from './system-routes.mjs';import {createAbilitiesRoutes} from './abilities-routes.mjs';import {createInstructionsRoutes} from './instructions-routes.mjs';import {createAccessRoutes} from './access-routes.mjs';import {createMcpSecretsRoutes} from './mcp-secrets-routes.mjs';import {createSchedulesRoutes} from './schedules-routes.mjs';import {createIdentitiesRoutes} from './identities-routes.mjs';import {createHooksRoutes} from './hooks-routes.mjs';import {createOAuthCallbackRoutes} from './oauth-callback-routes.mjs';import {createBoxRoutes} from './box-routes.mjs';   // the routes that used to sit in this file (one module each)
 import {createScreenLink,createScreenTickets} from './screen-link.mjs';import {appPage} from './v2-page.mjs';import {createTeamPost} from './team-post.mjs';   // the screen viewer's own connection, ticket per connection (AUD-15)
 import {createAgentReload} from './agent-reload.mjs';
 import {createRestartRoutes} from './restart-routes.mjs';
@@ -1178,14 +1178,7 @@ async function memberAgent(u,name){
    soon as a channel setting changes. */
 // where MCP sign-ins come back: the public site (the engine is told this, see ensurePublicUrl)
 const MCP_OAUTH_BASE=urlRef('/mcp-oauth');   // follows Your address
-// where each service keeps its redirect URLs, so the steps an agent gives are exact
-const APP_SETTINGS={slack:['Slack','api.slack.com/apps → your app → OAuth & Permissions → Redirect URLs → Add New Redirect URL','Save URLs'],
- google:['Google','console.cloud.google.com/apis/credentials → your OAuth client (Web application) → Authorized redirect URIs → Add URI','Save'],
- github:['GitHub','github.com/settings/developers → OAuth Apps → your app → Authorization callback URL','Update application'],
- notion:['Notion','notion.so/my-integrations → your integration → Redirect URIs','Save changes'],
- microsoft:['Microsoft','portal.azure.com → App registrations → your app → Authentication → Web → Redirect URIs','Save'],
- hubspot:['HubSpot','developers.hubspot.com → your app → Auth → Redirect URLs','Save']};
-const appSettings=(tool,url)=>{const k=Object.keys(APP_SETTINGS).find(k=>tool.toLowerCase().includes(k)||String(url||'').includes(k));return k?APP_SETTINGS[k]:[tool.charAt(0).toUpperCase()+tool.slice(1),'your '+tool+' app’s OAuth settings → Redirect URLs','Save']};
+// where each service keeps its redirect URLs: APP_SETTINGS and appSettings live in notify-tools-routes.mjs (15 Nov 2026, Meta added)
 // agent|tool → open sign-in flow id, kept across restarts (the engine keeps the flow open meanwhile)
 const FLOWS_FILE=path.join(DATA,'signin-flows.json');let signinFlows=new Map();
 readFile(FLOWS_FILE,'utf8').then(t=>{signinFlows=new Map(Object.entries(JSON.parse(t)))}).catch(()=>{});

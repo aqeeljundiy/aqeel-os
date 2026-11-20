@@ -16,6 +16,22 @@ import {local as localAt} from './engine-update-rules.mjs';
 import {VERSION_TOOLS} from './agent-versions.mjs';
 import {sysTz} from './tz.mjs';
 import {installTz} from './install-routes.mjs';
+// where each service keeps its redirect URLs, so the steps an agent gives are exact: [name, where the Redirect URL goes, its save button, and for a
+// service whose app needs more than that, the extra setup step and what its Client ID and Secret are called there] (moved from server.mjs)
+// Meta's ads MCP (mcp.facebook.com/ads, 15 Nov 2026): no dynamic registration, so an app of the person's own (Meta's "Get started" page for the ads MCP server)
+const META=['Meta','developers.facebook.com/apps → your app → Facebook Login for Business → Settings → Valid OAuth Redirect URIs','Save changes','add the use case "Create & manage ads with ads MCP server"','its App ID and App Secret (App settings › Basic)'];
+const APP_SETTINGS={slack:['Slack','api.slack.com/apps → your app → OAuth & Permissions → Redirect URLs → Add New Redirect URL','Save URLs'],
+ google:['Google','console.cloud.google.com/apis/credentials → your OAuth client (Web application) → Authorized redirect URIs → Add URI','Save'],
+ github:['GitHub','github.com/settings/developers → OAuth Apps → your app → Authorization callback URL','Update application'],
+ notion:['Notion','notion.so/my-integrations → your integration → Redirect URIs','Save changes'],
+ microsoft:['Microsoft','portal.azure.com → App registrations → your app → Authentication → Web → Redirect URIs','Save'],
+ hubspot:['HubSpot','developers.hubspot.com → your app → Auth → Redirect URLs','Save'],
+ facebook:META,'meta-ads':META};
+export const appSettings=(tool,url)=>{const k=Object.keys(APP_SETTINGS).find(k=>tool.toLowerCase().includes(k)||String(url||'').includes(k));return k?APP_SETTINGS[k]:[tool.charAt(0).toUpperCase()+tool.slice(1),'your '+tool+' app’s OAuth settings → Redirect URLs','Save']};
+// the engine's sign-in errors that mean "this service lets no app register itself": an app of the person's own is needed (its Client ID and Secret).
+// 15 Nov 2026: Meta answers "Dynamic registration is not available for this client", which the old /client registration|client_id|client id/ missed,
+// so Donna got a raw error and asked the owner open questions instead of giving the one step. RFC 7591 wordings too (registration_not_supported, no registration endpoint).
+export const NEEDS_OWN_APP=/client registration|client_id|client id|dynamic(ally)?[ _-]?(client[ _-]?)?regist|registration[ _-]?(is[ _-]?)?not[ _-]?(supported|available|allowed)|registration[ _-]?endpoint/i;
 export function createNotifyToolsRoutes({DASH,DASH_TOKEN,MCP_OAUTH_BASE,NAMES,OWN_SETTINGS,PUBLIC_URL,accessAsk,addMcpByUrl,adminTier,agentAccess,agentAds,appSettings,appsOff,askBrowser,askSecret,bottlenecks,chatHistory,closeSolvedSignins,code,codeAgents,codeAsk,conflicts,connAccounts,googleTools,instructions,issues,keysId,kirimdev,labels,lockedAgent,nameThing,optins,originOf,pausedLoad,platformsCached,postingLimits,questions,readBody,reconnectAsked,reconnectOne,relay,relayKeys,restartGateway,restartLater,schedules,screens,secretAccess,secretDir,secretHow,secretLinks,send,sharing,slackClientFor,slackc,startSignin,teamGroups,users,versions,whyOf}){
  return async function handle(req,res,p){
   // the "notify me" tool agents call (from this box only; each agent's address is signed)
@@ -61,15 +77,25 @@ export function createNotifyToolsRoutes({DASH,DASH_TOKEN,MCP_OAUTH_BASE,NAMES,OW
      const tl=(t.tools||[]).map(x=>x.name||x);return tl.length&&t.ok!==false?reply(tool+' works: '+tl.length+' tools answer ('+tl.slice(0,8).join(', ')+(tl.length>8?'…':'')+'). You can use them from your next message.'):reply(tool+' does not answer yet ('+String(t.error||'no tools came back').slice(0,160)+'). If the person has not finished signing in, call connect_mcp_tool with tool '+tool+' again for a fresh link.',true),true}
     const redirect=MCP_OAUTH_BASE+'/api/mcp/oauth/callback/'+encodeURIComponent(tool);
     await whyOf.noteApp(ag,tool,{by:'agent',purpose:String(msg.params?.arguments?.why||'').slice(0,300),from:await whyOf.from(ag)}).catch(()=>{});
-    try{const pr=await sharing.prepareSignin(ag,tool,redirect,null,slackClientFor);if(pr.changed)await new Promise(r=>setTimeout(r,2500));const [svc,where,save]=appSettings(tool,pr.url);
+    try{const pr=await sharing.prepareSignin(ag,tool,redirect,null,slackClientFor);if(pr.changed)await new Promise(r=>setTimeout(r,2500));const [svc,where,save,setup,creds]=appSettings(tool,pr.url);
      const j=await startSignin(ag,tool);
      // the answer is written for anyone on the team: the easy way first, exact steps only when an app of their own is involved
      if(j.authorization_url&&!pr.own)return reply(`Send the person exactly this (no technical steps needed):\n\nTo connect ${svc}, open this link and click Allow: ${j.authorization_url}\nYou'll land on a page that says "Signed in". That's it.\n\n(Open it within 5 minutes; after that, ask again for a fresh link.)`),true;
      if(j.authorization_url)return reply(`${svc} is connected through the person's own ${svc} app, so that app must list aqeelOS's address first. Send exactly this:\n\n1. Open ${where}.\n2. Add this address exactly: ${redirect}\n3. Click ${save}. (It doesn't work until it's saved.)\n4. Then open this link and click Allow: ${j.authorization_url}\n5. You'll land on a page that says "Signed in".\n\nIf ${svc} says "redirect_uri did not match", steps 2–3 weren't saved: redo them, then open the link again. Only an admin of that ${svc} app can do steps 1–3. If the person is not one and cannot ask one, offer ${svc}'s own API key instead (they create it in ${svc}'s settings and give it with ask_secret or request_secret_link), or report what is missing with report_bottleneck.`),true;
      const err=j.error||j.detail||'no link came back';
      // Slack with no app yet: an admin sets it up once in the app (slack-connect.mjs), then everyone just clicks Allow
-     if(svc==='Slack'&&/client registration|client_id|client id/i.test(err)&&!await slackc.client())return reply(`Slack is not set up on this aqeelOS yet. Tell the person: "An admin sets up Slack once (about 3 minutes, free): Connections › Add › Slack, then follow the steps there. After that, press Connect Slack there, or ask me again." Do not send them to api.slack.com yourself.`,true),true;
-     if(/client registration|client_id|client id/i.test(err))return reply(`${svc} needs an app of the person's own (a one-time setup, free). Offer to walk them through it, or do it with them in the browser: create an app at ${where.split(' → ')[0]}, add this Redirect URL: ${redirect}, then they paste its Client ID and Client Secret with the lock button (or in Abilities › MCP tools › ${tool} › Sign in). If they cannot (no admin access) or do not want to, offer ${svc}'s own API key instead (created in ${svc}'s settings, given with ask_secret or request_secret_link), or report what is missing with report_bottleneck.`,true),true;
+     if(svc==='Slack'&&NEEDS_OWN_APP.test(err)&&!await slackc.client())return reply(`Slack is not set up on this aqeelOS yet. Tell the person: "An admin sets up Slack once (about 3 minutes, free): Connections › Add › Slack, then follow the steps there. After that, press Connect Slack there, or ask me again." Do not send them to api.slack.com yourself.`,true),true;
+     // one concrete step for the person, never a menu of options (15 Nov 2026: the owner had already named the service)
+     if(NEEDS_OWN_APP.test(err)){const page=where.split(' → ')[0],rest=where.split(' → ').slice(1).join(' → ').replace(/^your app → /,'');
+      return reply(`${svc} lets no app register itself, so this needs an app of the person's own (one time, free). Do not ask them which way they want or offer a list of options: send exactly this one step (or, if you cannot reach them in this chat, ask the owner the same with ask_owner), then wait for them to say it is done:
+
+To connect ${svc}, one setup step (about 5 minutes):
+1. Open https://${page} and create an app (or open one you already have)${setup?', then '+setup:''}.
+2. In the app, open ${rest}, add this Redirect URL exactly: ${redirect}
+3. Click ${save}.
+4. In aqeelOS, open Abilities › MCP tools › ${tool} › Sign in and paste the app's ${creds||'Client ID and Client Secret'} as Client ID and Client Secret, then press Save and sign in and click Allow.
+
+When they say it is done, call connect_mcp_tool with tool ${tool} and check true. Only if they say they cannot create an app (no admin access) offer ${svc}'s own API key instead (ask_secret or request_secret_link), or report what is missing with report_bottleneck.`,true),true}
      return reply('Could not start the sign-in: '+err,true),true}catch(e){return reply('Could not start the sign-in: '+e.message,true),true}}
    // manage_agent (agent-access.mjs): change another agent at the level shared with the caller; checked here on every call
    if(signed&&msg.method==='tools/call'&&msg.params?.name==='manage_agent'){const r=await agentAccess.call(mn[1],msg.params?.arguments||{}).catch(e=>({isError:true,text:e.message}));return send(res,200,{jsonrpc:'2.0',id:msg.id,result:{content:[{type:'text',text:r.text}],...(r.isError?{isError:true}:{})}}),true}
