@@ -15,6 +15,7 @@ Sign in once on Models › Accounts (Google link, paste the code). Text only: ag
 
 import contextlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -162,6 +163,9 @@ def _make_client_class():
                 try:
                     out = _with_retries(lambda t: self._run_once(t, timeout_seconds=timeout_seconds, model=model, home=acct["home"]), prompt_text)
                 except RuntimeError as e:
+                    # which account failed and why, always (21 Nov 2026: only the last account's error reached the log,
+                    # so a quota message from one account hid what the other said)
+                    logging.getLogger("aqeelos.antigravity").warning("aqeelos-agy-account-failed account=%s model=%s error=%s", acct["id"], model, str(e)[:300])
                     # out of quota: rests an hour; an extra account whose sign-in stopped working: rests 6 hours (Models › Accounts says so)
                     # a model this account's plan does not offer: rests 6 hours and the request goes on to the next account
                     rest = 3600 if _QUOTA.search(str(e)) else 6 * 3600 if _MODEL_MISSING.search(str(e)) or acct["id"] != "main" and re.search(r"auth|sign.?in|unauthori[sz]ed|\b401\b", str(e), re.I) else 0
