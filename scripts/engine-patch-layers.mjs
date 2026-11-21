@@ -53,10 +53,14 @@ export function applyFresh(engine,file,{checkOnly=false}={}){const g=a=>execFile
 // Brings every patch in: those in place are left, the rest are applied oldest first, each all or nothing.
 // Returns {inPlace, applied, misfit} (file names).
 export function applyLayers(engine,files){
- const r={inPlace:[],applied:[],misfit:[]};
- for(const {file,inPlace} of layerState(engine,files)){const f=path.basename(file);
-  if(inPlace){r.inPlace.push(f);continue}
-  if(applyFresh(engine,file))r.applied.push(f);else r.misfit.push(f)}
+ const r={inPlace:[],applied:[],misfit:[]};let st=layerState(engine,files);
+ for(let i=0;i<files.length;i++){const file=files[i],f=path.basename(file);
+  if(st[i].inPlace){r.inPlace.push(f);continue}
+  const aside=newFiles(readFileSync(file,'utf8')).some(p=>existsSync(path.join(engine,p)));
+  if(applyFresh(engine,file)){r.applied.push(f);
+   // a left-behind file carried the later layers' edits too, so they looked in place; with it replaced, look again
+   if(aside&&i+1<files.length){const rest=layerState(engine,files.slice(i+1));st=[...st.slice(0,i+1),...rest]}}
+  else r.misfit.push(f)}
  return r}
 
 // Patches for newer engine versions (21 Nov 2026): engine/patches/<engine version>/<same name>.patch is the same fix written for

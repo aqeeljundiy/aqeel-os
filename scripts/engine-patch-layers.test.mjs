@@ -96,3 +96,17 @@ test('a patch whose new file was left behind by a reset is applied again; a real
   git('checkout','--','.');writeFileSync(path.join(E,'f.py'),'other\n');writeFileSync(path.join(E,'new.py'),'mine\n');
   assert.equal(applyFresh(E,P),false);assert.equal(readFileSync(path.join(E,'new.py'),'utf8'),'mine\n');
  }finally{rmSync(T,{recursive:true,force:true})}});
+
+test('a left-behind file that later layers also changed gets every layer back',()=>{
+ const T=mkdtempSync(path.join(tmpdir(),'fresh2-')),E=path.join(T,'engine');mkdirSync(E);
+ const git=(...a)=>execFileSync('git',['-C',E,...GIT,...a],{stdio:'pipe',encoding:'utf8'});
+ try{git('init','-q');writeFileSync(path.join(E,'f.py'),BASE);git('add','-A');git('commit','-qm','engine');
+  const mk=(name,fn)=>{fn();git('add','-A');const P=path.join(T,name);writeFileSync(P,git('diff','--cached'));git('commit','-qm',name);return P};
+  const p1=mk('2026-11-11-a.patch',()=>{writeFileSync(path.join(E,'f.py'),BASE.replace('two','TWO'));writeFileSync(path.join(E,'w.js'),'a\nb\nc\n')});
+  const p2=mk('2026-11-12-b.patch',()=>writeFileSync(path.join(E,'w.js'),'a\nB\nc\n'));
+  const fin=readFileSync(path.join(E,'w.js'),'utf8');
+  git('checkout','-q','HEAD~2','--','f.py');git('rm','-q','--cached','w.js');git('commit','-qm','back to clean');   // the clean engine, w.js left untracked
+  assert.equal(readFileSync(path.join(E,'w.js'),'utf8'),fin);
+  const r=applyLayers(E,[p1,p2]);assert.deepEqual(r.applied,['2026-11-11-a.patch','2026-11-12-b.patch'],JSON.stringify(r));
+  assert.equal(readFileSync(path.join(E,'w.js'),'utf8'),fin);assert.match(readFileSync(path.join(E,'f.py'),'utf8'),/TWO/);
+ }finally{rmSync(T,{recursive:true,force:true})}});
