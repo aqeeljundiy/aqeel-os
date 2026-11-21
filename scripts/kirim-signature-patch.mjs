@@ -103,7 +103,7 @@ const ROUTES=[{why:'the route list home',
 export const PATCHES=[{tag:TAG,name:'Kirimdev signatures',edits:EDITS},{tag:ROUTES_TAG,name:'webhook routes for agents',edits:ROUTES}];
 
 // each patch all or nothing: {out, applied:[names], errors:[text]}; out is null when nothing changed
-const FIXUPS=[{name:'Kirimdev retries are one delivery',from:'    return "kirim-" + hashlib.sha256(parts[0].encode() + b"." + body).hexdigest()[:40]\n',
+const FIXUPS=[{name:'the signature check needs no engine helper (AU-21)',from:'        matched = _hmac_str_equal(sig, expected) or matched\n',to:'        matched = hmac.compare_digest(sig.encode(), expected.encode()) or matched  # bytes: a non-ASCII header fails closed (no engine helper, AU-21)\n'},{name:'Kirimdev retries are one delivery',from:'    return "kirim-" + hashlib.sha256(parts[0].encode() + b"." + body).hexdigest()[:40]\n',
  to:'    return "kirim-" + hashlib.sha256(body).hexdigest()[:40]  # aqeelos:kirim-delivery-v2\n'}];
 // an edit's place: as written, else one of its alts (the same change for a newer engine, 21 Nov 2026, AU-21)
 export const pickEdit=(src,e)=>[e,...(e.alts||[])].find(x=>src.split(x.from).length===2)||null;

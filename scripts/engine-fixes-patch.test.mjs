@@ -46,3 +46,12 @@ test('the webhook route list fits both engines, and the signature check needs no
 });
 
 test('every fix entry names its file and tag',()=>{for(const f of FIXES){assert.ok(f.tag&&f.file&&f.edits.length,f.name)}});
+
+test('an engine with the older text of a fix gets the newer one in place, so it matches a clean engine plus the steps',async()=>{
+ const {UPGRADES}=await import('./engine-fixes-patch.mjs');
+ const old='import os\n_AQ_HELD_DIR = os.path.join(os.path.expanduser("~"), ".hermes", "aqeelos-held-inbound")\n_AQ_HELD_MAX_AGE = 1\n    return os.path.join(_AQ_HELD_DIR, "%s-%s.pickle-lines" % (plat, key))\n        os.makedirs(_AQ_HELD_DIR, mode=0o700, exist_ok=True)\n# aqeelos:hold-inbound-during-restart\n';
+ const r=fixFile('gateway/platforms/base.py',old);assert.ok(r.out&&!r.out.includes('_AQ_HELD_DIR'),r.out);assert.match(r.out,/def _aq_held_dir\(\)/);
+ assert.equal(fixFile('gateway/platforms/base.py',r.out).out,null,'a second run changes nothing');assert.ok(UPGRADES.length>=3);
+ const k=kirimPatch('        matched = _hmac_str_equal(sig, expected) or matched\n# aqeelos:kirim-signature aqeelos:webhook-routes-home\n');
+ assert.match(k.out||'',/hmac\.compare_digest\(sig\.encode\(\), expected\.encode\(\)\)/);
+});

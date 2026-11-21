@@ -777,8 +777,17 @@ FIXES.push({tag:'aqeelos:audio-stt-tests',name:'the engine tests of the audio ru
  {why:'the music upload expectation',from:'                media=[{"url": "https://cdn/x/song.mp3", "kind": "audio", "mime": "audio/mpeg"}],\n                media_urls=["https://cdn/x/song.mp3"],\n            )\n        )\n        assert _event_media_is_stt_input(ev, 0) is False\n',
   to:'                media=[{"url": "https://cdn/x/song.mp3", "kind": "audio", "mime": "audio/mpeg"}],\n                media_urls=["https://cdn/x/song.mp3"],\n            )\n        )\n        assert _event_media_is_stt_input(ev, 0) is True  # aqeelos:audio-stt: audio is transcribed too\n'}]});
 
+// an engine that already has an older text of a fix gets the newer one in place (the tag alone would keep the old text, and the
+// engine check would then see the live engine differ from a clean one): {file, name, from, to}
+export const UPGRADES=[
+ {file:'gateway/platforms/base.py',name:'held messages under the engine\'s root',from:'_AQ_HELD_DIR = os.path.join(os.path.expanduser("~"), ".hermes", "aqeelos-held-inbound")\n',
+  to:'def _aq_held_dir():\n    # the engine\'s own root (~/.hermes on the servers, the same folder as before; the isolated home under the engine\'s tests)\n    try:\n        from agent.file_safety import _hermes_root_path\n        return str(_hermes_root_path() / "aqeelos-held-inbound")\n    except Exception:\n        return os.path.join(os.path.expanduser("~"), ".hermes", "aqeelos-held-inbound")\n\n\n'},
+ {file:'gateway/platforms/base.py',name:'held messages under the engine\'s root',from:'    return os.path.join(_AQ_HELD_DIR, "%s-%s.pickle-lines" % (plat, key))',to:'    return os.path.join(_aq_held_dir(), "%s-%s.pickle-lines" % (plat, key))'},
+ {file:'gateway/platforms/base.py',name:'held messages under the engine\'s root',from:'        os.makedirs(_AQ_HELD_DIR, mode=0o700, exist_ok=True)',to:'        os.makedirs(os.path.dirname(f), mode=0o700, exist_ok=True)'}];
+
 // one engine file's text → {out (null when nothing changed), applied:[names], errors:[text]}
 export function fixFile(file,src){let out=src;const applied=[],errors=[];
+ for(const u of UPGRADES)if(u.file===file&&out.split(u.from).length===2){out=out.replace(u.from,()=>u.to);if(!applied.includes(u.name))applied.push(u.name)}
  for(const f of FIXES.filter(x=>x.file===file)){if(out.includes(f.tag)||(f.ifHas&&!out.includes(f.ifHas)))continue;let next=out,bad=null;
   for(const e of f.edits){const u=pickEdit(next,e);if(!u){bad=f.name+': the place for '+e.why+' changed upstream';break}next=next.replace(u.from,()=>u.to)}
   if(bad)errors.push(bad);else{out=next;applied.push(f.name)}}
