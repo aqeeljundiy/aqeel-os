@@ -114,3 +114,15 @@ print(json.dumps([an,real,est]))`);
  assert.equal(an.sys,1000);assert.ok(an.tools>300);assert.equal(an.toolres,800);assert.equal(an.last,100);assert.ok(an.hist>=600);
  assert.deepEqual([real.in,real.cr,real.out,real.est,real.ms],[100,900,50,false,1500]);assert.ok(Math.abs(Object.values(real.an).reduce((a,b)=>a+b,0)-1000)<=5,'the parts add up to what was read');
  assert.deepEqual([est.in,est.out,est.est,est.acct],[700,140,true,'g000001'])});
+
+test('a turn with too many refused calls stops using tools and answers (21 Nov 2026, Threads looped 75 min)',()=>{
+ const py=code=>JSON.parse(execFileSync('python3',['-I','-c',`import sys,json,importlib.util as u
+s=u.spec_from_file_location("g",sys.argv[1]);m=u.module_from_spec(s);s.loader.exec_module(m)
+${code}`,path.join(ENGINE,'__init__.py')],{encoding:'utf8'}));
+ const r=py(`ref='{"error": "tool_call to \\'x\\' is missing required argument(s): action. The tool was NOT invoked."}'
+out=[m.is_refusal(ref),m.is_refusal('{"output":"ok"}'),m.is_refusal({"error":"[aqeelOS loop guard] stop"})]
+for i in range(6): m._post_tool(tool_name="tool_call",result=ref,session_id="s",turn_id="t")
+b=m._pre_tool(tool_name="terminal",args={"command":"ls"},session_id="s",turn_id="t")
+o=m._pre_tool(tool_name="terminal",args={"command":"ls"},session_id="s",turn_id="t2")
+print(json.dumps(out+[bool(b and "turn stop" in b["message"]),o is None,m.turn_stop(5) is None]))`);
+ assert.deepEqual(r,[true,false,true,true,true,true])});

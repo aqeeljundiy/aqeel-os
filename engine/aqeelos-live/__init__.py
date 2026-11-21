@@ -270,6 +270,42 @@ def repeat_block(counts, fp):
     return None
 
 
+# 21 Nov 2026 (Elkiya, Threads): Gemini sent tool_call with empty arguments 25 times in 75 minutes and never answered the owner.
+# The engine refused each one before pre_tool_call ran, so the repeat count above never saw them. Refusals are counted from
+# post_tool_call too; after REFUSE_MAX in one turn every further tool call is refused and the agent is told to answer now.
+REFUSE_MAX = 6
+_refused = {}  # (session, turn) -> refusals so far
+_REFUSAL = re.compile(r"The tool was NOT invoked|\[aqeelOS loop guard\]|\[aqeelOS turn stop\]")
+
+
+def is_refusal(result):
+    """Pure rule (tested): a tool result that says the call never ran."""
+    return bool(_REFUSAL.search(result if isinstance(result, str) else json.dumps(result, default=str)[:4000]))
+
+
+def turn_stop(refused):
+    """Pure rule (tested): the refusal text once a turn has had too many refused calls, else None."""
+    if refused >= REFUSE_MAX:
+        return ("[aqeelOS turn stop] " + str(refused) + " of your tool calls in this turn were refused, so no more tools run "
+                "in it. Answer the person now in plain words: what you did, what is still not done, and the exact call that "
+                "kept failing with its error. They can ask you again after that.")
+    return None
+
+
+def _post_tool(tool_name="", result=None, session_id="", turn_id="", **_):
+    try:
+        if is_refusal(result):
+            key = (session_id or "", turn_id or "")
+            if len(_refused) > 2000:
+                _refused.clear()
+            _refused[key] = _refused.get(key, 0) + 1
+            if _refused[key] == REFUSE_MAX:
+                logger.warning("aqeelos-live: turn stop after %d refused calls in session %s (last %s)", REFUSE_MAX, session_id, tool_name)
+                threading.Thread(target=_report, args=("Turn stop: " + str(REFUSE_MAX) + " refused tool calls in one turn (last: " + str(tool_name) + ")", "loop", session_id), daemon=True).start()
+    except Exception as e:
+        logger.debug("aqeelos-live turn stop: %s", e)
+
+
 # ---- names people remember (7 Nov 2026) ----
 # Everything an agent makes has a plain name and one line on what it is for. The engine's own schedule and skill tools are
 # checked here; aqeelOS's tools (keys, logins) are checked by aqeelOS itself (app/name-rules.mjs).
@@ -332,6 +368,12 @@ def design_block(tool_name, args, post=None):
 
 
 def _pre_tool(tool_name="", args=None, session_id="", turn_id="", **_):
+    try:
+        stop = turn_stop(_refused.get((session_id or "", turn_id or ""), 0))
+        if stop:
+            return {"action": "block", "message": stop}
+    except Exception as e:
+        logger.debug("aqeelos-live turn stop: %s", e)
     try:
         why = name_block(tool_name, args)
         if why:
@@ -651,6 +693,7 @@ def register(ctx) -> None:
     ctx.register_hook("transform_llm_output", _transform)
     ctx.register_hook("pre_gateway_dispatch", _dispatch)
     ctx.register_hook("pre_tool_call", _pre_tool)
+    ctx.register_hook("post_tool_call", _post_tool)
     ctx.register_hook("transform_tool_result", _cap)
     ctx.register_hook("pre_api_request", _pre_api)
     ctx.register_hook("post_api_request", _post_api)
