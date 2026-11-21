@@ -90,9 +90,18 @@ hist = [
 out = rf.with_calls(hist)
 check("a past call shows in the assistant turn with its arguments", '"action": "list"' in out[1]["content"] and out[1]["content"].startswith("<tool_call>"))
 check("the call block is the form Gemini answers in, and valid JSON", json.loads(out[1]["content"][len("<tool_call>"):-len("</tool_call>")])["name"] == "tool_call")
-check("a result names its call", out[2]["content"].startswith("[result of tool_call]"))
+check("a result carries no label Gemini could copy", out[2]["content"] == "3 schedules")
 check("the turn's own text stays first", out[3]["content"].startswith("Writing it.\n<tool_call>"))
 check("long values are cut and the JSON stays valid", len(out[3]["content"]) < 700 and "5000 chars" in out[3]["content"]
       and json.loads(out[3]["content"].split("<tool_call>")[1][:-len("</tool_call>")])["arguments"]["path"] == "/x")
 check("the messages given are not changed", hist[1]["content"] == "" and hist[2]["content"] == "3 schedules")
 check("messages without calls pass as they are", rf.with_calls([{"role": "user", "content": "hi"}]) == [{"role": "user", "content": "hi"}])
+
+# 22 Nov 2026: Gemini wrote made-up "Tool:" turns with made-up results after (or instead of) its call
+fake = '<tool_call>{"name": "terminal", "arguments": {"command": "ls"}}</tool_call>\nTool:\n[result of terminal]\nOutput:\nmade up\n\nAssistant:\nmore'
+kept, dropped = rf.own_turn(fake)
+check("a reply ends where Gemini starts another turn", kept == '<tool_call>{"name": "terminal", "arguments": {"command": "ls"}}</tool_call>' and dropped.lstrip().startswith("Tool:"))
+check("made up from the start: nothing kept", rf.own_turn("Tool:\n[result of terminal]\nOutput:\nx")[0] == "")
+check("a bare result label is a new turn too", rf.own_turn("ok\n[result of terminal]\nx")[0] == "ok")
+check("words like 'Tool:' inside a sentence stay", rf.own_turn("The Tool: terminal is fine.\nUser: name")[0] == "The Tool: terminal is fine.\nUser: name")
+check("a normal answer is kept whole", rf.own_turn("halo kak, makasih ya") == ("halo kak, makasih ya", ""))

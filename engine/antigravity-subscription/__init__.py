@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries, engine_call, with_calls as _with_calls
+    from .reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries, engine_call, with_calls as _with_calls, own_turn as _own_turn
 except ImportError:  # loaded as a plain module (the engine's plugin loader or a test)
     from reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries, engine_call
 from providers import register_provider
@@ -287,7 +287,7 @@ def _make_client_class():
                         with contextlib.suppress(Exception):
                             shutil.rmtree(p) if p.is_dir() else p.unlink()
             if passed is not None:
-                text = _clean(_whole(steps, "").strip())
+                text = _own_turn(_clean(_whole(steps, "").strip()))[0]
                 return ((text + "\n") if text else "") + "<tool_call>" + json.dumps(passed, ensure_ascii=False) + "</tool_call>", ""
             if tool_seen:
                 raise RuntimeError("Stopped for safety: " + tool_seen + ".")
@@ -302,6 +302,9 @@ def _make_client_class():
                 raise RuntimeError("Antigravity: " + msg)
             # the whole answer from every text step (agy's result can hold only the last one), without Gemini's markers (reply_fix.py)
             text = _clean(_whole(steps, str(final.get("response") or "")).strip())
+            text, dropped = _own_turn(text)
+            if dropped:
+                logging.getLogger("aqeelos.antigravity").warning("aqeelos-agy-cut model=%s kept=%d dropped=%d start=%s", model, len(text), len(dropped), dropped[:200].replace("\n", " | "))
             logging.getLogger("aqeelos.antigravity").info("aqeelos-agy-run model=%s seen=%s text_len=%d tool_blocks=%d", model, json.dumps(seen), len(text), text.count("<tool_call>"))
             if not text:
                 # 22 Nov 2026 (Elkiya, Threads comment runner): agy said SUCCESS with no text, three runs in a row, and nothing

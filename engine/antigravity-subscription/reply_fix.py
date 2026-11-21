@@ -109,7 +109,8 @@ def engine_call(step, agy_tools):
 # message's text, so an assistant turn that made tool calls showed as nothing and Gemini never saw its own earlier calls. After a
 # compaction cut the results down to labels, it had no example of a right call left: it sent tool_call for my_schedules with
 # "arguments": {} 25 times in 75 minutes and never answered. with_calls(messages) writes each past call into the assistant turn
-# in the same <tool_call> form Gemini must answer in, and names the call a result belongs to. Long text values are cut, the JSON
+# in the same <tool_call> form Gemini must answer in (each result follows its call; 22 Nov 2026: a "[result of X]" label was copied
+# by Gemini into made-up results, so there is none). Long text values are cut, the JSON
 # stays valid. The messages given are not changed.
 _CUT = 400
 
@@ -159,7 +160,21 @@ def with_calls(messages):
             if blocks:
                 text = m.get("content") if isinstance(m.get("content"), str) else ""
                 m = {**m, "content": ((text.strip() + "\n") if text and text.strip() else "") + "\n".join(blocks)}
-        elif role == "tool" and names.get(m.get("tool_call_id")) and isinstance(m.get("content"), str):
-            m = {**m, "content": f"[result of {names[m['tool_call_id']]}]\n" + m["content"]}
         out.append(m)
     return out
+
+
+# 22 Nov 2026 (Elkiya, Threads comment runner): Gemini went on writing the conversation itself: "Tool:\n[result of terminal]\nOutput:
+# ..." with made-up results and a made-up comment file, and no real call reached the engine. A reply ends where Gemini starts
+# another turn (a line "Tool:", "User:", "System:", "Context:", "Assistant:" or "[result of"); what follows is dropped.
+_TURN = re.compile(r"(?:^|\n)[ \t]*(?:(?:Tool|User|System|Context|Assistant)[ \t]*:[ \t]*(?:\n|$)|\[result of )")
+
+
+def own_turn(text):
+    """(text up to where Gemini starts writing another turn, the dropped part)."""
+    if not isinstance(text, str) or not text:
+        return text, ""
+    m = _TURN.search(text)
+    if not m:
+        return text, ""
+    return text[:m.start()].rstrip(), text[m.start():]
