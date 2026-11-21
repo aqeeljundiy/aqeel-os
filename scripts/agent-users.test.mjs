@@ -367,5 +367,5 @@ test('a reset clears the "move failed" note and tries the move again at once',()
 
 test('AU-35: a test copy numbers its screens from :140, so it never holds a real agent\'s display; the real install still starts at :40',()=>{
  const d=tmp();const r=sh('port_of t1; port_of t2',d);assert.deepEqual(r.out.trim().split('\n'),['t1 140 29600','t2 141 29601']);
- const real=spawnSync('bash',['-c',`export AQ_AGENT_USERS_LIB=1 AQEELOS_HOME=/home/someone; source '${SCRIPT}'; echo $DISP0 $CDP0`],{encoding:'utf8'});assert.equal(real.stdout.trim(),'40 9600');
+ const real=spawnSync('bash',['-c',`export AQ_AGENT_USERS_LIB=1 AQEELOS_HOME=/home/user; source '${SCRIPT}'; echo $DISP0 $CDP0`],{encoding:'utf8'});assert.equal(real.stdout.trim(),'40 9600');
 });
