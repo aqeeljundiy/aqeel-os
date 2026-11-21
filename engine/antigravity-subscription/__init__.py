@@ -209,6 +209,7 @@ def _make_client_class():
                 self._active_processes.add(proc)
             conv_id, steps, final, error, tool_seen = "", {}, None, "", ""
             seen = {}   # event kinds and step types agy sent, for the empty-answer log line (22 Nov 2026)
+            sample = []   # the first events other than plain answer text, cut short (22 Nov 2026: where do lost tool calls go)
             agy_tools, passed = set(), None
             timer = threading.Timer(max(60.0, float(timeout_seconds or 900)) + 30, proc.kill)
             timer.start()
@@ -240,6 +241,8 @@ def _make_client_class():
                         st = ev.get("step_update") or {}
                         k2 = "step:" + str(st.get("step_type"))
                         seen[k2] = seen.get(k2, 0) + 1
+                        if not (st.get("step_type") == "agent_response" and set(st) <= {"step_type", "step_index", "text_delta"}) and len(sample) < 12:
+                            sample.append(json.dumps(st, ensure_ascii=False)[:400])
                         if st.get("step_type") == "agent_response" and st.get("text_delta"):
                             steps[st.get("step_index", 0)] = steps.get(st.get("step_index", 0), "") + str(st["text_delta"])
                         # manage_task is agy's own to-do list for the turn (no files, commands or web): Claude models
@@ -289,11 +292,12 @@ def _make_client_class():
                 raise RuntimeError("Antigravity: " + msg)
             # the whole answer from every text step (agy's result can hold only the last one), without Gemini's markers (reply_fix.py)
             text = _clean(_whole(steps, str(final.get("response") or "")).strip())
+            logging.getLogger("aqeelos.antigravity").info("aqeelos-agy-run model=%s seen=%s text_len=%d tool_blocks=%d", model, json.dumps(seen), len(text), text.count("<tool_call>"))
             if not text:
                 # 22 Nov 2026 (Elkiya, Threads comment runner): agy said SUCCESS with no text, three runs in a row, and nothing
                 # said why. What it did send goes to the log; the caller tries the next Google account once.
-                logging.getLogger("aqeelos.antigravity").warning("aqeelos-agy-empty model=%s seen=%s final_keys=%s response_len=%d stderr=%s",
-                    model, json.dumps(seen), sorted(final.keys()), len(str(final.get("response") or "")), stderr.strip()[-300:])
+                logging.getLogger("aqeelos.antigravity").warning("aqeelos-agy-empty model=%s seen=%s final_keys=%s response_len=%d stderr=%s sample=%s",
+                    model, json.dumps(seen), sorted(final.keys()), len(str(final.get("response") or "")), stderr.strip()[-300:], " || ".join(sample))
                 raise RuntimeError("Antigravity: empty answer")
             return text, ""
 
