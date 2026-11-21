@@ -109,9 +109,18 @@ with tempfile.TemporaryDirectory() as t:
     c._run_once = once
     ag._accounts = lambda: [{"id": "g0000a1", "home": t / "lower"}, {"id": "main", "home": t}]
     ag._chosen = lambda: ""
+    ag.offers = lambda home, slug, timeout=45: False   # agy's own list confirms the model is missing
     out = c._run_prompt("hi", timeout_seconds=60, model="gemini-4-neon-high")
     check("an account without the model is skipped and the next one answers", out == ("OK", "") or out[0] == "OK")
     check("and it rests for hours", float(ag._read_state().get("cool", {}).get("g0000a1", 0)) > ag.time.time() + 3 * 3600)
+
+    # 22 Nov 2026: "not recognized" for a model agy's own list shows is a passing glitch: next account, no rest
+    ag._write_state(lambda st: st.__setitem__("cool", {}))
+    ag.offers = lambda home, slug, timeout=45: True
+    c._run_once = once
+    out = c._run_prompt("hi", timeout_seconds=60, model="gemini-4-neon-high")
+    check("a model agy does list: the next account answers", out[0] == "OK")
+    check("and the account does not rest", "g0000a1" not in (ag._read_state().get("cool") or {}))
 
     # 22 Nov 2026: an empty answer from one account goes on to the next account at once, and that account does not rest
     ag._write_state(lambda st: st.__setitem__("cool", {}))

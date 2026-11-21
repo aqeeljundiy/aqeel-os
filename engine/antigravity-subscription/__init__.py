@@ -69,6 +69,21 @@ _MODEL_MISSING = re.compile(r"invalid model selection|not recognized as a known 
 _QUOTA = re.compile(r"quota|rate.?limit|resource.?exhausted|\b429\b|too many requests|usage limit|limit (reached|exceeded)|exhausted", re.I)
 
 
+
+def offers(home, slug, timeout=45):
+    """True/False: does `agy models` for this account list the model; None when the list itself cannot be read (22 Nov 2026)."""
+    if not slug:
+        return None
+    try:
+        r = subprocess.run([_agy_bin(None), "models"], capture_output=True, text=True, timeout=timeout, env=_env(home), cwd=str(home or _HOME))
+    except Exception:
+        return None
+    names = re.findall(r"^\s*([a-z0-9][a-z0-9.\-]+[a-z0-9])\b", r.stdout or "", re.M)
+    if r.returncode != 0 or not names:
+        return None
+    return slug in names
+
+
 def quota_rest(msg, default=3600):
     """Seconds an account rests after a quota error: until the reset agy names ("Resets in 160h15m57s"), else an hour.
     22 Nov 2026: a weekly quota rested only an hour, so every hour a request was spent on an account that had 6 days to go."""
@@ -184,7 +199,14 @@ def _make_client_class():
                     # a model this account's plan does not offer: rests 6 hours and the request goes on to the next account
                     if str(e) == "Antigravity: empty answer" and n + 1 < len(accts):
                         continue
-                    rest = quota_rest(str(e)) if _QUOTA.search(str(e)) else 6 * 3600 if _MODEL_MISSING.search(str(e)) or acct["id"] != "main" and re.search(r"auth|sign.?in|unauthori[sz]ed|\b401\b", str(e), re.I) else 0
+                    missing = bool(_MODEL_MISSING.search(str(e)))
+                    if missing and offers(acct["home"], _split_model(model)[0]) is not False:
+                        # 22 Nov 2026: agy said "not recognized" for a model its own list shows (its list failed to load on a busy
+                        # box) and the main account was benched for 6 hours: no Gemini all night. Only a confirmed miss rests.
+                        missing = False
+                        if n + 1 < len(accts):
+                            continue
+                    rest = quota_rest(str(e)) if _QUOTA.search(str(e)) else 6 * 3600 if missing or acct["id"] != "main" and re.search(r"auth|sign.?in|unauthori[sz]ed|\b401\b", str(e), re.I) else 0
                     if n + 1 < len(accts) and rest:
                         _write_state(lambda st: st.setdefault("cool", {}).__setitem__(acct["id"], time.time() + rest))
                         continue
