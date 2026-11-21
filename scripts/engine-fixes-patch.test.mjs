@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {FIXES,FILES,fixFile} from './engine-fixes-patch.mjs';
 import {kirimPatch} from './kirim-signature-patch.mjs';
+import {execFileSync} from 'node:child_process';
 
 test('on the newer engine the audio fix only marks that upstream does it (its AUDIO means never transcribe)',()=>{
  const src='def f(event, index):\n    mtype, mime = 1, 2\n    if mtype in {MessageType.AUDIO, MessageType.DOCUMENT}:\n        return False\n    return mime.startswith("audio/") or (mtype == MessageType.VOICE and mime in {"", "application/octet-stream"})\n';
@@ -61,4 +62,13 @@ test('a schedule cleanup over its time limit logs the stuck stack, once, on both
  const r=fixFile('cron/scheduler.py',src);assert.ok(r.applied.some(n=>/logs where it is stuck/.test(n)),JSON.stringify(r.errors));
  assert.match(r.out,/sys\._current_frames\(\)\.get\(worker\.ident\)/);assert.match(r.out,/aqeelos-cleanup-stack/);
  assert.equal(fixFile('cron/scheduler.py',r.out).out,null,'a second run changes nothing');
+});
+
+test('a dashboard action drops a proxy on this box but keeps a real one, on both engines',()=>{
+ const src='    # dashboard profile\'s credentials; see _profile_action_environment (also drops _HERMES_GATEWAY).\n    action_env = _profile_action_environment(subcommand, env_overrides)\n\n    def _popen(**detach: Any) -> subprocess.Popen:\n';
+ const r=fixFile('hermes_cli/web_server_gateway.py',src);assert.ok(r.applied.some(n=>/plugin proxy/.test(n)),JSON.stringify(r.errors));
+ assert.match(r.out,/aqeelos:action-env-no-loopback-proxy/);assert.equal(fixFile('hermes_cli/web_server_gateway.py',r.out).out,null,'a second run changes nothing');
+ const body=r.out.split('\n').filter(l=>/^    (for _aq_key|    _aq_val|    if any|        action_env\.pop)/.test(l)).map(l=>l.slice(4)).join('\n');
+ const py=`action_env={"HTTPS_PROXY":"http://127.0.0.1:45613","https_proxy":"http://127.0.0.1:45613","HTTP_PROXY":"http://proxy.corp:3128","SSL_CERT_FILE":"/x"}\n${body}\nprint(sorted(action_env))`;
+ const out=execFileSync('python3',['-c',py],{encoding:'utf8'}).trim();assert.equal(out,"['HTTP_PROXY', 'SSL_CERT_FILE']");
 });

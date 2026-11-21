@@ -694,6 +694,19 @@ def _redact_phones_enabled() -> bool:
             pass
         return False
 `}]},
+ {tag:'aqeelos:action-env-no-loopback-proxy',name:'an engine update or other dashboard action never rides a plugin proxy on this box',file:'hermes_cli/web_server_gateway.py',edits:[
+  {why:'loopback proxies stay in the dashboard',
+   from:'    action_env = _profile_action_environment(subcommand, env_overrides)\n',
+   to:`    action_env = _profile_action_environment(subcommand, env_overrides)
+    # aqeelos:action-env-no-loopback-proxy (21 Nov 2026): the billion-context plugin points the dashboard's own
+    # HTTPS_PROXY at its proxy on 127.0.0.1, and every action inherited it. Elkiya's engine update failed on
+    # "api.github.com did not answer within 10 seconds" while that proxy was restarting. A proxy on this box belongs
+    # to the dashboard process; a detached action goes direct (a real proxy elsewhere is kept).
+    for _aq_key in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+        _aq_val = (action_env or {}).get(_aq_key) or ""
+        if any(h in _aq_val for h in ("://127.", "://localhost", "://[::1]")):
+            action_env.pop(_aq_key, None)
+`}]},
  {tag:'aqeelos:script-failure-held',name:'a failed script-only schedule reports to aqeelOS and alerts once, never a raw traceback',file:'cron/scheduler.py',edits:[
   {why:'the script-failed alert',
    from:'        # Deliver the error: a silently broken watchdog is the worst-case outcome.\n        alert = (\n            f"⚠ Cron watchdog \'{job_name}\' script failed\\n\\n"\n            f"{output}\\n\\n"\n            f"Time: {now_iso}"\n        )\n',
