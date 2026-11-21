@@ -56,7 +56,10 @@ fi
 ab=$(opt adspower-bridge); if [ "$ab" = auto ]; then if [ -f "$DATA/agent-adspower.json" ]; then ab=on; else ab=off; fi; fi
 if [ "$ab" = on ]; then start adspower-bridge "while true; do node $HOME/apps/hermes-ui/scripts/adspower-bridge.mjs; sleep 3; done"; fi
 # No DISPLAY: each agent gets its own Bot Desktop screen when it browses
-start gateway "env -u DISPLAY hermes -p default gateway"
+# --replace (22 Nov 2026): while the managed engine is down, any engine command (the issue sorter's `chat`) starts a temporary
+# engine of its own (`gateway run --idle-exit`). A plain start then saw that one and quit ("a gateway already owns this host"), so
+# after a restart the engine ran unmanaged, and an engine update looked failed and rolled back. The managed one takes the host over.
+start gateway "env -u DISPLAY hermes -p default gateway run --replace"
 start dashboard "hermes -p default dashboard --no-open"
 # aqeelOS UI, restarts itself if it ever exits
 start ui "while true; do node --env-file=\$HOME/.hermes/.env --env-file=\$HOME/apps/hermes-ui.env \$HOME/apps/hermes-ui/app/server.mjs; sleep 2; done"

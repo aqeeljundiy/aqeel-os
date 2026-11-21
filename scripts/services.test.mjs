@@ -31,7 +31,7 @@ test('services.sh parses and ends in exit 0, with no set -e and no optional star
 
 test('a plain box: the core sessions only, nothing optional',{skip},()=>{const h=home();const r=h.run();
  assert.equal(r.code,0,r.out);assert.deepEqual(h.sessions(),['xvfb','wm','vnc','novnc','gateway','dashboard','ui']);
- assert.match(h.cmd('ui'),/hermes-ui\/app\/server\.mjs/);assert.match(h.cmd('gateway'),/env -u DISPLAY hermes -p default gateway/)});
+ assert.match(h.cmd('ui'),/hermes-ui\/app\/server\.mjs/);assert.match(h.cmd('gateway'),/env -u DISPLAY hermes -p default gateway run --replace 2>&1/)});
 
 test('detected per install: own-AdsPower agents give the bridge, a nightly script the nightly restart, online Code only its marker',{skip},()=>{const h=home();
  writeFileSync(path.join(h.data,'agent-adspower.json'),'{}');writeFileSync(path.join(h.H,'nightly-engine-restart.sh'),'#!/bin/bash\n');chmodSync(path.join(h.H,'nightly-engine-restart.sh'),0o755);
