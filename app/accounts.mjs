@@ -76,7 +76,7 @@ export function createAccounts(DATA,{codeRoot=path.join(HOME,'apps','aqeel-code'
  // Retry-After, else 5 minutes, doubling up to 30). Only an expired sign-in (401) clears what is shown.
  // Kept on disk too (9 Nov 2026): after a restart the numbers stayed blank until Anthropic answered again, and every restart asked anew.
  const usageSeen=new Map(),USAGE_EVERY=5*60e3,USAGE_FILE=path.join(DATA,'claude-usage.json');let usageLoaded=false;
- const usageSave=()=>{const o={};for(const [k,v] of usageSeen){const {usage,extra,at,next,wait,error,dead,via}=v;o[k]={usage,extra,at,next,wait,error,dead,via}}return writeFile(USAGE_FILE+'.tmp',JSON.stringify(o)).then(()=>rename(USAGE_FILE+'.tmp',USAGE_FILE)).catch(()=>{})};
+ const usageSave=()=>{const o={};for(const [k,v] of usageSeen){const {usage,extra,at,next,wait,error,dead,via}=v;o[k]={usage,extra,at,next,wait,error,dead,via}}return writeStore(USAGE_FILE,JSON.stringify(o)).catch(()=>{})};   // 21 Nov 2026: one shared .tmp name let two saves at once leave a stray byte ("}}}"), so the file stopped parsing; writeStore queues per file, own tmp each
  async function usageFetch(id,token){if(!usageLoaded){usageLoaded=true;try{for(const [k,v] of Object.entries(JSON.parse(await readFile(USAGE_FILE,'utf8'))))if(!usageSeen.has(k))usageSeen.set(k,v)}catch{}}
   const s=usageSeen.get(id)||{};usageSeen.set(id,s);const now=Date.now();
   if(s.asking)return s;if(s.at&&now-s.at<USAGE_EVERY||now<(s.next||0))return s;

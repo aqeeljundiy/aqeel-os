@@ -21,3 +21,11 @@ test('a signed-in account shows its usage (no crash), and a refused usage call i
   assert.equal(v.signedIn,true);assert.equal(v.email,'me@example.com');
   assert.equal(v.usage?.session?.used,12);assert.equal(v.usage?.week?.used,40);assert.equal(calls,1);
  }finally{globalThis.fetch=realFetch}});
+
+test('the Claude usage file stays valid when two saves run at once (21 Nov 2026: a shared .tmp left "}}}")',async()=>{
+ const {writeStore}=await import('../app/store.mjs');const {mkdtemp,readFile}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const path=(await import('node:path')).default;
+ const f=path.join(await mkdtemp(path.join(tmpdir(),'cu-')),'claude-usage.json');
+ const long=JSON.stringify({a:{used:31,x:'y'.repeat(50)}}),short=JSON.stringify({a:{used:9}});
+ for(let i=0;i<20;i++){await Promise.all([writeStore(f,long),writeStore(f,short)]);JSON.parse(await readFile(f,'utf8'))}
+ const src=(await import('node:fs')).readFileSync(new URL('../app/accounts.mjs',import.meta.url),'utf8');
+ assert.match(src,/usageSave=\(\)=>\{[^\n]*writeStore\(USAGE_FILE,/,'the usage save goes through writeStore');assert.doesNotMatch(src,/USAGE_FILE\+'\.tmp'/)});
