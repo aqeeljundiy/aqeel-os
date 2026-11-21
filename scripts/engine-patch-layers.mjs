@@ -45,10 +45,12 @@ export function applyFresh(engine,file,{checkOnly=false}={}){const g=a=>execFile
  try{g(['apply','--check',file]);if(!checkOnly)g(['apply',file]);return true}catch{}
  const tracked=p=>{try{g(['ls-files','--error-unmatch','--',p]);return true}catch{return false}};
  const left=newFiles(readFileSync(file,'utf8')).filter(p=>existsSync(path.join(engine,p))&&!tracked(p));if(!left.length)return false;
- const T=mkdtempSync(path.join(tmpdir(),'aq-aside-')),moved=[];
- try{for(const p of left){const to=path.join(T,String(moved.length));renameSync(path.join(engine,p),to);moved.push([p,to])}
+ // next to the engine, so a move stays on one filesystem (/tmp is another one in the box's container: EXDEV); a copy if not
+ const T=mkdtempSync(path.join(path.dirname(path.resolve(engine)),'.aq-aside-')),moved=[];
+ const mv=(a,b)=>{try{renameSync(a,b)}catch(e){if(e.code!=='EXDEV')throw e;copyFileSync(a,b);rmSync(a,{force:true})}};
+ try{for(const p of left){const to=path.join(T,String(moved.length));mv(path.join(engine,p),to);moved.push([p,to])}
   try{g(['apply','--check',file]);if(checkOnly)return true;g(['apply',file]);for(const [,to] of moved)rmSync(to,{force:true});moved.length=0;return true}catch{return false}}
- finally{for(const [p,to] of moved){try{renameSync(to,path.join(engine,p))}catch{copyFileSync(to,path.join(engine,p))}}rmSync(T,{recursive:true,force:true})}}
+ finally{for(const [p,to] of moved)mv(to,path.join(engine,p));rmSync(T,{recursive:true,force:true})}}
 
 // Brings every patch in: those in place are left, the rest are applied oldest first, each all or nothing.
 // Returns {inPlace, applied, misfit} (file names).
