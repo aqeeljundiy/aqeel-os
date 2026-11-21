@@ -62,3 +62,12 @@ test('where the plugin is on, the chat channels do not use its proxy (gateway.tr
  await B.install();assert.equal(cfg.sales.gateway.trust_env,false);assert.equal(cfg.default.gateway.trust_env,false);
  assert.equal(cfg.help.gateway?.trust_env,undefined,'switched off on the Plugins page: left as it was');
  assert.deepEqual(await B.install(),[],'set once')});
+
+test('the copied plugin waits 10 s for its health probe, once; a plugin without that line is copied as it is',async()=>{
+ const {localEdit,PROBE_FROM,PROBE_TO}=await import('../app/billion-context.mjs');
+ const src='A = 1\n'+PROBE_FROM+'B = 2\n';const out=localEdit('__init__.py',src);
+ assert.ok(out.includes('HEALTH_PROBE_TIMEOUT_S = 10.0'));assert.ok(!out.includes('HEALTH_PROBE_TIMEOUT_S = 2.0'));
+ assert.equal(localEdit('__init__.py',out),out,'a second copy changes nothing');
+ assert.equal(localEdit('plugin.yaml',PROBE_FROM),PROBE_FROM,'only __init__.py');
+ assert.equal(localEdit('__init__.py','# plugin\n'),'# plugin\n');
+});

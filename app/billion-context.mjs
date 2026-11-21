@@ -14,6 +14,15 @@ export const BILI_NAME='billion-context';
 const RETRY_MS=60*60e3;
 export const FOLD_AT=90000;   // tokens of history before the proxy asks the model to fold (below the engine's own 100k, app/efficiency.mjs; was 180k under 200k until 14 Nov 2026)
 
+// Our one edit to the plugin as it is copied (21 Nov 2026): its health probe waited 2 s. Under load (Elkiya, load 58 on
+// 12 cores at 12:17 UTC) a live proxy missed it three times in 90 s, every agent declared it gone and started its own, 30
+// node proxies in 6 min, which made the load worse and broke the engine update. 10 s is still inside its 30 s watch tick
+// and its 90 s start budget; a proxy that is really gone still fails every probe.
+export const PROBE_FROM='HEALTH_PROBE_TIMEOUT_S = 2.0\n',PROBE_TO='HEALTH_PROBE_TIMEOUT_S = 10.0  # aqeelos: was 2.0, see app/billion-context.mjs\n';
+export function localEdit(f,text){if(f!=='__init__.py')return text;if(text.includes(PROBE_TO))return text;
+ if(!text.includes(PROBE_FROM)){console.warn('billion-context: probe timeout line not found, plugin copied as it is');return text}
+ return text.replace(PROBE_FROM,PROBE_TO)}
+
 export function createBillionContext({HERMES_HOME,readConfig,setKey,pick,home0=homedir(),log=m=>console.log(m),
  npm=null,run=null,now=()=>Date.now(),nodePath=process.execPath,version=BILI_VERSION}){
  const home=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
@@ -53,7 +62,7 @@ export function createBillionContext({HERMES_HOME,readConfig,setKey,pick,home0=h
   const changed=[];
   for(const a of await homes()){let did=false;
    try{const dst=path.join(home(a),'plugins',BILI_NAME);await mkdir(dst,{recursive:true});
-    for(const [f,want] of [...await Promise.all(files.map(async f=>[f,await readFile(path.join(src,f),'utf8')])),['bili.json',sidecar]]){
+    for(const [f,want] of [...await Promise.all(files.map(async f=>[f,localEdit(f,await readFile(path.join(src,f),'utf8'))])),['bili.json',sidecar]]){
      const have=await readFile(path.join(dst,f),'utf8').catch(()=>null);if(have!==want){await writeFile(path.join(dst,f),want);did=true}}
     const c=await readConfig(a).catch(()=>null);if(c){const on=[].concat(pick(c,'plugins.enabled')||[]).map(String);const off=[].concat(pick(c,'plugins.disabled')||[]).map(String);
      if(!off.includes(BILI_NAME)){if(!on.includes(BILI_NAME)){await setKey(a,'plugins.enabled',[...on,BILI_NAME]);did=true}
