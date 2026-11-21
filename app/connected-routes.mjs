@@ -11,7 +11,7 @@ import {agentNames,LIVE_APP} from './agentops.mjs';
 import {publicReach} from './kirimdev.mjs';
 import {ROLES as TEAM_ROLES} from './team-group.mjs';
 import path from 'node:path';
-export function createConnectedRoutes({DASH,DASH_TOKEN,HERMES_HOME,NAMES,PUBLIC_URL,backupModels,backups,engineUpd,gconnect,googleConnected,guard,kirimdev,kirimdevChanged,kirimdevSetup,listAgents,localAppVersions,mcpEdit,msconnect,newerApp,ownsAgent,priceCatalog,privateAddress,readBody,releaseAppVersions,secretLinks,selfRuns,send,slackc,srEligible,syncNotifyTool,teamGroups,teamSettings,tebar,users,whyOf,writeAgentContext}){
+export function createConnectedRoutes({googleFold=async()=>[],DASH,DASH_TOKEN,HERMES_HOME,NAMES,PUBLIC_URL,backupModels,backups,engineUpd,gconnect,googleConnected,guard,kirimdev,kirimdevChanged,kirimdevSetup,listAgents,localAppVersions,mcpEdit,msconnect,newerApp,ownsAgent,priceCatalog,privateAddress,readBody,releaseAppVersions,secretLinks,selfRuns,send,slackc,srEligible,syncNotifyTool,teamGroups,teamSettings,tebar,users,whyOf,writeAgentContext}){
  return async function handle(req,res,p,url,u){
    // backups to Google Drive (admins): the state, back up now, a restore test, and the key that unlocks them
    // engine updates (engine-updates.mjs): the setting, "Update tonight", and the list of attempts
@@ -135,7 +135,7 @@ export function createConnectedRoutes({DASH,DASH_TOKEN,HERMES_HOME,NAMES,PUBLIC_
     if(p==='/ui/google/client'&&!admin)return send(res,403,{error:'Only an admin sets up Google for this install (once, in Connections › Connect Google).'}),true;
     if(p==='/ui/google/client/check'&&!admin)return send(res,403,{error:'Only an admin sets up Google for this install.'}),true;
     const mine=a=>admin||users.level(u,a)==='owner';
-    if(p!=='/ui/google/result'&&p!=='/ui/google/finish'&&p!=='/ui/google/client'&&p!=='/ui/google/client/check'&&p!=='/ui/google/state'&&!(await agentNames()).includes(ag))return send(res,400,{error:'Unknown agent'}),true;
+    if(p!=='/ui/google/result'&&p!=='/ui/google/finish'&&p!=='/ui/google/client'&&p!=='/ui/google/client/check'&&p!=='/ui/google/state'&&p!=='/ui/google/fold'&&!(await agentNames()).includes(ag))return send(res,400,{error:'Unknown agent'}),true;
     if(['/ui/google/connect','/ui/google/check','/ui/google/account'].includes(p)&&!mine(ag))return send(res,403,{error:'You can connect Google only for your own agents.'}),true;
     if(p==='/ui/google/state'&&req.method==='GET'&&!admin){const own=(await agentNames()).filter(mine);const accounts=(await Promise.all(own.map(a=>gconnect.accounts(a)))).flat().map(x=>({...x,agentName:NAMES[x.agent]||x.agent}));const inf=await gconnect.info();return ok({...inf,accounts,agents:own.map(a=>({id:a,name:NAMES[a]||a})),canSetUp:false}),true}
     if(p==='/ui/google/state'&&req.method==='GET'){const all=await agentNames();const accounts=(await Promise.all(all.map(a=>gconnect.accounts(a)))).flat().map(x=>({...x,agentName:NAMES[x.agent]||x.agent}));return ok({...await gconnect.info(),accounts,agents:all.map(a=>({id:a,name:NAMES[a]||a}))}),true}
@@ -146,6 +146,8 @@ export function createConnectedRoutes({DASH,DASH_TOKEN,HERMES_HOME,NAMES,PUBLIC_
     if(p==='/ui/google/connect'&&req.method==='POST')return gconnect.start({agent:ag,name:b.name,services:Array.isArray(b.services)?b.services:undefined,reconnect:!!b.reconnect}).then(ok,bad),true;
     if(p==='/ui/google/result'&&req.method==='GET')return gconnect.result(String(url.searchParams.get('state')||'')).then(ok,bad),true;
     if(p==='/ui/google/finish'&&req.method==='POST')return gconnect.finish(String(b.address||'')).then(r=>{googleConnected(r,u.name||u.email||'');return ok(r)},bad),true;
+    // an agent's own full copy of an account the owner holds becomes a shared key now (the daily run does the same)
+    if(p==='/ui/google/fold'&&req.method==='POST'){if(!admin)return send(res,403,{error:'Only admins can change sharing.'}),true;return googleFold().then(r=>ok({folded:r.filter(x=>x.changed).length,failed:r.filter(x=>x.error).map(x=>({agent:x.agent,email:x.email,error:x.error}))}),bad),true}
     if(p==='/ui/google/check'&&req.method==='POST')return gconnect.check(ag,String(b.name||'')).then(ok,bad),true;
     if(p==='/ui/google/account'&&req.method==='DELETE')return gconnect.remove(ag,String(b.name||'')).then(r=>{if(LIVE_APP)writeAgentContext().catch(()=>{});return ok(r)},bad),true;
     return send(res,404,{error:'Not found'}),true}

@@ -67,3 +67,15 @@ test('a workspace .hermes file the engine copies in from the profile (credential
 
 test('every renewal locks the owner\'s own sign-in files to the owner again',async()=>{const {s,H}=await make();await chmod(path.join(H,'google_token.json'),0o664);
  await s.renew();assert.equal((await stat(path.join(H,'google_token.json'))).mode&0o777,0o600)});
+
+test('fold: every full copy of an owner account in another agent becomes a key in the same file; an agent\'s own account stays',async()=>{const {s,H}=await make({'pine-agent':'full'});
+ await writeFile(path.join(H,'profiles','pine-agent','google_token_seo.json'),JSON.stringify({account:'ME@example.com',refresh_token:'RT-COPY',token:'old'}));
+ await mkdir(path.join(H,'work','cove-threads','.tools'),{recursive:true});
+ await writeFile(path.join(H,'work','cove-threads','.tools','google_token.json'),JSON.stringify({account:'me@example.com',refresh_token:'RT-COPY2',token:'old'}));
+ await writeFile(path.join(H,'profiles','cove-threads','google_token_own.json'),JSON.stringify({account:'them@example.org',refresh_token:'RT-THEIRS',token:'t'}));
+ const c=await s.copies();assert.deepEqual(c.map(x=>x.agent+' '+x.file).sort(),['cove-threads .tools/google_token.json','pine-agent google_token_seo.json']);
+ const r=await s.fold();assert.equal(r.filter(x=>x.changed).length,2);assert.equal(r.filter(x=>x.error).length,0);
+ const k=await read(H,'pine-agent','google_token_seo.json');assert.equal(k.aqeelos_managed,true);assert.equal(k.refresh_token,'');assert.equal(k.aqeelos_level,'full');
+ assert.equal((await read(H,'cove-threads','google_token_own.json')).refresh_token,'RT-THEIRS','an account the owner does not hold is the agent\'s own');
+ assert.equal((await readdir(path.join(H,'data','google-copies-backup'))).length,2,'each copy is kept in the backup');
+ assert.deepEqual(await s.copies(),[],'a second run finds nothing')});

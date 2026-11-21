@@ -90,9 +90,20 @@ export function createGoogleShares({HERMES_HOME,DATA,WORK=path.join(path.dirname
   const bk=path.join(DATA,'google-copies-backup');await mkdir(bk,{recursive:true,mode:0o700});const to=path.join(bk,agent+'__'+String(file).replace(/\//g,'_')+'.'+new Date(now()).toISOString().slice(0,10));
   const level=await levelOf(email,agent);const key=await mint(own,level);
   if(unreadable)await rename(p,to);else await copyFile(p,to);await put(p,key);log('google share: '+agent+'\'s own copy of '+email+' ('+file+') replaced by a shared key ('+level+')');return {changed:true,email,level,backup:path.basename(to)}}
+ // every full copy of an owner's account in another agent's folders (21 Nov 2026, owner: "sharing is now more of duplicates"):
+ // its own sign-in placed there by hand or by an older share, with a refresh token and every scope, that removing the owner's
+ // account never ends. Copies of an account the owner does not hold are the agent's own and stay.
+ async function copies(){const own=await owners(),out=[];for(const a of await agents()){if(a==='default'||a.includes('--'))continue;
+  for(const p of await places(a)){const d=await readJson(path.join(p.dir,p.file));const email=String(d?.account||'').toLowerCase();
+   if(d&&!d.aqeelos_managed&&d.refresh_token&&own[email])out.push({agent:a,file:p.where+p.file,email})}}
+  return out}
+ // each copy becomes a shared key at the agent's level, in the same file (so the agent's --account name keeps working);
+ // the copy itself is kept in aqeelOS's backup (migrate). One that fails stays as it is and is reported.
+ async function fold(){const out=[];for(const c of await copies()){try{out.push({...c,...await migrate(c.agent,c.file,c.email)})}catch(e){out.push({...c,error:e.message});log('google share: '+c.agent+'\'s copy of '+c.email+' ('+c.file+') stays: '+e.message)}}
+  return out}
  // a key kept in aqeelOS only (google-files.mjs), never written to an agent's folder; cached until 10 minutes before its end
  const cache=new Map();
  async function keyFor(email,level){email=String(email).toLowerCase();const c=cache.get(email+'|'+level);if(c&&c.until-now()>10*60e3)return c.token;
   const own=(await owners())[email];if(!own)throw Error('the owner agent has no Google sign-in for '+email);const k=await mint(own,level);
   cache.set(email+'|'+level,{token:k.token,until:Date.parse(k.expiry)||now()+3000e3});return k.token}
- return {owners,list,share,unshare,renew,migrate,keyFor}}
+ return {owners,list,share,unshare,renew,migrate,keyFor,copies,fold}}

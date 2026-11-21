@@ -8,7 +8,17 @@ const GC={
  SVC_IC:{gmail:'mail',calendar:'clock',drive:'folder',sheets:'list',docs:'file',contacts:'user'},
  chips(svcs,labels){return (svcs||[]).map(k=>`<span class="chip gc-svc">${icon(this.SVC_IC[k]||'check',12)}${esc(labels?.[k]||k)}</span>`).join('')||'<span class="hint">No Google services</span>'},
  async open(opt={}){this.opt=opt;const d=drawer('Connect Google','<div class="gc-body"><div class="skel" style="height:64px;border-radius:var(--r-md)"></div><div class="skel" style="height:64px;border-radius:var(--r-md);margin-top:8px"></div></div>',`<span class="gc-foot-l hint"></span><button class="ghost" data-act="close">Done</button>`,{size:'md'});d.classList.add('gc-dlg');this.d=d;
-  try{this.st=await UI('/ui/google/state')}catch(e){if(d.isConnected)d.querySelector('.gc-body').innerHTML=errLine('the Google settings');return}if(!d.isConnected)return;this.paint()},
+  try{[this.st,this.cx]=await Promise.all([UI('/ui/google/state'),this.rows()])}catch(e){if(d.isConnected)d.querySelector('.gc-body').innerHTML=errLine('the Google settings');return}if(!d.isConnected)return;this.paint()},
+
+ // who uses each account and how much (Abilities › Connections, the same routes): admins only, others see their own cards
+ rows(){return S.me?.admin===false?Promise.resolve(null):UI('/ui/connections').then(x=>({rows:(x.rows||[]).filter(r=>r.kind==='google'),agents:x.agents||[],canEdit:!!x.canEdit}),()=>null)},
+ // one card per Google account (21 Nov 2026, owner: one account showed as many cards, one per sign-in file): its files grouped
+ // by email; the owner's own sign-in (Donna, the main agent) first, then other agents' own copies until they become shares
+ groups(){const m=new Map();for(const a of this.st.accounts||[]){const e=(a.email||'?').toLowerCase();if(!m.has(e))m.set(e,{email:a.email||'',files:[]});m.get(e).files.push(a)}
+  return [...m.values()].map(g=>{const row=this.cx?.rows.find(r=>String(r.id).toLowerCase()===g.email.toLowerCase());const owner=row?.owner||'default';
+   const mine=g.files.filter(f=>f.agent===owner),main=mine.find(f=>!f.name)||mine[0]||g.files[0];return {...g,row,owner,mine,main,copies:g.files.filter(f=>f.agent!==owner)}})},
+ // the name people see: what someone called it here, else the short name the tools use, else Main account
+ label(g){return g.row?.labelled?g.row.name:g.main?.name?pretty(g.main.name):'Main account'},
  body(){return this.d?.querySelector('.gc-body')},
  swap(html){const b=this.body();if(!b)return;b.classList.remove('gc-in');b.innerHTML=html;void b.offsetWidth;b.classList.add('gc-in')},
  // no client yet: an admin gets the step-by-step setup (google-setup.js), anyone else is told an admin does it
@@ -16,12 +26,18 @@ const GC={
   if(f)f.innerHTML=`Google client: ${s.client.type==='web'?'Web application':'Desktop app'}${s.client.project?' · '+esc(s.client.project):''}${s.canSetUp===false?'':' <button class="link-btn" data-gc="client">Change</button>'}`;
   this.swap(`${s.client.redirectOk?'':`<div class="gc-alert">${alertBox('Google does not list this address for the client yet: <code>'+esc(s.redirect)+'</code>. Add it under Authorised redirect URIs, or sign-ins stop at an error.',{act:'',id:'gcCopyR',label:'Copy address',ic:'copy'})}</div>`}
    ${this.opt.why?`<p class="hint gc-why">${esc(this.opt.why)}</p>`:''}
-   <h3 class="gc-h">Google accounts</h3><div class="gc-cards">${s.accounts.length?s.accounts.map((a,i)=>this.card(a,i)).join(''):'<p class="hint" style="margin:0">None yet. Connect the first one below.</p>'}</div>
+   <h3 class="gc-h">Google accounts</h3><div class="gc-cards">${(this.gs=this.groups()).length?this.gs.map((g,i)=>this.card(g,i)).join(''):'<p class="hint" style="margin:0">None yet. Connect the first one below.</p>'}</div>
    <h3 class="gc-h">Connect an account</h3><div class="gc-new" data-nodirty>${this.form()}</div>`);
   this.wire();this.checkAll()},
- card(a,i){return `<div class="gc-card" data-i="${i}" ${st(Math.min(i,8))}>${logoImg('google.com','G')}<div class="gc-c-t"><b>${esc(a.email||'Google account')}</b>
-   <small>${esc(ident(a.agent).name||a.agentName)}${a.name?' · '+esc(pretty(a.name)):' · main account'}${a.by==='agent'?' · connected by the agent':''}</small><div class="gc-chips">${this.chips(a.services,this.st.services)}</div></div>
-   <div class="gc-c-r"><span class="chip gc-stat" data-k="${esc(a.agent+'|'+a.name)}"><span class="spinner tiny"></span>Checking</span><div class="gc-acts"><button class="ghost small" data-gc="re" data-i="${i}">${icon('refresh',14)}Reconnect</button><button class="ghost icon" data-gc="rm" data-i="${i}" aria-label="Remove ${esc(a.email)}" title="Remove">${icon('trash',15)}</button></div></div></div>`},
+ card(g,i){const a=g.main,cx=this.cx,edit=!!(cx?.canEdit&&g.row),names=[...new Set(g.mine.map(f=>f.name).filter(Boolean))];
+  const users=(g.row?.users||[]).slice().sort((x,y)=>(y.id===g.owner)-(x.id===g.owner));
+  return `<div class="gc-card" data-i="${i}" ${st(Math.min(i,8))}>${logoImg('google.com','G')}<div class="gc-c-t">
+   <div class="gc-name"><b>${esc(this.label(g))}</b>${edit?`<button class="icon-btn small" data-gc="ren" data-i="${i}" aria-label="Rename ${esc(this.label(g))}" title="Rename">${icon('edit',13)}</button>`:''}</div>
+   <small>${esc(g.email||'Google account')} · on ${esc(ident(g.owner).name)}${names.length?' · tools call it '+names.map(esc).join(', '):''}</small>
+   ${users.length?`<div class="gc-users">${users.map(u=>`<span class="gc-u">${agentAvatar(u.id,18,{title:false})}<span>${esc(ident(u.id).name)}</span>${u.id===g.owner?'<em>Owner</em>':edit?`<button class="link-btn" data-gc="lv" data-i="${i}" data-agent="${esc(u.id)}">${esc(CX_LV[u.level]?.[0]||u.level)}</button><button class="icon-btn tiny" data-gc="unuse" data-i="${i}" data-agent="${esc(u.id)}" aria-label="Take it from ${esc(ident(u.id).name)}">${icon('x',12)}</button>`:`<em>${esc(CX_LV[u.level]?.[0]||u.level)}</em>`}</span>`).join('')}${edit&&cx.agents.some(x=>!users.some(u=>u.id===x.id))?`<button class="ghost small gc-add" data-gc="use" data-i="${i}">${icon('plus',13)}Add agent</button>`:''}</div>`:''}
+   ${g.copies.length?`<small class="gc-copy">${g.copies.map(f=>esc(ident(f.agent).name)).join(', ')} still ${g.copies.length>1?'have':'has'} a full copy of the sign-in; aqeelOS turns it into a share by itself.${cx?.canEdit?' <button class="link-btn" data-gc="fold">Do it now</button>':''}</small>`:''}
+   <div class="gc-chips">${this.chips(a.services,this.st.services)}</div></div>
+   <div class="gc-c-r"><span class="chip gc-stat" data-k="${esc(a.agent+'|'+a.name)}"><span class="spinner tiny"></span>Checking</span><div class="gc-acts"><button class="ghost small" data-gc="re" data-i="${i}">${icon('refresh',14)}Reconnect</button><button class="icon-btn small" data-gc="rm" data-i="${i}" aria-label="Remove ${esc(g.email)}" title="Remove">${icon('trash',15)}</button></div></div></div>`},
  form(){const ags=this.st.agents;if(!ags.length)return '<p class="hint" style="margin:0">You have no agent of your own to connect Google to yet.</p>';
   const ag=this.opt.agent&&ags.some(x=>x.id===this.opt.agent)?this.opt.agent:ags.some(x=>x.id==='default')?'default':ags[0].id,want=this.opt.services||Object.keys(this.st.services);
   return `<div class="gc-grid"><div><label for="gcAg">For</label><select id="gcAg">${ags.map(x=>`<option value="${esc(x.id)}"${x.id===ag?' selected':''}>${esc(ident(x.id).name||x.name)}</option>`).join('')}</select></div>
@@ -30,12 +46,31 @@ const GC={
    <label>What it may use</label><div class="gc-pick" role="group" aria-label="Google services">${Object.entries(this.st.services).map(([k,l])=>`<label class="gc-opt"><input type="checkbox" value="${k}"${want.includes(k)?' checked':''}>${icon(this.SVC_IC[k],14)}<span>${esc(l)}</span></label>`).join('')}</div>
    ${this.opt.services?.includes('drive')?'<p class="hint">Keep Drive on: backups are saved there.</p>':''}
    <p class="err-line" id="gcErr" hidden></p><div class="gc-go"><button class="primary" data-gc="go">${logoImg('google.com','G')}Connect Google</button></div>`},
- wire(){const b=this.body();b.onclick=e=>{const x=e.target.closest('[data-gc]');if(!x)return;const a=this.st.accounts[+x.dataset.i];
-   if(x.dataset.gc==='go')this.connect(x);if(x.dataset.gc==='re'&&a)this.connect(x,a);if(x.dataset.gc==='rm'&&a)this.remove(a);if(x.dataset.gc==='client')this.setup(true)};
+ wire(){const b=this.body();b.onclick=e=>{const x=e.target.closest('[data-gc]');if(!x)return;const g=this.gs?.[+x.dataset.i],k=x.dataset.gc;
+   if(k==='go')this.connect(x);if(k==='re'&&g)this.connect(x,g.main);if(k==='rm'&&g)this.remove(g);if(k==='client')this.setup(true);if(k==='fold')this.fold(x);
+   if(k==='ren'&&g)this.rename(g,x);if(k==='lv'&&g)this.level(g,x);if(k==='use'&&g)this.use(g,x);if(k==='unuse'&&g)this.unuse(g,x)};
   this.d.querySelector('.gc-foot-l').onclick=e=>{if(e.target.closest('[data-gc="client"]'))this.setup(true)};
   b.querySelector('#gcCopyR')?.addEventListener('click',()=>copyText(this.st.redirect))},
- // each card asks Google whether its sign-in still works
- checkAll(){this.st.accounts.forEach(a=>post(UI,'/ui/google/check',{agent:a.agent,name:a.name}).then(r=>this.stat(a,r),()=>this.stat(a,{ok:null}))) },
+ // each account asks Google once (its owner's own sign-in) whether it still works
+ checkAll(){(this.gs||[]).forEach(g=>{const a=g.main;post(UI,'/ui/google/check',{agent:a.agent,name:a.name}).then(r=>this.stat(a,r),()=>this.stat(a,{ok:null}))})},
+ // a change through Connections, then fresh cards in place (the button shows it is working meanwhile)
+ async cxDo(btn,path,body,msg){const was=btn.innerHTML;btn.disabled=true;btn.innerHTML='<span class="spinner tiny"></span>';
+  try{const r=await post(UI,path,body);toast(typeof msg==='function'?msg(r):msg);Pages._cxFresh=true;await this.refresh();if(route().page?.id==='connections')Cx.refresh?.();return r}catch(e){if(btn.isConnected){btn.disabled=false;btn.innerHTML=was}fail(e)}},
+ level(g,btn){const ag=btn.dataset.agent,u=g.row.users.find(x=>x.id===ag);if(!u)return;
+  menu(btn,[{header:'What '+ident(ag).name+' may do with '+this.label(g)},...['read','edit','draft','full'].map(l=>({label:CX_LV[l][0],sub:CX_LV[l][1],on:u.level===l,run:()=>{if(l!==u.level)this.cxDo(btn,'/ui/connections/level',{key:g.row.key,agent:ag,level:l},this.label(g)+': '+ident(ag).name+' '+CX_LV[l][0])}}))])},
+ use(g,btn){const ag=this.cx.agents.filter(x=>!g.row.users.some(u=>u.id===x.id));
+  menu(btn,[{header:'Give '+this.label(g)+' to'},...ag.map(x=>({label:ident(x.id).name,ava:agentAvatar(x.id,20,{title:false}),sub:'A shared key at Read; change it here',run:()=>this.cxDo(btn,'/ui/connections/add',{key:g.row.key,agent:x.id},this.label(g)+' shared with '+ident(x.id).name+' · Read')}))],{search:ag.length>6})},
+ async unuse(g,btn){const ag=btn.dataset.agent,n=ident(ag).name;if(!await confirmBox('Take '+this.label(g)+' from '+n+'?',n+' can’t use '+(g.email||'this account')+' until it is given again. Its shared key ends within the hour.','Take it away'))return;
+  this.cxDo(btn,'/ui/connections/remove',{key:g.row.key,agent:ag},this.label(g)+' taken from '+n)},
+ // the name people see (labels.mjs, keyed by the Connections row); the name the tools use stays as it is
+ rename(g,btn){const box=btn.closest('.gc-name');if(!box||box.querySelector('input'))return;const was=box.innerHTML,cur=this.label(g);
+  box.innerHTML=`<input class="gc-ren" maxlength="60" value="${esc(cur)}" aria-label="Name for ${esc(g.email)}"><button class="primary small" data-ok>Save</button><button class="ghost small" data-no>Cancel</button>`;
+  const inp=box.querySelector('input');inp.focus();inp.select();const back=()=>{box.innerHTML=was};
+  const save=async()=>{const name=inp.value.trim();if(!name||name===cur)return back();const i=g.row.key.indexOf(':');
+   box.querySelector('[data-ok]').disabled=true;try{await put(UI,'/ui/labels',{kind:g.row.key.slice(0,i),id:g.row.key.slice(i+1),name});toast('Renamed to '+name);Pages._cxFresh=true;await this.refresh()}catch(e){back();fail(e)}};
+  box.querySelector('[data-ok]').onclick=e=>{e.stopPropagation();save()};box.querySelector('[data-no]').onclick=e=>{e.stopPropagation();back()};
+  inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();save()}if(e.key==='Escape'){e.preventDefault();e.stopPropagation();back()}}},
+ async fold(btn){btn.disabled=true;try{const r=await post(UI,'/ui/google/fold',{});toast(r.folded?r.folded+(r.folded>1?' copies are':' copy is')+' now a shared key':'Nothing to change');if(r.failed?.length)fail(new Error(r.failed.map(x=>ident(x.agent).name+': '+x.error).join('; ')));await this.refresh()}catch(e){btn.disabled=false;fail(e)}},
  stat(a,r){const c=this.d?.querySelector(`.gc-stat[data-k="${CSS.escape(a.agent+'|'+a.name)}"]`);if(!c)return;c.className='chip gc-stat '+(r.ok?'ok':r.ok===false?'warn':'');c.innerHTML=r.ok?'<i class="dot"></i>Works':r.ok===false?'<i class="dot"></i>Needs reconnect':'<i class="dot"></i>Not checked';if(r.why)c.title=r.why;
   if(r.ok===false){const card=c.closest('.gc-card');card.querySelector('[data-gc="re"]')?.classList.replace('ghost','primary');if(!card.querySelector('.gc-why-l'))card.querySelector('.gc-c-t').insertAdjacentHTML('beforeend',`<small class="gc-why-l">${esc(r.why||'')}</small>`)}},
  async connect(btn,re){const b=this.body(),err=b.querySelector('#gcErr');if(err)err.hidden=true;
@@ -58,10 +93,11 @@ const GC={
    try{done(await post(UI,'/ui/google/finish',{address:v}))}catch(e){ev.target.disabled=false;bad(e.message)}});
   const poll=async()=>{if(!this.d?.isConnected)return stop();try{const x=await UI('/ui/google/result?state='+encodeURIComponent(r.state));if(!this.d?.isConnected)return;if(x.ok)return done(x);if(x.ok===false){stop();return bad(x.error)}}catch{}this._t=setTimeout(poll,2000)};
   this._t=setTimeout(poll,2000)},
- async refresh(x){try{this.st=await UI('/ui/google/state')}catch{}if(!this.d?.isConnected)return;this.opt={...this.opt,why:''};this.paint();
+ async refresh(x){try{[this.st,this.cx]=await Promise.all([UI('/ui/google/state'),this.rows()])}catch{}if(!this.d?.isConnected)return;this.opt={...this.opt,why:''};this.paint();
   if(route().page?.id==='connections')Cx.refresh?.();if(route().page?.id==='health')reload()},
- async remove(a){const who=ident(a.agent).name;if(!await confirmBox('Remove '+(a.email||'this account')+' from '+who+'?',who+' can no longer use this Google account. Other agents that use the same account keep it. Google is not told; to end it everywhere, remove aqeelOS under myaccount.google.com.','Remove'))return;
-  try{await del(UI,'/ui/google/account',{agent:a.agent,name:a.name});toast((a.email||'The account')+' removed from '+who);this.refresh()}catch(e){fail(e)}},
+ async remove(g){const others=(g.row?.users||[]).filter(u=>u.id!==g.owner).map(u=>ident(u.id).name);
+  if(!await confirmBox('Remove '+(g.email||'this account')+'?',ident(g.owner).name+' signs out of it'+(others.length?', and '+others.join(', ')+(others.length>1?' lose':' loses')+' the shared key within the hour':'')+'. Google is not told; to end it everywhere, remove aqeelOS under myaccount.google.com.','Remove'))return;
+  try{for(const f of g.mine)await del(UI,'/ui/google/account',{agent:f.agent,name:f.name});toast((g.email||'The account')+' removed');Pages._cxFresh=true;this.refresh()}catch(e){fail(e)}},
  // Change: another client file in place of the saved one (the first one comes from the step-by-step setup)
  setup(change=false){const s=this.st,f=this.d.querySelector('.gc-foot-l');if(f)f.innerHTML=change?'<button class="link-btn" data-gc="back">Back</button>':'';
   // not an admin (11 Nov 2026): the install's Google client is an admin's one-time setup; say so plainly instead of the Google Cloud steps
