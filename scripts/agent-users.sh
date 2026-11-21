@@ -23,6 +23,9 @@ HOMEC=${AQEELOS_HOME:-${_oh:-$HOME}}
 REQ=$HOMEC/.aqeelos-agent-users
 DONE=$REQ.done
 PORTS=$HOMEC/.aqeelos-agent-ports
+# first display and Chrome port (21 Nov 2026, AU-35): a test copy (its root under /tmp) numbers its screens from :140, never from :40,
+# so a test screen that outlives its run cannot hold a real agent's display (P&P pixel-agent's :40 was held for 204 h by one)
+case "$HOMEC" in /tmp/*) DISP0=${AQ_DISPLAY_BASE:-140}; CDP0=${AQ_CDP_BASE:-29600};; *) DISP0=${AQ_DISPLAY_BASE:-40}; CDP0=${AQ_CDP_BASE:-9600};; esac
 UIDS=$HOMEC/.aqeelos-agent-uids
 KEYS=/etc/ssh/agent-keys
 PUB=$HOMEC/.hermes/agent-ssh/id_ed25519.pub
@@ -614,7 +617,7 @@ port_of(){
   local n=$1 line
   ok_name "$n" || return 1
   line=$(grep "^$n " "$PORTS" 2>/dev/null | head -1)
-  if [ -z "$line" ]; then local i=0; while grep -q " $((40+i)) " "$PORTS" 2>/dev/null; do i=$((i+1)); done; line="$n $((40+i)) $((9600+i))"; echo "$line" | own_add "$PORTS"; fi
+  if [ -z "$line" ]; then local i=0; while grep -q " $((DISP0+i)) " "$PORTS" 2>/dev/null; do i=$((i+1)); done; line="$n $((DISP0+i)) $((CDP0+i))"; echo "$line" | own_add "$PORTS"; fi
   # the two numbers go into network rules, sums and the screen's command line: plain numbers or nothing
   [[ "$line" =~ ^[a-z0-9_-]+\ [0-9]{1,5}\ [0-9]{1,5}$ ]] || return 1
   echo "$line"
