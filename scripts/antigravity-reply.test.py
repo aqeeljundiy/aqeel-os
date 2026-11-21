@@ -69,4 +69,10 @@ try:
 except RuntimeError:
     raised = True
 check("any other error is raised at once, not retried", raised and len(seen) == 1)
+# 21 Nov 2026: Gemini called the engine's terminal tool natively; agy has no such tool, so it is the engine's call, handed on as text
+AGY = {"run_command", "view_file", "manage_task"}
+check("an engine tool called natively becomes the engine's call", rf.engine_call({"step_type": "tool", "tool_name": "terminal", "tool_info": {"arguments": {"command": "echo hi"}}}, AGY) == {"name": "terminal", "arguments": {"command": "echo hi"}})
+check("arguments given as JSON text are read too", rf.engine_call({"step_type": "tool", "tool_info": {"name": "read_file", "args": "{\"path\": \"a.md\"}"}}, AGY) == {"name": "read_file", "arguments": {"path": "a.md"}})
+check("one of agy's own tools is never handed on (the safety stop stands)", rf.engine_call({"step_type": "tool", "tool_name": "run_command", "tool_info": {"arguments": {"CommandLine": "rm -rf /"}}}, AGY) is None)
+check("no readable arguments: no call", rf.engine_call({"step_type": "tool", "tool_name": "terminal"}, AGY) is None)
 print(n, "passed")

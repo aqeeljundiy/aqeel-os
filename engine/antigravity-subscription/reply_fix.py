@@ -76,3 +76,30 @@ def with_retries(run, prompt_text, tries=RETRY_TRIES):
             if not note or attempt == tries - 1:
                 raise
             text = prompt_text + note
+
+
+# 21 Nov 2026: Gemini sometimes calls one of the engine's tools (terminal, read_file, session_search, skill_view) the native way
+# instead of writing it as text. agy then reports a tool step for a tool it does not have, and the plugin used to stop the whole
+# request for safety. engine_call(step, agy_tools) reads such a step as the engine's call: {"name", "arguments"}, or None when the
+# tool is one of agy's own (that stop stands) or its arguments cannot be read.
+_ARG_KEYS = ("arguments", "args", "input", "tool_input", "parameters", "tool_args", "argumentsJson", "arguments_json")
+
+
+def engine_call(step, agy_tools):
+    if not isinstance(step, dict):
+        return None
+    info = step.get("tool_info") if isinstance(step.get("tool_info"), dict) else {}
+    name = str(step.get("tool_name") or info.get("name") or "").strip()
+    if not name or name in (agy_tools or ()) or not re.fullmatch(r"[A-Za-z_][\w.-]{0,80}", name):
+        return None
+    for src in (info, step):
+        for k in _ARG_KEYS:
+            v = src.get(k)
+            if isinstance(v, str):
+                try:
+                    v = json.loads(v)
+                except ValueError:
+                    continue
+            if isinstance(v, dict):
+                return {"name": name, "arguments": v}
+    return None

@@ -55,3 +55,10 @@ test('an engine with the older text of a fix gets the newer one in place, so it 
  const k=kirimPatch('        matched = _hmac_str_equal(sig, expected) or matched\n# aqeelos:kirim-signature aqeelos:webhook-routes-home\n');
  assert.match(k.out||'',/hmac\.compare_digest\(sig\.encode\(\), expected\.encode\(\)\)/);
 });
+
+test('a schedule cleanup over its time limit logs the stuck stack, once, on both engines',()=>{
+ const src='    worker.start()\n    if not done.wait(timeout):\n        logger.error(\n            "Job \'%s\': %s exceeded %.1fs; abandoning cleanup so future runs remain dispatchable",\n            job_id,\n            label,\n            timeout)\n        return False\n    if error:\n';
+ const r=fixFile('cron/scheduler.py',src);assert.ok(r.applied.some(n=>/logs where it is stuck/.test(n)),JSON.stringify(r.errors));
+ assert.match(r.out,/sys\._current_frames\(\)\.get\(worker\.ident\)/);assert.match(r.out,/aqeelos-cleanup-stack/);
+ assert.equal(fixFile('cron/scheduler.py',r.out).out,null,'a second run changes nothing');
+});

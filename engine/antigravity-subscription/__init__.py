@@ -27,9 +27,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries
+    from .reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries, engine_call
 except ImportError:  # loaded as a plain module (the engine's plugin loader or a test)
-    from reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries
+    from reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries, engine_call
 from providers import register_provider
 from providers.base import ProviderProfile
 
@@ -202,6 +202,7 @@ def _make_client_class():
             with self._active_process_lock:
                 self._active_processes.add(proc)
             conv_id, steps, final, error, tool_seen = "", {}, None, "", ""
+            agy_tools, passed = set(), None
             timer = threading.Timer(max(60.0, float(timeout_seconds or 900)) + 30, proc.kill)
             timer.start()
             try:
@@ -222,6 +223,7 @@ def _make_client_class():
                         # agy 1.4 lists its whole tool registry here even for the text-only agent, so the list
                         # proves nothing; what counts is a tool step (below), which ends the request at once
                         conv_id = str(ev.get("conversation_id") or "")
+                        agy_tools = {str(t) for t in ((ev.get("init") or {}).get("tools") or [])}
                         if (ev.get("init") or {}).get("agent") not in (None, AGENT_NAME):
                             tool_seen = "agy started a different agent (" + str((ev.get("init") or {}).get("agent")) + ")"
                             proc.kill()
@@ -234,7 +236,16 @@ def _make_client_class():
                         # use it to plan. It is one of the four tools agy cannot drop, and it is the only one let through.
                         name = str(st.get("tool_name") or (st.get("tool_info") or {}).get("name") or "")
                         if st.get("step_type") == "tool" and name not in ("manage_task",):
-                            tool_seen = "agy tried to use its own tool " + name
+                            # 21 Nov 2026: most of these stops were not agy's tools at all: Gemini called one of the
+                            # engine's tools (terminal, read_file, session_search, skill_view) the native way instead of
+                            # writing it as text, and every try of the turn failed the same way. A tool agy does not have,
+                            # with its arguments, is handed to the engine as the <tool_call> it should have been.
+                            call = engine_call(st, agy_tools)
+                            if call is not None:
+                                passed = call
+                            else:
+                                tool_seen = "agy tried to use its own tool " + name
+                                logging.getLogger("aqeelos.antigravity").warning("aqeelos-agy-tool-step %s", json.dumps(st, ensure_ascii=False)[:1500])
                             proc.kill()
                             break
                     elif kind == "result":
@@ -252,6 +263,9 @@ def _make_client_class():
                     for p in [*(agy_home / "conversations").glob(f"{conv_id}*"), *(agy_home / "brain").glob(f"{conv_id}*"), *(agy_home / "annotations").glob(f"{conv_id}*")]:
                         with contextlib.suppress(Exception):
                             shutil.rmtree(p) if p.is_dir() else p.unlink()
+            if passed is not None:
+                text = _clean(_whole(steps, "").strip())
+                return ((text + "\n") if text else "") + "<tool_call>" + json.dumps(passed, ensure_ascii=False) + "</tool_call>", ""
             if tool_seen:
                 raise RuntimeError("Stopped for safety: " + tool_seen + ".")
             if fell_back:

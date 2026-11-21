@@ -673,6 +673,27 @@ def _redact_phones_enabled() -> bool:
         except Exception:
             pass
 `}]},
+ {tag:'aqeelos:cleanup-stack-on-timeout',name:'a schedule cleanup that runs over its time limit logs where it is stuck',file:'cron/scheduler.py',edits:[
+  {why:'the stack of the stuck cleanup',
+   from:'    if not done.wait(timeout):\n        logger.error(\n            "Job \'%s\': %s exceeded %.1fs; abandoning cleanup so future runs remain dispatchable",\n            job_id,\n            label,\n            timeout)\n        return False\n',
+   to:`    if not done.wait(timeout):
+        logger.error(
+            "Job '%s': %s exceeded %.1fs; abandoning cleanup so future runs remain dispatchable",
+            job_id,
+            label,
+            timeout)
+        # aqeelos:cleanup-stack-on-timeout (21 Nov 2026): Threads' schedules hit this 16 times in 3 days and the log
+        # said nothing about which step hung. The stuck thread's stack goes to the log, once per run.
+        try:
+            import traceback as _aq_tb
+            _aq_frame = sys._current_frames().get(worker.ident)
+            if _aq_frame is not None:
+                logger.error("Job '%s': %s is stuck here (aqeelos-cleanup-stack):\\n%s", job_id, label,
+                             "".join(_aq_tb.format_stack(_aq_frame))[-4000:])
+        except Exception:
+            pass
+        return False
+`}]},
  {tag:'aqeelos:script-failure-held',name:'a failed script-only schedule reports to aqeelOS and alerts once, never a raw traceback',file:'cron/scheduler.py',edits:[
   {why:'the script-failed alert',
    from:'        # Deliver the error: a silently broken watchdog is the worst-case outcome.\n        alert = (\n            f"⚠ Cron watchdog \'{job_name}\' script failed\\n\\n"\n            f"{output}\\n\\n"\n            f"Time: {now_iso}"\n        )\n',
