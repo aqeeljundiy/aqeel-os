@@ -15,7 +15,7 @@ const MsConnect={
   this.foot(`Microsoft app: ${esc(s.client.id)}${s.client.tenant&&s.client.tenant!=='common'?' · '+esc(s.client.tenant):''}${s.canSetUp?' <button class="link-btn" data-ms="change">Change</button>':''}`).onclick=e=>{if(e.target.closest('[data-ms="change"]'))this.setup(true)};
   this.swap(`${this.opt.why?`<p class="hint gc-why">${esc(this.opt.why)}</p>`:''}
    <h3 class="gc-h">Microsoft accounts</h3><div class="gc-cards">${s.accounts.length?s.accounts.map((a,i)=>this.card(a,i)).join(''):'<p class="hint" style="margin:0">None yet. Connect the first one below.</p>'}</div>
-   <h3 class="gc-h">Connect an account</h3><div class="gc-new">${this.form()}</div>`);
+   <h3 class="gc-h">Connect an account</h3><div class="gc-new" data-nodirty>${this.form()}</div>`);
   this.wire();this.checkAll()},
  card(a,i){return `<div class="gc-card" data-i="${i}" ${st(Math.min(i,8))}>${logoImg('microsoft.com','M')}<div class="gc-c-t"><b>${esc(a.email||'Microsoft account')}</b>
    <small>${esc(ident(a.agent).name||a.agentName)}${a.name?' · '+esc(pretty(a.name)):' · main account'}</small><div class="gc-chips">${this.chips(a.services)}</div></div>

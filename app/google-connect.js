@@ -17,7 +17,7 @@ const GC={
   this.swap(`${s.client.redirectOk?'':`<div class="gc-alert">${alertBox('Google does not list this address for the client yet: <code>'+esc(s.redirect)+'</code>. Add it under Authorised redirect URIs, or sign-ins stop at an error.',{act:'',id:'gcCopyR',label:'Copy address',ic:'copy'})}</div>`}
    ${this.opt.why?`<p class="hint gc-why">${esc(this.opt.why)}</p>`:''}
    <h3 class="gc-h">Google accounts</h3><div class="gc-cards">${s.accounts.length?s.accounts.map((a,i)=>this.card(a,i)).join(''):'<p class="hint" style="margin:0">None yet. Connect the first one below.</p>'}</div>
-   <h3 class="gc-h">Connect an account</h3><div class="gc-new">${this.form()}</div>`);
+   <h3 class="gc-h">Connect an account</h3><div class="gc-new" data-nodirty>${this.form()}</div>`);
   this.wire();this.checkAll()},
  card(a,i){return `<div class="gc-card" data-i="${i}" ${st(Math.min(i,8))}>${logoImg('google.com','G')}<div class="gc-c-t"><b>${esc(a.email||'Google account')}</b>
    <small>${esc(ident(a.agent).name||a.agentName)}${a.name?' · '+esc(pretty(a.name)):' · main account'}${a.by==='agent'?' · connected by the agent':''}</small><div class="gc-chips">${this.chips(a.services,this.st.services)}</div></div>
