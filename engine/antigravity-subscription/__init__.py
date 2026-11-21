@@ -172,6 +172,8 @@ def _make_client_class():
                     logging.getLogger("aqeelos.antigravity").warning("aqeelos-agy-account-failed account=%s model=%s error=%s", acct["id"], model, str(e)[:300])
                     # out of quota: rests an hour; an extra account whose sign-in stopped working: rests 6 hours (Models › Accounts says so)
                     # a model this account's plan does not offer: rests 6 hours and the request goes on to the next account
+                    if str(e) == "Antigravity: empty answer" and n + 1 < len(accts):
+                        continue
                     rest = 3600 if _QUOTA.search(str(e)) else 6 * 3600 if _MODEL_MISSING.search(str(e)) or acct["id"] != "main" and re.search(r"auth|sign.?in|unauthori[sz]ed|\b401\b", str(e), re.I) else 0
                     if n + 1 < len(accts) and rest:
                         _write_state(lambda st: st.setdefault("cool", {}).__setitem__(acct["id"], time.time() + rest))
@@ -206,6 +208,7 @@ def _make_client_class():
             with self._active_process_lock:
                 self._active_processes.add(proc)
             conv_id, steps, final, error, tool_seen = "", {}, None, "", ""
+            seen = {}   # event kinds and step types agy sent, for the empty-answer log line (22 Nov 2026)
             agy_tools, passed = set(), None
             timer = threading.Timer(max(60.0, float(timeout_seconds or 900)) + 30, proc.kill)
             timer.start()
@@ -223,6 +226,7 @@ def _make_client_class():
                     except ValueError:
                         continue
                     kind = ev.get("event")
+                    seen[str(kind)] = seen.get(str(kind), 0) + 1
                     if kind == "init":
                         # agy 1.4 lists its whole tool registry here even for the text-only agent, so the list
                         # proves nothing; what counts is a tool step (below), which ends the request at once
@@ -234,6 +238,8 @@ def _make_client_class():
                             break
                     elif kind == "step_update":
                         st = ev.get("step_update") or {}
+                        k2 = "step:" + str(st.get("step_type"))
+                        seen[k2] = seen.get(k2, 0) + 1
                         if st.get("step_type") == "agent_response" and st.get("text_delta"):
                             steps[st.get("step_index", 0)] = steps.get(st.get("step_index", 0), "") + str(st["text_delta"])
                         # manage_task is agy's own to-do list for the turn (no files, commands or web): Claude models
@@ -282,7 +288,14 @@ def _make_client_class():
                     msg += " (sign in again on Models › Accounts)"
                 raise RuntimeError("Antigravity: " + msg)
             # the whole answer from every text step (agy's result can hold only the last one), without Gemini's markers (reply_fix.py)
-            return _clean(_whole(steps, str(final.get("response") or "")).strip()), ""
+            text = _clean(_whole(steps, str(final.get("response") or "")).strip())
+            if not text:
+                # 22 Nov 2026 (Elkiya, Threads comment runner): agy said SUCCESS with no text, three runs in a row, and nothing
+                # said why. What it did send goes to the log; the caller tries the next Google account once.
+                logging.getLogger("aqeelos.antigravity").warning("aqeelos-agy-empty model=%s seen=%s final_keys=%s response_len=%d stderr=%s",
+                    model, json.dumps(seen), sorted(final.keys()), len(str(final.get("response") or "")), stderr.strip()[-300:])
+                raise RuntimeError("Antigravity: empty answer")
+            return text, ""
 
         def list_models(self, *, timeout_seconds: float = 30.0) -> list[str]:
             r = subprocess.run([_agy_bin(None), "models"], capture_output=True, text=True, timeout=timeout_seconds,

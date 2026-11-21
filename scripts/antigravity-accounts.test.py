@@ -108,4 +108,23 @@ with tempfile.TemporaryDirectory() as t:
     out = c._run_prompt("hi", timeout_seconds=60, model="gemini-4-neon-high")
     check("an account without the model is skipped and the next one answers", out == ("OK", "") or out[0] == "OK")
     check("and it rests for hours", float(ag._read_state().get("cool", {}).get("g0000a1", 0)) > ag.time.time() + 3 * 3600)
+
+    # 22 Nov 2026: an empty answer from one account goes on to the next account at once, and that account does not rest
+    ag._write_state(lambda st: st.__setitem__("cool", {}))
+    def once2(prompt, *, timeout_seconds, model=None, home=None):
+        if str(home).endswith("lower"):
+            raise RuntimeError("Antigravity: empty answer")
+        return ("OK2", "")
+    c._run_once = once2
+    out = c._run_prompt("hi", timeout_seconds=60, model="gemini-4-neon-high")
+    check("an empty answer moves on to the next account", out[0] == "OK2")
+    check("and the empty account does not rest", "g0000a1" not in (ag._read_state().get("cool") or {}))
+    def once3(prompt, *, timeout_seconds, model=None, home=None):
+        raise RuntimeError("Antigravity: empty answer")
+    c._run_once = once3
+    try:
+        c._run_prompt("hi", timeout_seconds=60, model="gemini-4-neon-high"); got = ""
+    except RuntimeError as e:
+        got = str(e)
+    check("empty from every account is an error the engine sees", got == "Antigravity: empty answer")
 print(n, "passed")
