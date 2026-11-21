@@ -106,3 +106,14 @@ test('a failed tool call is logged with a short reason, long numbers masked (21 
  const {whyShort}=await import('../app/tool-bridge.mjs');
  assert.equal(whyShort('\n Unable to parse range: Leads!A1 for +6281234567890\nsecond line'),'Unable to parse range: Leads!A1 for +#');
  assert.equal(whyShort(''),'no reason given');assert.equal(whyShort('x'.repeat(300)).length,100)});
+
+test('complete: a script gets one tool-free model answer, parsed JSON and measured tokens (21 Nov 2026)',async()=>{
+ const seen=[];const t=await make({});
+ const b=createToolBridge({HERMES_HOME:path.join(t.H,'.hermes'),WORK:t.W,PORT:4400,sig:a=>'sig-'+a,homeOf:a=>a,python:async()=>'/engine/python',readConfig:async a=>a==='bot'?CFG:null,log:()=>{},
+  complete:async(a,req)=>{seen.push([a,req]);return {text:'```json\n{"send":true}\n```',model:'m1',usage:{prompt_tokens:12,completion_tokens:3,total_tokens:15}}}});
+ const r=await b.call('bot--2',{op:'complete',prompt:'decide',system:'be brief',json:true});
+ assert.equal(r.status,200);assert.deepEqual(r.json.structured,{send:true});assert.deepEqual(r.json.usage,{prompt_tokens:12,completion_tokens:3,total_tokens:15});
+ assert.equal(seen[0][0],'bot');assert.match(seen[0][1].user,/^decide\n\nAnswer with one JSON/);assert.equal(seen[0][1].system,'be brief');
+ assert.equal((await b.call('bot',{op:'complete',prompt:' '})).status,400);assert.equal((await b.call('nobody',{op:'complete',prompt:'x'})).status,404);
+ const p=await b.call('bot',{op:'complete',prompt:'x'});assert.equal(p.json.structured,null);assert.equal(p.json.jsonError,undefined);assert.equal(t.spawned.length,0,'no tool worker is started for a completion');
+ await t.b.ensureClients(['bot']);const mod=await readFile(path.join(t.W,'bot','.tools','aqtools.py'),'utf8');assert.match(mod,/def complete\(/)});

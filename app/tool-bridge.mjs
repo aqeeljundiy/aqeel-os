@@ -33,9 +33,18 @@ const MAX_LINE=32e6;
 // the servers a script may use: enabled, not one of aqeelOS's own loopback servers
 export function scriptServers(config){return Object.entries(config?.mcp_servers||{}).filter(([n,e])=>e&&typeof e==='object'&&e.enabled!==false&&!/^aqeelos-/.test(n)&&!(e.url&&LOOPBACK.test(String(e.url)))).map(([n])=>n)}
 export function createToolBridge({HERMES_HOME,WORK,PORT,sig,python,readConfig,googleTools=null,homeOf=engineHomeOf,
- root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),spawn=nodeSpawn,idleMs=120e3,readyMs=90e3,maxWorkers=4,log=m=>console.log(m)}){
+ root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),spawn=nodeSpawn,complete=null,idleMs=120e3,readyMs=90e3,maxWorkers=4,log=m=>console.log(m)}){
  const url=a=>`http://127.0.0.1:${PORT}/tool-call/${a}/${sig(a)}`;
  const fail=(status,error)=>({status,json:{ok:false,error}});
+ // one tool-free completion for a script (21 Nov 2026: a check-in script wanted a cheap model call with structured output and measured tokens, not an agent run)
+ const runComplete=complete||((agent,req)=>new Promise(async(ok,no)=>{const py=await python();if(!py)return no(Object.assign(Error('aqeelOS could not find the engine to call a model with.'),{status:503}));
+  const env={...process.env,HERMES_HOME:homeOf(agent)};delete env.DISPLAY;let out='',err='';const c=spawn(py,[path.join(root,'scripts','script-complete.py'),path.join(HERMES_HOME,'hermes-agent')],{env,stdio:['pipe','pipe','pipe']});
+  const t=setTimeout(()=>{try{c.kill()}catch{}no(Object.assign(Error('The model did not answer in time.'),{status:504}))},(req.timeout+30)*1000);
+  c.stdout.on('data',d=>{out+=d});c.stderr?.on('data',d=>{err=(err+d).slice(-2000)});c.on('error',e=>{clearTimeout(t);no(e)});
+  c.on('close',code=>{clearTimeout(t);try{ok(JSON.parse(out.trim().split('\n').pop()))}catch{no(Object.assign(Error('The model call failed'+(code?' ('+whyShort(err.split('\n').filter(Boolean).pop())+')':'')+'.'),{status:502}))}});
+  c.stdin.end(JSON.stringify(req))}));
+ // fenced or bare JSON in a model's answer, else null
+ const parseJson=t=>{const m=/^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/i.exec(t);try{return JSON.parse(m?m[1]:t)}catch{return null}};
  const pool=new Map();   // agent|server -> worker
  function stop(w){clearTimeout(w.idle);pool.delete(w.key);try{w.child.stdin.end()}catch{}setTimeout(()=>{try{w.child.kill()}catch{}},5000).unref?.()}
  async function worker(agent,server){const key=agent+'|'+server;let w=pool.get(key);if(w)return w.ready;
@@ -57,6 +66,12 @@ export function createToolBridge({HERMES_HOME,WORK,PORT,sig,python,readConfig,go
  async function call(agent,body){const a=String(agent||'').split('--')[0],server=String(body?.server||'').trim(),tool=String(body?.tool||'').trim();
   const cfg=await readConfig(a).catch(()=>null);if(!cfg)return fail(404,'No agent '+a+'.');
   const servers=scriptServers(cfg);
+  if(body?.op==='complete'){const user=String(body.prompt??body.user??'').slice(0,200000);if(!user.trim())return fail(400,'Say what to ask: {"op":"complete","prompt":"…","system":"…","json":true,"max_out":1000}.');
+   const req={system:String(body.system||'').slice(0,50000),user:body.json?user+'\n\nAnswer with one JSON value only, no other text.':user,max_tokens:Math.min(Math.max(Number(body.max_out)||1000,1),16000),timeout:Math.min(Math.max(Number(body.timeout)||120,5),600)};
+   let r;try{r=await runComplete(a,req)}catch(e){return fail(e.status||502,e.message)}
+   const text=String(r?.text||''),usage={prompt_tokens:+r?.usage?.prompt_tokens||0,completion_tokens:+r?.usage?.completion_tokens||0,total_tokens:+r?.usage?.total_tokens||0};
+   log('tool bridge: '+a+' completion, '+usage.total_tokens+' tokens');const structured=body.json?parseJson(text):null;
+   return {status:200,json:{ok:true,isError:false,text,structured,usage,model:r?.model||null,...(body.json&&structured===null?{jsonError:'The answer was not valid JSON.'}:{})}}}
   if(body?.op==='list'){const out={google:googleTools?googleTools.TOOLS.map(t=>t.name):[]};for(const s of servers){try{out[s]=(await worker(a,s)).tools}catch(e){out[s]={error:e.message}}}return {status:200,json:{ok:true,servers:out}}}
   if(!server||!tool)return fail(400,'Say which server and tool: {"server":"airtable","tool":"list_records_for_table","arguments":{…}}, or {"op":"list"}.');
   const args=body.arguments&&typeof body.arguments==='object'?body.arguments:{},timeout=Math.min(Math.max(Number(body.timeout)||120,5),600);
@@ -72,6 +87,7 @@ export function createToolBridge({HERMES_HOME,WORK,PORT,sig,python,readConfig,go
 the chat. Written by aqeelOS; edits are replaced.
     import sys; sys.path.insert(0, "<this folder>"); from aqtools import call, tools
     tools()                                  # {server: [tool names]}
+    complete("…", system="…", json_out=True) # one model call, no agent or tools: {text, structured, usage}
     call("airtable", "list_records_for_table", {...})   # the tool's answer: its structured data, else its text
     call("google", "google_sheets", {"action": "read", "spreadsheet": "<id>", "range": "Leads!A1:D"})
 A refusal or failure raises ToolError with the reason."""
@@ -92,17 +108,26 @@ def call(server,tool,arguments=None,timeout=120):
     t=r.get("text") or ""
     try:return json.loads(t)
     except ValueError:return t
+def complete(prompt,system="",json_out=False,max_out=1000,timeout=120):
+    """One model call, no agent, no tools: returns {text, structured, usage: measured counts}."""
+    r=_post({"op":"complete","prompt":prompt,"system":system,"json":json_out,"max_out":max_out,"timeout":timeout},timeout)
+    if not r.get("ok"):raise ToolError(r.get("error") or "the model call failed")
+    return r
 def tools():return _post({"op":"list"},120).get("servers",{})
 `;
  const CLI=`#!/usr/bin/env python3
 # aqeelOS: call this agent's connected tools from the terminal. Written by aqeelOS; edits are replaced.
+# usage: aqtool complete '<prompt>' [--json] [--system S] [--max-out N]   (one model call, no agent; usage counts on stderr)
 # usage: aqtool list | aqtool <server> <tool> ['<json arguments>']   (server "google" for the google_* tools)
 import json,os,sys
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
-from aqtools import raw,tools,ToolError
+from aqtools import raw,tools,complete,ToolError
 a=sys.argv[1:]
 try:
     if a[:1]==["list"]:print(json.dumps(tools(),indent=1));sys.exit(0)
+    if a[:1]==["complete"]:
+        import argparse;p=argparse.ArgumentParser(prog="aqtool complete");p.add_argument("prompt");p.add_argument("--json",action="store_true");p.add_argument("--system",default="");p.add_argument("--max-out",type=int,default=1000);o=p.parse_args(a[1:])
+        r=complete(o.prompt,o.system,o.json,o.max_out);print(json.dumps(r["structured"],ensure_ascii=False) if o.json and r.get("structured") is not None else r["text"]);print("usage: "+json.dumps(r["usage"]),file=sys.stderr);sys.exit(0)
     if len(a)<2:print("usage: aqtool list | aqtool <server> <tool> ['<json arguments>']",file=sys.stderr);sys.exit(2)
     r=raw(a[0],a[1],json.loads(a[2]) if len(a)>2 else {})
     print(json.dumps(r.get("structured"),ensure_ascii=False) if r.get("structured") is not None else r.get("text",""))
