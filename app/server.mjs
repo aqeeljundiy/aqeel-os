@@ -1033,6 +1033,8 @@ let tzNow=applyTz()||sysTz();   // the install's own time zone (System › Setti
 const bmTest=!LIVE_APP&&env.BACKUP_MODELS_TEST==='1'&&path.resolve(HERMES_HOME)!==path.join(homedir(),'.hermes');
 const backupModels=createBackupModels({DATA,HERMES_HOME,live:LIVE_APP||bmTest,...(bmTest&&env.BACKUP_MODELS_RULES?{R:{...BM_RULES,...JSON.parse(env.BACKUP_MODELS_RULES)}}:{}),   // a test copy may shorten the times
  agents:async()=>{const l=await agentNames({copies:true});if(await isAgent(HELP_AGENT))l.push(HELP_AGENT);return l},acc:accountsApi.backup,readConfig,setKey,signins:n=>accountsApi.backup.signins(n),restartLater:why=>restartLater(why),
+ // schedules pinned to a provider follow the outage switch (21 Nov 2026); versions is made further down, read only when an outage starts
+ jobs:a=>versions.myJobs(a),updateJob:(a,id,up)=>versions.updateJob(a,id,up),
  ready:async()=>{await users.load();const c=await readConfig('default').catch(()=>null);const z=installTz()||c?.timezone;if(z)tzNow=z},
  // an agent a member owns gets only backups that member's role allows (people's "models", users.mjs)
  modelOk:(a,p,m)=>{const o=users.byId(users.agentOwner(String(a).split('--')[0]));return !o||users.modelOk(o,p,m)},

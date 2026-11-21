@@ -83,3 +83,17 @@ test('outage: a second one within 2 hours holds twice as long, never more than 3
  const r=recOf([]);Object.assign(r,{on:true,since:T0,ends:[T0-20*min]});note(r,ev('ok',30));note(r,ev('ok',35));assert.equal(judge(r,T0+36*min),null);assert.equal(judge(r,T0+41*min),'end')});
 test('outage: failed replies from before the last one ended do not start a new one',()=>{const r=recOf([ev('fail',0),ev('fail',1),ev('fail',2)]);r.ends=[T0+3*min];assert.equal(judge(r,T0+5*min),null);note(r,ev('fail',4));note(r,ev('fail',5));note(r,ev('fail',6));assert.equal(judge(r,T0+6*min),'start')});
 test('records keep 2 hours of events',()=>{const r={};note(r,ev('drop',0));note(r,ev('drop',200));assert.equal(r.ev.length,1)});
+
+test('outage: schedules pinned to the failing provider go to their agent\'s first backup and back after (Health ic3634f49, 21 Nov 2026)',async()=>{
+ const {pinnedMoves,jobsBackPlan}=await import('../app/backup-models.mjs');
+ const G='antigravity-subscription',gpt={provider:'openai-codex',model:'gpt-6.2-sol'};
+ const byAgent={'continue-threads':[{id:'834c77717f4f',name:'Threads answering flow',provider:G,model:'gemini-4-neon-high'},{id:'dcb5d809903d',provider:G,model:'gemini-3.8-flash-high'},{id:'198bc372ee48',provider:null,model:null}],
+  sesa:[{id:'a1',provider:'claude-subscription-directsdk-experimental',model:'claude-sonnet-5-5'}],lone:[{id:'b1',provider:G,model:'gemini-4-neon-high'}]};
+ const pm=pinnedMoves(G,byAgent,a=>a==='continue-threads'?gpt:null);
+ assert.deepEqual(pm.moves.map(x=>[x.agent,x.id,x.from.model,x.to.provider]),[['continue-threads','834c77717f4f','gemini-4-neon-high','openai-codex'],['continue-threads','dcb5d809903d','gemini-3.8-flash-high','openai-codex']],'only the pinned ones; one that follows the agent is left to the agent\'s own move');
+ assert.deepEqual(pm.noBackup,['lone'],'an agent with no backup keeps its schedule and says so');
+ assert.deepEqual(pinnedMoves(G,{x:[{id:'c',provider:G}]},()=>({provider:G,model:'m'})).moves,[],'never "moved" onto the provider that is out');
+ // the end: still on the backup it was given → back; changed by someone since, or removed → stays
+ const now={'continue-threads':[{id:'834c77717f4f',provider:'openai-codex',model:'gpt-6.2-sol'},{id:'dcb5d809903d',provider:'openai-codex',model:'gpt-6.3'}]};
+ const jb=jobsBackPlan(pm.moves,now);assert.deepEqual(jb.back.map(x=>x.id),['834c77717f4f']);assert.deepEqual(jb.stay.map(x=>x.id),['dcb5d809903d']);
+ assert.deepEqual(jobsBackPlan(pm.moves,{}).stay.length,2,'removed: nothing to put back')});

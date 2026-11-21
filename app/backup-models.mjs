@@ -98,7 +98,19 @@ export function judge(rec,now,R=RULES){const ev=rec?.ev||[],n=(k,ms,from=0)=>ev.
 export const outageCheck=({answers,other})=>answers?'blip':other===false?'box':'start';
 /* ---------- keeping the lists and the switch ---------- */
 const FIRST=1e6;   // the first look at a log reads its last 1 MB
-export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readConfig,setKey,modelOk=()=>true,tell=async()=>{},nameOf=a=>a,clock=ms=>new Date(ms).toISOString().slice(11,16),probe=async()=>false,ready=async()=>{},signins=async()=>[],restartLater=async()=>{},R=RULES}){
+// schedules pinned to a provider in an outage (21 Nov 2026): each goes to its agent's first backup that is not that provider; an agent with
+// none keeps its schedule where it is (said in the log). byAgent: {agent: [jobs]}; backupOf(agent): {provider, model} or null
+export function pinnedMoves(slug,byAgent,backupOf){const moves=[],noBackup=[];
+ for(const [agent,list] of Object.entries(byAgent||{})){const pins=(list||[]).filter(j=>j&&j.id&&j.provider===slug);if(!pins.length)continue;
+  const to=backupOf(agent);if(!to||to.provider===slug){noBackup.push(agent);continue}
+  for(const j of pins)moves.push({agent,id:j.id,name:j.name||'',from:{provider:slug,model:j.model||''},to:{provider:to.provider,model:to.model}})}
+ return {moves,noBackup}}
+// at the end: a schedule still on the backup it was given goes back; one someone changed (or removed) since stays as it is
+export function jobsBackPlan(saved,currentByAgent){const back=[],stay=[];
+ for(const x of saved||[]){const cur=(currentByAgent?.[x.agent]||[]).find(j=>j.id===x.id);
+  if(cur&&cur.provider===x.to.provider&&(cur.model||'')===(x.to.model||''))back.push(x);else stay.push(x)}
+ return {back,stay}}
+export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readConfig,setKey,modelOk=()=>true,tell=async()=>{},nameOf=a=>a,clock=ms=>new Date(ms).toISOString().slice(11,16),probe=async()=>false,ready=async()=>{},signins=async()=>[],restartLater=async()=>{},jobs=null,updateJob=null,R=RULES}){
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  const FILE=path.join(DATA,'backup-models.json');let db=null;
  const load=async()=>{if(!db){db=await readStore(FILE);for(const k of ['offsets','p','wrote','lists','told'])db[k]||={};db.history||=[]}return db};
@@ -184,8 +196,15 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
    if(!live){p.moved[profile]={from:w.cur,model:r.model,to:key,toModel:first.model,at:now,would:true};continue}
    try{await acc.useEntry(d,profile,{key,model:first.model},(brand||brandOf(slug))+' kept dropping');p.moved[profile]={from:w.cur,model:r.model,to:key,toModel:first.model,at:now};to.push(brandOf(first.provider,first.model))}
    catch(e){console.warn('backup models: moving',profile,e.message)}}
+  // a schedule pinned to this provider follows the switch too (21 Nov 2026, Health ic3634f49: Threads' answering flow was pinned to Gemini and
+  // kept hitting it during the outage while its agent had moved to ChatGPT): it runs on its agent's first backup until the outage ends
+  p.jobs={};if(jobs&&updateJob){const byAgent={},backup={};for(const profile of await agents()){byAgent[profile]=await jobs(profile).catch(()=>[]);
+    if(byAgent[profile].some(j=>j?.provider===slug))backup[profile]=((await wanted(profile,d,det).catch(()=>null))?.list||[]).find(e=>e.provider!==slug)||null}
+   const pm=pinnedMoves(slug,byAgent,a=>backup[a]);for(const a of pm.noBackup)console.warn('backup models:',a,'has a schedule pinned to',slug,'and no backup for it');
+   for(const x of pm.moves){if(!live){p.jobs[x.agent+'|'+x.id]={...x,would:true};continue}
+    try{await updateJob(x.agent,x.id,{provider:x.to.provider,model:x.to.model});p.jobs[x.agent+'|'+x.id]=x}catch(e){console.warn('backup models: schedule',x.agent,x.id,e.message)}}}
   p.model||=p.lastModel||'';p.brand=brand||brandOf(slug,p.model);p.pinned=pinned;await save();const moved=Object.keys(p.moved);
-  console.log('backup models:',p.brand,'outage ('+p.why+'); moved',moved.join(', ')||'nobody');sync('outage').catch(()=>{});
+  console.log('backup models:',p.brand,'outage ('+p.why+'); moved',moved.join(', ')||'nobody',Object.keys(p.jobs).length?'and '+Object.keys(p.jobs).length+' pinned schedule(s)':'');sync('outage').catch(()=>{});
   if(moved.length&&!db.told[slug+':'+now+':start']){db.told[slug+':'+now+':start']=Date.now();await save();
    await tell(p.brand+' kept dropping; agents moved to '+names(to.length?to:['their fallback'])+' at '+clock(now),{topic:'outage|'+p.provider,info:to.length>0,detail:p.why[0].toUpperCase()+p.why.slice(1)+'. Moved: '+moved.map(nameOf).join(', ')+(pinned.length?'. Left where they were put by hand: '+pinned.map(nameOf).join(', '):'')+'. aqeelOS tries '+p.brand+' every 5 minutes and moves them back once it works again.',whatsapp:!to.length}).catch(e=>console.warn('backup models: telling the owner',e.message))}}
  async function end(slug,now){const d=await acc.load(),p=rec(slug),back=[],stay=[];
@@ -194,8 +213,13 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
    if(cur!==m.to||byHand(d,profile,m.at+1)){stay.push(profile);continue}
    if(!live)continue;
    try{await acc.useEntry(d,profile,{key:m.from,model:m.model},p.brand+' works again');back.push(profile)}catch(e){stay.push(profile);console.warn('backup models: moving back',profile,e.message)}}
+  // pinned schedules go back to the provider they were pinned to, unless someone changed them since
+  let jobsBack=0;if(jobs&&updateJob){const saved=Object.values(p.jobs||{}).filter(x=>!x.would),cur={};for(const a of new Set(saved.map(x=>x.agent)))cur[a]=await jobs(a).catch(()=>[]);
+   const jb=jobsBackPlan(saved,cur);for(const x of jb.stay)stay.push(x.agent+' schedule '+(x.name||x.id));
+   for(const x of jb.back){try{await updateJob(x.agent,x.id,{provider:x.from.provider,model:x.from.model});jobsBack++}catch(e){console.warn('backup models: schedule back',x.agent,x.id,e.message)}}}
+  p.jobs={};
   const since=p.since;p.on=false;p.ends=[...(p.ends||[]),now].slice(-10);db.history=[{provider:slug,brand:p.brand,since,until:now,moved:Object.keys(p.moved||{}),why:p.why},...db.history].slice(0,20);p.moved={};p.model='';p.home='';await save();
-  console.log('backup models:',p.brand,'works again; moved back',back.join(', ')||'nobody');sync('outage over').catch(()=>{});
+  console.log('backup models:',p.brand,'works again; moved back',back.join(', ')||'nobody',jobsBack?'and '+jobsBack+' pinned schedule(s)':'');sync('outage over').catch(()=>{});
   if((back.length||stay.length)&&!db.told[slug+':'+since+':end']){db.told[slug+':'+since+':end']=Date.now();await save();
    await tell(p.brand+' works again; agents are back on '+p.brand+' at '+clock(now),{info:true,resolve:'outage|'+p.provider,detail:'It was dropping from '+clock(since)+' to '+clock(now)+'.'+(back.length?' Moved back: '+back.map(nameOf).join(', ')+'.':'')+(stay.length?' Left where they are now (moved since): '+stay.map(nameOf).join(', ')+'.':''),whatsapp:true}).catch(e=>console.warn('backup models: telling the owner',e.message))}}
  // a one-word question to the provider through the engine; a good answer counts as a call that worked, none as a failed reply
