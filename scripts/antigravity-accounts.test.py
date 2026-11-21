@@ -68,6 +68,10 @@ check("a chosen account that is resting does not", [a["id"] for a in ag.prefer(A
 check("no choice: the order stays", ag.prefer(A, "", {}, now) == A)
 check("quota words are recognised", all(ag._QUOTA.search(x) for x in ["RESOURCE_EXHAUSTED", "HTTP 429", "You have reached your usage limit", "quota exceeded"]))
 check("other errors are not quota", not ag._QUOTA.search("Stopped for safety: agy tried to use its own tool read_file."))
+check("a weekly quota rests until its reset", ag.quota_rest("Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 160h15m57s.") == 160 * 3600 + 15 * 60 + 57 + 60)
+check("minutes only", ag.quota_rest("quota reached, resets in 12m") == 12 * 60 + 60)
+check("no reset named: an hour", ag.quota_rest("RESOURCE_EXHAUSTED") == 3600)
+check("never more than 8 days", ag.quota_rest("Resets in 900h") == 8 * 24 * 3600)
 
 # 21 Nov 2026: an account whose plan lacks the model. agy prints its error and quits before reading the prompt.
 check("agy's model refusal is recognised", ag._MODEL_MISSING.search('invalid model selection (--model "gemini-4-neon-high" --effort ""): model gemini-4-neon-high is not recognized as a known model'))

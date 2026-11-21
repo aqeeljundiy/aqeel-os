@@ -67,6 +67,16 @@ _STATE = _HOME / ".gemini" / "aqeelos-agy-state.json"
 # gemini-4-neon-high; agy quit before reading the prompt, every request broke with "Broken pipe" and Gemini looked down for all)
 _MODEL_MISSING = re.compile(r"invalid model selection|not recognized as a known model", re.I)
 _QUOTA = re.compile(r"quota|rate.?limit|resource.?exhausted|\b429\b|too many requests|usage limit|limit (reached|exceeded)|exhausted", re.I)
+
+
+def quota_rest(msg, default=3600):
+    """Seconds an account rests after a quota error: until the reset agy names ("Resets in 160h15m57s"), else an hour.
+    22 Nov 2026: a weekly quota rested only an hour, so every hour a request was spent on an account that had 6 days to go."""
+    m = re.search(r"resets? in\s+(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?", str(msg or ""), re.I)
+    if not m or not any(m.groups()):
+        return default
+    h, mi, se = (int(x or 0) for x in m.groups())
+    return max(60, min(h * 3600 + mi * 60 + se + 60, 8 * 24 * 3600))
 _state_lock = threading.Lock()
 # the account each thread's last call went to, read by aqeelos-live's usage ledger
 AQEELOS_LAST_ACCOUNT: dict = {}
@@ -174,7 +184,7 @@ def _make_client_class():
                     # a model this account's plan does not offer: rests 6 hours and the request goes on to the next account
                     if str(e) == "Antigravity: empty answer" and n + 1 < len(accts):
                         continue
-                    rest = 3600 if _QUOTA.search(str(e)) else 6 * 3600 if _MODEL_MISSING.search(str(e)) or acct["id"] != "main" and re.search(r"auth|sign.?in|unauthori[sz]ed|\b401\b", str(e), re.I) else 0
+                    rest = quota_rest(str(e)) if _QUOTA.search(str(e)) else 6 * 3600 if _MODEL_MISSING.search(str(e)) or acct["id"] != "main" and re.search(r"auth|sign.?in|unauthori[sz]ed|\b401\b", str(e), re.I) else 0
                     if n + 1 < len(accts) and rest:
                         _write_state(lambda st: st.setdefault("cool", {}).__setitem__(acct["id"], time.time() + rest))
                         continue
