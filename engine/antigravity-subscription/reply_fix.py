@@ -103,3 +103,63 @@ def engine_call(step, agy_tools):
             if isinstance(v, dict):
                 return {"name": name, "arguments": v}
     return None
+
+
+# 21 Nov 2026 (Elkiya, Threads): the engine's prompt bridge (copilot_acp_client._format_messages_as_prompt) writes only each
+# message's text, so an assistant turn that made tool calls showed as nothing and Gemini never saw its own earlier calls. After a
+# compaction cut the results down to labels, it had no example of a right call left: it sent tool_call for my_schedules with
+# "arguments": {} 25 times in 75 minutes and never answered. with_calls(messages) writes each past call into the assistant turn
+# in the same <tool_call> form Gemini must answer in, and names the call a result belongs to. Long text values are cut, the JSON
+# stays valid. The messages given are not changed.
+_CUT = 400
+
+
+def _short(v):
+    if isinstance(v, str):
+        return v if len(v) <= _CUT else v[:_CUT] + f"… ({len(v)} chars)"
+    if isinstance(v, dict):
+        return {k: _short(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_short(x) for x in v[:20]] + ([f"… ({len(v)} items)"] if len(v) > 20 else [])
+    return v
+
+
+def _call_parts(tc):
+    fn = tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)
+    get = (lambda o, k: o.get(k)) if isinstance(fn, dict) else (lambda o, k: getattr(o, k, None))
+    if fn is None:
+        return None, None, None
+    name, args = get(fn, "name"), get(fn, "arguments")
+    if isinstance(args, str):
+        try:
+            args = json.loads(args) if args.strip() else {}
+        except ValueError:
+            args = _short(args)
+    tid = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+    return name, args, tid
+
+
+def with_calls(messages):
+    out, names = [], {}
+    for m in messages or []:
+        if not isinstance(m, dict):
+            out.append(m)
+            continue
+        role = str(m.get("role") or "").lower()
+        if role == "assistant" and m.get("tool_calls"):
+            blocks = []
+            for tc in m.get("tool_calls") or []:
+                name, args, tid = _call_parts(tc)
+                if not name:
+                    continue
+                if tid:
+                    names[tid] = name
+                blocks.append("<tool_call>" + json.dumps({"name": name, "arguments": _short(args if args is not None else {})},
+                                                         ensure_ascii=False) + "</tool_call>")
+            if blocks:
+                text = m.get("content") if isinstance(m.get("content"), str) else ""
+                m = {**m, "content": ((text.strip() + "\n") if text and text.strip() else "") + "\n".join(blocks)}
+        elif role == "tool" and names.get(m.get("tool_call_id")) and isinstance(m.get("content"), str):
+            m = {**m, "content": f"[result of {names[m['tool_call_id']]}]\n" + m["content"]}
+        out.append(m)
+    return out

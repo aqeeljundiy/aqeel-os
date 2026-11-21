@@ -76,3 +76,23 @@ check("arguments given as JSON text are read too", rf.engine_call({"step_type": 
 check("one of agy's own tools is never handed on (the safety stop stands)", rf.engine_call({"step_type": "tool", "tool_name": "run_command", "tool_info": {"arguments": {"CommandLine": "rm -rf /"}}}, AGY) is None)
 check("no readable arguments: no call", rf.engine_call({"step_type": "tool", "tool_name": "terminal"}, AGY) is None)
 print(n, "passed")
+
+# 21 Nov 2026: Gemini never saw its own earlier calls (the bridge writes message text only) and sent tool_call with {} 25 times
+hist = [
+    {"role": "user", "content": "list my schedules"},
+    {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "tool_call",
+        "arguments": json.dumps({"calls": [{"name": "mcp__aqeelos_notify__my_schedules", "arguments": {"action": "list"}}]})}}]},
+    {"role": "tool", "tool_call_id": "c1", "content": "3 schedules"},
+    {"role": "assistant", "content": "Writing it.", "tool_calls": [{"id": "c2", "function": {"name": "write_file",
+        "arguments": json.dumps({"path": "/x", "content": "y" * 5000})}}]},
+    {"role": "tool", "tool_call_id": "c2", "content": "ok"},
+]
+out = rf.with_calls(hist)
+check("a past call shows in the assistant turn with its arguments", '"action": "list"' in out[1]["content"] and out[1]["content"].startswith("<tool_call>"))
+check("the call block is the form Gemini answers in, and valid JSON", json.loads(out[1]["content"][len("<tool_call>"):-len("</tool_call>")])["name"] == "tool_call")
+check("a result names its call", out[2]["content"].startswith("[result of tool_call]"))
+check("the turn's own text stays first", out[3]["content"].startswith("Writing it.\n<tool_call>"))
+check("long values are cut and the JSON stays valid", len(out[3]["content"]) < 700 and "5000 chars" in out[3]["content"]
+      and json.loads(out[3]["content"].split("<tool_call>")[1][:-len("</tool_call>")])["arguments"]["path"] == "/x")
+check("the messages given are not changed", hist[1]["content"] == "" and hist[2]["content"] == "3 schedules")
+check("messages without calls pass as they are", rf.with_calls([{"role": "user", "content": "hi"}]) == [{"role": "user", "content": "hi"}])

@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries, engine_call
+    from .reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries, engine_call, with_calls as _with_calls
 except ImportError:  # loaded as a plain module (the engine's plugin loader or a test)
     from reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries, engine_call
 from providers import register_provider
@@ -152,6 +152,10 @@ def _make_client_class():
 
     class AntigravityClient(CopilotACPClient):
         """Same facade as the engine's ACP bridge; the prompt goes to `agy` in print mode instead of an ACP session."""
+
+        def _create_chat_completion(self, *, messages=None, **kw):
+            # Gemini sees its own earlier tool calls with their arguments (reply_fix.with_calls, 21 Nov 2026)
+            return super()._create_chat_completion(messages=_with_calls(messages or []), **kw)
 
         def _run_prompt(self, prompt_text: str, *, timeout_seconds: float, model: str | None = None) -> tuple[str, str]:
             # a stop because Gemini reached for an agy tool of its own is tried once more, told to write the call as text
