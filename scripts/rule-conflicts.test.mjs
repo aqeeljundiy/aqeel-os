@@ -134,3 +134,11 @@ test('"until this hour has 5 comments" is the hour\'s number too: the conflict i
  const {C,jobs2,locks}=await make({jobs:[job],limits:{'continue-threads':{...RULES['continue-threads'],perHour:6,perDay:70}}});
  await C.sync();const item=(await C.list()).find(x=>x.topic==='perHour');await C.decide(item.cid,{choice:item.sides.find(s=>s.value===6).key},'owner');
  assert.match((await jobs2())[0].prompt,/has 6 comments, max 6\/h/);assert.equal(locks.length,1);assert.equal(await C.sync(),0)});
+
+test('the owner\'s direct newest instruction is followed, not turned into a conflict; a choice leads with their own latest word (21 Nov 2026)',async()=>{
+ const t=CONFLICT_RULE_LINES.join(' ');
+ assert.match(t,/newest word of the person you work for wins/);assert.match(t,/do it, then write the new rule in one place/);assert.match(t,/Do not ask them again or argue/);
+ assert.match(t,/Ask instead of picking only when different people disagree/);assert.match(t,/latest instruction is the first choice and the recommended one, never your own preference/);
+ assert.match(t,/limit aqeelOS enforces/,'hard limits still hold');
+ const src=(await import('node:fs')).readFileSync(new URL('../app/notify-tools-routes.mjs',import.meta.url),'utf8');
+ assert.match(src,/name:'file_conflict',description:'Not for your owner\\'s direct new instruction in this chat/)});
