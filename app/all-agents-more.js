@@ -2,9 +2,6 @@
 // tool groups), Files, Memory, Logs and Settings show every agent's at once, each saying whose it is. Skills and tool
 // groups switch on and off per agent right here; the rest opens on the agent to change it.
 for(const id of ['skills','files','memory','logs','settings'])ALL_PAGES.add(id);
-const allAv=(a,on=true)=>`<span class="aam-ag${on?' on':''}" title="${esc(ident(a).name)}">${Access.av({id:a,name:ident(a).name},18)}<span>${esc(ident(a).name)}</span></span>`;
-// per agent: a chip that turns the thing on or off for that agent
-const allChip=(act,a,name,on)=>`<button class="aam-ag${on?' on':''}" data-act="${act}" data-agent="${esc(a)}" data-name="${esc(name)}" aria-pressed="${on}" title="${esc(ident(a).name)}: ${on?'on, click to turn off':'off, click to turn on'}">${Access.av({id:a,name:ident(a).name},18)}<span>${esc(ident(a).name)}</span></button>`;
 const perAgent=async(fn,ok=()=>true)=>{const list=(await viewAgents()).filter(ok);return Promise.all(list.map(async a=>({a,d:await fn(a).catch(()=>null)})))};
 // whose skills this person may manage (mayEdit); tool groups: listed on agents they may edit, switched where their role
 // may turn tools on (terminal, files and code only for those allowed unsafe tools), as the server decides
@@ -32,7 +29,7 @@ const TS={
  can(t,a){const unsafe=TS_UNSAFE.includes(t.name);if(!t.all.includes(a))return 'na';if(unsafe&&this.locks()[a])return 'lock';return mayEdit(a,unsafe?'unsafe':'tools')?'ok':'ro'},
  why(t,a){const c=this.can(t,a),nm=ident(a).name;return c==='na'?nm+' doesn’t have this group':c==='lock'?this.locks()[a]:c==='ro'?(TS_UNSAFE.includes(t.name)?'Only people allowed terminal, files and code can change this.':'Your role can’t change '+nm+'’s tools.'):''},
  dirtyG(t){return this.ags().some(a=>TSP.has(a+'|'+t.name))},dirtyA(a){return this.groups().some(t=>TSP.has(a+'|'+t.name))},
- faces(list,max=6){return list.length?`<span class="acc-who" aria-hidden="true">${list.slice(0,max).map(a=>Access.av({id:a,name:ident(a).name},24)).join('')}${list.length>max?`<span class="acc-more">+${list.length-max}</span>`:''}</span>`:''},
+ faces(list,max=4){return list.length?`<span class="acc-who" aria-hidden="true">${list.slice(0,max).map(a=>Access.av({id:a,name:ident(a).name},24)).join('')}</span>`:''},   // a few faces; the line says how many (no +N bubble, 21 Nov 2026)
  // one row per tool group: what it does and its warning lead; who has it on is one quiet line and a few faces
  rowG(t,i){const have=this.ags().filter(a=>t.all.includes(a)),on=have.filter(a=>this.on(t,a)),d=this.dirtyG(t);
   return `<div class="row ts-row tsr${d?' dirty':''}" ${st(i)} data-ts="${esc(t.name)}"><div class="main-c">${tsHead({...t,enabled:on.length>0})}</div><div class="tsr-who" title="${esc(on.length?'On for '+on.map(a=>ident(a).name).join(', '):'Off for every agent')}"><span class="tsr-n">${on.length?`On for <b>${on.length}</b> of ${plural(have.length,'agent')}`:`Off for all ${plural(have.length,'agent')}`}${d?'<i class="tsr-dot" title="Changed, waiting for Apply"></i>':''}</span>${this.faces(on)}</div><div class="act"><button class="small" data-act="tsg-open" data-kind="group" data-id="${esc(t.name)}" aria-haspopup="dialog" aria-label="Change which agents have ${esc(tsName(t))}">Change</button></div></div>`},

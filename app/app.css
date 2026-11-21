@@ -115,11 +115,12 @@ body{overflow:hidden}
 /* skills hub, tool groups, plugin and app details: quiet extras under the main text */
 .hub-src{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:-6px 0 14px}.hub-src:empty{display:none}.hub-src>.hint{flex-basis:100%}
 .hub-src-l{font-size:12px;color:var(--muted);margin-right:2px}
-.hub-src .chip,.hub-tags .chip,.hub-pv-head .chip,.cap-chips .chip{font-size:11.5px;padding:1px 8px}
-.row .txt .hub-tags,.hub-tags,.cap-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.hub-src .chip,.cap-chips .chip{font-size:11.5px;padding:1px 8px}
+.cap-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.row .txt .hub-tags,.hub-tags{display:block;font-size:12px;color:var(--muted);margin-top:2px}.hub-pv-head{margin:0 0 10px;font-size:13px;color:var(--ink-2)}
 .row .txt .hub-id,.hub-id{display:block;font-size:11.5px;color:var(--muted);overflow-wrap:anywhere;margin-top:2px}
 .hub-meta{margin:0 0 8px}.hub-warn{margin:0 0 10px;color:var(--warn)}.hub-warn svg{vertical-align:-2px}
-.hub-pv-head,.hub-scan-head{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.hub-scan-head{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
 .hub-files{display:flex;flex-direction:column;gap:2px;padding:4px 0}.hub-files code{font-size:12px;overflow-wrap:anywhere}
 .hub-finds{margin-top:12px}.hub-finds .txt b .chip{margin-right:4px}
 .cmd-copy{display:flex;gap:8px;align-items:flex-start;margin:6px 0 0}.cmd-copy code{flex:1;min-width:0;font-size:12px;background:var(--soft-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 10px;overflow-wrap:anywhere;white-space:pre-wrap}
@@ -429,7 +430,7 @@ input[type=time]{font-variant-numeric:tabular-nums;font-size:15px}
 .tpl small{font-size:11.5px;color:var(--blue);font-weight:500;margin-top:2px}
 .tpl.on{border-color:var(--blue);background:var(--blue-soft)}
 .tpl-form{box-shadow:none;margin:14px 0 0;padding:16px 18px}
-.tpl .tpl-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}.tpl .tpl-tags i{font-style:normal;font-size:11px;color:var(--muted);background:var(--soft);border-radius:var(--r-pill);padding:1px 8px}
+.tpl .tpl-tags{display:block;margin-top:4px;font-size:11.5px;color:var(--muted)}
 /* schedule form: several names as chips, the "More options" fold, switches on a label row */
 .np{display:flex;flex-direction:column;gap:6px}
 .np-find{position:relative}.np-find input{padding-left:34px;min-height:36px}.np-find svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted)}
@@ -1606,6 +1607,24 @@ html.in-panel .composer-wrap{padding:0 10px 12px}
 .acc-from{display:inline-flex!important;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-top:2px}.acc-from .acc-av{margin:0;box-shadow:none}
 .share-agents .share-row .acc-av{margin:0;box-shadow:none;font-size:13px}
 .share-agents .share-row .ghost.small{flex:none}
+/* who uses a thing (21 Nov 2026, no pill lists): a few overlapping faces, one plain line, and one button for everyone.
+   whoLine/thingsLine in core.js; Access.who/btn, Connections, People, Teams, Google and Microsoft all draw this */
+.who-line{display:inline-flex;align-items:center;gap:8px;min-width:0;max-width:100%;font-size:13px;color:var(--ink-2);line-height:1.35}
+.who-line .who-t{min-width:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}   /* wraps to two lines on a narrow row, never pushes its button off */
+.who-faces{display:inline-flex;flex:none;align-items:center}
+.who-faces .acc-av{margin-left:-6px}.who-faces .acc-av:first-child{margin-left:0}
+button.who-line{height:auto;min-height:32px;max-width:100%;min-width:0;text-align:left;white-space:normal;padding:2px 8px 2px 2px;margin-left:-2px;border:0;background:transparent;box-shadow:none;font:inherit;font-size:13px;color:var(--ink-2);border-radius:var(--r-sm);cursor:pointer;transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+button.who-line:hover{background:var(--soft);color:var(--ink);transform:none;box-shadow:none}
+button.who-line .who-t{text-decoration:underline;text-decoration-color:var(--border);text-underline-offset:3px}
+.acc-used{display:inline-flex;align-items:center;gap:4px 8px;min-width:0;max-width:100%;flex-wrap:wrap}
+.things-line{display:inline-flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-2)}.things-line .link-btn{font-size:12.5px;white-space:nowrap}
+.cn-whobar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;min-height:44px}.cn-whobar>button{flex:none}
+.cn-who .who-line,.cn-row .who-line{font-size:12.5px}.cn-who .who-t{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.3}
+.sd-meta{font-size:13px;color:var(--ink-2);align-self:center}
+.pp-line .who-line{flex:1}
+.ap-who{margin:auto 0 0;padding-top:8px}.ap-who .who-line{font-size:12.5px}.ap-who .who-t{white-space:normal;line-height:1.3}.ap-who .hint{font-size:12.5px;margin:0}
+.tm-picks{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;min-height:44px}
+.gc-svcs,.ms-perms{display:block;font-size:12.5px;color:var(--ink-2);margin-top:2px}.ms-perms{margin-top:6px;font-weight:500;color:var(--ink)}
 .acc-btn{flex:none}
 .acc-btn{display:inline-flex;align-items:center;gap:8px;padding-left:6px;color:var(--ink-2);font-weight:500}.acc-btn .acc-who{margin:0}
 /* sign-in details */
@@ -2457,11 +2476,6 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .tm-dim{opacity:.55}
 .tm-two{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
 .tm-sub{margin:0 0 8px}
-.tm-picks{display:flex;flex-wrap:wrap;gap:6px}
-.tm-pick{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:4px 12px 4px 6px;border:1px solid var(--border);border-radius:var(--r-pill);background:var(--surface);color:var(--ink-2);box-shadow:none;transition:background var(--t-fast),border-color var(--t-fast),color var(--t-fast)}
-.tm-pick:hover{transform:none;box-shadow:none;border-color:var(--ink-3,var(--muted))}
-.tm-pick.on{background:var(--blue-soft);border-color:var(--blue);color:var(--ink)}
-.tm-pick span{display:flex;flex-direction:column;align-items:flex-start;line-height:1.2}.tm-pick small{font-size:11px;color:var(--muted)}
 .tm-alias{display:grid;grid-template-columns:minmax(90px,30%) 1fr;align-items:center;gap:10px;margin-bottom:6px}.tm-alias span{font-size:13.5px;color:var(--ink-2)}.tm-alias input{margin:0}
 .tm-member{border:1px solid var(--border);border-radius:var(--r-md);padding:10px 14px 12px;margin-bottom:8px;overflow:hidden;transition:opacity 180ms var(--ease),transform 180ms var(--ease)}
 .tm-member.tm-new{animation:rise var(--t-med) var(--ease) both}
@@ -2547,12 +2561,10 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .gc-card{display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);animation:rise var(--t-med) var(--ease) both}
 .gc-card>.logo{flex:none;width:34px;height:34px}.gc-acts .icon-btn{width:34px;height:34px;min-height:34px;min-width:34px;padding:0}
 .gc-c-t{flex:1;min-width:0;display:grid;gap:3px}.gc-c-t b{font-size:14px;overflow-wrap:anywhere}.gc-c-t small{color:var(--muted);font-size:12.5px}.gc-c-t .gc-why-l{color:var(--warn)}
-.gc-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.chip.gc-svc{font-size:11.5px;padding:2px 8px;gap:4px}
 .gc-name{display:flex;align-items:center;gap:6px;min-height:28px;flex-wrap:wrap}.gc-name .icon-btn{width:28px;height:28px;min-height:28px;min-width:28px;padding:0;border:0;background:none;box-shadow:none;opacity:.55;transition:opacity var(--t-fast) var(--ease)}.gc-card:hover .gc-name .icon-btn,.gc-name .icon-btn:focus-visible{opacity:1}
 .gc-ren{flex:1;min-width:140px;max-width:280px;height:32px;font-size:14px;font-weight:600}
 /* who uses the account: one line (a few faces, who and how many) and Sharing; every agent is in Sharing's searchable list */
-.gc-users{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center}.gc-users>.ava,.gc-users>img,.gc-users>span:not(.gc-u-t){margin-right:-12px;box-shadow:0 0 0 2px var(--surface);border-radius:50%}
-.gc-users>.gc-u-t{margin-left:14px;font-size:12.5px;color:var(--ink-2)}
+.gc-users{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center}
 .gc-add{height:28px;min-height:28px;padding:0 10px;font-size:12.5px;gap:5px}
 .gc-card .gc-copy{color:var(--warn)}.gc-card .gc-copy .link-btn{font-size:12.5px}
 .gc-c-r{display:grid;justify-items:end;gap:8px;flex:none}.gc-acts{display:flex;gap:4px;align-items:center}.gc-stat{transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
@@ -3344,3 +3356,9 @@ p.hint.use-now-line{margin:0 0 16px}.use-h{font-size:14px;font-weight:600;margin
 @media (prefers-reduced-motion:reduce){.ul-an i,.ul-drill{transition:none;animation:none}}
 /* work level per agent (Accounts › Which agent uses what, 20 Nov 2026) */
 .ul-budget{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 4px;font-size:13px;color:var(--ink-2)}
+/* no pill lists (21 Nov 2026): on a narrow list "Who can use" is a line of words now, so it gets its own row under owner and state */
+@container (max-width:700px){
+ .cn-list:not(.cn-3) .cn-row{grid-template-columns:auto 1fr;grid-template-areas:"m m" "o s" "w w"}
+ .cn-list.cn-5 .cn-row{grid-template-columns:auto 1fr auto;grid-template-areas:"m m x" "o s s" "w w w"}
+ .cn-list .cn-row .cn-who{padding-left:52px}
+}

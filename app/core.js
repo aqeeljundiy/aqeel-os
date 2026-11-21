@@ -252,6 +252,35 @@ const avaHtml=(src,photo,px,alt,attrs='',cls='')=>`<span class="ag-ava ${photo?'
 function agentAvatar(a,size=28,o={}){const id=(a&&typeof a==='object'?a.id:a)||'default',i=ident(id),px=avaPx(size),n=o.name||(a&&typeof a==='object'&&a.name)||i.name;
  const photo=!o.plain&&i.avatar,src=photo||emojiSrc(!o.plain&&i.emoji||emojiAuto(id));
  return avaHtml(src,!!photo,px,n,` data-ava="${esc(id)}" data-sz="${px}"${o.cls?` data-cls="${esc(o.cls)}"`:''}${o.plain?' data-plain':''}${o.title===false?'':` title="${esc(n)}"`}`,[o.cls,o.anim&&'ava-in'].filter(Boolean).join(' '))}
+// Who uses a thing, said once (21 Nov 2026, owner: "there's tons of these pills in the OS, we must not do it"): never a pill
+// or chip per agent, service or tag. A few faces, one plain line, and where people need everyone one searchable list.
+// listAnd(['a','b','c']) → "a, b and c"
+const listAnd=x=>x.length<3?x.join(' and '):x.slice(0,-1).join(', ')+' and '+x.at(-1);
+const whoId=u=>u&&typeof u==='object'?u.id:u,whoName=u=>(u&&typeof u==='object'&&u.name)||ident(whoId(u)).name||whoId(u);
+// the owner (or o.lead) first, then the rest as they came
+const whoOrder=(users,o={})=>{const lead=o.owner||o.lead,l=(users||[]).filter(Boolean);const f=lead?l.find(u=>whoId(u)===lead):null;return f?[f,...l.filter(u=>u!==f)]:l};
+// usedLine(users,{owner, verb:'Used by', noun:'agents', none}) → "Used by Donna AI (owner) and 2 more agents"
+function usedLine(users,o={}){const l=whoOrder(users,o),verb=o.verb===undefined?'Used by ':o.verb?o.verb+' ':'',noun=o.noun===undefined?'agents':o.noun;
+ if(!l.length)return o.none||'Nobody uses it yet';const nm=u=>whoName(u)+(o.owner&&whoId(u)===o.owner&&o.mark!==false?' (owner)':'');
+ return verb+(l.length===1?nm(l[0]):l.length===2?nm(l[0])+' and '+nm(l[1]):nm(l[0])+' and '+(l.length-1)+' more'+(noun?' '+noun:''))}
+// canUseLine(['Gmail','Calendar','Drive']) → "Can use Gmail, Calendar and Drive"
+const canUseLine=(names,empty='Nothing yet',verb='Can use')=>names?.length?verb+' '+listAnd(names):empty;
+// plain things (scripts, permissions, tags): one line, and See all with every one in a searchable list when there are more than two
+function thingsLine(items,o={}){const l=(items||[]).filter(Boolean),verb=o.verb?o.verb+' ':'';if(!l.length)return o.none?`<span class="things-line"><span class="who-t">${esc(o.none)}</span></span>`:'';
+ const txt=verb+(l.length<=2?l.join(' and '):l[0]+' and '+(l.length-1)+' more'+(o.noun?' '+o.noun:''));
+ return `<span class="things-line"><span class="who-t">${esc(txt)}</span>${l.length>2?`<button type="button" class="link-btn" data-act="list-all" data-items="${esc(JSON.stringify(l))}" data-h="${esc(o.header||'')}">See all ${l.length}</button>`:''}</span>`}
+// a few overlapping faces (decoration: the line says who)
+const faceStack=(users,max=4)=>users?.length?`<span class="who-faces" aria-hidden="true">${users.slice(0,max).map(u=>agentAvatar(whoId(u),22,{title:false,cls:'acc-av'})).join('')}</span>`:'';
+// faces + the line. o.list: the line opens everyone in a searchable list (read-only views; the edit button lists them otherwise)
+function whoLine(users,o={}){const l=whoOrder(users,o),txt=usedLine(l,o);
+ if(o.list&&l.length>2)return `<button type="button" class="who-line link" data-act="who-list" data-who="${esc(l.map(whoId).join(','))}" data-owner="${esc(o.owner||'')}" data-h="${esc(o.header||txt)}" title="See all ${l.length}">${faceStack(l)}<span class="who-t">${esc(txt)}</span></button>`;
+ return `<span class="who-line">${faceStack(l)}<span class="who-t">${esc(txt)}</span></span>`}
+// whoMenu(anchor,{header, users, all, owner, sub(id), on(id), run(id), disabled(id)}): every agent in one searchable list, the
+// owner first, then those who have it, then the rest by name. Without all only the users are listed.
+function whoMenu(anchor,o={}){const has=new Set((o.users||[]).map(whoId)),ids=[...new Set([...(o.users||[]).map(whoId),...(o.all||[]).map(whoId)])];
+ ids.sort((x,y)=>(y===o.owner)-(x===o.owner)||has.has(y)-has.has(x)||whoName(x).localeCompare(whoName(y)));
+ menu(anchor,[...(o.header?[{header:o.header}]:[]),...ids.map(id=>({label:whoName(id),ava:agentAvatar(id,20,{title:false}),find:whoName(id),check:o.on?o.on(id):false,   // a tick, not the shaded "current" row: many can have it
+  sub:o.sub?o.sub(id):id===o.owner?'Owner':has.has(id)?'':'No access',disabled:o.disabled?o.disabled(id):false,run:o.run?()=>setTimeout(()=>o.run(id),0):undefined}))],{search:true})}
 // personAvatar({id,name,avatar,emoji}, size): the same component for people. Their photo > their emoji > their initial on
 // a soft colour from their id (people get no automatic emoji: the letter says who it is at a glance)
 function personAvatar(u,size=28,o={}){u=u||{};const px=avaPx(size),n=u.name||'?',src=u.avatar||emojiSrc(EMOJI.some(e=>e.slug===u.emoji)?u.emoji:'');
@@ -703,7 +732,7 @@ function drawer(title,body,foot='',opt={}){openLayer();const d=document.createEl
 function trapTab(el){el.addEventListener('keydown',e=>{if(e.key!=='Tab')return;const f=[...el.querySelectorAll('button,input,select,textarea,[tabindex]')].filter(x=>!x.disabled&&x.offsetParent&&x.tabIndex>=0);if(!f.length)return;const i=f.indexOf(document.activeElement);if(e.shiftKey&&i<=0){e.preventDefault();f[f.length-1].focus()}else if(!e.shiftKey&&i===f.length-1){e.preventDefault();f[0].focus()}})}
 // opt.html: content of its own instead of items (the date grid), wired by opt.onOpen(menu) once it is placed
 function menu(anchor,items,opt={}){$$('.menu').forEach(e=>e.remove());const m=document.createElement('div');m.className='menu';m.setAttribute('role','menu');const list=items.filter(Boolean);
- m.innerHTML=opt.html||list.map((i,ix)=>i==='-'?'<hr>':i.header?`<div class="mh"${i.title?` title="${esc(i.title)}"`:''}>${esc(i.header)}</div>`:`<button class="item ${i.bad?'bad':''} ${i.on?'cur':''}" role="menuitem" data-mi="${ix}" ${i.disabled?'disabled':''}${i.title?` title="${esc(i.title)}"`:''}${i.find?` data-find="${esc(String(i.find).toLowerCase())}"`:''}>${i.ava||(i.icon?icon(i.icon,16):'')}<span class="t"><span class="mi-l">${esc(i.label)}</span>${i.sub?`<small class="mi-sub">${esc(i.sub)}</small>`:''}</span>${i.on?`<span style="color:var(--blue)">${icon('check',15)}</span>`:''}${i.kbd?`<small style="margin-left:auto;color:var(--muted)">${esc(i.kbd)}</small>`:''}</button>`).join('');
+ m.innerHTML=opt.html||list.map((i,ix)=>i==='-'?'<hr>':i.header?`<div class="mh"${i.title?` title="${esc(i.title)}"`:''}>${esc(i.header)}</div>`:`<button class="item ${i.bad?'bad':''} ${i.on?'cur':''}" role="menuitem" data-mi="${ix}" ${i.disabled?'disabled':''}${i.title?` title="${esc(i.title)}"`:''}${i.find?` data-find="${esc(String(i.find).toLowerCase())}"`:''}>${i.ava||(i.icon?icon(i.icon,16):'')}<span class="t"><span class="mi-l">${esc(i.label)}</span>${i.sub?`<small class="mi-sub">${esc(i.sub)}</small>`:''}</span>${i.on||i.check?`<span style="color:var(--blue)">${icon('check',15)}</span>`:''}${i.kbd?`<small style="margin-left:auto;color:var(--muted)">${esc(i.kbd)}</small>`:''}</button>`).join('');
  // long lists get a search box that narrows the items as you type (Enter picks the first one left); the letters found are marked
  if(opt.search){m.insertAdjacentHTML('afterbegin',`<div class="mi-find">${icon('search',14)}<input placeholder="Search" aria-label="Search the list"></div>`);const inp=m.querySelector('.mi-find input');
   inp.oninput=()=>{const q=inp.value.trim().toLowerCase();$$('button.item',m).forEach(b=>{const l=b.querySelector('.mi-l'),txt=l?l.textContent:'';b.hidden=!!q&&!(b.textContent.toLowerCase().includes(q)||(b.dataset.find||'').includes(q));

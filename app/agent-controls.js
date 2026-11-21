@@ -22,7 +22,7 @@
 const SkillPolicy={
  key:s=>(s.category?s.category+'/':'')+s.name,
  ruleFor(pol,s){const r=pol.restricted||{};return r[SkillPolicy.key(s)]||Object.entries(r).find(([k])=>k.split('/').pop()===s.name)?.[1]||null},
- label:r=>{if(!r)return 'Every agent';const n=r.filter(a=>a!=='default');return !n.length?'Main agent only':n.length===1?'Only '+ident(n[0]).name:'Only '+n.length+' agents'},
+ label:r=>{if(!r)return 'Every agent';const n=r.filter(a=>a!=='default');return !n.length?'Main agent only':usedLine(n,{verb:'Only'})},   // names, not a count: "Only Donna AI and 2 more agents"
  async open(s,pol,btn){let agents=(Pages._agents||[]).filter(a=>!a.includes('--'));if(!agents.length)try{agents=((await H('/profiles')).profiles||[]).map(x=>x.name).filter(a=>!a.includes('--'))}catch{}
   const key=SkillPolicy.key(s);let who;try{who=await UI('/ui/skills-policy/who?skill='+encodeURIComponent(key))}catch(e){return fail(e)}
   const rule=SkillPolicy.ruleFor(pol,s),list=agents.filter(a=>a!=='default').map(id=>({id,name:ident(id).name}));
@@ -33,7 +33,7 @@ const SkillPolicy={
    preview:v=>post(UI,'/ui/skills-policy',{skill:key,agents:v,dry:true})});
   d.querySelector('#sp-go').onclick=async e=>{e.stopPropagation();const b=e.currentTarget;b.disabled=true;b.classList.add('is-busy');const v=blk.value();
    try{const p2=await put(UI,'/ui/skills-policy',{skill:key,agents:v});Pages._skPol=p2;close();const g=p2.done?.gain||[],l=p2.done?.lose||[];
-    toast(s.name+': '+(v?SkillPolicy.label(SkillPolicy.ruleFor(p2,s)).toLowerCase():'every agent')+(g.length?' · given to '+AccessBlock.and(g.map(x=>ident(x).name)):'')+(l.length?' · taken from '+AccessBlock.and(l.map(x=>ident(x).name)):''));
+    toast(s.name+': '+(v?SkillPolicy.label(SkillPolicy.ruleFor(p2,s)).replace(/^\w/,c=>c.toLowerCase()):'every agent')+(g.length?' · given to '+AccessBlock.and(g.map(x=>ident(x).name)):'')+(l.length?' · taken from '+AccessBlock.and(l.map(x=>ident(x).name)):''));
     if(btn?.isConnected){const r=SkillPolicy.ruleFor(p2,s);btn.classList.toggle('on',!!r);btn.lastChild.textContent=SkillPolicy.label(r)}}
    catch(er){fail(er);b.disabled=false;b.classList.remove('is-busy')}}}};
 // both skill lists: one agent's (a row per skill) and All agents (a row per skill with its agents); the All agents view

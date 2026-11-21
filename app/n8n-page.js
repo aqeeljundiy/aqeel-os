@@ -33,7 +33,7 @@ const N8N={d:null,dr:null,at:null,changed:false,
   return `<div class="row clickable cn-row rm" ${st(i)}>
   <div class="main-c">${logoImg('n8n.io','n')}<div class="txt"><b><button type="button" class="row-main" data-act="n8n-panel" data-space="${esc(x.agent)}" aria-label="${esc(x.name)}’s n8n: belongs to ${esc(x.name)}${wf?', '+esc(wf):''}">${esc(x.name)}’s n8n</button></b><span>${esc(wf||'Workflows not counted yet')}</span></div></div>
   <div class="cn-own"><small class="cn-lbl">Belongs to</small>${cxOwner({owner:x.agent,ownerName:x.name})}</div>
-  <div class="cn-who"><small class="cn-lbl">Who can use</small><span class="acc-who" aria-label="Used by ${esc(u.map(y=>y.name).join(', '))}">${u.slice(0,3).map(y=>Access.av(y)).join('')}${u.length>3?`<span class="acc-more">+${u.length-3}</span>`:''}</span></div>
+  <div class="cn-who"><small class="cn-lbl">Who can use</small>${Access.who({users:u,owner:x.agent},{verb:'',list:false,mark:false,noun:''})}</div>
   <div class="cn-st"><span class="cn-o" aria-label="${esc(wf)}">${x.workflows==null?'–':x.workflows}</span></div>
   <button class="small cn-go" data-act="n8n-open" data-space="${esc(x.agent)}" aria-label="Open ${esc(x.name)}’s n8n">${icon('popout',14)}Open</button></div>`},
  open(id){const x=this.space(id);if(!x)return toast('That n8n space is gone. Reload the page.','err');this.at=id;this.changed=false;
@@ -45,10 +45,8 @@ const N8N={d:null,dr:null,at:null,changed:false,
  body(x){const edit=this.d?.canEdit,others=this.d.agents.filter(g=>g.id!==x.agent&&!x.shared.includes(g.id));
   const top=`<div class="cn-top">${logoImg('n8n.io','n')}<div class="cn-top-t"><span class="hint">n8n space</span><p>${esc(x.name)}’s own workflows in n8n. Open goes straight in, without signing in.</p><div class="cn-top-st"><span class="chip"><i class="dot"></i>${esc(x.workflows==null?'Workflows not counted yet':plural(x.workflows,'workflow'))}</span></div></div></div>`;
   const own=`<section class="cn-sec"><h3>Belongs to</h3><div class="cn-line">${agentAvatar(x.agent,30,{title:false})}<span class="cn-lt"><b>${esc(x.name)}</b><small>Every agent has its own space, so it stays with this agent</small></span></div></section>`;
-  const lines=`<div class="cn-line">${agentAvatar(x.agent,30,{title:false})}<span class="cn-lt"><b>${esc(x.name)}</b><small>It belongs to this agent</small></span></div>`+x.shared.map(g=>`<div class="cn-line">${agentAvatar(g,30,{title:false})}<span class="cn-lt"><b>${esc(ident(g).name)}</b><small>Can find and run its workflows</small></span>${edit?`<button class="ghost icon cn-rm" data-act="n8n-rm" data-agent="${esc(g)}" title="Take it from ${esc(ident(g).name)}" aria-label="Take ${esc(x.name)}’s n8n from ${esc(ident(g).name)}">${icon('x',15)}</button>`:''}</div>`).join('');
-  const n=x.shared.length+1;
-  const acc=`<section class="cn-sec"><h3>Who can use it <small class="hint">${n===1?'only '+esc(x.name):n+' agents'}</small></h3><p class="hint cn-how">Agents added here get a second n8n tool that works in this space. They pick it up by themselves once nobody is mid-reply.</p><div class="cn-lines">${lines}</div>
-   ${edit&&others.length?`<button class="small cn-addag" data-act="n8n-add" aria-haspopup="menu">${icon('plus',14)}Add agent</button>`:''}</section>`;
+  // who can use it: one line and one Sharing button with every agent in a searchable list, never a row per agent (21 Nov 2026)
+  const acc=`<section class="cn-sec"><h3>Who can use it</h3><p class="hint cn-how">Agents added here get a second n8n tool that works in this space. They pick it up by themselves once nobody is mid-reply.</p><div class="cn-whobar">${whoLine(N8N.users(x),{owner:x.agent,list:!edit,header:'Who uses '+x.name+'’s n8n'})}${edit&&this.d.agents.length>1?`<button class="small" data-act="n8n-share" aria-haspopup="menu">${icon('user',14)}Sharing</button>`:''}</div></section>`;
   const B=[`<button class="small" data-act="n8n-open" data-space="${esc(x.agent)}">${icon('popout',14)}Open</button>`];if(edit)B.push(`<button class="small" data-act="n8n-open" data-owner="1">${icon('popout',14)}Open all workflows</button>`);
   return top+own+acc+`<section class="cn-sec cn-do"><div class="cn-btns">${B.join('')}</div><p class="hint cn-signst">Turn on “Available in MCP” in a workflow’s settings so agents can run it.</p></section>`},
  async share(btn,g,on){const x=this.space(this.at);if(!x)return;const was=btn?.innerHTML;if(btn){btn.disabled=true;btn.innerHTML='<span class="spinner tiny"></span>'}
@@ -57,7 +55,9 @@ const N8N={d:null,dr:null,at:null,changed:false,
 ACT['n8n-open']=async a=>{const w=window.open('about:blank','_blank');try{const r=await post(UI,'/ui/n8n/open',a.dataset.owner?{owner:true}:{agent:a.dataset.space});if(w)w.location=r.url;else window.open(r.url,'_blank')}catch(e){w?.close();fail(e)}};
 ACT['n8n-panel']=a=>N8N.open(a.dataset.space);
 ACT['n8n-who']=ACT['n8n-panel'];
-ACT['n8n-add']=a=>{const x=N8N.space(N8N.at);if(!x)return;const l=N8N.d.agents.filter(g=>g.id!==x.agent&&!x.shared.includes(g.id));
- menu(a,[{header:'Give '+x.name+'’s n8n to'},...l.map(g=>({label:g.name,ava:agentAvatar(g.id,20,{title:false}),run:()=>N8N.share(a,g.id,true)}))],{search:l.length>6})};
-ACT['n8n-rm']=async a=>{const x=N8N.space(N8N.at),g=a.dataset.agent;if(!x)return;
- if(!await confirmBox('Take '+x.name+'’s n8n from '+ident(g).name+'?',ident(g).name+' can’t find or run its workflows until it is given again here.','Take it away'))return;N8N.share(a,g,false)};
+// every agent in one searchable list: picking one gives it the space, or takes it away (asked first)
+ACT['n8n-share']=a=>{const x=N8N.space(N8N.at);if(!x)return;
+ whoMenu(a,{header:'Who may use '+x.name+'’s n8n',users:[x.agent,...x.shared],all:N8N.d.agents.map(g=>g.id),owner:x.agent,on:id=>id===x.agent||x.shared.includes(id),disabled:id=>id===x.agent,
+  sub:id=>id===x.agent?'Owner':x.shared.includes(id)?'Can find and run its workflows':'No access',
+  run:async g=>{if(!x.shared.includes(g))return N8N.share(a,g,true);
+   if(!await confirmBox('Take '+x.name+'’s n8n from '+ident(g).name+'?',ident(g).name+' can’t find or run its workflows until it is given again here.','Take it away'))return;N8N.share(a,g,false)}})};

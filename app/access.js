@@ -4,7 +4,9 @@
 const Access={
  async load(kind){try{return await UI('/ui/access?kind='+kind)}catch{return null}},
  av(a,sz=22){const id=a.id||a;return agentAvatar(id,sz,{cls:'acc-av',name:a.name||ident(id).name})},   // the one agent avatar; acc-av only adds the stacked ring
- who(it){return `<span class="acc-who" aria-label="Used by ${esc(it.users.map(u=>u.name).join(', '))}">${it.users.slice(0,5).map(u=>this.av(u)).join('')}${it.users.length>5?`<span class="acc-more">+${it.users.length-5}</span>`:''}</span>`},
+ // "Used by": a few faces and one line ("Used by Donna AI (owner) and 2 more agents"), never a pill per agent (21 Nov 2026).
+ // o.list: the line itself opens everyone in a searchable list (where there is no Sharing button to do it)
+ who(it,o={}){return whoLine(it.users||[],{owner:it.copies?undefined:it.owner,lead:it.lead,list:o.list!==false,header:it.label?'Who uses '+it.label:'',none:o.none||'Nobody yet',verb:o.verb,noun:o.noun,mark:o.mark})},
  from(it){if(it.owner)it={...it,ownerName:agentNameOf(it.owner,it.ownerName)};return it.own?`<span class="acc-from">Belongs to ${esc(it.ownerName)} · ${esc(it.ownNote)}</span>`:`<span class="acc-from">${this.av({id:it.owner,name:it.ownerName},16)}Belongs to ${esc(it.ownerName)}</span>`},
  // "Belongs to": one control on every row of every page. A picker for admins where ownership can move, else the name;
  // a connection with no owner agent (n8n: every agent has its own user) names who owns the service, with why
@@ -14,11 +16,10 @@ const Access={
  bindOwners(el){el.querySelectorAll('select.acc-owner:not([data-bound])').forEach(s=>{s.dataset.bound='1';s.onchange=async()=>{const to=s.value,was=s.dataset.was,kind=s.dataset.kind,id=s.dataset.id;s.disabled=true;
   const d=await this.load(kind);const it=d?.items.find(x=>x.id===id);if(it&&!await this.moveOk(it,to)){s.value=was;s.disabled=false;return}
   try{if(it&&!it.users.some(u=>u.id===to))await post(UI,'/ui/access',{kind,id,agent:to,on:true});await post(UI,'/ui/access/owner',{kind,id,agent:to});s.dataset.was=to;toast(ident(to).name+' now owns '+(it?.label||id));reload()}catch(e){s.value=was;fail(e);reload()}finally{s.disabled=false}}})},   // a grant that went through before the owner change failed shows after the reload
- // "Used by": the one component for who uses a thing. attrs: what pressing it opens (Who can use by default).
- // copies (skills: each agent keeps its own copy): the first agent leads without the owner's crown. The count is always
- // the others ("+2"), or "Only <name>" when nobody else has it.
- btn(it,attrs){const lead=it.owner||it.users[0]?.id,ln=ident(lead).name||it.ownerName||lead,names=it.users.map(u=>u.name).join(', '),tip=it.copies?'Used by '+names+'. Share with other agents':'Belongs to '+ln+'. Who can use '+it.label;
-  return `<button class="ghost small acc-btn" ${attrs||`data-act="acc-open" data-kind="${it.kind}" data-id="${esc(it.id)}"`} title="${esc(tip)}" aria-label="${esc(tip)}: ${esc(names)}">${it.copies?`<span class="acc-own">${this.av({id:lead,name:ln})}<b>${esc(ln)}</b></span>`:`<span class="acc-own" title="Owner: ${esc(ln)}">${this.av({id:lead,name:ln})}<i>${icon('crown',9)}</i><b>${esc(ln)}</b></span>`}${this.who({...it,users:it.users.filter(u=>u.id!==lead)})}<span>${it.users.length>1?'+'+(it.users.length-1):'Only '+esc(ln)}</span></button>`},
+ // "Used by" for those who may change it: the same faces and line, and one Sharing button. attrs: what pressing it opens
+ // (Who can use by default). copies (skills: each agent keeps its own copy): no owner, the button says Share.
+ btn(it,attrs){const tip=(it.copies?'Share ':'Who can use ')+(it.label||'it');
+  return `<span class="acc-used">${this.who(it,{list:false})}<button class="ghost small acc-btn" ${attrs||`data-act="acc-open" data-kind="${it.kind}" data-id="${esc(it.id)}"`} title="${esc(tip)}" aria-label="${esc(tip)}">${icon('user',13)}${it.copies?'Share':'Sharing'}</button></span>`},
  // put the rows of a list into "Belongs to" and "Shared with" groups, and add who uses each
  group(el,kind,data,rowsOf,idOf,where){if(!data)return;const ag=viewing();const me=ident(ag).name;const by=new Map(data.items.map(x=>[x.id,x]));
   const rows=rowsOf(el).filter(r=>by.has(idOf(r)));if(!rows.length)return;
@@ -55,6 +56,8 @@ const Access={
  async removeShared(kind,match,agent){const d=await this.load(kind);const it=d?.items.find(x=>(typeof match==='function'?match(x):x.id===match)&&x.users.some(u=>u.id===agent));if(!it||it.own||it.users.length<2)return false;
   if(agent===it.owner)throw new Error(ident(agent).name+' owns '+it.label+' and '+it.users.filter(u=>u.id!==agent).map(u=>u.name).join(', ')+' also '+(it.users.length>2?'use':'uses')+' it. Make another agent the owner first (Who can use), or turn it off for them.');
   if(S.me?.admin===false)return false;await post(UI,'/ui/access',{kind,id:it.id,agent,on:false});return true}};   // a member removes its own copy directly
+ACT['list-all']=a=>{let l=[];try{l=JSON.parse(a.dataset.items||'[]')}catch{}menu(a,[...(a.dataset.h?[{header:a.dataset.h}]:[]),...l.map(t=>({label:String(t)}))],{search:true})};
+ACT['who-list']=a=>{const ids=(a.dataset.who||'').split(',').filter(Boolean);whoMenu(a,{header:a.dataset.h,users:ids,owner:a.dataset.owner||undefined})};
 ACT['acc-open']=a=>Access.open(a.dataset.kind,a.dataset.id);
 ACT['acc-use']=async a=>{a.disabled=true;const was=a.innerHTML;a.innerHTML='<span class="spinner tiny"></span>Sharing…';try{await post(UI,'/ui/access',{kind:a.dataset.kind,id:a.dataset.id,agent:viewing(),on:true});toast((a.dataset.label||'It')+' on for '+ident(viewing()).name+' · ready in about a minute');reload()}catch(e){a.disabled=false;a.innerHTML=was;fail(e)}};
 

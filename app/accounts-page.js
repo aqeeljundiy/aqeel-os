@@ -71,7 +71,7 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
  const active=groups.reduce((b,g)=>gUsers(g).length>(b?gUsers(b).length:0)?g:b,null);
  const state=s=>s.status==='checking'?['',ACCT_WORD.checking]:s.status==='ok'?['on',ACCT_WORD.ok]:s.status==='limit'?['warn',ACCT_WORD.limit]:['out',ACCT_WORD[s.status]];
  const activeChip=g=>g===active?'<span class="chip ok pri-active" title="Most agents are on this now">Active</span>':'';
- const inUse=u=>u.length?Access.who({users:u})+`<span>In use by ${plural(u.length,'agent')}</span>`:'<span>No agent on it</span>';
+ const inUse=u=>u.length?Access.who({users:u}):'<span>No agent on it</span>';
  const bars=s=>s.sess||s.week?miniBar(s.sessL||'Session',s.sess)+miniBar(s.weekL||'Week',s.week):`<span class="hint">${s.ok?(s.usageNote?'Limits unavailable right now':'No limits reported'):'Reconnect it to use it again'}</span>`;
  const modelSel=(g,i,name,models)=>`<div class="pri-sel"><select data-pri-model="${i}" style="width:auto" aria-label="Model on ${esc(name)}"><option value="">Keep each agent's model</option>${models.map(m=>`<option value="${esc(m)}" ${m===gModel(g)?'selected':''}>${esc(modelLabel(m))}</option>`).join('')}</select></div>`;
  const moveBtns=(i,what,more='')=>`<span class="pri-btns">${more}<button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="-1" aria-label="Move ${esc(what)} up" ${i?'':'disabled'}>${icon('chevU',16)}</button><button class="ghost icon-btn" data-act="pri-move" data-i="${i}" data-dir="1" aria-label="Move ${esc(what)} down" ${i<groups.length-1?'':'disabled'}>${icon('chevD',16)}</button><button class="ghost icon-btn" data-act="pri-del" data-i="${i}" aria-label="Remove ${esc(what)} from priority">${icon('x',16)}</button></span>`;
@@ -107,7 +107,7 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
   ${admin?`<button class="ghost icon acct-more-btn" data-menu="acct" data-key="${esc(s.key)}" aria-label="More for ${esc(s.name)}">${icon('more',18)}</button>`:''}</div>
   <div class="acct-st">${status(s)}</div>
   <div class="acct-lim">${limits(s)}${(s.details||[]).map(x=>`<p class="hint" style="margin:6px 0 0">${esc(x)}</p>`).join('')}</div>
-  <div class="acct-agents"><span class="th">Used by</span>${u.length||jobsOn(s.key).length?(u.length?Access.who({users:u}):'')+`<span class="acct-names">${esc([...u.map(x=>x.name),...Object.entries(jobsOn(s.key).reduce((m,j)=>(m[ident(j.agent).name]=(m[ident(j.agent).name]||0)+1,m),{})).map(([n,c])=>n+' · '+plural(c,'schedule'))].join(', '))}</span>`:'<span class="hint" style="margin:0">No agent yet</span>'}</div></div>`};
+  <div class="acct-agents"><span class="th">Used by</span>${u.length||jobsOn(s.key).length?(u.length?Access.who({users:u,label:s.name},{verb:''}):'')+(jobsOn(s.key).length?`<span class="acct-names">${u.length?'and ':''}${plural(jobsOn(s.key).length,'schedule')}</span>`:''):'<span class="hint" style="margin:0">No agent yet</span>'}</div></div>`};
  // an account can be in the list again with another model (more than one entry per account, 6 Nov 2026)
  // only accounts not in the list yet (21 Nov 2026: every model of every account made a menu of dozens); one with a fixed model is added from its own ⋯ menu
  const left=src.filter(s=>!(s.isTeam&&!usedBy(s.key).length)&&!pri.some(e=>e.key===s.key));

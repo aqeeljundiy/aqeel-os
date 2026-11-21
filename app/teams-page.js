@@ -87,7 +87,8 @@ ACT['tm-owner']=()=>{const o=Teams.d.owner||{};
 // a team: name, agents (an agent in another team moves here), what else people call each agent, members, the contact
 ACT['tm-team']=b=>{const isNew=b.dataset.i==='new',t=isNew?{name:'',agents:[],members:[],aliases:{}}:structuredClone(Teams.d.teams[+b.dataset.i]);let members=structuredClone(t.members||[]);const sel=new Set(t.agents||[]);
  const memberHtml=(m,i)=>`<div class="tm-member" data-m="${i}"><div class="tm-mhead"><b>${esc(m.name||'New member')}</b><button class="ghost icon" data-rm="${i}" aria-label="Remove ${esc(m.name||'this member')}">${icon('x',16)}</button></div>${Teams.personFields(m,'m'+i)}</div>`;
- const agentsHtml=()=>Teams.d.agents.map(a=>{const other=Teams.teamOf(a.id),moves=other&&other.name!==t.name;return `<button type="button" class="tm-pick${sel.has(a.id)?' on':''}" data-a="${esc(a.id)}" aria-pressed="${sel.has(a.id)}">${agentAvatar(a.id,22)}<span>${esc(Teams.name(a.id))}${moves&&!sel.has(a.id)?`<small>in ${esc(other.name)}</small>`:''}</span></button>`}).join('');
+ // the team's agents: one line and Choose agents with every agent in a searchable list, never a pill per agent (21 Nov 2026)
+ const agentsHtml=()=>`${whoLine([...sel],{verb:'',none:'No agents yet'})}<button type="button" class="small" data-tm-pick aria-haspopup="menu">${icon('user',14)}Choose agents</button>`;
  const aliasHtml=()=>[...sel].map(a=>`<div class="tm-alias"><span>${esc(Teams.name(a))}</span><input data-al="${esc(a)}" value="${esc((t.aliases?.[a]||[]).join(', '))}" placeholder="Other names, e.g. Rory"></div>`).join('')||'<p class="hint">Pick agents first.</p>';
  const d=drawer(isNew?'New team':'Edit '+t.name,`<label for="tmName">Team name</label><input id="tmName" maxlength="40" value="${esc(t.name)}" placeholder="Support">
   <label>Agents</label><div class="tm-picks">${agentsHtml()}</div>
@@ -100,7 +101,11 @@ ACT['tm-team']=b=>{const isNew=b.dataset.i==='new',t=isNew?{name:'',agents:[],me
  const paintMembers=()=>{const box=d.querySelector('.tm-members');box.innerHTML=members.map(memberHtml).join('');box.querySelectorAll('[data-rm]').forEach(x=>x.onclick=()=>{grab();const row=x.closest('.tm-member');row.classList.add('tm-gone');setTimeout(()=>{members.splice(+x.dataset.rm,1);paintMembers();contact()},calm()?0:180)});
   box.querySelectorAll('[data-f="name"]').forEach(x=>x.onchange=()=>{grab();contact();x.closest('.tm-member').querySelector('.tm-mhead b').textContent=x.value||'New member'})};paintMembers();
  d.querySelector('#tmAddM').onclick=()=>{grab();members.push({name:''});paintMembers();const last=d.querySelector('.tm-member:last-child');last.classList.add('tm-new');last.querySelector('[data-f="name"]').focus()};
- d.querySelector('.tm-picks').onclick=e=>{const p=e.target.closest('[data-a]');if(!p)return;grab();const a=p.dataset.a;sel.has(a)?sel.delete(a):sel.add(a);p.classList.toggle('on',sel.has(a));p.setAttribute('aria-pressed',sel.has(a));d.querySelector('.tm-aliases').innerHTML=aliasHtml()};
+ // each pick adds or takes one agent and the list opens again (in name order, so nothing moves under the pointer)
+ const pick=btn=>whoMenu(btn,{header:'Agents in '+(d.querySelector('#tmName').value.trim()||'this team'),users:[],all:Teams.d.agents,on:id=>sel.has(id),
+  sub:id=>{const o=Teams.teamOf(id);return sel.has(id)?'In this team':o&&o.name!==t.name?'In '+o.name+', moves here':''},
+  run:id=>{grab();sel.has(id)?sel.delete(id):sel.add(id);const box=d.querySelector('.tm-picks');box.innerHTML=agentsHtml();d.querySelector('.tm-aliases').innerHTML=aliasHtml();pick(box.querySelector('[data-tm-pick]'))}});
+ d.querySelector('.tm-picks').onclick=e=>{const b=e.target.closest('[data-tm-pick]');if(b)pick(b)};
  d.querySelector('#tmDel')?.addEventListener('click',async()=>{if(!await confirmBox('Remove '+t.name+'?','Its agents will have no team, so the owner hears about them. Members are removed with it.','Remove team'))return;
   try{await Teams.save(Teams.d.teams.filter((x,i)=>i!==+b.dataset.i));closeLayers();toast(t.name+' removed.')}catch(err){toast(err.message,'err')}});
  d.querySelector('#tmSave').onclick=async e=>{const btn=e.currentTarget,err=d.querySelector('.km-err');grab();const name=d.querySelector('#tmName').value.trim();if(!name){err.textContent='Give the team a name.';return}

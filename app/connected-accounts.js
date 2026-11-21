@@ -19,7 +19,7 @@ PAGES.logins=async(p,el)=>{const gone=pageTok(el);
   <div class="acct-st">${caChip(x)}<span class="ca-used">${x.lastUsed?'Last used '+esc(ago(x.lastUsed/1000)):'Not used yet'}</span></div>
   <div class="ca-row"><span class="th">Can</span>${caCan(x)}<button class="ghost small ca-edit" data-act="ca-can" data-id="${esc(x.id)}" aria-haspopup="dialog" aria-label="Change what agents may do with ${esc(x.label)}">${icon('edit',14)}Change</button></div>
   <div class="ca-recent">${x.recent.length?`<ul>${x.recent.slice(0,4).map(caAct).join('')}</ul>${x.recent.length>4?`<button class="link-btn ca-all" data-act="ca-actions" data-id="${esc(x.id)}">All ${x.recent.length} recent actions</button>`:''}`:'<p class="hint">Nothing done with it in the last days.</p>'}</div>
-  <div class="acct-agents"><span class="th">Used by</span>${x.agents.length?Access.who({users:x.agents})+`<span class="acct-names">${esc(x.agents.map(a=>a.name).join(', '))}</span>`:'<span class="hint" style="margin:0">No agent</span>'}</div>
+  <div class="acct-agents"><span class="th">Used by</span>${x.agents.length?Access.who({users:x.agents,label:x.label},{verb:''}):'<span class="hint" style="margin:0">No agent</span>'}</div>
   <div class="ca-btns">${x.registered?'':`<button class="primary small" data-act="ca-approve" data-id="${esc(x.id)}">${icon('check',14)}Approve</button>`}
    ${x.mayPause?(x.state==='paused'||x.state==='resuming'||x.state==='failed'&&x.pausedAt?`<button class="small" data-act="ca-pause" data-id="${esc(x.id)}" data-on="0" ${caBusy(x)?'disabled':''}>${icon('play',14)}Resume</button>`:`<button class="small" data-act="ca-pause" data-id="${esc(x.id)}" data-on="1" ${caBusy(x)?'disabled':''}>${icon('pause',14)}Pause</button>`):''}
    <button class="ghost small ca-dis" data-act="ca-disconnect" data-id="${esc(x.id)}" ${caBusy(x)?'disabled':''}>${icon('trash',14)}Disconnect</button></div></div>`;
@@ -70,9 +70,17 @@ ACT['ca-open']=()=>go('/abilities/logins');
 
 // Access (sharing levels, 6 Nov 2026): one owner per login, the other agents at Manager, Editor or Viewer (read only). Admins change it here.
 const CA_LV={owner:'Owner',manager:'Manager',editor:'Editor',viewer:'Viewer',none:'No access'};
+// each login: one line (the owner and who else may use it) and one Sharing button with every agent in a searchable list,
+// never a chip per agent (21 Nov 2026); picking one opens its level
 async function caAccess(el,items,gone){const d=await UI('/ui/sharing');if(gone()||!d.enabled)return;const by={};for(const r of d.items||[])if(r.type==='account')by[r.id]=r;
- const rows=items.filter(x=>by[x.id]).map(x=>{const r=by[x.id],ag=Object.entries(r.grants||{});
-  return `<div class="row all-row"><div class="main-c"><div class="txt"><b>${esc(x.label)}</b><span>${esc(x.identity||x.where)}</span></div></div><div class="act" style="flex-wrap:wrap;gap:6px">
-   <span class="chip ok" title="Owner">${esc(agentLabel(r.owner))} · Owner</span>${ag.map(([a,l])=>`<label class="chip">${esc(agentLabel(a))} <select data-ca-lv="${esc(x.id)}" data-agent="${esc(a)}">${['manager','editor','viewer','none'].map(v=>`<option value="${v}"${v===l?' selected':''}>${CA_LV[v]}</option>`).join('')}</select></label>`).join('')}</div></div>`});
- if(!rows.length)return;el.insertAdjacentHTML('beforeend',`<h2 class="ach-cat">Access <small class="hint">${rows.length}</small></h2><p class="hint" style="margin:-4px 0 10px">Who may use each login. Viewer: read only. Editor: what the login allows. Manager: also shares it. No access: the agent cannot use it.</p><div class="card list ca-access">${rows.join('')}</div>`);
- el.querySelectorAll('select[data-ca-lv]').forEach(s=>s.addEventListener('change',async()=>{s.disabled=true;try{await UI('/ui/sharing/share',{method:'POST',body:{type:'account',id:s.dataset.caLv,agent:s.dataset.agent,level:s.value}});toast?.('Saved')}catch(e){alert(e.message||'Could not change it')}s.disabled=false}))}
+ CA_SH.by=by;CA_SH.items=items;
+ const rows=items.filter(x=>by[x.id]).map(x=>{const r=by[x.id],ag=Object.entries(r.grants||{}).filter(([,l])=>l!=='none').map(([a])=>a);
+  return `<div class="row all-row"><div class="main-c"><div class="txt"><b>${esc(x.label)}</b><span>${esc(x.identity||x.where)}</span></div></div><div class="act">
+   ${whoLine([r.owner,...ag.filter(a=>a!==r.owner)],{owner:r.owner,verb:'',none:'Nobody yet'})}<button class="ghost small" data-act="ca-share" data-id="${esc(x.id)}" aria-haspopup="menu" aria-label="Who may use ${esc(x.label)}">${icon('user',14)}Sharing</button></div></div>`});
+ if(!rows.length)return;el.insertAdjacentHTML('beforeend',`<h2 class="ach-cat">Access <small class="hint">${rows.length}</small></h2><p class="hint" style="margin:-4px 0 10px">Who may use each login. Viewer: read only. Editor: what the login allows. Manager: also shares it. No access: the agent cannot use it.</p><div class="card list ca-access">${rows.join('')}</div>`)}
+const CA_SH={by:{},items:[]};
+ACT['ca-share']=a=>{const id=a.dataset.id,r=CA_SH.by[id],x=CA_SH.items.find(y=>y.id===id);if(!r)return;const g=r.grants||{},lv=k=>k===r.owner?'owner':g[k]&&g[k]!=='none'?g[k]:'none';
+ const all=[...new Set([r.owner,...Object.keys(g),...(Pages._agents||[]).filter(n=>!n.includes('--'))])].filter(Boolean);
+ whoMenu(a,{header:'Who may use '+(x?.label||'this login'),users:all.filter(k=>lv(k)!=='none'),all,owner:r.owner,on:k=>lv(k)!=='none',disabled:k=>k===r.owner,sub:k=>CA_LV[lv(k)],
+  run:k=>menu(a,[{header:'What '+agentLabel(k)+' may do'},...['manager','editor','viewer','none'].map(v=>({label:CA_LV[v],on:lv(k)===v,bad:v==='none',run:async()=>{if(lv(k)===v)return;
+   try{await UI('/ui/sharing/share',{method:'POST',body:{type:'account',id,agent:k,level:v}});r.grants={...g,[k]:v};toast(agentLabel(k)+': '+CA_LV[v]);reload()}catch(e){fail(e)}}}))])})};

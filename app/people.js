@@ -277,8 +277,8 @@ const pplParts=xs=>xs.map(x=>`<span>${esc(x)}</span>`).join('<i aria-hidden="tru
 const pplSummary=(d,u)=>{if(u.role!=='member')return [u.role==='owner'?'Everything, including people and keys':'Everything except changing the owner'];
  const e=pplEff(d,u),ro=pplRole(d,u);return [...(ro&&u.roleId!=='member'?[ro.name]:[]),e.caps.length?plural(e.caps.length,'permission'):'Chat only',modelSummary(e),pplLimit(e.limit)]};
 const pplAgents=(d,u)=>{if(u.role!=='member'){const all=(Pages._agents||[]).filter(n=>!n.includes('--'));return {list:all,label:'Every agent'+(all.length?' ('+all.length+')':'')}}
- const sh=pplShares(d,u.id);return {list:sh.map(([a])=>a),label:!sh.length?'No agents shared yet':sh.length===1?ident(sh[0][0]).name:plural(sh.length,'agent'),level:sh.length===1?LEVEL_LABEL[sh[0][1]]||sh[0][1]:''}};
-const pplStack=list=>list.length?`<span class="pstack">${list.slice(0,5).map(a=>agentAvatar(a,26,{title:false})).join('')}${list.length>5?`<small>+${list.length-5}</small>`:''}</span>`:'';
+ const sh=pplShares(d,u.id);return {list:sh.map(([a])=>a),label:!sh.length?'No agents shared yet':usedLine(sh.map(([a])=>a),{verb:'',noun:''}),level:sh.length===1?LEVEL_LABEL[sh[0][1]]||sh[0][1]:''}};
+const pplStack=list=>faceStack(list);   // a few faces; the line next to it says who (never a +N bubble)
 function pplCard(d,u,i){const self=u.id===S.me?.id,ag=pplAgents(d,u),risky=u.role==='member'&&pplEff(d,u).caps.includes('unsafe');
  return `<div class="card tile person${u.disabled?' suspended':''}" ${i==null?'':st(i)} data-act="${self?'me-profile':'ppl-open'}" data-id="${esc(u.id)}" data-q="${esc([u.name,u.username,u.email,ROLE_LABEL[u.role],pplRole(d,u)?.name].filter(Boolean).join(' ').toLowerCase())}" role="button" tabindex="0" aria-label="${esc(self?'Edit your profile':'Open '+u.name)}">
   <div class="tile-top">${personAva(u,40)}<div class="ptxt"><h3>${esc(u.name)}</h3><span class="psub"><span class="pmail">${esc(u.email||'No email yet')}</span><span class="pmeta">${pplParts(pplSub(u).slice(1))}</span></span></div></div>
@@ -295,8 +295,8 @@ function pplBody(d,u){const mem=u.role==='member',ro=mem?pplRole(d,u):null,e=mem
   +ppSec('Allowed to',`<p class="psay">${esc(pplSummary(d,u)[0])}.</p>`)+ppSec('Models and limit',`<div class="pp-line"><b>Models</b><span class="pval">All models</span></div><div class="pp-line"><b>Daily limit</b><span class="pval">No limit</span></div>`)}
  const sh=pplShares(d,u.id),caps=Object.entries(d.caps||{});
  const role=ppSec('Role',`<button type="button" class="sel-btn" data-pp="role" aria-haspopup="menu"><span class="sv">${esc(ro?ro.name:'Custom')}</span>${icon('chevD',15)}</button><p class="hint">${ro?esc(roleSummary(ro))+'. <span>From the role. Pick Custom to set their own.</span>':'<span>Their own settings below.</span>'}</p>`);
- const agents=ppSec('Agents',(sh.length?sh.map(([a,l])=>`<div class="pp-line">${agentAva(a)}<b>${esc(ident(a).name)}</b><span class="chip">${esc(LEVEL_LABEL[l]||l)}</span><button class="ghost small" data-pp="change" data-a="${esc(a)}">Change</button></div>`).join(''):'<p class="hint">No agents shared yet.</p>')
-  +`<button class="ghost pp-add" data-pp="share">${icon('plus',15)}Share an agent</button>`);
+ // the agents they use: one line and one Sharing button with every agent in a searchable list (21 Nov 2026)
+ const agents=ppSec('Agents',`<div class="pp-line">${whoLine(sh.map(([a])=>a),{verb:'',none:'No agents shared yet'})}<button class="ghost small" data-pp="agents" aria-haspopup="menu">${icon('user',14)}Sharing</button></div>`);
  const allowed=ppSec('Allowed to',edit?caps.map(([k,l])=>`<label class="capt ${k==='unsafe'?'risky':''}"><input type="checkbox" data-ppcap="${k}" ${e.caps.includes(k)?'checked':''} ${k==='unsafe'&&S.me?.role!=='owner'?'disabled':''}><span>${esc(l)}</span></label>`).join('')
   :e.caps.length?`<ul class="pp-list">${caps.filter(([k])=>e.caps.includes(k)).map(([k,l])=>`<li class="${k==='unsafe'?'risky':''}">${icon('check',14)}<span>${esc(l)}</span></li>`).join('')}</ul>`:'<p class="psay">Chat only: they chat with the agents shared with them.</p>');
  const on=k=>!e.models||e.models.includes(k);
@@ -327,9 +327,9 @@ ACT['ppl-open']=async a=>{const u=pplFind(a.dataset.id);if(!u)return;if(u.role==
   if(w==='role')menu(b,[{header:'Role of '+me.name},...Object.entries(d.roles||{}).map(([k,ro])=>({label:ro.name,sub:roleSummary(ro),on:me.roleId===k,run:()=>me.roleId!==k&&pplSave(dr,{roleId:k},'Role changed')})),'-',
    {label:'Custom',sub:'Their own settings',on:!pplRole(d,me),run:()=>pplRole(d,me)&&pplSave(dr,{roleId:null},'Role changed')}],{matchWidth:true});
   if(w==='limit'){const cur=pplEff(d,me).limit?.tokens||0;menu(b,[{header:'Daily limit'},...LIMITS.map(([v,l])=>({label:l,on:cur===v,run:()=>cur!==v&&pplSave(dr,{limit:v?{tokens:v}:null})}))],{matchWidth:true})}
-  if(w==='change'){const ag=b.dataset.a;ppThen(()=>ACT['agent-share'](ag))}
-  if(w==='share'){const taken=pplShares(d,me.id).map(([a])=>a),list=(Pages._agents||[]).filter(n=>!n.includes('--')&&!taken.includes(n));
-   menu(b,list.length?[{header:'Share which agent?'},...list.map(n=>({label:ident(n).name,icon:'user',ava:agentAvatar(n,20,{title:false}),run:()=>ppThen(()=>ACT['agent-share'](n,{add:me.id}))}))]:[{header:'Every agent is already shared'}],{matchWidth:true})}});
+  if(w==='agents'){const sh=pplShares(d,me.id),lv=new Map(sh);
+   whoMenu(b,{header:'Agents '+me.name+' can use',users:sh.map(([a])=>a),all:(Pages._agents||[]).filter(n=>!n.includes('--')),on:id=>lv.has(id),sub:id=>lv.has(id)?LEVEL_LABEL[lv.get(id)]||lv.get(id):'Not shared',
+    run:id=>ppThen(()=>lv.has(id)?ACT['agent-share'](id):ACT['agent-share'](id,{add:me.id}))})}});
  dr.addEventListener('change',async ev=>{const x=ev.target;if(x.tagName!=='INPUT')return;const me=pplFind(dr.dataset.id);if(!me)return;const box=dr.querySelector('.pp-body');
   if(x.dataset.ppcap){if(x.dataset.ppcap==='unsafe'&&x.checked&&!await confirmBox('Give terminal and file tools?','Agents with these tools can read everything on the box, including your keys and other people\'s files. Only for people you trust like an admin.','Allow')){x.checked=false;return}
    const caps=[...box.querySelectorAll('[data-ppcap]:checked')].map(i=>i.dataset.ppcap);if(!await pplSave(dr,{caps},'Saved',{repaint:false}))x.checked=!x.checked;return}
@@ -523,9 +523,8 @@ const ChX={list:[],LK:{},agents:[],d:null,at:null,sh:null,
   const bot=pf==='slack'&&SlackQuiet.q?.bots?.find(x=>x.agent===ag),pre=bot?SlackQuiet.q.teams[bot.team]?.prefix||'':'';
   const quiet=bot?`<section class="cn-sec"><h3>Slack channels</h3><div class="cn-line"><span class="ic">${icon('chat',15)}</span><span class="cn-lt"><b>${pre?'Quiet in channels starting with '+esc(pre):'Answers in every channel it is in'}</b><small>Only in ${esc(bot.name||'this workspace')}</small></span><button class="ghost small" data-act="sq-edit" data-team="${esc(bot.team)}" data-name="${esc(bot.name||'')}">${icon('edit',14)}Change</button></div></section>`:'';
   const cur=this.sh?.[ag+'|'+pf],senders=cur?.senders||[];
-  const send=l||!this.sh?'':`<section class="cn-sec"><h3>Who can send through it${senders.length?` <small class="hint">${senders.length+1} agents</small>`:''}</h3><p class="hint cn-how">${esc(bn)} gets every reply. Agents added here can also send you messages through it.</p><div class="cn-lines">
-   <div class="cn-line">${agentAvatar(base,30,{title:false})}<span class="cn-lt"><b>${esc(bn)}</b><small>It belongs to this agent</small></span></div>${senders.map(s=>`<div class="cn-line">${agentAvatar(s,30,{title:false})}<span class="cn-lt"><b>${esc(ident(s).name)}</b><small>Can send through it</small></span></div>`).join('')}</div>
-   <button class="small cn-addag" data-act="ch-share" data-owner="${esc(ag)}" data-platform="${esc(pf)}">${icon(senders.length?'edit':'plus',14)}${senders.length?'Change':'Add agent'}</button></section>`;
+  const send=l||!this.sh?'':`<section class="cn-sec"><h3>Who can send through it</h3><p class="hint cn-how">${esc(bn)} gets every reply. Agents added here can also send you messages through it.</p><div class="cn-whobar">${whoLine([base,...senders],{owner:base,verb:'',header:'Who can send through it'})}
+   <button class="small" data-act="ch-share" data-owner="${esc(ag)}" data-platform="${esc(pf)}">${icon(senders.length?'user':'plus',14)}${senders.length?'Change':'Add agent'}</button></div></section>`;
   const B=[`<button class="small" data-act="ch-check" ${a}>${icon('activity',14)}Check connection</button>`];
   if(!c.paused&&!c.moving)B.push(`<button class="small" data-act="ch-apply" ${a}>${icon('refresh',14)}Reconnect</button>`);
   if(wa)B.push(`<button class="small" data-act="wa-replace" data-agent="${esc(ag)}">${icon('refresh',14)}Link a different phone</button>`);

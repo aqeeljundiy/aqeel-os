@@ -5,7 +5,8 @@
    (app/microsoft-connect.mjs). Same look as Connect Google (gc-* styles). ---------- */
 const MsConnect={
  SVC_IC:{mail:'mail',calendar:'clock',files:'folder'},
- chips(svcs){return (svcs||[]).map(k=>`<span class="chip gc-svc">${icon(this.SVC_IC[k]||'check',12)}${esc(this.st.services?.[k]||k)}</span>`).join('')||'<span class="hint">Nothing yet</span>'},
+ // "Can use Mail, Calendar and Files": one line, never a chip per service (21 Nov 2026)
+ svcLine(svcs){return canUseLine((svcs||[]).map(k=>this.st.services?.[k]||k),'Nothing yet')},
  async open(opt={}){this.opt=opt;const d=drawer('Connect Microsoft','<div class="gc-body"><div class="skel" style="height:64px;border-radius:var(--r-md)"></div><div class="skel" style="height:64px;border-radius:var(--r-md);margin-top:8px"></div></div>',`<span class="gc-foot-l hint"></span><button class="ghost" data-act="close">Done</button>`,{size:'md'});d.classList.add('gc-dlg');this.d=d;
   try{this.st=await UI('/ui/microsoft/state')}catch(e){if(d.isConnected)d.querySelector('.gc-body').innerHTML=errLine('the Microsoft settings');return}if(!d.isConnected)return;this.paint()},
  body(){return this.d?.querySelector('.gc-body')},
@@ -18,7 +19,7 @@ const MsConnect={
    <h3 class="gc-h">Connect an account</h3><div class="gc-new" data-nodirty>${this.form()}</div>`);
   this.wire();this.checkAll()},
  card(a,i){return `<div class="gc-card" data-i="${i}" ${st(Math.min(i,8))}>${logoImg('microsoft.com','M')}<div class="gc-c-t"><b>${esc(a.email||'Microsoft account')}</b>
-   <small>${esc(ident(a.agent).name||a.agentName)}${a.name?' · '+esc(pretty(a.name)):' · main account'}</small><div class="gc-chips">${this.chips(a.services)}</div></div>
+   <small>${esc(ident(a.agent).name||a.agentName)}${a.name?' · '+esc(pretty(a.name)):' · main account'}</small><small class="gc-svcs">${esc(this.svcLine(a.services))}</small></div>
    <div class="gc-c-r"><span class="chip gc-stat" data-k="${esc(a.agent+'|'+a.name)}"><span class="spinner tiny"></span>Checking</span><div class="gc-acts"><button class="ghost small" data-ms="re" data-i="${i}">${icon('refresh',14)}Reconnect</button><button class="ghost icon" data-ms="rm" data-i="${i}" aria-label="Remove ${esc(a.email)}" title="Remove">${icon('trash',15)}</button></div></div></div>`},
  form(){const ags=this.st.agents||[];if(!ags.length)return '<p class="hint" style="margin:0">You have no agent of your own to connect Microsoft to yet.</p>';
   const ag=this.opt.agent&&ags.some(x=>x.id===this.opt.agent)?this.opt.agent:ags.some(x=>x.id==='default')?'default':ags[0].id;
@@ -63,7 +64,7 @@ const MsConnect={
     <li><b>Give it this return address.</b> Under Redirect URI, pick Web and paste:
      <div class="sc-row gc-redir"><input readonly value="${esc(s.redirect)}" aria-label="Redirect address"><button class="ghost small" id="msCopy">${icon('copy',14)}Copy</button></div>Then press Register.</li>
     <li><b>Let it read and send for you.</b> Open API permissions › Add a permission › Microsoft Graph › Delegated permissions, tick these and press Add permissions:
-     <div class="gc-chips ms-perms">${(s.permissions||[]).map(p=>`<span class="chip gc-svc">${esc(p)}</span>`).join('')}</div></li>
+     <span class="ms-perms">${esc(listAnd(s.permissions||[]))}.</span></li>
     <li><b>Make a secret.</b> Open Certificates &amp; secrets › New client secret, pick 24 months and press Add. Copy the <b>Value</b> right away (it is hidden later).</li>
     <li><b>Paste both here.</b> The Application (client) ID is on the app’s Overview page.
      <div class="sl-keys"><div><label for="msId">Application (client) ID</label><input id="msId" autocomplete="off" spellcheck="false" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></div>

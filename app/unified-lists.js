@@ -81,7 +81,7 @@ const ulKeyOnly=r=>!r.bot&&!/^(TELEGRAM|WHATSAPP|SLACK|DISCORD|SIGNAL|MATTERMOST
  let sec;if(!x)sec=`<section class="cn-sec"><h3>Account</h3><p class="hint">${KID.d?'Not checked yet.':'Checking which account it is…'}</p></section>`;
  else{const [c,t]=KID_ST[x.status]||KID_ST.unknown,same=(x.sameAs||[]).map(id=>KID.d.items.find(y=>y.id===id)?.name).filter(Boolean);
   sec=`<section class="cn-sec"><h3>Account</h3><div class="cn-line"><span class="ic">${icon('user',15)}</span><span class="cn-lt"><b>${esc(x.account||'Account unknown')}</b><small>${esc([x.scopes,x.last4?'ends in '+x.last4:'',x.checkedAt?'checked '+kidAgo(x.checkedAt):''].filter(Boolean).join(' · '))}</small></span><span class="chip${c?' '+c:''}"${x.detail?` title="${esc(x.detail)}"`:''}><i class="dot"></i>${esc(t)}</span></div>
-   <p class="hint">${x.usedBy==null?'Looking for what uses it…':x.usedBy.length?'Used by '+esc(x.usedBy.slice(0,4).join(', '))+(x.usedBy.length>4?' and '+(x.usedBy.length-4)+' more':'')+'.':'Nothing uses it yet.'}${same.length?' Same account as '+esc(same.join(', '))+'.':''}</p>
+   <p class="hint">${x.usedBy==null?'Looking for what uses it…':x.usedBy.length?thingsLine(x.usedBy,{verb:'Used by',header:'What uses '+(x.name||'it')})+' ':'Nothing uses it yet.'}${same.length?' Same account as '+esc(same.join(', '))+'.':''}</p>
    <button class="small cn-addag" data-act="kid-check" data-id="${esc(x.id)}">${icon('refresh',14)}Check again</button></section>`}
  const i=h.indexOf('<section class="cn-sec cn-do">');return i<0?h+sec:h.slice(0,i)+sec+h.slice(i)}}
 {const open=Cx.open;Cx.open=function(key){open.call(this,key);const r=this.row(key);if(r?.type==='key'&&S.me?.admin!==false)kidLoad().then(()=>{if(this.d?.isConnected&&this.key===key)this.paint()})}}

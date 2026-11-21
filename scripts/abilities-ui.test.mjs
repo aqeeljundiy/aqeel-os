@@ -11,11 +11,14 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 function world(){const ctx={S:{tab:{},me:{admin:true},identities:{},profile:'default'},Pages:{},ACT:{},PAGES:{},ALLVIEW:{},ALL_PAGES:new Set(),esc,icon:n=>'<i data-ic="'+n+'"></i>',plural:(n,w)=>n+' '+w+(n===1?'':'s'),st:()=>'',pretty:s=>String(s),
   ident:a=>({name:ctx.S.identities[a]?.name||a}),mayEdit:()=>true,TS_UNSAFE:['terminal','file','code_execution','computer_use'],tsName:t=>t.label||t.name,tsInfo:t=>({ic:'layers',say:t.description||'',risk:t.risk||''}),
   tsHead:t=>'<b>'+esc(t.label||t.name)+'</b>'+(t.risk?'<span class="ts-risk">'+esc(t.risk)+'</span>':''),tsLock:w=>'<span class="tsg-lock">'+esc(w)+'</span>',tsLocks:async()=>({}),
-  Access:{av:a=>'<span class="acc-av" data-a="'+esc(a.id)+'"></span>'},agentAvatar:()=>'<span class="ava"></span>',toggle:(on,l,attrs='')=>'<input type="checkbox" class="switch" '+(on?'checked':'')+' '+attrs+'>',
+  Access:{av:a=>'<span class="acc-av" data-a="'+esc(a.id)+'"></span>',who:(it,o={})=>ctx.whoLine(it.users||[],{owner:it.owner,list:o.list!==false})},agentAvatar:(a,sz,o={})=>'<span class="'+(o.cls||'ava')+'"></span>',toggle:(on,l,attrs='')=>'<input type="checkbox" class="switch" '+(on?'checked':'')+' '+attrs+'>',
   emptyBox:a=>'<div class="empty">'+a+'</div>',$:()=>null,$$:()=>[],toast:()=>{},fail:()=>{},tabs:(k,l)=>'<div data-tabs="'+k+'">'+l.join('|')+'</div>',CSS:{escape:s=>s},logoImg:(d,l)=>'<span class="logo">'+esc(l)+'</span>',mcpDomain:m=>m.name+'.com',
   SECTIONS:[{id:'abilities',pages:[{id:'skills'},{id:'connections'},{id:'mcp',hidden:true},{id:'plugins'}]}],route:()=>({page:{id:'apps'}}),
   cxName:r=>r.name,cxLogo:()=>'<span class="logo"></span>',cxUsing:r=>r.users.filter(u=>u.level!=='off'),cxNeeds:r=>r.status==='signin',Cx:{},console};
- vm.createContext(ctx);return ctx}
+ vm.createContext(ctx);
+ // the shared who-uses-it line (core.js, 21 Nov 2026), the real code
+ {const c=src('core.js'),a=c.indexOf('const listAnd='),b=c.indexOf('// personAvatar(');vm.runInContext(c.slice(a,b).replace(/^(const|function) (\w+)/gm,(m,k,n)=>k==='const'?'var '+n:m),ctx)}
+ return ctx}
 
 // ---- Tool groups
 const W=world();vm.runInContext(src('all-agents-more.js')+';this.TS=TS;this.TSP=TSP;',W);const {TS,TSP}=W;
@@ -29,8 +32,8 @@ test('the grid with one column per agent is gone',()=>{const s=src('all-agents-m
  assert.ok(!/<th[^>]*>\$\{[^}]*ags\.map/.test(s)&&!/ags\.map\(a=>`<t[hd]/.test(s),'no table cell per agent');
  // and nowhere else on the pages: no table that makes a column per agent
  for(const f of readFileSync(new URL('../app/index.html',import.meta.url),'utf8').matchAll(/src="\/app\/([\w.-]+\.js)"/g))assert.ok(!/(agents|ags)\.map\([a-z]+=>`<th/.test(src(f[1])),f[1]+' has a column per agent')});
-test('a tool group row: a count and at most six faces however many agents, the warning stays visible',()=>{load();
- const h=TS.rowG(W.Pages._tsAll.browser,0);assert.match(h,/On for <b>41<\/b> of 50 agents/);assert.equal((h.match(/class="acc-av"/g)||[]).length,6);assert.match(h,/\+35/);
+test('a tool group row: a count and at most four faces however many agents, the warning stays visible',()=>{load();
+ const h=TS.rowG(W.Pages._tsAll.browser,0);assert.match(h,/On for <b>41<\/b> of 50 agents/);assert.equal((h.match(/class="acc-av"/g)||[]).length,4);assert.ok(!/\+35/.test(h),'no +N bubble: the line says how many');
  assert.match(h,/Acts on websites with the sign-ins it has/);assert.equal((h.match(/data-act="tsg-open"/g)||[]).length,1,'one control');assert.ok(!h.includes('class="switch"'),'no switch per agent in the row');
  assert.ok(h.length<2600,'a row stays small: '+h.length);
  const off=TS.rowG(mk('quiet',[]),0);assert.match(off,/Off for all 50 agents/);assert.ok(!off.includes('acc-who'))});
@@ -73,7 +76,7 @@ test('each app says what it does, whether it is connected and for which agents; 
  const l=A.Apps.build(CAT,A.Pages._cx);assert.deepEqual(l.map(a=>[a.title,a.on,a.users.length,a.need]),[['My CRM',true,1,false],['notion',true,2,false],['slack',true,1,true],['airtable',false,0,false],['github',false,0,false]]);
  assert.equal(l[0].custom,true,'an app added by its address is listed too');assert.equal(l[0].cat,'Added by its address');assert.ok(!l.some(a=>a.title==='Word'),'only apps');
  const on=A.Apps.card(l[1],0),off=A.Apps.card(l[4],0),need=A.Apps.card(l[2],0);
- assert.match(on,/Connected/);assert.equal((on.match(/class="acc-av"/g)||[]).length,2);assert.match(on,/data-act="ap-manage" data-key="mcp:notion"/);assert.match(on,/Notes and docs/);
+ assert.match(on,/Connected/);assert.equal((on.match(/class="acc-av"/g)||[]).length,2);assert.match(on,/Used by default and sesa/,'who, in one line');assert.ok(!/acc-more|\+\d/.test(on),'no +N bubble');assert.match(on,/data-act="ap-manage" data-key="mcp:notion"/);assert.match(on,/Notes and docs/);
  assert.ok(!/chip ok/.test(off),'not shown as connected');assert.match(off,/data-act="ap-connect" data-name="github"/);assert.match(off,/Needs a key/);assert.match(need,/Needs sign-in/);assert.match(need,/>Sign in</);
  for(const c of [on,off,need])assert.equal((c.match(/<button/g)||[]).length,1,'one button per app')});
 test('search and the filters: Connected, and a kind per app',()=>{A.Apps.list=A.Apps.build(CAT,A.Pages._cx);const pick=()=>A.Apps.list.filter(a=>A.Apps.match(a)).map(a=>a.title);

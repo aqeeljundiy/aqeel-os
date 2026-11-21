@@ -6,9 +6,8 @@
    the same sign-in files (app/google-connect.mjs). ---------- */
 const GC={
  SVC_IC:{gmail:'mail',calendar:'clock',drive:'folder',sheets:'list',docs:'file',contacts:'user'},
- chips(svcs,labels){return (svcs||[]).map(k=>`<span class="chip gc-svc">${icon(this.SVC_IC[k]||'check',12)}${esc(labels?.[k]||k)}</span>`).join('')||'<span class="hint">No Google services</span>'},
  // what the account may use, as one plain line (no pills: there can be many)
- svcLine(svcs){const l=(svcs||[]).map(k=>this.st.services?.[k]||k);return l.length?'Can use '+(l.length>2?l.slice(0,-1).join(', ')+' and '+l.at(-1):l.join(' and ')):'No Google services'},
+ svcLine(svcs){return canUseLine((svcs||[]).map(k=>this.st.services?.[k]||k),'No Google services')},
  async open(opt={}){this.opt=opt;const d=drawer('Connect Google','<div class="gc-body"><div class="skel" style="height:64px;border-radius:var(--r-md)"></div><div class="skel" style="height:64px;border-radius:var(--r-md);margin-top:8px"></div></div>',`<span class="gc-foot-l hint"></span><button class="ghost" data-act="close">Done</button>`,{size:'md'});d.classList.add('gc-dlg');this.d=d;
   try{[this.st,this.cx]=await Promise.all([UI('/ui/google/state'),this.rows()])}catch(e){if(d.isConnected)d.querySelector('.gc-body').innerHTML=errLine('the Google settings');return}if(!d.isConnected)return;this.paint()},
 
@@ -36,9 +35,9 @@ const GC={
   return `<div class="gc-card" data-i="${i}" ${st(Math.min(i,8))}>${logoImg('google.com','G')}<div class="gc-c-t">
    <div class="gc-name"><b>${esc(this.label(g))}</b>${edit?`<button class="icon-btn small" data-gc="ren" data-i="${i}" aria-label="Rename ${esc(this.label(g))}" title="Rename">${icon('edit',13)}</button>`:''}</div>
    <small>${esc(g.email||'Google account')} · on ${esc(ident(g.owner).name)}${names.length?' · tools call it '+names.map(esc).join(', '):''}</small>
-   ${users.length?`<div class="gc-users">${users.slice(0,4).map(u=>agentAvatar(u.id,22,{title:true})).join('')}<span class="gc-u-t">${esc(this.usedBy(g,users))}</span>${edit?`<button class="ghost small gc-add" data-gc="share" data-i="${i}">${icon('user',13)}Sharing</button>`:''}</div>`:''}
+   ${users.length?`<div class="gc-users">${whoLine(users,{owner:g.owner,list:!edit,header:'Who uses '+this.label(g)})}${edit?`<button class="ghost small gc-add" data-gc="share" data-i="${i}">${icon('user',13)}Sharing</button>`:''}</div>`:''}
    ${g.copies.length?`<small class="gc-copy">${g.copies.map(f=>esc(ident(f.agent).name)).join(', ')} still ${g.copies.length>1?'have':'has'} a full copy of the sign-in; aqeelOS turns it into a share by itself.${cx?.canEdit?' <button class="link-btn" data-gc="fold">Do it now</button>':''}</small>`:''}
-   <small>${this.svcLine(a.services)}</small></div>
+   <small>${esc(this.svcLine(a.services))}</small></div>
    <div class="gc-c-r"><span class="chip gc-stat" data-k="${esc(a.agent+'|'+a.name)}"><span class="spinner tiny"></span>Checking</span><div class="gc-acts"><button class="ghost small" data-gc="re" data-i="${i}">${icon('refresh',14)}Reconnect</button><button class="icon-btn small" data-gc="rm" data-i="${i}" aria-label="Remove ${esc(g.email)}" title="Remove">${icon('trash',15)}</button></div></div></div>`},
  form(){const ags=this.st.agents;if(!ags.length)return '<p class="hint" style="margin:0">You have no agent of your own to connect Google to yet.</p>';
   const ag=this.opt.agent&&ags.some(x=>x.id===this.opt.agent)?this.opt.agent:ags.some(x=>x.id==='default')?'default':ags[0].id,want=this.opt.services||Object.keys(this.st.services);
@@ -58,9 +57,6 @@ const GC={
  // a change through Connections, then fresh cards in place (the button shows it is working meanwhile)
  async cxDo(btn,path,body,msg){const was=btn.innerHTML;btn.disabled=true;btn.innerHTML='<span class="spinner tiny"></span>';
   try{const r=await post(UI,path,body);toast(typeof msg==='function'?msg(r):msg);Pages._cxFresh=true;await this.refresh();if(route().page?.id==='connections')Cx.refresh?.();return r}catch(e){if(btn.isConnected){btn.disabled=false;btn.innerHTML=was}fail(e)}},
- // "Used by Donna AI and 2 more" (who and how many, never a pill per agent: there can be dozens)
- usedBy(g,users){const o=users.find(u=>u.id===g.owner),rest=users.filter(u=>u.id!==g.owner);const first=o?ident(o.id).name+' (owner)':'';
-  return 'Used by '+(rest.length===0?first||'nobody':rest.length===1?first+' and '+ident(rest[0].id).name:first+' and '+rest.length+' more agents')},
  // every agent in one searchable list: its level, or No access; picking one opens its levels (or gives it at Read)
  share(g,btn){const users=g.row.users,ags=this.cx.agents.slice().sort((x,y)=>(y.id===g.owner)-(x.id===g.owner)||(!!users.find(u=>u.id===y.id))-(!!users.find(u=>u.id===x.id))||ident(x.id).name.localeCompare(ident(y.id).name));
   menu(btn,[{header:'Who may use '+this.label(g)},...ags.map(x=>{const u=users.find(v=>v.id===x.id);return {label:ident(x.id).name,ava:agentAvatar(x.id,20,{title:false}),find:ident(x.id).name,on:!!u,
