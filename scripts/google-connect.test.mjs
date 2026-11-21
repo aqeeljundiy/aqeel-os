@@ -24,7 +24,7 @@ test('the client file: web and desktop are read; a service account or junk is sa
  assert.equal(parseClient(JSON.stringify(WEB)).type,'web');assert.equal(parseClient(DESK).type,'installed');
  assert.throws(()=>parseClient('{nope'),/not the JSON file/);assert.throws(()=>parseClient({type:'service_account'}),/service account/);assert.throws(()=>parseClient({web:{client_id:'x',client_secret:'y'}}),/does not look like/)});
 test('services and scopes',()=>{const s=scopesFor(['drive','gmail']);assert.ok(s.includes('openid'));assert.ok(s.includes('https://www.googleapis.com/auth/drive'));assert.ok(s.includes('https://www.googleapis.com/auth/gmail.send'));
- assert.deepEqual(servicesOf(s),['gmail','drive']);assert.equal(scopesFor().length,2+8);assert.throws(()=>scopesFor(['nope']),/at least one/);
+ assert.deepEqual(servicesOf(s),['gmail','drive']);assert.equal(scopesFor().length,2+9);assert.throws(()=>scopesFor(['nope']),/at least one/);
  assert.equal(cleanName(' Client A! '),'client-a');assert.deepEqual(codeFrom('http://localhost/?state=s&code=c&scope=x'),{code:'c',state:'s',error:'',scope:'x'});assert.equal(emailOf(jwt({email:'A@B.test'})),'a@b.test')});
 
 test('connect (web client): PKCE address, the callback writes the skill\'s own file, private',async()=>{const t=setup();try{

@@ -12,7 +12,7 @@ import {createHash,randomBytes} from 'node:crypto';
 import path from 'node:path';
 
 export const SERVICES={
- gmail:{label:'Gmail',api:'gmail.googleapis.com',apiName:'Gmail API',scopes:['https://www.googleapis.com/auth/gmail.readonly','https://www.googleapis.com/auth/gmail.send','https://www.googleapis.com/auth/gmail.modify']},
+ gmail:{label:'Gmail',api:'gmail.googleapis.com',apiName:'Gmail API',scopes:['https://www.googleapis.com/auth/gmail.readonly','https://www.googleapis.com/auth/gmail.send','https://www.googleapis.com/auth/gmail.modify','https://www.googleapis.com/auth/gmail.settings.basic']},
  calendar:{label:'Calendar',api:'calendar-json.googleapis.com',apiName:'Google Calendar API',scopes:['https://www.googleapis.com/auth/calendar']},
  drive:{label:'Drive',api:'drive.googleapis.com',apiName:'Google Drive API',scopes:['https://www.googleapis.com/auth/drive']},
  sheets:{label:'Sheets',api:'sheets.googleapis.com',apiName:'Google Sheets API',scopes:['https://www.googleapis.com/auth/spreadsheets']},
