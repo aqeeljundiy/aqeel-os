@@ -236,4 +236,10 @@ await t('resort: a wrongly sorted item loses its sort and its need, takes the ow
  assert.equal(await I.resort('i00000000','x'),null,'unknown id');
  const c=await I.close(id,'owner (local): wrong person was asked');assert.equal(c.state,'closed');
  await assert.rejects(I.resort(id,'again'),/already closed/)});
+await t('a proof that only waits for the next scheduled run needs no person (AU-32, 21 Nov 2026)',async()=>{
+ const {waitOnly}=await import('../app/issues.mjs');
+ const need='Nothing a person must do. The next scheduled run (after 2026-11-21 08:27 +07:00) has to happen and be rechecked; the Broken pipe errors would have to stop first.';
+ assert.equal(waitOnly(need),true);assert.equal(noPersonNeeded(need),true,'ifc5ef972 would not have gone to a person');
+ assert.equal(waitOnly('Wait for the next scheduled run, then the owner must sign in to Meta Ads'),false,'a sign-in is still a person');
+ assert.equal(noPersonNeeded('The owner must top up the OpenAI credit'),false)});
 console.log(n+' passed');

@@ -97,7 +97,10 @@ export const testerSendOnly=t=>{t=String(t||'');return /\b(tester|test(ing)? (ph
 // limit"). Signing in does nothing there; a person is asked only for money, a key or login only they have that can work,
 // adding a bot, or a decision only they can make.
 export const technicalOnly=t=>{t=String(t||'');return /\b(engine|MCP client|server-sent event|SSE|byte limit|\d+ ?MB limit|rejects? (the|its) (response|reply)|time[sd]? ?out|exit code|traceback|stack trace|bug|code (change|fix)|patch|crash(es|ed)?|HTTP 5\d\d|internal error|parking|failed initial connection)\b/i.test(t)&&!/\b(pay|paid|invoice|top ?up|billing|password only|add (the )?bot|invite|decid|choose|which one)\b/i.test(t)};
-export const noPersonNeeded=t=>approvalOnly(t)||testerSendOnly(t)||technicalOnly(t);
+// "nothing a person must do, the next scheduled run has to happen" is a wait, not a person's job (AU-32, 21 Nov 2026: issue ifc5ef972
+// went to "needs a person" with exactly that proof); the fixer proves it again after that run
+export const waitOnly=t=>{t=String(t||'');return /\b(nothing (a |any )?(person|one|human) (must|needs to|has to|should) do|no (person|human|one) (is )?needed|(wait|waits|waiting) (for|until) (the )?(next|later|following) (scheduled )?(run|tick|check)|(next|later) scheduled run (has to|must|needs to) (happen|run)|recheck(ed)? after the next)/i.test(t)&&!/\b(pay|paid|invoice|top ?up|billing|password|log ?in|sign ?in|qr|scan|add (the )?bot|invite|decid|choose|which one)/i.test(t)};
+export const noPersonNeeded=t=>approvalOnly(t)||testerSendOnly(t)||technicalOnly(t)||waitOnly(t);
 export const approvalOnly=t=>{t=String(t||'');return /\b(approv|sign[ -]?off|give (the |your )?ok|ok (it|this|the change)|confirm (that|whether|the change|this change)|review (the|this) (change|fix|rule))/i.test(t)&&!/\b(pay|paid|invoice|top ?up|billing|key|token|password|log ?in|sign ?in|qr|add (the )?bot|invite|decid|choose|which one)/i.test(t)};
 // A hard cap per issue on proof and fix runs (12 Nov 2026: 372 proof runs in a day for ~25 stuck issues, one issue 81 times, each a full
 // agent session of paid quota). Team policy fixer.maxProofsPerDay / maxProofsTotal / maxFixesPerDay / maxFixesTotal; counted from the runs that
@@ -116,12 +119,19 @@ export function capHit(runs,issue,kind,pol,day){const c=runCounts(runs,issue,day
 // fixer.maxCostPerDay (default $10: no new fix run that day, urgent agents aside), fixer.maxTurns {fix, proof, escalate} (the engine stops a
 // run after that many tool-calling turns), fixer.escalateMaxSpent (default $2: the stronger model on the last try only if the earlier
 // tries cost no more than that and at least one of them got as far as a result).
+export const COST_EVERY=2*60e3;
 export const COST_CAPS={issue:3,day:10,escalateSpent:2},TURNS={fix:30,proof:16,escalate:30};
 export const costCaps=pol=>{const f=pol?.fixer||{},n=(v,d)=>Number.isFinite(Number(v))&&Number(v)>0?Number(v):d;
  return {issue:n(f.maxCostPerIssue,COST_CAPS.issue),day:n(f.maxCostPerDay,COST_CAPS.day),escalateSpent:n(f.escalateMaxSpent,COST_CAPS.escalateSpent)}};
 export const turnLimit=(pol,kind,esc=false)=>{const t=pol?.fixer?.maxTurns||{},v=Number(esc?t.escalate||t.fix:t[kind]);return Number.isFinite(v)&&v>=3?Math.min(200,Math.floor(v)):esc?TURNS.escalate:TURNS[kind]||TURNS.fix};
 // what an issue's runs cost so far (a run that never reached the model costs nothing), minus what a person's Try again wiped
 export const runCost=(runs,issue)=>{let c=0;for(const r of Object.values(runs||{}))if(r.issue===issue.id&&!r.notStarted)c+=Number(r.usage?.cost)||0;return Math.max(0,c-(Number(issue.runBase?.cost)||0))};
+// a problem that comes back as a new issue (same Health topic, within 7 days) shares the earlier one's budget (AU-33, 21 Nov 2026: the
+// same continue-support "stopped" topic was filed twice in one day and paid twice)
+export const SAME_TOPIC_DAYS=7;
+export const topicCost=(items,runs,issue,now=Date.now())=>{if(!issue?.key||issue.runBase)return runCost(runs,issue);   // after Try again: its own fresh count only
+ let c=0;
+ for(const x of items||[])if(x.id===issue.id||x.key===issue.key&&(Number(x.created)||0)>now-SAME_TOPIC_DAYS*864e5)c+=runCost(runs,x);return c};
 export const costToday=(runs,day)=>{let c=0;for(const r of Object.values(runs||{}))if(r.day===day&&!r.notStarted)c+=Number(r.usage?.cost)||0;return c};
 // MODEL-3b: "something changed" means the evidence changed, not that the same problem was reported again. The fingerprint is of the words of the
 // problem and its evidence with the parts that change on every report left out (times, dates, ids, counters): the same words, the same fingerprint.
@@ -307,7 +317,7 @@ export function capItems(items,cap=CAP){const live=items.filter(i=>!ENDED.includ
  const drop=new Set(items.filter(i=>ENDED.includes(i.state)).sort((a,b)=>(a.updated||a.created||0)-(b.updated||b.created||0)).slice(0,items.length-cap).map(i=>i.id));
  return {items:items.filter(i=>!drop.has(i.id)),dropped:[...drop],live,over:live>cap}}
 export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=async()=>false,tellOwner=async()=>{},toTeam=async()=>false,busy=async()=>0,ready=async()=>true,
- apply=async()=>({ok:true}),usageOf=async()=>null,nameOf=a=>a,codeRoots=[],onFixed=async()=>{},checks={},quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,envFiles=async()=>[],watch=null,
+ apply=async()=>({ok:true}),usageOf=async()=>null,nameOf=a=>a,codeRoots=[],onFixed=async()=>{},checks={},quiet=()=>null,log=m=>console.log(m),launch=null,alive=null,stopProcess=null,envFiles=async()=>[],watch=null,
  // tz: the install's time zone (the daily runs and Skip reset at its midnight); sortRun: one short model call, {prompt,agent,model,effort} → its output
  tz=()=>'',sortRun=null,
  // GIT-2: the fixer's own git checkout (fixer-git.mjs); needToken / tokenOk: the one "Needs you" item that asks for the GitHub token
@@ -558,7 +568,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   for(const i of lineOf(db.items,now())){if(i.notBefore>now())continue;
    const kind=i.state==='verify'?'proof':'fix',cp=capHit(db.runs,i,kind,pol,today());
    if(cp==='total'){await capOut(i,pol);continue}if(cp==='day'){i.notBefore=nextDay(now(),tz());await save();continue}
-   if(kind==='fix'&&runCost(db.runs,i)>=cc.issue){await capOut(i,pol,'cost');continue}
+   if(kind==='fix'&&topicCost(db.items,db.runs,i,now())>=cc.issue){await capOut(i,pol,'cost');continue}
    if(kind==='proof')return await start(i,pol,'proof');
    if(!i.urgent&&(held||capped))continue;return await start(i,pol,'fix')}}finally{running=null}}
  // ---- the cloud fixer: sent once, again only on new evidence or Try again; the nightly batch sends what waits; a fix that did not hold is sent again, up to CLOUD_MAX
@@ -589,7 +599,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  async function cloudStatus(){if(!cloud)return null;const on=await cloud.ready().catch(()=>false),c=db.items.filter(x=>x.cloud);
   return {on,sent:c.filter(x=>x.cloud.sends>0).length,merged:c.filter(x=>x.cloud.merged||x.cloud.prs?.length).length,waiting:c.filter(x=>x.state==='cloud_wait').length,using:on?(await cloud.pick().catch(()=>null))?.best?.label||null:null}}
  // an issue at its total cap becomes one "needs a person" item, once (it is not queued again by new reports; Try again gives a fresh count)
- async function capOut(i,pol,why='runs'){if(i.capped)return;const c=runCounts(db.runs,i,today()),m=runCaps(pol),spent=runCost(db.runs,i);
+ async function capOut(i,pol,why='runs'){if(i.capped)return;const c=runCounts(db.runs,i,today()),m=runCaps(pol),spent=topicCost(db.items,db.runs,i,now());
   i.capped={at:now(),proofs:c.proofTotal,fixes:c.fixTotal,...(why==='cost'?{cost:Math.round(spent*100)/100}:{})};i.state='needs_human';i.updated=now();i.notBefore=0;
   i.need=why==='cost'?'aqeelOS spent about $'+spent.toFixed(2)+' of AI usage on this problem in '+c.fixTotal+' fix run'+(c.fixTotal===1?'':'s')+' (the limit is $'+costCaps(pol).issue+' per problem) and it is still not solved. It stops here so it does not use up the AI accounts; a person must look at it. Try again starts a fresh count.'
    :'aqeelOS ran this '+c.fixTotal+' time'+(c.fixTotal===1?'':'s')+' as a fix and '+c.proofTotal+' time'+(c.proofTotal===1?'':'s')+' as a proof (the limit is '+m.fixTotal+' and '+m.proofTotal+' per problem) and it is still not solved. It stops here so it does not use up the AI accounts; a person must look at it. Try again starts a fresh count.';
@@ -727,8 +737,15 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   for(const x of w){if(x.git.state==='error'&&now()-(x.git.tryAt||0)<30*60e3)continue;const was=x.git.state;await publishOne(x);await save();log('issues: '+x.id+' branch '+x.git.branch+': '+was+' → '+x.git.state+(x.git.why?' ('+x.git.why+')':''))}}
  // fixes waiting for review (System › Health): every branch whose issue still waits for the merge and the deploy
  const reviews=async()=>{await load();return db.items.filter(i=>i.git&&['deploy','verify','verifying'].includes(i.state)).map(i=>({issue:i.id,branch:i.git.branch,at:i.git.at,files:i.git.files,note:i.result?.summary||i.missing,url:i.git.url||null,number:i.git.number||null,state:i.git.state,why:i.git.why||null}))};
+ // a fix run is its own process group (spawnRun: detached), so the whole run ends, the engine inside it too
+ const stopRun=async r=>{if(stopProcess)return stopProcess(r);if(r.pid)process.kill(-r.pid,'SIGTERM')};
  async function check(r,pol){const dir=path.join(DIR,r.id);const ex=await readFile(path.join(dir,'exit'),'utf8').catch(()=>null);
   const up=r.pid&&(alive?await alive(r):(()=>{try{process.kill(r.pid,0);return true}catch{return false}})());
+  // a fix run that is still going is stopped once the problem's spend reaches its cap (AU-33, 21 Nov 2026: the cap was only checked before a
+  // run, and one escalated run alone cost $5.14 of a $3 cap); read every 2 minutes from the engine's own record of the run
+  if(ex===null&&up&&(r.kind||'fix')==='fix'&&!r.stopping&&now()-(r.costAt||r.at)>=COST_EVERY){r.costAt=now();const iss=db.items.find(x=>x.id===r.issue);
+   const live=Number((await usageOf(r).catch(()=>null))?.cost)||0,cap=costCaps(pol).issue,before=iss?topicCost(db.items,db.runs,iss,now()):0;
+   if(before+live>=cap){r.stopping='cost';log('issues: '+r.id+' stopped: this problem has now used about $'+(before+live).toFixed(2)+' (limit $'+cap+')');await save();await stopRun(r).catch(e=>log('issues: stop '+r.id+': '+e.message));return}}
   if(ex===null&&up)return;const out=await readFile(path.join(dir,'out.txt'),'utf8').catch(()=>'');r.done=now();r.exit=ex===null?null:Number(ex);r.usage=await usageOf(r).catch(()=>null)||undefined;
   // asked one vendor's model, ran on another's (route-order.mjs): kept on the run with the engine's reason, shown on Health
   {const rt=runRoute(r,recordFor(await readRecords(DATA,{days:2}).catch(()=>[]),{kind:'fixer',from:r.at,to:r.done}));if(rt){r.route=rt;log('issues: '+r.id+' asked for '+rt.asked+' and ran on '+rt.actual+(rt.reason?' ('+rt.reason+')':''))}}

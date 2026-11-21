@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {createIssues,fingerprint,costCaps,turnLimit,runCost,costToday,cameBackMs,fixerModel,repairPrompt,proofPrompt,turnLine,COST_CAPS,TURNS} from '../app/issues.mjs';
+import {createIssues,fingerprint,costCaps,turnLimit,runCost,costToday,cameBackMs,fixerModel,repairPrompt,proofPrompt,turnLine,COST_CAPS,TURNS,COST_EVERY,topicCost} from '../app/issues.mjs';
 import {fakeFixerSandbox} from './lib/fake-fixer-sandbox.mjs';
 
 const T=Date.UTC(2026,10,12,8,0);
@@ -181,3 +181,21 @@ test('a problem that came back after a proven fix and is held (same evidence) is
   step(5*3600e3);const r=await fx.file({...o,evidence:'reply count 0 at 14:40'});assert.equal(r.issue.state,'needs_human');
   assert.equal(told.length,before+1,'the person is told that it came back (urgent: '+urgent+')');assert.match(JSON.stringify(told.at(-1)),/came back/);assert.match(JSON.stringify(told.at(-1)),/Customers get no reply/);
   step(3600e3);await fx.file({...o,evidence:'reply count 0 at 15:40'});await fx.tick();assert.equal(told.length,before+1,'once, not per report');assert.equal(started.length,0)}});
+
+test('AU-33: a fix run still going is stopped once the problem reaches its cap; under the cap it runs on',async()=>{
+ const DATA=await mkdtemp(path.join(tmpdir(),'fc-'));let t=T,live=0.5;const stopped=[];
+ await writeFile(path.join(DATA,'team-policy.json'),JSON.stringify({teams:[],owner:{name:'Owner'},fixer:{on:true,agent:'default',maxCostPerIssue:3}}));
+ const fx=createIssues({sandbox:fakeFixerSandbox(),DATA,home:DATA,bin:'x',fixerHome:DATA,now:()=>t,tellOwner:async()=>{},ready:async()=>true,log:()=>{},tz:()=>'UTC',
+  launch:async()=>4242,alive:async()=>true,usageOf:async()=>({cost:live}),stopProcess:async r=>{stopped.push(r.id)}});
+ await fx.file({agent:'a',missing:'The agent cannot reply to X',evidence:'e'});const db=await fx._db(),i=db.items[0];db.runs.old=run('old',i.id,{cost:1});
+ await fx.tick();const id=i.run;assert.ok(id&&!db.runs[id].done,'a fix run is going');
+ t+=COST_EVERY;await fx.tick();assert.deepEqual(stopped,[],'$1 before + $0.50 so far: under $3');
+ live=2.2;t+=COST_EVERY;await fx.tick();assert.deepEqual(stopped,[id],'$1 + $2.20 reaches $3: stopped');assert.equal(db.runs[id].stopping,'cost');
+ t+=COST_EVERY;await fx.tick();assert.deepEqual(stopped,[id],'stopped once')});
+
+test('AU-33: the same Health topic filed again within a week shares the earlier issue\'s budget; Try again still starts fresh',()=>{
+ const now=T,items=[{id:'i1',key:'health|topic|x',created:now-3*864e5},{id:'i2',key:'health|topic|x',created:now},{id:'i3',key:'health|topic|x',created:now-9*864e5},{id:'i4',key:'other',created:now}];
+ const runs={a:run('a','i1',{cost:2.5}),b:run('b','i2',{cost:0.4}),c:run('c','i3',{cost:9}),d:run('d','i4',{cost:7})};
+ assert.equal(+topicCost(items,runs,items[1],now).toFixed(2),2.9,'i1 (3 days ago) counts, i3 (9 days) and another topic do not');
+ assert.equal(+topicCost(items,runs,{...items[1],runBase:{cost:0}},now).toFixed(2),0.4,'after Try again only its own');
+ assert.equal(topicCost(items,runs,{id:'i4'},now),7,'no topic key: its own')});
