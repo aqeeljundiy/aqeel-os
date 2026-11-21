@@ -54,7 +54,7 @@ def _validate_kirim_signature(body: bytes, secret: str, header: str) -> bool:
     expected = _hex_hmac(secret, t.encode() + b"." + body)
     matched = False
     for sig in sigs:  # every one is compared, so the time taken does not say which one matched
-        matched = _hmac_str_equal(sig, expected) or matched
+        matched = hmac.compare_digest(sig.encode(), expected.encode()) or matched  # bytes: a non-ASCII header fails closed (no engine helper, AU-21)
     return matched
 
 
@@ -93,17 +93,25 @@ const ROUTES=[{why:'the route list home',
   from:'        from hermes_constants import get_hermes_home\n        subs_path = get_hermes_home() / _DYNAMIC_ROUTES_FILENAME\n',
   to:`        # ${ROUTES_TAG}: the gateway's own list, also while an event is handed to a routed agent (its home has none)
         from hermes_constants import get_routing_process_hermes_home
-        subs_path = get_routing_process_hermes_home() / _DYNAMIC_ROUTES_FILENAME\n`}];
+        subs_path = get_routing_process_hermes_home() / _DYNAMIC_ROUTES_FILENAME\n`,
+  // v0.23.3 (21 Nov 2026, AU-21): the same place, with the file-version import in between
+  alts:[{from:'        from hermes_constants import get_hermes_home\n        from utils import file_cache_version\n        subs_path = get_hermes_home() / _DYNAMIC_ROUTES_FILENAME\n',
+   to:`        # ${ROUTES_TAG}: the gateway's own list, also while an event is handed to a routed agent (its home has none)
+        from hermes_constants import get_routing_process_hermes_home
+        from utils import file_cache_version
+        subs_path = get_routing_process_hermes_home() / _DYNAMIC_ROUTES_FILENAME\n`}]}];
 export const PATCHES=[{tag:TAG,name:'Kirimdev signatures',edits:EDITS},{tag:ROUTES_TAG,name:'webhook routes for agents',edits:ROUTES}];
 
 // each patch all or nothing: {out, applied:[names], errors:[text]}; out is null when nothing changed
 const FIXUPS=[{name:'Kirimdev retries are one delivery',from:'    return "kirim-" + hashlib.sha256(parts[0].encode() + b"." + body).hexdigest()[:40]\n',
  to:'    return "kirim-" + hashlib.sha256(body).hexdigest()[:40]  # aqeelos:kirim-delivery-v2\n'}];
+// an edit's place: as written, else one of its alts (the same change for a newer engine, 21 Nov 2026, AU-21)
+export const pickEdit=(src,e)=>[e,...(e.alts||[])].find(x=>src.split(x.from).length===2)||null;
 export function kirimPatch(src){let out=src;const applied=[],errors=[];
  // already patched with an earlier version: small in-place corrections (nothing to do when they are in)
  for(const f of FIXUPS)if(out.split(f.from).length===2){out=out.replace(f.from,()=>f.to);applied.push(f.name)}
  for(const p of PATCHES){if(out.includes(p.tag))continue;let next=out,bad=null;
-  for(const e of p.edits){if(next.split(e.from).length!==2){bad=p.name+': the place for '+e.why+' changed upstream';break}next=next.replace(e.from,()=>e.to)}
+  for(const e of p.edits){const u=pickEdit(next,e);if(!u){bad=p.name+': the place for '+e.why+' changed upstream';break}next=next.replace(u.from,()=>u.to)}
   if(bad)errors.push(bad);else{out=next;applied.push(p.name)}}
  return {out:applied.length?out:null,applied,errors}}
 

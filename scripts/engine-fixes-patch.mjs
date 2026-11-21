@@ -78,6 +78,8 @@
 //    and never to a model. A script schedule now gets back the proxy settings the plugin replaced (none on our boxes).
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
+// an edit's place: as written, else one of its alts (the same change for a newer engine, 21 Nov 2026, AU-21)
+const pickEdit=(src,e)=>[e,...(e.alts||[])].find(x=>src.split(x.from).length===2)||null;
 
 export const FIXES=[
  {tag:'aqeelos:script-no-bili-proxy',name:'script-only schedules never go through the model proxy',file:'cron/scheduler_script.py',edits:[
@@ -231,7 +233,15 @@ def _run_job_script(
 
 
 # aqeelos:hold-inbound-during-restart: messages that reach an adapter with no handler (the engine is stopping)
-_AQ_HELD_DIR = os.path.join(os.path.expanduser("~"), ".hermes", "aqeelos-held-inbound")
+def _aq_held_dir():
+    # the engine's own root (~/.hermes on the servers, the same folder as before; the isolated home under the engine's tests)
+    try:
+        from agent.file_safety import _hermes_root_path
+        return str(_hermes_root_path() / "aqeelos-held-inbound")
+    except Exception:
+        return os.path.join(os.path.expanduser("~"), ".hermes", "aqeelos-held-inbound")
+
+
 _AQ_HELD_MAX_AGE = 6 * 3600
 
 
@@ -243,7 +253,7 @@ def _aq_held_file(adapter):
     import hashlib
     plat = getattr(getattr(adapter, "platform", None), "value", None) or str(getattr(adapter, "platform", ""))
     key = hashlib.sha256(("%s:%s" % (plat, tok)).encode()).hexdigest()[:16]
-    return os.path.join(_AQ_HELD_DIR, "%s-%s.pickle-lines" % (plat, key))
+    return os.path.join(_aq_held_dir(), "%s-%s.pickle-lines" % (plat, key))
 
 
 def _aq_hold_inbound(adapter, event):
@@ -256,7 +266,7 @@ def _aq_hold_inbound(adapter, event):
             blob = pickle.dumps(event)
         except Exception:
             blob = pickle.dumps(dataclasses.replace(event, raw_message=None))
-        os.makedirs(_AQ_HELD_DIR, mode=0o700, exist_ok=True)
+        os.makedirs(os.path.dirname(f), mode=0o700, exist_ok=True)
         with open(f, "a", encoding="ascii") as fh:
             fh.write("%d %s\\n" % (int(time.time()), base64.b64encode(blob).decode("ascii")))
         logger.warning("[%s] Engine stopping: inbound message kept for the next engine (%s)", adapter.name, os.path.basename(f))
@@ -695,10 +705,82 @@ def _redact_phones_enabled() -> bool:
           )
 `}]}];
 
+// v0.23.3 (21 Nov 2026, AU-21): the engine P&P moved to on 20 Nov rewrote or moved the places of seven fixes. Each edit may
+// carry alts (the same change where the newer engine has it); a fix whose code moved to another file has ifHas (applies only
+// where that text still is) and a second entry for the new file. The older engine (Elkiya until it moves) is unchanged.
+{const fix=(tag,file)=>FIXES.find(f=>f.tag===tag&&(!file||f.file===file)),edit=(tag,why)=>fix(tag).edits.find(e=>e.why===why);
+ const alt=(tag,why,a)=>{const e=edit(tag,why);(e.alts||=[]).push(typeof a==='function'?a(e):a)};
+ alt('aqeelos:audio-stt','which audio goes to speech-to-text',{
+  from:'    if mtype in {MessageType.AUDIO, MessageType.DOCUMENT}:\n        return False\n    return mime.startswith("audio/") or (mtype == MessageType.VOICE and mime in {"", "application/octet-stream"})\n',
+  to:`    # aqeelos:audio-stt: an audio message (a replied-to or forwarded voice note, an .ogg) is transcribed too; the
+    # agent still gets the file. Agents with their own Linux user cannot run speech-to-text themselves.
+    if mtype == MessageType.DOCUMENT:
+        return False
+    if mtype == MessageType.AUDIO:
+        return not mime or mime.startswith("audio/")
+    return mime.startswith("audio/") or (mtype == MessageType.VOICE and mime in {"", "application/octet-stream"})
+`});
+ const oldLog='                logger.error(\n                    "[%s] Dropping inbound message: no gateway message handler "\n                    "is installed on this adapter. The adapter is connected and "\n                    "can send, but every inbound message is discarded.",\n                    self.name,\n                )\n';
+ const newLog='                logger.error("[%s] Dropping inbound message: no gateway message handler is installed on this "\n                             "adapter. The adapter is connected and can send, but every inbound message is "\n                             "discarded.", self.name)\n';
+ alt('aqeelos:hold-inbound-during-restart','the no-handler drop',e=>({from:e.from.replace(oldLog,newLog),to:e.to.replace(oldLog,newLog)}));
+ const oldImp='from gateway.platforms.base_log_safety import safe_url_for_log\n',newImp='from gateway.platforms.base_log_safety import _log_safe_path, describe_proxy_error, env_proxy_for_redaction, safe_proxy_url_for_log, safe_url_for_log\n';
+ alt('aqeelos:hold-inbound-during-restart','the hold and replay helpers',e=>({from:newImp,to:e.to.replace(oldImp,newImp)}));
+ alt('aqeelos:platform-toolset-excludes','subtract channel exclusions after resolving the full default set',e=>({from:e.from.replace('toolset_names)\n','toolset_names, config)\n'),to:e.to.replace('toolset_names)\n','toolset_names, config)\n')}));
+ // the replaced-state.db halt moved, as it was, to persistence/sqlite/_holder.py
+ const db=fix('aqeelos:replaced-db-log-once','hermes_state.py');db.ifHas='_STATE_DB_REPLACED_MSG';
+ FIXES.push({...db,file:'persistence/sqlite/_holder.py',ifHas:undefined});
+ // the pool's pick moved to agent/credential_pool_selection.py (_strategy_pick)
+ const pool=fix('aqeelos:pool-prefer','agent/credential_pool.py');pool.ifHas='        if self._strategy == STRATEGY_RANDOM:\n';
+ FIXES.push({...pool,ifHas:undefined,edits:pool.edits.slice(0,2)},
+  {tag:'aqeelos:pool-prefer',name:pool.name,file:'agent/credential_pool_selection.py',edits:[{why:'the preferred account first while it is available; the strategy picks among the rest',
+   from:'    def _strategy_pick(self, available: list[PooledCredential]) -> PooledCredential:\n        from agent.credential_pool import STRATEGY_LEAST_USED, STRATEGY_RANDOM\n',
+   to:'    def _strategy_pick(self, available: list[PooledCredential]) -> PooledCredential:\n        from agent.credential_pool import STRATEGY_LEAST_USED, STRATEGY_RANDOM\n        _pref = next((e for e in available if getattr(self, "_prefer", "") and e.id == self._prefer), None)  # aqeelos:pool-prefer\n        if _pref is not None:\n            return _pref\n'}]});
+ // the engine now has security.redact_phone_numbers itself, for chat replies only; ours also keeps numbers in logs and tool output
+ const ph=fix('aqeelos:phone-redaction-setting','agent/redact.py');ph.ifHas='        _REDACT_ENABLED_BY_HOME[home_key] = enabled\n    return enabled\n';
+ FIXES.push({tag:'aqeelos:phone-redaction-setting',name:ph.name,file:'agent/redact.py',edits:[
+  {why:'the per-agent switch',from:'def _redact_enabled() -> bool:\n',
+   to:`# aqeelos:phone-redaction-setting: security.redact_phone_numbers: false keeps phone numbers in full everywhere (tool output
+# and logs too, not only chat replies as the engine's own setting does), so support agents can read their customers' numbers.
+_AQ_PHONES_BY_HOME: dict = {}
+
+
+def _aq_phones_masked() -> bool:
+    try:
+        from hermes_constants import hermes_home_key
+        home_key = hermes_home_key()
+    except Exception:
+        home_key = ""
+    cached = _AQ_PHONES_BY_HOME.get(home_key)
+    if cached is not None:
+        return cached
+    _AQ_PHONES_BY_HOME[home_key] = True  # while the setting is read (its own logging is redacted too)
+    try:
+        from agent.redact_phone_policy import chat_keeps_phone_numbers
+        masked = not chat_keeps_phone_numbers()
+    except Exception:
+        masked = True  # unreadable setting: keep the safe default
+    _AQ_PHONES_BY_HOME[home_key] = masked
+    return masked
+
+
+def _redact_enabled() -> bool:
+`},
+  {why:'the phone pass',from:'    if "+" in text and not keep_phone_numbers:  # opt-out: agent.redact_phone_policy\n',
+   to:'    if "+" in text and not keep_phone_numbers and _aq_phones_masked():  # opt-out: agent.redact_phone_policy; aqeelos:phone-redaction-setting\n'}]})}
+
+// the engine's own tests of the audio rule say what aqeelos:audio-stt does (v0.23.3 added two that test the old rule)
+FIXES.push({tag:'aqeelos:audio-stt-tests',name:'the engine tests of the audio rule follow aqeelos:audio-stt',file:'tests/gateway/relay/test_wire_voice_media.py',edits:[
+ {why:'the legacy voice note test',from:'    def test_legacy_audio_typed_voice_note_stays_out_of_stt(self):\n',
+  to:'    def test_legacy_audio_typed_voice_note_stays_out_of_stt(self):\n        # aqeelos:audio-stt-tests: an audio-typed voice note IS transcribed (the agent still gets the file)\n'},
+ {why:'its expectation',from:'                media=[{"url": "https://gw/relay/media/x", "kind": "voice", "mime": "audio/ogg"}],\n                media_urls=["https://gw/relay/media/x"],\n            )\n        )\n        assert _event_media_is_stt_input(ev, 0) is False\n',
+  to:'                media=[{"url": "https://gw/relay/media/x", "kind": "voice", "mime": "audio/ogg"}],\n                media_urls=["https://gw/relay/media/x"],\n            )\n        )\n        assert _event_media_is_stt_input(ev, 0) is True\n'},
+ {why:'the music upload expectation',from:'                media=[{"url": "https://cdn/x/song.mp3", "kind": "audio", "mime": "audio/mpeg"}],\n                media_urls=["https://cdn/x/song.mp3"],\n            )\n        )\n        assert _event_media_is_stt_input(ev, 0) is False\n',
+  to:'                media=[{"url": "https://cdn/x/song.mp3", "kind": "audio", "mime": "audio/mpeg"}],\n                media_urls=["https://cdn/x/song.mp3"],\n            )\n        )\n        assert _event_media_is_stt_input(ev, 0) is True  # aqeelos:audio-stt: audio is transcribed too\n'}]});
+
 // one engine file's text → {out (null when nothing changed), applied:[names], errors:[text]}
 export function fixFile(file,src){let out=src;const applied=[],errors=[];
- for(const f of FIXES.filter(x=>x.file===file)){if(out.includes(f.tag))continue;let next=out,bad=null;
-  for(const e of f.edits){if(next.split(e.from).length!==2){bad=f.name+': the place for '+e.why+' changed upstream';break}next=next.replace(e.from,()=>e.to)}
+ for(const f of FIXES.filter(x=>x.file===file)){if(out.includes(f.tag)||(f.ifHas&&!out.includes(f.ifHas)))continue;let next=out,bad=null;
+  for(const e of f.edits){const u=pickEdit(next,e);if(!u){bad=f.name+': the place for '+e.why+' changed upstream';break}next=next.replace(u.from,()=>u.to)}
   if(bad)errors.push(bad);else{out=next;applied.push(f.name)}}
  return {out:applied.length?out:null,applied,errors}}
 export const FILES=[...new Set(FIXES.map(f=>f.file))];

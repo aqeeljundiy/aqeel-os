@@ -203,3 +203,14 @@ same fixes written for that version's code, under the same names. The patch step
 
 Engine updates now run only to a version every one of these fits (`app/engine-updates.mjs` fitCheck, `ENGINE_SIM_TARGET` in
 `scripts/engine-sim.sh`), for Update tonight, Adaptive and the Update button alike.
+
+### The text-edit fixes too (steps 14 and 15, 21 Nov 2026)
+Not every engine fix is a .patch file. scripts/engine-fixes-patch.mjs (step 15) and scripts/kirim-signature-patch.mjs (step 14) make
+small text edits, and on 21 Nov eight of them no longer found their place on v0.23.3. They only printed a warning, so the engine
+check passed and P&P's live test caught two of them (audio-stt, hold-inbound-during-restart). Now:
+- a fix that does not fit prints `MISFIT engine-fix <file>: <why>`, so the engine check before an update refuses that version;
+- an edit may carry `alts` (the same change where the newer engine has it), and a fix whose code moved to another file has `ifHas`
+  (it applies only where that text still is) plus an entry for the new file (replaced-db-log-once → persistence/sqlite/_holder.py,
+  pool-prefer → agent/credential_pool_selection.py);
+- scripts/engine-fixes.test.py and kirim-signature.test.py run against either engine; on v0.23.3: 19/19 and 9/9 with the fixes,
+  0/19 and 2/9 without.

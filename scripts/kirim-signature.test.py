@@ -123,6 +123,10 @@ def the_delivery_id_comes_from_what_was_signed():
     assert wh._kirim_delivery_id({"X-Kirim-Signature": "garbage"}, BODY) == ""
 
 
+# refused: 401, or 404 from v0.23.3 on (a bad signature answers like an unknown route, so route names cannot be guessed)
+REFUSED = (401, 404)
+
+
 @test
 def http_signed_is_accepted_bad_or_old_is_401_and_a_replay_wakes_nothing():
     async def run():
@@ -142,12 +146,12 @@ def http_signed_is_accepted_bad_or_old_is_401_and_a_replay_wakes_nothing():
             assert "halo" in event.text, event.text
             _, wrong = sign(BODY, t, secret="nope")
             r = await post({"X-Kirim-Signature": header(t, wrong)})
-            assert r.status == 401, r.status
+            assert r.status in REFUSED, r.status
             ot, os_ = sign(BODY, int(time.time()) - 600)
             r = await post({"X-Kirim-Signature": header(ot, os_)})
-            assert r.status == 401, r.status
+            assert r.status in REFUSED, r.status
             r = await post({})
-            assert r.status == 401, r.status
+            assert r.status in REFUSED, r.status
             # the same signed request again, with another request id: the same delivery, nobody woken twice
             r = await post({"X-Kirim-Signature": header(t, s), "X-Request-ID": "fresh-id"})
             assert r.status == 200 and (await r.json()).get("status") == "duplicate", (r.status, await r.text())
@@ -183,7 +187,7 @@ def a_route_bound_to_an_agent_is_still_found_while_its_event_is_handed_over():
         assert route_digest(a, chat), "route digest"
         assert "kirim" in a._routes, "the route stayed"
     finally:
-        hc._HERMES_HOME_OVERRIDE.reset(token)
+        (getattr(hc, "reset_hermes_home_override", None) or hc._HERMES_HOME_OVERRIDE.reset)(token)  # v0.23.3 has a reset call
         hc.pin_process_hermes_home(None)
 
 

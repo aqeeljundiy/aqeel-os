@@ -217,11 +217,13 @@ def a_cloned_agent_never_gets_another_agents_bot_token():
 def phone_masking_is_its_own_setting_and_keys_stay_hidden():
     m = load("aq_redact", "agent/redact.py")
     txt = "customer +6280000000001 key sk-proj-abcdefghijklmnopqrstuvwx"
-    m._redact_phones_enabled = lambda: True
+    # the switch: _redact_phones_enabled (older engine), _aq_phones_masked (v0.23.3, AU-21); both mean "mask phones"
+    sw = "_aq_phones_masked" if hasattr(m, "_aq_phones_masked") else "_redact_phones_enabled"
+    setattr(m, sw, lambda: True)
     m._REDACT_ENABLED = True
     on = m.redact_sensitive_text(txt, force=True)
     assert "+6280000000001" not in on and "****" in on, on
-    m._redact_phones_enabled = lambda: False
+    setattr(m, sw, lambda: False)
     off = m.redact_sensitive_text(txt, force=True)
     assert "+6280000000001" in off, off
     assert "abcdefghijklmnopqrstuvwx" not in off, off
@@ -230,11 +232,17 @@ def phone_masking_is_its_own_setting_and_keys_stay_hidden():
 @test
 def deleted_state_db_is_logged_once_with_its_path():
     import logging
-    m = load("aq_hermes_state", "hermes_state.py")
+    # v0.23.3 (AU-21): the halt lives in persistence/sqlite/_holder.py; the patched copy is loaded in its place
     d = os.path.join(TMP, "gone-agent")
     os.makedirs(d)
     path = os.path.join(d, "state.db")
-    db = m.SessionDB(db_path=__import__("pathlib").Path(path))
+    if os.path.exists(os.path.join(FIXED, "persistence", "sqlite", "_holder.py")):
+        import persistence.sqlite  # noqa: F401  (its parent packages, from the engine)
+        m = load("persistence.sqlite._holder", "persistence/sqlite/_holder.py")
+        db = m.StoreHolder(__import__("pathlib").Path(path))
+    else:
+        m = load("aq_hermes_state", "hermes_state.py")
+        db = m.SessionDB(db_path=__import__("pathlib").Path(path))
     try:
         db.create_session("s1", source="cli") if hasattr(db, "create_session") else None
     except Exception:
@@ -245,7 +253,8 @@ def deleted_state_db_is_logged_once_with_its_path():
         def emit(self, rec):
             seen.append((rec.levelno, rec.getMessage()))
     h = H()
-    m.logger.addHandler(h)
+    lg = getattr(m, "logger", None) or logging.getLogger("hermes_state")
+    lg.addHandler(h)
     try:
         import shutil as _sh
         _sh.rmtree(d)
@@ -257,7 +266,7 @@ def deleted_state_db_is_logged_once_with_its_path():
             except Exception as exc:  # the replaced error may live in hermes_state_errors
                 assert type(exc).__name__ == "StateDbReplacedError", repr(exc)
     finally:
-        m.logger.removeHandler(h)
+        lg.removeHandler(h)
     hits = [x for x in seen if "state.db" in x[1]]
     assert len(hits) == 1, seen
     assert path in hits[0][1] and hits[0][0] == logging.WARNING, hits
@@ -306,7 +315,9 @@ def review_summaries_never_reach_a_chat_platform():
 def a_message_that_arrives_while_the_engine_stops_is_kept_and_handled_later():
     import asyncio
     m = load("aq_platform_base", "gateway/platforms/base.py")
-    m._AQ_HELD_DIR = os.path.join(TMP, "held")
+    held = os.path.join(TMP, "held")
+    m._aq_held_dir = lambda: held  # older copies read _AQ_HELD_DIR
+    m._AQ_HELD_DIR = held
     from gateway.platforms.event import MessageEvent
     from gateway.session import SessionSource
     from gateway.config import Platform
@@ -335,7 +346,7 @@ def a_message_that_arrives_while_the_engine_stops_is_kept_and_handled_later():
     assert m._aq_held_file(A(None)) is None
     asyncio.run(m._aq_replay_held(a, f))
     assert a.got == ["hello during restart"], a.got
-    assert not os.listdir(m._AQ_HELD_DIR), os.listdir(m._AQ_HELD_DIR)
+    assert not os.listdir(held), os.listdir(held)
     src_text = open(os.path.join(FIXED, "gateway/platforms/base.py")).read()
     i = src_text.index("async def handle_message(self, event: MessageEvent)")
     assert "_aq_hold_inbound(self, event)" in src_text[i:i + 1500]

@@ -238,7 +238,7 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
 {const {kirimPatch}=await import('./kirim-signature-patch.mjs');const pf=path.join(HOME,'hermes-agent','gateway','platforms','webhook.py');
  const s=await readFile(pf,'utf8').catch(()=>null);
  if(s!=null){const r=kirimPatch(s);
-  for(const e of r.errors)console.warn('! webhook.py: '+e+'; left as it is');
+  for(const e of r.errors){console.warn('! webhook.py: '+e+'; left as it is');console.log('MISFIT engine-fix webhook.py: '+e)}  // MISFIT: the update checks see it (AU-21)
   if(r.out){const {execFileSync}=await import('node:child_process');const t=pf+'.aq.tmp';await rawWrite(t,r.out);
    try{execFileSync('python3',['-c','import ast,sys;ast.parse(open(sys.argv[1]).read())',t]);await rename(t,pf);changed++;console.log('webhook.py: '+r.applied.join(', ')+' in place')}
    catch{await rm(t,{force:true});console.warn('! webhook.py would not compile with '+r.applied.join(', ')+', left alone')}}}}
@@ -246,7 +246,7 @@ for(const h of homes){const sp=path.join(h,'skills','productivity','google-works
 //     real home (Claude's login), and the backup-model note stays out of customer chats. Same rules as 14.
 {const {fixFile,FILES}=await import('./engine-fixes-patch.mjs');const {execFileSync}=await import('node:child_process');
  for(const f of FILES){const pf=path.join(HOME,'hermes-agent',f);const s=await readFile(pf,'utf8').catch(()=>null);if(s==null)continue;
-  const r=fixFile(f,s);for(const e of r.errors)console.warn('! '+f+': '+e+'; left as it is');
+  const r=fixFile(f,s);for(const e of r.errors){console.warn('! '+f+': '+e+'; left as it is');console.log('MISFIT engine-fix '+f+': '+e)}  // MISFIT: the update checks see it (AU-21)
   if(!r.out)continue;const t=pf+'.aq.tmp';await rawWrite(t,r.out);
   try{execFileSync('python3',['-c','import ast,sys;ast.parse(open(sys.argv[1]).read())',t]);await rename(t,pf);changed++;console.log(f+': '+r.applied.join(', ')+' in place')}
   catch{await rm(t,{force:true});console.warn('! '+f+' would not compile with '+r.applied.join(', ')+', left alone')}}}
