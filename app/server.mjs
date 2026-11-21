@@ -16,7 +16,7 @@ import {allowed as skillAllowed,setRule as setSkillRule,rules as skillRules} fro
 import {createAgentDefaults} from './agent-defaults.mjs';
 import {createWhy} from './why.mjs';
 import {createChatHistory} from './chat-history.mjs';
-import {createIssues,engineSortRun,personOf} from './issues.mjs';import {createFixerRunUsage} from './fixer-usage.mjs';
+import {createIssues,engineSortRun,personOf} from './issues.mjs';import {createFixerRunUsage} from './fixer-usage.mjs';import {createLabResults} from './lab-results.mjs';
 import {createLimitState} from './provider-limits.mjs';
 import {createAgentMemory} from './agent-memory.mjs';
 import {createTeamSettings} from './team-settings.mjs';
@@ -1614,7 +1614,8 @@ const kirimdevChanged=()=>{ensureCustomerServer().catch(e=>console.warn('custome
 const custQ=x=>"'"+String(x).replace(/'/g,"'\\''")+"'";
 let customerTools=null;
 const protocolMake=createProtocolPdf({WORK:path.join(homedir(),'workspaces'),keyOf:(a,n)=>agentKeys.get(a,n)});
-customerTools=createCustomerTools({WORK:path.join(homedir(),'workspaces'),DATA,catalogOf:a=>priceCatalog.of(a),providers:payProviders,keyOf:(a,n)=>agentKeys.get(a,n),noteSend:(a,to,p)=>kirimdev.external(a,to,p),protocolText:(a,phone,cfg)=>protocolMake.text(a,phone,cfg),fileRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.files||null,formRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.websiteForm||null,payments:paidLabels,ordersOf:lineOrders,labelRules:a=>kirimdevLabelRules(a),labelContact:(a,o)=>kirimdev.labelContact(a,o),pdfRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.protocolPdf||null,
+const labResults=createLabResults();   // the lines' public lab results pages (lab-results.mjs, AU-36)
+customerTools=createCustomerTools({WORK:path.join(homedir(),'workspaces'),DATA,catalogOf:a=>priceCatalog.of(a),providers:payProviders,keyOf:(a,n)=>agentKeys.get(a,n),noteSend:(a,to,p)=>kirimdev.external(a,to,p),protocolText:(a,phone,cfg)=>protocolMake.text(a,phone,cfg),fileRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.files||null,formRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.websiteForm||null,payments:paidLabels,ordersOf:lineOrders,labelRules:a=>kirimdevLabelRules(a),labelContact:(a,o)=>kirimdev.labelContact(a,o),pdfRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.protocolPdf||null,labs:{rules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.labResults||null,lookup:(c,q)=>labResults.lookup(c,q)},
  sendProtocolPdf:createProtocolSender({make:protocolMake,docLinks,sendDocument:(a,to,o)=>kirimdev.sendDocument(a,to,o),log:m=>console.log(m)}),payRules:async a=>(await kirimdev.lines().catch(()=>({})))[a]?.payment||{},googleCall:(a,req)=>googleFiles.call(a,req),chatFind:(a,q,o)=>chatHistory.find(a,q,o),
  history:async(r,limit)=>{const q=new URLSearchParams({conversation_id:r.conversation,limit:String(limit)});if(!r.conversation)return 'No conversation.';
   const l=((await kirimdev._api(r.line+'/messages?'+q)).data||[]).filter(m=>m.type!=='reaction').sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)));
