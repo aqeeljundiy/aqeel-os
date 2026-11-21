@@ -68,4 +68,44 @@ check("a chosen account that is resting does not", [a["id"] for a in ag.prefer(A
 check("no choice: the order stays", ag.prefer(A, "", {}, now) == A)
 check("quota words are recognised", all(ag._QUOTA.search(x) for x in ["RESOURCE_EXHAUSTED", "HTTP 429", "You have reached your usage limit", "quota exceeded"]))
 check("other errors are not quota", not ag._QUOTA.search("Stopped for safety: agy tried to use its own tool read_file."))
+
+# 21 Nov 2026: an account whose plan lacks the model. agy prints its error and quits before reading the prompt.
+check("agy's model refusal is recognised", ag._MODEL_MISSING.search('invalid model selection (--model "gemini-4-neon-high" --effort ""): model gemini-4-neon-high is not recognized as a known model'))
+import os, stat, threading
+acp = types.ModuleType("agent.copilot_acp_client")
+acp.CopilotACPClient = type("CopilotACPClient", (), {})
+sys.modules.update({"agent": types.ModuleType("agent"), "agent.copilot_acp_client": acp})
+Client = ag._make_client_class()
+with tempfile.TemporaryDirectory() as t:
+    t = pathlib.Path(t)
+    ag._HOME = t
+    ag._STATE = t / ".gemini" / "aqeelos-agy-state.json"
+    (t / ".gemini").mkdir(parents=True, exist_ok=True)
+    fake = t / "agy"
+    fake.write_text('#!/bin/sh\necho \'{"event":"result","result":{"status":"ERROR","error":"invalid model selection: model gemini-4-neon-high is not recognized as a known model"}}\'\nexit 1\n')
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    c = object.__new__(Client)
+    c._acp_command, c._active_process_lock, c._active_processes = str(fake).replace("agy", "agy"), threading.Lock(), set()
+    os.environ["ANTIGRAVITY_SUBSCRIPTION_COMMAND"] = str(fake)
+    err = ""
+    try:
+        c._run_once("x" * 3_000_000, timeout_seconds=60, model="gemini-4-neon-high", home=t)   # far more than a pipe holds
+    except RuntimeError as e:
+        err = str(e)
+    except BrokenPipeError:
+        err = "BrokenPipeError"
+    check("agy quitting before the prompt gives agy's own reason, not Broken pipe", "invalid model selection" in err)
+    # the request moves on: the first account lacks the model, the second answers; the first rests
+    calls = []
+    def once(prompt, *, timeout_seconds, model=None, home=None):
+        calls.append(str(home))
+        if str(home).endswith("lower"):
+            raise RuntimeError("Antigravity: " + err)
+        return ("OK", "")
+    c._run_once = once
+    ag._accounts = lambda: [{"id": "g0000a1", "home": t / "lower"}, {"id": "main", "home": t}]
+    ag._chosen = lambda: ""
+    out = c._run_prompt("hi", timeout_seconds=60, model="gemini-4-neon-high")
+    check("an account without the model is skipped and the next one answers", out == ("OK", "") or out[0] == "OK")
+    check("and it rests for hours", float(ag._read_state().get("cool", {}).get("g0000a1", 0)) > ag.time.time() + 3 * 3600)
 print(n, "passed")

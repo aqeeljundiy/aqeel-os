@@ -62,6 +62,9 @@ def _agy_bin(command: str | None) -> str:
 # and an account that says it is out of quota rests for an hour while the request moves on to the next one.
 _ACCTS = _HOME / ".gemini" / "aqeelos-accounts.json"
 _STATE = _HOME / ".gemini" / "aqeelos-agy-state.json"
+# agy refuses a model this account's plan does not have (21 Nov 2026: a second Google sign-in on the free Starter quota had no
+# gemini-4-neon-high; agy quit before reading the prompt, every request broke with "Broken pipe" and Gemini looked down for all)
+_MODEL_MISSING = re.compile(r"invalid model selection|not recognized as a known model", re.I)
 _QUOTA = re.compile(r"quota|rate.?limit|resource.?exhausted|\b429\b|too many requests|usage limit|limit (reached|exceeded)|exhausted", re.I)
 _state_lock = threading.Lock()
 # the account each thread's last call went to, read by aqeelos-live's usage ledger
@@ -160,7 +163,8 @@ def _make_client_class():
                     out = _with_retries(lambda t: self._run_once(t, timeout_seconds=timeout_seconds, model=model, home=acct["home"]), prompt_text)
                 except RuntimeError as e:
                     # out of quota: rests an hour; an extra account whose sign-in stopped working: rests 6 hours (Models › Accounts says so)
-                    rest = 3600 if _QUOTA.search(str(e)) else 6 * 3600 if acct["id"] != "main" and re.search(r"auth|sign.?in|unauthori[sz]ed|\b401\b", str(e), re.I) else 0
+                    # a model this account's plan does not offer: rests 6 hours and the request goes on to the next account
+                    rest = 3600 if _QUOTA.search(str(e)) else 6 * 3600 if _MODEL_MISSING.search(str(e)) or acct["id"] != "main" and re.search(r"auth|sign.?in|unauthori[sz]ed|\b401\b", str(e), re.I) else 0
                     if n + 1 < len(accts) and rest:
                         _write_state(lambda st: st.setdefault("cool", {}).__setitem__(acct["id"], time.time() + rest))
                         continue
@@ -197,8 +201,13 @@ def _make_client_class():
             timer = threading.Timer(max(60.0, float(timeout_seconds or 900)) + 30, proc.kill)
             timer.start()
             try:
-                proc.stdin.write(json.dumps({"event": "user", "message": {"content": prompt_text}}) + "\n")
-                proc.stdin.close()
+                try:
+                    proc.stdin.write(json.dumps({"event": "user", "message": {"content": prompt_text}}) + "\n")
+                    proc.stdin.close()
+                except BrokenPipeError:
+                    # agy quit before reading the prompt; its own reason is in its output, read below (21 Nov 2026)
+                    with contextlib.suppress(Exception):
+                        proc.stdin.close()
                 for line in proc.stdout:
                     try:
                         ev = json.loads(line)
