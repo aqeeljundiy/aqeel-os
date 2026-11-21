@@ -2545,16 +2545,15 @@ button.acct-more{font:inherit;cursor:pointer;width:100%;background:var(--surface
 .gc-h{font-size:13px;font-weight:600;color:var(--ink-2);margin:16px 0 8px}.gc-h:first-child,.gc-why+.gc-h{margin-top:0}.gc-why{margin:0 0 12px}
 .gc-cards{display:grid;gap:8px}
 .gc-card{display:flex;gap:12px;align-items:flex-start;padding:12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);animation:rise var(--t-med) var(--ease) both}
-.gc-card>.logo{flex:none;width:34px;height:34px}
+.gc-card>.logo{flex:none;width:34px;height:34px}.gc-acts .icon-btn{width:34px;height:34px;min-height:34px;min-width:34px;padding:0}
 .gc-c-t{flex:1;min-width:0;display:grid;gap:3px}.gc-c-t b{font-size:14px;overflow-wrap:anywhere}.gc-c-t small{color:var(--muted);font-size:12.5px}.gc-c-t .gc-why-l{color:var(--warn)}
 .gc-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.chip.gc-svc{font-size:11.5px;padding:2px 8px;gap:4px}
-.gc-name{display:flex;align-items:center;gap:6px;min-height:28px;flex-wrap:wrap}.gc-name .icon-btn{opacity:.55;transition:opacity var(--t-fast) var(--ease)}.gc-card:hover .gc-name .icon-btn,.gc-name .icon-btn:focus-visible{opacity:1}
+.gc-name{display:flex;align-items:center;gap:6px;min-height:28px;flex-wrap:wrap}.gc-name .icon-btn{width:28px;height:28px;min-height:28px;min-width:28px;padding:0;border:0;background:none;box-shadow:none;opacity:.55;transition:opacity var(--t-fast) var(--ease)}.gc-card:hover .gc-name .icon-btn,.gc-name .icon-btn:focus-visible{opacity:1}
 .gc-ren{flex:1;min-width:140px;max-width:280px;height:32px;font-size:14px;font-weight:600}
-/* who uses the account and how much (Connections levels); the owner first */
-.gc-users{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center}
-.gc-u{display:inline-flex;align-items:center;gap:6px;padding:3px 6px 3px 4px;border:1px solid var(--border);border-radius:999px;font-size:12.5px;background:var(--surface-2,var(--surface));animation:rise var(--t-med) var(--ease) both}
-.gc-u em{font-style:normal;color:var(--muted)}.gc-u .link-btn{font-size:12.5px;padding:0}.gc-u .icon-btn.tiny{width:20px;height:20px;min-width:20px;opacity:.6}.gc-u .icon-btn.tiny:hover{opacity:1}
-.gc-add{height:28px;padding:0 10px;font-size:12.5px}
+/* who uses the account: one line (a few faces, who and how many) and Sharing; every agent is in Sharing's searchable list */
+.gc-users{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center}.gc-users>.ava,.gc-users>img,.gc-users>span:not(.gc-u-t){margin-right:-12px;box-shadow:0 0 0 2px var(--surface);border-radius:50%}
+.gc-users>.gc-u-t{margin-left:14px;font-size:12.5px;color:var(--ink-2)}
+.gc-add{height:28px;min-height:28px;padding:0 10px;font-size:12.5px;gap:5px}
 .gc-card .gc-copy{color:var(--warn)}.gc-card .gc-copy .link-btn{font-size:12.5px}
 .gc-c-r{display:grid;justify-items:end;gap:8px;flex:none}.gc-acts{display:flex;gap:4px;align-items:center}.gc-stat{transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
 .gc-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
