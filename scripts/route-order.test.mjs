@@ -73,15 +73,16 @@ test('records on disk: appended as read, read back inside the window',async()=>{
  assert.deepEqual(await readRecords(path.join(DATA,'nowhere'),{now}),[]);assert.deepEqual(await readRecords(null),[])});
 
 /* ---------- backup-models.mjs: the policy file, reading the records, the Health item, the move ---------- */
-async function harness({room={sameModelRoom:false,keys:[]},policy=null,agents=['default','shop-support']}={}){
+async function harness({room={sameModelRoom:false,keys:[]},policy=null,agents=['default','shop-support'],state=null,jobs=null,updateJob=null}={}){
  const dir=await mkdtemp(path.join(tmpdir(),'bm-route-')),DATA=path.join(dir,'data'),HERMES_HOME=path.join(dir,'.hermes');await mkdir(DATA,{recursive:true});await mkdir(HERMES_HOME,{recursive:true});
  if(policy)await writeFile(path.join(DATA,'team-policy.json'),JSON.stringify(policy));
+ if(state)await writeFile(path.join(DATA,'backup-models.json'),JSON.stringify(state));
  const told=[],moved=[],cfg={};
  const acc={load:async()=>({priority:[{key:'claude:main'},{key:'p:openai-codex'}],assign:{},signedOut:{}}),all:()=>[{id:'main'}],details:async()=>({signedIn:true}),
   options:async()=>({providers:[{slug:PLUGIN,authenticated:true,models:['claude-sonnet-5-5']},{slug:'openai-codex',authenticated:true,models:['gpt-6.1-sol']}]}),
   agentRoute:async()=>({provider:PLUGIN,model:'claude-sonnet-5-5'}),entryOf:async()=>'claude:main',keyStatus:()=>({}),useEntry:async()=>{},
   sameModelRoom:async()=>room,moveToPool:async a=>{moved.push(a);return 'claude:two'}};
- const bm=createBackupModels({DATA,HERMES_HOME,live:true,agents:async()=>agents,acc,readConfig:async()=>({}),setKey:async(p,k,v)=>{cfg[p+'|'+k]=v;return {ok:true}},tell:async(t,o)=>{told.push([t,o])},nameOf:a=>a.toUpperCase()});
+ const bm=createBackupModels({DATA,HERMES_HOME,live:true,agents:async()=>agents,acc,readConfig:async()=>({}),setKey:async(p,k,v)=>{cfg[p+'|'+k]=v;return {ok:true}},tell:async(t,o)=>{told.push([t,o])},nameOf:a=>a.toUpperCase(),...(jobs?{jobs,updateJob}:{})});
  const homeOf=a=>a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a);
  return {bm,DATA,HERMES_HOME,told,moved,homeOf,write:async(a,recs)=>{await mkdir(path.join(homeOf(a),'logs'),{recursive:true});await appendFile(path.join(homeOf(a),'logs','route-switches.jsonl'),lines(recs))}};
 }
@@ -151,3 +152,11 @@ test('pool room: only claimed when auto-switch is on and can still move the agen
  const day=new Date(),k=day.getFullYear()+'-'+String(day.getMonth()+1).padStart(2,'0')+'-'+String(day.getDate()).padStart(2,'0');
  assert.equal((await room({...base,moved:{default:{day:k,n:8}}},det)).sameModelRoom,false,'at its daily ceiling');
  assert.equal((await room({...base,priority:[{key:'claude:main',model:''},{key:'p:openai-codex',model:''}]},det)).sameModelRoom,false,'a lone account is no pool')});
+
+test('an outage already running when aqeelOS starts still moves pinned schedules, once, keeping the original (21 Nov 2026)',async()=>{
+ const G='antigravity-subscription',t0=Date.now()-2*H;const list={'default':[{id:'834c77717f4f',name:'Threads answering flow',provider:G,model:'gemini-4-neon-high'},{id:'x',provider:null,model:null}]};const calls=[];
+ const h=await harness({state:{p:{[G]:{on:true,since:t0,ev:[],ends:[],moved:{},lastProbe:Date.now(),brand:'Gemini'}}},
+  jobs:async a=>list[a]||[],updateJob:async(a,id,up)=>{calls.push([a,id,up]);const j=list[a].find(x=>x.id===id);Object.assign(j,up)}});
+ await h.bm.tick();assert.deepEqual(calls,[['default','834c77717f4f',{provider:'openai-codex',model:'gpt-6.1-sol'}]],'moved to its agent\'s first backup');
+ const db=await h.bm._db();assert.deepEqual(db.p[G].jobs['default|834c77717f4f'].from,{provider:G,model:'gemini-4-neon-high'},'the original, recorded once');
+ db.p[G].pinAt=0;await h.bm.tick();assert.equal(calls.length,1,'the next sync moves nothing again')});

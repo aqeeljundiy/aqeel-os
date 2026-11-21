@@ -186,6 +186,19 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
    for(const l of text.split('\n')){if(!/API call/.test(l))continue;const ev=parseLine(l);if(!ev)continue;const r=note(rec(ev.provider),ev);if(ev.kind!=='ok'&&ev.model)r.lastModel=ev.model}}}
 
  /* ---------- the switch ---------- */
+ // schedules pinned to a provider that is out go to their agent's first backup. Run at the start and every 5 minutes while it is out, so an
+ // outage already running when aqeelOS started (or was deployed), or a schedule pinned during it, is caught too (21 Nov 2026: the outage began
+ // 01:29 UTC, the fix was deployed later, and both Threads schedules stayed on Gemini). A schedule moved once is never moved again in the same
+ // outage, so its original is recorded once, and one a person put back on that provider since is left where they put it.
+ async function movePinned(slug,d,det){const p=rec(slug);p.jobs||={};p.pinAt=Date.now();if(!jobs||!updateJob)return 0;
+  d||=await acc.load();det||=Object.fromEntries(await Promise.all(acc.all(d).map(async a=>[a.id,await acc.details(a).catch(()=>null)])));
+  const byAgent={},backup={};for(const profile of await agents()){const l=await jobs(profile).catch(()=>[]);byAgent[profile]=l.filter(j=>!p.jobs[profile+'|'+j?.id]);
+   if(byAgent[profile].some(j=>j?.provider===slug))backup[profile]=((await wanted(profile,d,det).catch(()=>null))?.list||[]).find(e=>e.provider!==slug)||null}
+  const pm=pinnedMoves(slug,byAgent,a=>backup[a]);for(const a of pm.noBackup)console.warn('backup models:',a,'has a schedule pinned to',slug,'and no backup for it');let n=0;
+  for(const x of pm.moves){if(!live){p.jobs[x.agent+'|'+x.id]={...x,would:true};continue}
+   try{await updateJob(x.agent,x.id,{provider:x.to.provider,model:x.to.model});p.jobs[x.agent+'|'+x.id]=x;n++;console.log('backup models: schedule',x.agent,x.name||x.id,'on',x.to.provider+'/'+x.to.model,'while',slug,'is out')}
+   catch(e){console.warn('backup models: schedule',x.agent,x.id,e.message)}}
+  await save();return n}
  async function start(slug,now){await ready();const d=await acc.load(),p=rec(slug);const fails=p.ev.filter(e=>e.kind==='fail'&&now-e.t<R.window).length,drops=p.ev.filter(e=>e.kind==='drop'&&now-e.t<R.window).length;
   Object.assign(p,{on:true,since:now,moved:{},lastProbe:now,why:fails>=R.fails?fails+' failed replies in 10 minutes':drops+' dropped connections in 10 minutes'});
   const det=Object.fromEntries(await Promise.all(acc.all(d).map(async a=>[a.id,await acc.details(a).catch(()=>null)])));let brand='';const to=[],pinned=[];
@@ -198,11 +211,7 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
    catch(e){console.warn('backup models: moving',profile,e.message)}}
   // a schedule pinned to this provider follows the switch too (21 Nov 2026, Health ic3634f49: Threads' answering flow was pinned to Gemini and
   // kept hitting it during the outage while its agent had moved to ChatGPT): it runs on its agent's first backup until the outage ends
-  p.jobs={};if(jobs&&updateJob){const byAgent={},backup={};for(const profile of await agents()){byAgent[profile]=await jobs(profile).catch(()=>[]);
-    if(byAgent[profile].some(j=>j?.provider===slug))backup[profile]=((await wanted(profile,d,det).catch(()=>null))?.list||[]).find(e=>e.provider!==slug)||null}
-   const pm=pinnedMoves(slug,byAgent,a=>backup[a]);for(const a of pm.noBackup)console.warn('backup models:',a,'has a schedule pinned to',slug,'and no backup for it');
-   for(const x of pm.moves){if(!live){p.jobs[x.agent+'|'+x.id]={...x,would:true};continue}
-    try{await updateJob(x.agent,x.id,{provider:x.to.provider,model:x.to.model});p.jobs[x.agent+'|'+x.id]=x}catch(e){console.warn('backup models: schedule',x.agent,x.id,e.message)}}}
+  p.jobs={};await movePinned(slug,d,det);
   p.model||=p.lastModel||'';p.brand=brand||brandOf(slug,p.model);p.pinned=pinned;await save();const moved=Object.keys(p.moved);
   console.log('backup models:',p.brand,'outage ('+p.why+'); moved',moved.join(', ')||'nobody',Object.keys(p.jobs).length?'and '+Object.keys(p.jobs).length+' pinned schedule(s)':'');sync('outage').catch(()=>{});
   if(moved.length&&!db.told[slug+':'+now+':start']){db.told[slug+':'+now+':start']=Date.now();await save();
@@ -236,7 +245,8 @@ export function createBackupModels({DATA,HERMES_HOME,live=false,agents,acc,readC
   return c}
  let ticking=null;
  function tick(now=Date.now()){if(ticking)return ticking;ticking=(async()=>{await load();await scan();
-   for(const [slug,p] of Object.entries(db.p)){const v=judge(p,now,R);if(v==='start'&&now<(p.checkAgain||0))continue;if(v==='start'){const c=await confirmOutage(slug,now);if(c==='start')await start(slug,now);continue}else if(v==='end')await end(slug,now);else if(p.on&&now-(p.lastProbe||0)>=R.probeEvery)await tryIt(slug,now)}
+   for(const [slug,p] of Object.entries(db.p)){const v=judge(p,now,R);if(v==='start'&&now<(p.checkAgain||0))continue;if(v==='start'){const c=await confirmOutage(slug,now);if(c==='start')await start(slug,now);continue}else if(v==='end')await end(slug,now);else if(p.on&&now-(p.lastProbe||0)>=R.probeEvery)await tryIt(slug,now);
+    if(db.p[slug]?.on&&now-(db.p[slug].pinAt||0)>=R.probeEvery)await movePinned(slug).catch(e=>console.warn('backup models: pinned schedules',e.message))}
    await routeHealth(now).catch(e=>console.warn('route health:',e.message));
    db.at=now;await save()})().finally(()=>{ticking=null});return ticking}
  // one Health item per agent that has been answering on another vendor's model for the set hours; it clears when the agent is back
