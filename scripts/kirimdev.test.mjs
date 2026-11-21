@@ -669,3 +669,12 @@ test('a HANDOFF post carries the customer\'s earlier orders and past-use answers
  await writeFile(path.join(t.DATA,'payments.jsonl'),JSON.stringify({agent:'cove-support',phone:'628123',ok:true,at:'2026-11-02T10:00:00Z',total:750000,products:['Kit A'],context:{past_use:'twice a week'}})+'\n');
  await t.post(meta('628123','dosisnya berapa ya'));await t.settle();
  const post=t.posts.map(x=>String(x[3])).find(x=>/HANDOFF/.test(x));assert.ok(post,'handed off');assert.match(post,/Earlier orders \(1\):\n- 2026-11-02, 750,000, Kit A/)});
+
+test('a delivery check message that arrives after the check gave up corrects the stored result (AU-37, 20 Nov 2026)',async()=>{
+ const {lateProbe,PROBE_WAIT}=await import('../app/kirimdev.mjs');assert.ok(PROBE_WAIT>=180e3,'waits 3 minutes now, not 90 s');
+ const res={at:1000,agent:'biomarkers-support',id:'abc123def456',sent:false,arrived:false,picture:false,why:'The line never received the check message from the main WhatsApp (webhook or polling not running?).'};
+ const fixed=lateProbe(res,'aqeelOS delivery check, please ignore. aqeelos-probe:abc123def456w',151000);
+ assert.equal(fixed.lineReceives,true);assert.match(fixed.why,/150 s after it was sent/);assert.equal(fixed.late,151000);
+ assert.equal(lateProbe(res,'aqeelos-probe:zzzzzzzzzzzzw',151000),null,'another check\'s message');
+ assert.equal(lateProbe({...res,why:'Kirimdev did not give this line\'s phone number.'},'aqeelos-probe:abc123def456w',151000),null,'a different failure stays');
+ assert.equal(lateProbe(fixed,'aqeelos-probe:abc123def456w',160000),null,'once')});

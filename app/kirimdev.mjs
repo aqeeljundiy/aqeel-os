@@ -164,6 +164,12 @@ const holdRef=n=>createHash('sha256').update('hold:'+String(n||'')).digest('hex'
 // a tiny valid PDF for the document delivery check
 export const SAMPLE_PDF=Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 44>>stream\nBT /F1 14 Tf 20 50 Td (aqeelOS delivery check) Tj ET\nendstream endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R/Size 6>>\n%%EOF\n');
 export const PROBE=/aqeelos-probe:([a-z0-9]{6,32})/;
+// how long a delivery check waits for its own message to reach the line (90 s was too short on 20 Nov 2026: it came after 2.5 min)
+export const PROBE_WAIT=180e3;
+// a check message that reaches the line after its check gave up: the stored result is corrected (null when it is not that check's message)
+export function lateProbe(res,text,at){const id=(PROBE.exec(String(text||''))||[])[1];if(!res||!id||res.arrived||res.late)return null;
+ if(id.replace(/w$/,'')!==res.id||!/never received the check message/.test(res.why||''))return null;
+ return {...res,late:at,lineReceives:true,why:'The check message reached the line '+Math.round((at-res.at)/1000)+' s after it was sent, after the check had stopped waiting: the line receives messages, but slowly. Run the check again for the picture and PDF.'}}
 const HH=()=>(process.env.HERMES_HOME||path.join(homedir(),'.hermes')).replace(/^~(?=\/|$)/,homedir());
 export const BRIDGE={url:process.env.WHATSAPP_BRIDGE_URL||'http://127.0.0.1:3000',
  async self(){try{const c=JSON.parse(await readFile(path.join(HH(),'platforms','whatsapp','session','creds.json'),'utf8'));return String(c.me?.id||'').replace(/[:@].*/,'')}catch{return ''}},
@@ -313,7 +319,11 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    if(!/^wamid\.aqtest-/.test(String(m.id||''))){const at=Math.min(now(),m.ts?m.ts*1000:now());if(at>(st.recent[rk]||0))st.recent[rk]=at}
    st.known[rk]={name:String(m.name||'').slice(0,80),conv:m.conversationId||st.known[rk]?.conv||'',at:now()};
    // a delivery check's own message (it only opens WhatsApp's 24-hour window): never answered
-   if(PROBE.test(String(m.text||''))){log('kirimdev '+agent+': delivery check message from '+tail(m.from)+' (not answered)');continue}
+   if(PROBE.test(String(m.text||''))){log('kirimdev '+agent+': delivery check message from '+tail(m.from)+' (not answered)');
+    // arrived after the check gave up waiting (AU-37, 20 Nov 2026: 2.5 min late, and the stored result kept saying "never received"): the
+    // result now says the line does receive, slowly
+    {const late=lateProbe(st.probes?.[agent],String(m.text||''),now());if(late){st.probes[agent]=late;log('kirimdev '+agent+': delivery check: '+late.why)}}
+    continue}
    const tester=isTester(line,m);
    if(tester&&m.conversationId&&(line.testers||[]).some(t=>t.conversationId===m.conversationId))st.testerNums[rk]=m.conversationId;else if(!tester)delete st.testerNums[rk];
    if(mode==='test'&&!tester){log('kirimdev '+agent+': a message from a number that is not a tester (Test mode), not answered');continue}
@@ -663,8 +673,8 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   if(bridge.ready&&!await bridge.ready())return done('The main WhatsApp has not restarted since delivery checks were installed. They start after the next engine restart.');
   const acc=await probe('accounts',await apiKey().catch(()=>null)),ln=String((acc.ok&&Array.isArray(acc.json?.data)?acc.json.data:[]).find(x=>String(x?.phone_number_id)===String(line.phoneNumberId))?.phone_number||'').replace(/\D/g,'');if(!ln)return done('Kirimdev did not give this line\'s phone number.');
   const id=randomUUID().replace(/-/g,'').slice(0,12);out.id=id;
-  if(!within24h(agent,me)){await step('Opening the line'+String.fromCharCode(39)+'s 24-hour window: the main WhatsApp writes to the line (up to 90 s).');await bridge.send(ln,'aqeelOS delivery check, please ignore. aqeelos-probe:'+id+'w');
-   for(let i=0;i<30&&!within24h(agent,me);i++){await wait(3000);await state()}
+  if(!within24h(agent,me)){await step('Opening the line'+String.fromCharCode(39)+'s 24-hour window: the main WhatsApp writes to the line (up to 3 min).');await bridge.send(ln,'aqeelOS delivery check, please ignore. aqeelos-probe:'+id+'w');
+   for(let i=0;i<PROBE_WAIT/3000&&!within24h(agent,me);i++){await wait(3000);await state()}
    if(!within24h(agent,me))return done('The line never received the check message from the main WhatsApp (webhook or polling not running?).')}
   // a PDF check goes the whole real way: the app's own one-purpose link (public address, Cloudflare), Kirimdev's document message, WhatsApp, the main phone downloads and reads it
   if(document){if(!docLinks)return done('This install has no file links.');let dl;try{dl=await docLinks.put({buffer:SAMPLE_PDF,name:'aqeelOS delivery check.pdf',agent,ttl:10*60e3})}catch(e){return done('Could not make the PDF link: '+e.message)}
