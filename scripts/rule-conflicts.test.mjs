@@ -137,8 +137,9 @@ test('"until this hour has 5 comments" is the hour\'s number too: the conflict i
 
 test('the owner\'s direct newest instruction is followed, not turned into a conflict; a choice leads with their own latest word (21 Nov 2026)',async()=>{
  const t=CONFLICT_RULE_LINES.join(' ');
- assert.match(t,/newest word of the person you work for wins/);assert.match(t,/do it, then write the new rule in one place/);assert.match(t,/Do not ask them again or argue/);
- assert.match(t,/Ask instead of picking only when different people disagree/);assert.match(t,/latest instruction is the first choice and the recommended one, never your own preference/);
+ assert.match(t,/owner\'s newest word outranks everything earlier/);assert.match(t,/theirs or anyone else\'s \(a teammate\'s, a team rule, your own files\)/,'it beats other people\'s rules too');assert.match(t,/Do it, then write the new rule in one place/);assert.match(t,/Do not ask them again or argue/);
+ assert.match(t,/A teammate with full authority over you is followed the same way, except against something your owner set: then ask your owner/);
+ assert.match(t,/Ask instead of picking only when people other than your owner disagree with each other/);assert.match(t,/latest instruction is the first choice and the recommended one, never your own preference/);
  assert.match(t,/limit aqeelOS enforces/,'hard limits still hold');
  const src=(await import('node:fs')).readFileSync(new URL('../app/notify-tools-routes.mjs',import.meta.url),'utf8');
  assert.match(src,/name:'file_conflict',description:'Not for your owner\\'s direct new instruction in this chat/)});
