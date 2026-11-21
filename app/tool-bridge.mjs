@@ -38,7 +38,8 @@ export function createToolBridge({HERMES_HOME,WORK,PORT,sig,python,readConfig,go
  const fail=(status,error)=>({status,json:{ok:false,error}});
  // one tool-free completion for a script (21 Nov 2026: a check-in script wanted a cheap model call with structured output and measured tokens, not an agent run)
  const runComplete=complete||((agent,req)=>new Promise(async(ok,no)=>{const py=await python();if(!py)return no(Object.assign(Error('aqeelOS could not find the engine to call a model with.'),{status:503}));
-  const env={...process.env,HERMES_HOME:homeOf(agent)};delete env.DISPLAY;let out='',err='';const c=spawn(py,[path.join(root,'scripts','script-complete.py'),path.join(HERMES_HOME,'hermes-agent')],{env,stdio:['pipe','pipe','pipe']});
+  const env={...process.env,HERMES_HOME:homeOf(agent),HERMES_DISABLE_LAZY_INSTALLS:'1'};delete env.DISPLAY;   // no prepare-and-restart: it would lose the request on stdin (AU-26)
+ let out='',err='';const c=spawn(py,[path.join(root,'scripts','script-complete.py'),path.join(HERMES_HOME,'hermes-agent')],{env,stdio:['pipe','pipe','pipe']});
   const t=setTimeout(()=>{try{c.kill()}catch{}no(Object.assign(Error('The model did not answer in time.'),{status:504}))},(req.timeout+30)*1000);
   c.stdout.on('data',d=>{out+=d});c.stderr?.on('data',d=>{err=(err+d).slice(-2000)});c.on('error',e=>{clearTimeout(t);no(e)});
   c.on('close',code=>{clearTimeout(t);try{ok(JSON.parse(out.trim().split('\n').pop()))}catch{no(Object.assign(Error('The model call failed'+(code?' ('+whyShort(err.split('\n').filter(Boolean).pop())+')':'')+'.'),{status:502}))}});

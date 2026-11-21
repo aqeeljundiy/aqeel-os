@@ -117,3 +117,7 @@ test('complete: a script gets one tool-free model answer, parsed JSON and measur
  assert.equal((await b.call('bot',{op:'complete',prompt:' '})).status,400);assert.equal((await b.call('nobody',{op:'complete',prompt:'x'})).status,404);
  const p=await b.call('bot',{op:'complete',prompt:'x'});assert.equal(p.json.structured,null);assert.equal(p.json.jsonError,undefined);assert.equal(t.spawned.length,0,'no tool worker is started for a completion');
  await t.b.ensureClients(['bot']);const mod=await readFile(path.join(t.W,'bot','.tools','aqtools.py'),'utf8');assert.match(mod,/def complete\(/)});
+
+test('a script\'s model call runs without the engine\'s prepare-and-restart, which would lose the request on stdin (AU-26)',async()=>{
+ const src=(await import('node:fs')).readFileSync(new URL('../app/tool-bridge.mjs',import.meta.url),'utf8');
+ assert.match(src,/HERMES_HOME:homeOf\(agent\),HERMES_DISABLE_LAZY_INSTALLS:'1'/)});
