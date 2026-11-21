@@ -265,13 +265,13 @@ function versionCopies(name){return VERSION_DIRS.map(v=>path.join(PATCH_DIR,v,na
 // 17) Shared skills (engine/patches/2026-11-06-shared-skills.patch): every agent reads the main profile's skills,
 //     installed once; <HERMES_HOME>/skills-scope.json limits private ones to listed agents; editing a shared skill
 //     makes the agent's own copy. Same all-or-nothing git apply as step 16.
-{const {execFileSync}=await import('node:child_process');const E=path.join(HOME,'hermes-agent');
+{const {execFileSync}=await import('node:child_process');const {applyFresh}=await import('./engine-patch-layers.mjs');const E=path.join(HOME,'hermes-agent');
  const pf=path.join(path.dirname(new URL(import.meta.url).pathname),'..','engine','patches','2026-11-06-shared-skills.patch');
  if(await exists(path.join(E,'.git'))&&await exists(pf)){const g=a=>execFileSync('git',['-C',E,...a],{stdio:'pipe'});
   // the original, else its copy for a newer engine version (engine/patches/<version>/, as in 17b)
   const cands=[pf,...versionCopies(path.basename(pf))];let done=false;
   for(const c of cands){let inPlace=false;try{g(['apply','--reverse','--check',c]);inPlace=true}catch{}
-   if(inPlace){done=true;break}try{g(['apply','--check',c]);g(['apply',c]);changed++;console.log('engine: shared skills in place'+(c===pf?'':' ('+path.basename(path.dirname(c))+')'));done=true;break}catch{}}
+   if(inPlace){done=true;break}try{if(!applyFresh(E,c))throw 0;changed++;console.log('engine: shared skills in place'+(c===pf?'':' ('+path.basename(path.dirname(c))+')'));done=true;break}catch{}}
   if(!done){console.warn('! engine: shared skills patch does not fit this engine version; see engine/patches/README.md');misfit('2026-11-06-shared-skills.patch')}}}
 // 17b) Every later engine fix in engine/patches (named <date>-<what>.patch; 11 Nov 2026: fixes the fixer had made only
 //     on a live engine, which the next engine update would have dropped). Same all-or-nothing git apply per patch, but

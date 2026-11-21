@@ -4,7 +4,7 @@
 // a scratch copy of only the files the patches touch: a patch that reverse-applies is in, and is taken out of the copy
 // before the next older one is looked at. Nothing under the engine is written. Used by apply-skill-patches.mjs (17b).
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync,mkdirSync,copyFileSync,existsSync,readFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,copyFileSync,existsSync,readFileSync,rmSync,renameSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 
@@ -30,13 +30,33 @@ export function layerState(engine,files){
   return out}
  finally{rmSync(S,{recursive:true,force:true})}}
 
+// the files a patch creates (git's "new file mode", or a plain diff from /dev/null)
+export function newFiles(text){const s=new Set();
+ for(const m of text.matchAll(/^diff --git a\/\S+ b\/(\S+)\nnew file mode/gm))s.add(m[1]);
+ for(const m of text.matchAll(/^--- \/dev\/null\n\+\+\+ b\/([^\t\n]+)/gm))s.add(m[1].trimEnd());
+ return [...s]}
+
+// git apply of a patch that is not in place, all or nothing (21 Nov 2026). An engine update first resets the engine's tracked
+// files (git checkout -- .), which leaves the files our patches created; git apply then refused with "already exists in
+// working directory", so on Elkiya five patches lost their edits to tracked files and only their new files stayed. A file the
+// patch itself creates that is not tracked by the engine is set aside, the patch is checked and applied, and the files come
+// back untouched if it still does not fit. Returns true when applied.
+export function applyFresh(engine,file,{checkOnly=false}={}){const g=a=>execFileSync('git',['-C',engine,...a],{stdio:'pipe'});
+ try{g(['apply','--check',file]);if(!checkOnly)g(['apply',file]);return true}catch{}
+ const tracked=p=>{try{g(['ls-files','--error-unmatch','--',p]);return true}catch{return false}};
+ const left=newFiles(readFileSync(file,'utf8')).filter(p=>existsSync(path.join(engine,p))&&!tracked(p));if(!left.length)return false;
+ const T=mkdtempSync(path.join(tmpdir(),'aq-aside-')),moved=[];
+ try{for(const p of left){const to=path.join(T,String(moved.length));renameSync(path.join(engine,p),to);moved.push([p,to])}
+  try{g(['apply','--check',file]);if(checkOnly)return true;g(['apply',file]);for(const [,to] of moved)rmSync(to,{force:true});moved.length=0;return true}catch{return false}}
+ finally{for(const [p,to] of moved){try{renameSync(to,path.join(engine,p))}catch{copyFileSync(to,path.join(engine,p))}}rmSync(T,{recursive:true,force:true})}}
+
 // Brings every patch in: those in place are left, the rest are applied oldest first, each all or nothing.
 // Returns {inPlace, applied, misfit} (file names).
 export function applyLayers(engine,files){
- const g=a=>execFileSync('git',['-C',engine,...a],{stdio:'pipe'}),r={inPlace:[],applied:[],misfit:[]};
+ const r={inPlace:[],applied:[],misfit:[]};
  for(const {file,inPlace} of layerState(engine,files)){const f=path.basename(file);
   if(inPlace){r.inPlace.push(f);continue}
-  try{g(['apply','--check',file]);g(['apply',file]);r.applied.push(f)}catch{r.misfit.push(f)}}
+  if(applyFresh(engine,file))r.applied.push(f);else r.misfit.push(f)}
  return r}
 
 // Patches for newer engine versions (21 Nov 2026): engine/patches/<engine version>/<same name>.patch is the same fix written for
@@ -47,9 +67,9 @@ export function applyLayers(engine,files){
 export function applyWithVariants(engine,files,variantsOf=()=>[]){
  const ok=(args,f)=>{try{execFileSync('git',['-C',engine,'apply',...args,f],{stdio:'pipe'});return true}catch{return false}};
  const st=layerState(engine,files),variant={};
- const chosen=files.map((f,i)=>{if(st[i].inPlace||ok(['--check'],f))return f;
+ const chosen=files.map((f,i)=>{if(st[i].inPlace||applyFresh(engine,f,{checkOnly:true}))return f;
   // a copy with no diff in it says "upstream does this itself on that version": in place, nothing to apply
   for(const v of variantsOf(f))if(!patchPaths(readFileSync(v,'utf8')).length&&!/^@@/m.test(readFileSync(v,'utf8'))){variant[path.basename(f)]=path.basename(path.dirname(v))+', upstream';return null}
-   else if(ok(['--reverse','--check'],v)||ok(['--check'],v)){variant[path.basename(f)]=path.basename(path.dirname(v));return v}
+   else if(ok(['--reverse','--check'],v)||applyFresh(engine,v,{checkOnly:true})){variant[path.basename(f)]=path.basename(path.dirname(v));return v}
   return f});
  const r=applyLayers(engine,chosen.filter(Boolean));r.inPlace.push(...files.filter((f,i)=>!chosen[i]).map(f=>path.basename(f)));return {...r,variant}}

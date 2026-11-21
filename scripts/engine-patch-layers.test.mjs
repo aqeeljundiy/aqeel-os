@@ -6,7 +6,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {applyLayers,layerState,patchPaths} from './engine-patch-layers.mjs';
+import {applyLayers,layerState,patchPaths,newFiles,applyFresh,applyWithVariants} from './engine-patch-layers.mjs';
 
 process.env.GIT_CONFIG_COUNT='1';process.env.GIT_CONFIG_KEY_0='core.autocrlf';process.env.GIT_CONFIG_VALUE_0='false';   // a Windows git would write CRLF
 const GIT=['-c','core.autocrlf=false','-c','user.email=t@t','-c','user.name=t'];
@@ -78,3 +78,21 @@ test('an empty copy for a version means upstream does it there: in place, nothin
  const {applyWithVariants}=await import('./engine-patch-layers.mjs');const s=setup();
  writeFileSync(path.join(s.E,'f.py'),'all\nnew\n');s.git('commit','-qam','x');const V=path.join(s.P,'v9.9.9');mkdirSync(V);writeFileSync(path.join(V,path.basename(s.p1)),'# upstream does this since v9.9.9\n');
  const r=applyWithVariants(s.E,[s.p1],f=>[path.join(V,path.basename(f))]);assert.deepEqual([r.applied,r.misfit,r.inPlace],[[],[],[path.basename(s.p1)]]);assert.equal(s.f(),'all\nnew\n');s.done()});
+
+// 21 Nov 2026 (Elkiya): an engine update reset the tracked files (git checkout -- .) and left the patch's own new file, so
+// git apply said "already exists" and the patch's edits to tracked files never came back
+test('a patch whose new file was left behind by a reset is applied again; a real misfit keeps the file',()=>{
+ const T=mkdtempSync(path.join(tmpdir(),'fresh-')),E=path.join(T,'engine');mkdirSync(E);
+ const git=(...a)=>execFileSync('git',['-C',E,...GIT,...a],{stdio:'pipe',encoding:'utf8'});
+ try{git('init','-q');writeFileSync(path.join(E,'f.py'),BASE);git('add','-A');git('commit','-qm','engine');
+  writeFileSync(path.join(E,'f.py'),BASE.replace('three','THREE'));writeFileSync(path.join(E,'new.py'),'added\n');git('add','-A');
+  const P=path.join(T,'2026-11-11-x.patch');writeFileSync(P,git('diff','--cached'));git('reset','-q');
+  assert.deepEqual(newFiles(readFileSync(P,'utf8')),['new.py']);
+  git('checkout','--','.');   // the reset: f.py back to clean, new.py stays
+  assert.equal(readFileSync(path.join(E,'f.py'),'utf8'),BASE);
+  const r=applyWithVariants(E,[P]);assert.deepEqual(r.applied,['2026-11-11-x.patch'],JSON.stringify(r));
+  assert.match(readFileSync(path.join(E,'f.py'),'utf8'),/THREE/);assert.equal(readFileSync(path.join(E,'new.py'),'utf8'),'added\n');
+  // a real misfit: f.py changed upstream; the left file is put back untouched
+  git('checkout','--','.');writeFileSync(path.join(E,'f.py'),'other\n');writeFileSync(path.join(E,'new.py'),'mine\n');
+  assert.equal(applyFresh(E,P),false);assert.equal(readFileSync(path.join(E,'new.py'),'utf8'),'mine\n');
+ }finally{rmSync(T,{recursive:true,force:true})}});
