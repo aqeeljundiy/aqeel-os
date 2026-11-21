@@ -15,6 +15,12 @@ async function make(o={}){const DATA=await mkdtemp(path.join(tmpdir(),'sr-'));le
   notify:async(r,ans)=>{notes.push([r.id,r.state,ans])},tellOwner:async x=>{told.push(x)},bell:async()=>{}});
  return {s,DATA,told,notes,launched,exits,gone,tick:ms=>{t+=ms},set:v=>{t=v},now:()=>t}}
 
+test('judge: the team owner from the team policy passes like a trusted person',()=>{
+ const chain=[{id:'t1',source:'telegram',user_id:'777',user_name:'Aqeel'}],isOwner=(p,id)=>p==='telegram'&&id==='777';
+ assert.equal(judge(chain,{...OWNER,isOwner}).ok,true);
+ assert.match(judge(chain,OWNER).why,/Only trusted people/);
+ assert.match(judge([{...chain[0],user_id:'8'}],{...OWNER,isOwner}).why,/Only trusted people/)});
+
 test('judge: aqeelOS chat of an editor, own schedules and trusted people pass; everything else is refused',()=>{
  const c=(...x)=>x.map((s,i)=>({id:'s'+i,...s}));
  assert.equal(judge(c({source:'api_server',id:'api_1'}).map(x=>({...x,id:'api_1'})),OWNER).ok,true);

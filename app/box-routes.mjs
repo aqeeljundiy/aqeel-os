@@ -4,11 +4,11 @@
 // /mcp/self/*, /agent-ops/*, /fixer-ops/*, /team-message/*, /google-files/*, /run-gate/*, /event-hook/*, /posting-*). They used to sit in
 // server.mjs before the sign-in gate and still run there: server.mjs calls this at the same place (after /healthz, before the agent tool
 // server) and it answers true when it handled the request. Same checks in the same order.
-import {fp as srFp,judge as srJudge,MAX_MIN as SR_MAX,DEFAULT_MIN as SR_DEF,safeLock} from './self-runs.mjs';
+import {fp as srFp,judge as srJudge,normId,MAX_MIN as SR_MAX,DEFAULT_MIN as SR_DEF,safeLock} from './self-runs.mjs';
 import path from 'node:path';
 import {homedir} from 'node:os';
 import {timingSafeEqual} from 'node:crypto';
-export function createBoxRoutes({agentOps,codeBridge,eventHooks,fixerSandbox,googleFiles,kirimdev,postingLimits,readBody,relayKeys,runGates,selfRuns,send,sign,srBox,srDur,srEligible,users}){
+export function createBoxRoutes({agentLive,agentOps,codeBridge,eventHooks,fixerSandbox,googleFiles,kirimdev,postingLimits,readBody,relayKeys,runGates,selfRuns,send,sign,srBox,srDur,srEligible,users}){
 // the chat a call came from: the waiting call with these very arguments in the agent's own chat database
 async function srOrigin(a,tool,args){let calls=[];
  // a busy database (right after an engine restart) is tried again, like a call not saved yet
@@ -17,9 +17,12 @@ async function srOrigin(a,tool,args){let calls=[];
  if(!calls.length&&err)return {ok:false,why:err.message+' Try again in a minute.'};
  const settings=await selfRuns.settings(a),trusted=await selfRuns.trusted();
  const sessionUser=id=>{const uid=users.sessionOwner(id),w=uid&&users.byId(uid);return w?{name:w.name||w.username||uid,ok:users.atLeast(w,a,'edit')}:null};
- if(!calls.length)return srJudge([],{settings,trusted,sessionUser});
+ // the team's owner (team policy) counts like a trusted person; resolved here because judge is synchronous
+ const owners=new Set();for(const c of calls){const r=c.chain?.[c.chain.length-1]||{},pf=String(r.platform||r.source||''),id=normId(pf,r.user_id);if(id&&(await agentLive?.who(pf,id).catch(()=>null))?.role==='owner')owners.add(pf+'\u0001'+id)}
+ const isOwner=(p,id)=>owners.has(p+'\u0001'+id);
+ if(!calls.length)return srJudge([],{settings,trusted,sessionUser,isOwner});
  // the same call twice at once: every chat it could be from must pass
- const v=calls.map(c=>srJudge(c.chain,{settings,trusted,sessionUser}));return v.find(x=>!x.ok)||v[0]}
+ const v=calls.map(c=>srJudge(c.chain,{settings,trusted,sessionUser,isOwner}));return v.find(x=>!x.ok)||v[0]}
 const SR_TOOLS=[
  {name:'run_self',description:'Start a fresh run of yourself in the background, to test or re-run your own work: a new chat of your own with this prompt, with your own tools, files and keys, in your own workspace. It runs at most timeout_minutes ('+SR_MAX+' at most) and you can carry on meanwhile; the person who asked hears when it ends. Then call run_self_status with its id and wait true to get the result. Only in chats with your owner, a trusted person or the aqeelOS chat, and from your own schedules. At most 2 at once and a daily limit set in aqeelOS.',
   inputSchema:{type:'object',properties:{prompt:{type:'string',description:'Everything the run needs to know: it starts with no memory of this chat'},reason:{type:'string',description:'Why, in a few words (shown to the owner)'},timeout_minutes:{type:'number',minimum:1,maximum:SR_MAX,description:'Stop it after this many minutes (default '+SR_DEF+', at most '+SR_MAX+')'},lock:{type:'string',description:'Optional: a lock file in your workspace, e.g. .tools/browser.lock. The run waits (up to 10 minutes) until nothing else holds it, and holds it while it runs.'}},required:['prompt','reason']}},

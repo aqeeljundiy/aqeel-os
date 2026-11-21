@@ -46,7 +46,7 @@ export function judge(chain,o){const set=o.settings||{};
   const u=o.sessionUser?.(root.id);if(!u)return {ok:false,by,why:'This aqeelOS chat has no known owner, so it is refused.'};if(!u.ok)return {ok:false,by,why:(u.name||'This person')+' may not edit this agent, so they cannot make it run itself.'};return {ok:true,by:{...by,who:u.name}}}
  if(CUSTOMER.has(root.source)||CUSTOMER.has(pf))return {ok:false,by,why:'This chat came in through a webhook (customers, bridges such as Kirimdev), so it is refused.'};
  if(MESSAGING.has(root.source)||MESSAGING.has(pf)){const p=MESSAGING.has(root.source)?root.source:pf,id=normId(p,root.user_id);
-  const t=(o.trusted||[]).find(x=>x.platform===p&&x.uid===id);if(!id||!t)return {ok:false,by,why:'Only trusted people may make an agent run itself, and the person in this '+(PRETTY[p]||p)+' chat is not on the list. An admin adds them in aqeelOS (Automations › Runs itself › Trusted people).'};
+  const t=(o.trusted||[]).find(x=>x.platform===p&&x.uid===id)||(id&&o.isOwner?.(p,id)?{name:null}:null);if(!id||!t)return {ok:false,by,why:'Only trusted people may make an agent run itself, and the person in this '+(PRETTY[p]||p)+' chat is not on the list. An admin adds them in aqeelOS (Automations › Runs itself › Trusted people).'};
   return {ok:true,by:{...by,platform:p,who:t.name||by.who}}}
  return {ok:false,by,why:'Runs can only be started from the aqeelOS chat, your own schedules, or a trusted person\'s chat (this one came from "'+clip(root.source||'unknown',30)+'").'}}
 
