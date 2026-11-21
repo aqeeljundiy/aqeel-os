@@ -3289,7 +3289,18 @@ button.sf-more:focus-visible{outline:2px solid var(--blue-2);outline-offset:0}
 @media (pointer:coarse){.km-why>summary,.sign-go,.cf-once>summary{padding-block:10px;margin-block:-10px}label.cf-gh input{min-width:24px;min-height:24px}}
 
 /* an agent's own model order (Models › Which agent uses what, 16 Nov 2026) */
-.use-ctl{display:flex;gap:8px;align-items:center;min-width:0}.use-ctl select{flex:1;min-width:0}.ord-btn{flex:none;white-space:nowrap}.ord-btn.own{color:var(--blue-deep);background:var(--blue-soft);border-color:transparent}
+/* Models › which agent uses what (21 Nov 2026): its rule in words and one Change button; the choices live in the side panel */
+.use-ctl{display:flex;gap:8px;align-items:center;justify-content:flex-end;min-width:0}.use-ctl .use-chg{flex:none;white-space:nowrap}
+.use-rule{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4}.use-rule.own{color:var(--blue-deep);background:var(--blue-soft);border-color:transparent}
+p.hint.use-now-line{margin:0 0 16px}.use-h{font-size:14px;font-weight:600;margin:18px 0 8px}.use-h:first-child{margin-top:0}
+.use-choices{display:grid;gap:8px}
+.use-choice{display:grid;grid-template-columns:minmax(0,1fr);justify-content:stretch;justify-items:start;gap:2px;text-align:left;width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);color:inherit;font:inherit;cursor:pointer;transition:border-color .2s,background .2s}
+.use-choice small{color:var(--muted);font-size:12.5px;line-height:1.45}.use-choice:hover{background:var(--soft)}
+.use-choice.on{border-color:var(--blue-deep);background:var(--blue-soft)}.use-choice:disabled{opacity:.55;cursor:not-allowed}.use-choice:disabled:hover{background:var(--surface)}.use-choice:focus-visible{outline:2px solid var(--blue-deep);outline-offset:2px}
+.use-custom{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .25s ease,opacity .2s ease,margin .25s ease}.use-custom>.ord-list{overflow:hidden;min-height:0}
+.use-custom.open{grid-template-rows:1fr;opacity:1;margin-top:10px}
+@media (prefers-reduced-motion:reduce){.use-custom,.use-choice{transition:none}}
+@media (max-width:720px){.use-ctl{justify-content:flex-start}}
 .ord-own{align-items:flex-start;gap:10px;margin-bottom:12px}.ord-own small{display:block;margin-top:2px}
 .ord-list{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;transition:opacity .2s}.ord-list.off{opacity:.55}
 .ord-row{min-width:0;display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);transition:opacity .2s,background .2s}
@@ -3321,6 +3332,4 @@ button.sf-more:focus-visible{outline:2px solid var(--blue-2);outline-offset:0}
 @media (max-width:720px){.ul-h,.ul-r{grid-template-columns:minmax(0,1.6fr) minmax(44px,.6fr) minmax(70px,1fr)}.ul-h>span:nth-child(3),.ul-h>span:nth-child(4),.ul-h>span:nth-child(5),.ul-r>span:nth-child(3),.ul-r>span:nth-child(4),.ul-r>span:nth-child(5){display:none}.ul-cols{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){.ul-an i,.ul-drill{transition:none;animation:none}}
 /* work level per agent (Accounts › Which agent uses what, 20 Nov 2026) */
-.use-ctl .use-lv{margin-right:8px}
-@media (max-width:720px){.use-ctl{flex-wrap:wrap;gap:8px}.use-ctl .use-lv{margin-right:0}}
 .ul-budget{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 4px;font-size:13px;color:var(--ink-2)}

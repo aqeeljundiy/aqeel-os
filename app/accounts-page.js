@@ -12,14 +12,20 @@ const ACCT_WORD={ok:'Connected',out:'Needs sign-in',dead:'Sign-in stopped workin
 // the server decides the state of every account once (app/account-state.mjs, d.states); a key the provider refused or that has no credit keeps its own word
 const acctStatus=(d,key,was)=>{const k=d.keys?.[key]?.state;return k==='rejected'||k==='credit'?k:({connected:'ok',checking:'checking','needs-signin':'out',dead:'dead',limit:'limit'})[d.states?.[key]]||was};
 // windows: {label, used, resets, scope}; scope 'account' counts for switching, 'model' (Opus, Sonnet) and 'image' (Pictures) are shown only
-// work levels (owner, 20 Nov 2026: "use the cheaper ones first for the lower end, unless an agent heavily uses creative or design"):
-// each is an order of the main priority list by provider, saved as the agent's own order. Light: Google AI plan, then ChatGPT,
-// then Claude. Standard: Claude, then ChatGPT, then Google. Heavy: Claude with Opus first. Any provider added later sorts as "other".
-const LEVELS=[['light','Light','Replies, checks, routine posts: the cheaper plans first'],['standard','Standard','Most assistants: Claude first, the others as backup'],['heavy','Heavy','Creative, design and code: Claude first, Opus before Sonnet']];
+// what an agent may use (owner, 21 Nov 2026: "Claude subs are for important tasks"; the Light/Standard/Heavy buttons said nothing and still let
+// routine work fall back to Claude). Important work follows the Priority list; Routine work uses Gemini, then ChatGPT, never Claude; Custom is
+// its own list. Saved as the agent's own order (accounts.mjs orderOf), which auto-switch, pools, fallbacks and outage moves all follow.
 const lvKind=e=>e.key.startsWith('claude:')?'claude':/antigravity/.test(e.key)?'google':/openai-codex/.test(e.key)?'chatgpt':'other';
-function levelOrder(main,level){const rank={light:['google','chatgpt','other','claude'],standard:['claude','chatgpt','google','other'],heavy:['claude','chatgpt','google','other']}[level];
- const m=e=>String(e.model||'');const sub=e=>level==='light'?(/claude|opus|sonnet/i.test(m(e))&&lvKind(e)==='google'?1:0):level==='heavy'?(/opus/i.test(m(e))?0:1):0;
- return [...main].map((e,i)=>({e,i})).sort((a,b)=>rank.indexOf(lvKind(a.e))-rank.indexOf(lvKind(b.e))||sub(a.e)-sub(b.e)||a.i-b.i).map(x=>({key:x.e.key,model:x.e.model||''}))}
+const KIND_NAME={claude:'Claude',google:'Gemini',chatgpt:'ChatGPT',other:'other accounts'};
+const ordId=e=>e.key+'|'+(e.model||'');
+function routineOrder(main){const rank=['google','chatgpt','other','claude'];
+ return [...main].map((e,i)=>({e,i})).sort((a,b)=>rank.indexOf(lvKind(a.e))-rank.indexOf(lvKind(b.e))||a.i-b.i).map(({e})=>({key:e.key,model:e.model||'',...(lvKind(e)==='claude'?{off:true}:{})}))}
+// the order its switches follow, as the server works it out: its own list's entries that are on, then any main entry it does not mention
+function effOrder(main,own){if(!Array.isArray(own)||!own.length)return main;const out=own.filter(e=>!e.off&&main.some(m=>ordId(m)===ordId(e)));for(const m of main)if(!own.some(e=>ordId(e)===ordId(m)))out.push(m);return out}
+const sameOrder=(a,b)=>a.length===b.length&&a.every((e,i)=>ordId(e)===ordId(b[i]));
+function useMode(main,own){if(!Array.isArray(own)||!own.length)return 'priority';return sameOrder(effOrder(main,own),effOrder(main,routineOrder(main)))?'routine':'custom'}
+function useRule(main,own){if(useMode(main,own)==='priority')return 'Follows Priority';const ks=[];for(const e of effOrder(main,own)){const k=lvKind(e);if(!ks.includes(k))ks.push(k)}
+ if(!ks.length)return 'No account switched on';if(ks.length===1)return KIND_NAME[ks[0]]+' only';return ks.map(k=>KIND_NAME[k]).join(', then ')+(ks.includes('claude')?'':'. Never Claude')}
 function acctSources(d,oauth=new Set()){const L=d.labels||{};
  const claudeModels=(Chat.models||[]).filter(m=>m.provider===PLUGIN_ID).map(m=>m.id);
  const claude=d.accounts.map(a=>{const u=a.usage||{};const ws=[['Session (5 h)',u.session,'account'],['This week',u.week,'account'],['This week, Opus',u.opus,'model'],['This week, Sonnet',u.sonnet,'model']].filter(([,w])=>w).map(([label,w,scope])=>({label,used:w.used,resets:w.resets,scope}));
@@ -88,7 +94,7 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
   <div class="pg-fold"><div class="pg-mems">${g.members.map((e,mi)=>{const s=byKey[e.key],n=usedBy(e.key).length,[sc,sl]=state(s);
    return `<div class="pg-mem" draggable="true" data-mem="${i}:${mi}"><div class="pg-name"><b>${esc(s.name)}</b>${e.key===g.next?'<span class="chip pg-next" title="The next agent that needs an account gets this one">Next</span>':''}${s.status==='ok'?'':`<span class="pri-st ${sc}"><i class="dot"></i>${sl}</span>`}</div>
    <div class="pri-lim">${bars(s)}</div><span class="pg-ag">${n?plural(n,'agent'):'No agent'}</span>${mixed?`<div class="pri-sel"><select data-mem-model="${i}:${mi}" style="width:auto" aria-label="Model on ${esc(s.name)}"><option value="">Keep each agent's model</option>${s.models.map(m=>`<option value="${esc(m)}" ${m===e.model?'selected':''}>${esc(modelLabel(m))}</option>`).join('')}</select></div>`:''}
-   <span class="pri-btns"><button class="ghost icon-btn" data-act="pri-out" data-i="${i}" data-m="${mi}" aria-label="Take ${esc(s.name)} out of the group" title="Take out of the group">${icon('popout',15)}</button><button class="ghost icon-btn" data-act="pri-mdel" data-i="${i}" data-m="${mi}" aria-label="Remove ${esc(s.name)} from priority">${icon('x',15)}</button></span></div>`}).join('')}</div></div></div>`};
+   <span class="pri-btns"><button class="ghost icon-btn" data-act="pri-out" data-i="${i}" data-m="${mi}" aria-label="Take ${esc(s.name)} out of the group" title="Take out of the group">${icon('logout',15)}</button><button class="ghost icon-btn" data-act="pri-mdel" data-i="${i}" data-m="${mi}" aria-label="Remove ${esc(s.name)} from priority">${icon('x',15)}</button></span></div>`}).join('')}</div></div></div>`};
  const hasPool=groups.some(g=>g.pool),mv=d.moves24;
  // one card for every kind: header, one status, limits (or why there are none) in the same spot, Used by, the same ⋯ menu
  const status=s=>s.isTeam?'':s.status==='checking'?`<span class="chip"><i class="dot"></i>${ACCT_WORD.checking}</span>`:s.status==='ok'?chipState(true,ACCT_WORD.ok)
@@ -103,7 +109,8 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
   <div class="acct-lim">${limits(s)}${(s.details||[]).map(x=>`<p class="hint" style="margin:6px 0 0">${esc(x)}</p>`).join('')}</div>
   <div class="acct-agents"><span class="th">Used by</span>${u.length||jobsOn(s.key).length?(u.length?Access.who({users:u}):'')+`<span class="acct-names">${esc([...u.map(x=>x.name),...Object.entries(jobsOn(s.key).reduce((m,j)=>(m[ident(j.agent).name]=(m[ident(j.agent).name]||0)+1,m),{})).map(([n,c])=>n+' · '+plural(c,'schedule'))].join(', '))}</span>`:'<span class="hint" style="margin:0">No agent yet</span>'}</div></div>`};
  // an account can be in the list again with another model (more than one entry per account, 6 Nov 2026)
- const left=src.filter(s=>!(s.isTeam&&!usedBy(s.key).length)&&(!pri.some(e=>e.key===s.key)||(s.models||[]).some(m=>!pri.some(e=>e.key===s.key&&e.model===m))));
+ // only accounts not in the list yet (21 Nov 2026: every model of every account made a menu of dozens); one with a fixed model is added from its own ⋯ menu
+ const left=src.filter(s=>!(s.isTeam&&!usedBy(s.key).length)&&!pri.some(e=>e.key===s.key));
  // needs sign-in, key rejected or out of credit: one line each, with the same Reconnect as the card (it goes once it works again)
  const outs=admin?[...(d.signedOut||[]),...src.filter(s=>s.status==='dead'&&!(d.signedOut||[]).some(x=>x.key===s.key)).map(s=>({key:s.key,name:s.name,state:'dead'}))]:[];
  const ev=(d.events||[]).map(e=>{const to=byKey[e.to]||byKey['claude:'+e.to];return `<div class="sw-row"><span class="sw-t">${esc(shortWhen(e.t))}</span><span class="sw-who">${agentAvatar(e.profile,22,{title:false})}<b>${esc(ident(e.profile).name)}</b>${icon('chevR',14)}<span>${esc(to?.name||e.to)}</span></span>${e.why?`<span class="chip sw-why">${esc(e.why)}</span>`:''}</div>`});
@@ -119,12 +126,11 @@ PAGES.accounts=async(p,el)=>{const gone=pageTok(el);
    <div class="auto-th"><span><b>Go back when it has</b><small>Free on the higher entry${hasPool?' (any account of a group)':''}, by the same limit, two checks in a row</small></span><label class="pct-in"><input id="acFree" type="number" inputmode="numeric" min="5" max="80" step="1" value="${+d.auto.backFree||20}" aria-label="Go back when it has, percent free"><span>% free</span></label></div></div>
   ${mv&&!ev.length?`<h3 class="sw-h">Recent switches<span class="sw-n">No agent moved in the last 24 hours</span></h3>`:''}${ev.length?`<h3 class="sw-h">Recent switches${mv?`<span class="sw-n">${mv.auto||mv.hand?plural(mv.auto,'automatic move')+' in the last 24 hours'+(mv.hand?', '+mv.hand+' by hand':''):'No agent moved in the last 24 hours'}</span>`:''}</h3><div class="sw-list">${ev.slice(0,6).join('')}</div>${ev.length>6?`<div class="sw-more"><div class="sw-list">${ev.slice(6).join('')}</div></div><button class="ghost small sw-all" data-act="sw-all" aria-expanded="false">Show all ${ev.length}</button>`:''}`:''}
   ${admin?`<h3 class="if-h">${icon('refresh',15)}A model stops answering</h3><p class="hint if-p">After 3 failed tries the engine answers that one reply with the agent’s fallback models, in this order, and starts on its own model again next time. They follow the priority list.</p><div class="fb-list" id="ifFb">${skeleton(1)}</div>`:''}</div>
- <div class="panel card"><div class="h-row"><h2 style="margin:0">Which agent uses what</h2>${admin&&Object.keys(d.route||{}).length>1?`<button class="ghost" data-act="use-bulk">${icon('users',15)}Set several</button>`:''}</div><p class="sub">Takes effect on the agent's next message.</p>${Object.entries(d.route||{}).map(([n,r])=>fieldRow(esc(ident(n).name),esc(modelLabel(r.model)),`<div class="use-ctl">${admin&&(d.priority||[]).length>1?`<div class="seg-mini use-lv" role="group" aria-label="Work level for ${esc(ident(n).name)}">${LEVELS.map(([k,l,t])=>`<button class="${(d.levels||{})[n]===k?'on':''}" title="${esc(t)}" data-act="use-level" data-agent="${esc(n)}" data-lv="${k}">${l}</button>`).join('')}</div>`:''}<select data-use="${esc(n)}">${src.map(s=>`<option value="${esc(s.key)}" ${s.key===r.entry?'selected':''} ${s.ok?'':'disabled'}>${esc(s.name)}${s.used!=null?' · '+s.used+'% used':''}</option>`).join('')}</select>${admin&&(d.priority||[]).length>1?`<button class="ghost small ord-btn${d.orders?.[n]?' own':''}" data-act="agent-order" data-agent="${esc(n)}" title="The order its switches follow">${d.orders?.[n]?'Own order':'Main order'}</button>`:''}</div>`)).join('')}</div></div>
+ <div class="panel card"><div class="h-row"><h2 style="margin:0">Which agent uses what</h2>${admin&&Object.keys(d.route||{}).length>1?`<button class="ghost" data-act="use-bulk">${icon('users',15)}Set several</button>`:''}</div><p class="sub">Takes effect on the agent's next message.</p>${Object.entries(d.route||{}).map(([n,r])=>fieldRow(esc(ident(n).name),esc(modelLabel(r.model))+(byKey[r.entry]?' on '+esc(byKey[r.entry].name):''),`<div class="use-ctl">${(d.priority||[]).length>1?`<span class="chip use-rule${d.orders?.[n]?' own':''}">${esc(useRule(d.priority||[],d.orders?.[n]))}</span>`:''}<button class="ghost small use-chg" data-act="agent-order" data-agent="${esc(n)}" aria-label="Change what ${esc(ident(n).name)} uses">Change</button></div>`)).join('')}</div></div>
  <h2 class="ach-cat">All accounts</h2><div class="grid-cards acct-grid">${(admin?src:src.filter(s=>usedBy(s.key).some(x=>S.me?.agents?.[x.id]))).map(card).join('')||(admin?'':'<p class="hint">None of your agents uses an AI account yet.</p>')}${admin?`<button class="card tile acct acct-more" data-act="acct-new">${icon('plus',22)}<b>Add account</b><span>Claude, ChatGPT, Google AI Pro, or any provider with an API key.</span></button>`:''}</div>`;
  const copy=()=>groups.map(g=>({...g,members:g.members.map(e=>({...e}))}));
  el.querySelectorAll('[data-pri-model]').forEach(s=>s.onchange=()=>{const l=copy();for(const e of l[+s.dataset.priModel].members)e.model=s.value;saveGroups(l)});
  el.querySelectorAll('[data-mem-model]').forEach(s=>s.onchange=()=>{const l=copy(),[g,m]=s.dataset.memModel.split(':').map(Number);l[g].members[m].model=s.value;saveGroups(l)});
- el.querySelectorAll('[data-use]').forEach(s=>s.onchange=async()=>{const e=pri.find(x=>x.key===s.value);try{await UI('/ui/accounts/use',{method:'POST',body:{profile:s.dataset.use,key:s.value,model:e?.model||''}});toast(ident(s.dataset.use).name+' now uses '+byKey[s.value].name);reload()}catch(er){fail(er);reload()}});
  // drag an entry onto another to reorder; drag a member out of its group onto another entry to make it an entry of its own
  // there; drag an account that was taken out back onto its group
  let from=null;el.querySelectorAll('[data-mem]').forEach(r=>{r.ondragstart=e=>{e.stopPropagation();const [g,m]=r.dataset.mem.split(':').map(Number);from={g,m};r.classList.add('dragging');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/pri',r.dataset.mem)};r.ondragend=()=>{r.classList.remove('dragging');from=null};
@@ -174,21 +180,34 @@ ACT['use-bulk']=()=>{const d=Pages._acctD,src=Pages._acctSrc||[];const route=d?.
   const o=opts[+dr.querySelector('#bulkTo').value];e.currentTarget.disabled=true;let ok=0;const bad=[];
   for(const n of pick){try{await UI('/ui/accounts/use',{method:'POST',body:{profile:n,key:o.key,model:o.model||''}});ok++}catch(er){bad.push(ident(n).name+': '+(er.message||er))}}
   closeLayers();toast(ok+' agent'+(ok===1?'':'s')+' now use'+(ok===1?'s':'')+' '+name(o)+(bad.length?'. Not changed: '+bad.join('; '):''),bad.length?'err':'');reload()}};
-// One agent's own model order (16 Nov 2026, owner: "the agent could choose its own priority"): off = it follows the main order; on = the
-// main order's entries in its own order, some switched off for it. Every switch follows it (accounts.mjs orderOf). A main entry added later
-// shows at the bottom, switched on.
-ACT['agent-order']=a=>{const n=a.dataset.agent,d=Pages._acctD||{},src=Pages._acctSrc||[],main=d.priority||[],id=e=>e.key+'|'+(e.model||'');   // the whole main order, also an account not signed in right now, so saving never drops it
+// What one agent may use (side panel, 21 Nov 2026). Important work: the Priority list as it is. Routine work: Gemini, then ChatGPT, never
+// Claude. Custom: its own list, each entry on or off, in its own order (owner, 16 Nov 2026: "the agent could choose its own priority").
+// Every switch follows it (accounts.mjs orderOf); a Priority entry added later joins the end of a custom list, switched on. Below that,
+// "Move it now" puts it on one account at once (the old per-row picker, also for members on their own agents).
+ACT['agent-order']=a=>{const n=a.dataset.agent,d=Pages._acctD||{},src=Pages._acctSrc||[],main=d.priority||[],admin=S.me?.admin!==false&&main.length>1,r=(d.route||{})[n]||{};
  const name=e=>(src.find(s=>s.key===e.key)?.name||d.labels?.[e.key]||e.key.replace(/^p:/,''))+(e.model?' · '+modelLabel(e.model):'');const saved=d.orders?.[n];
- let own=!!saved,list=saved?[...saved.filter(e=>main.some(m=>id(m)===id(e))).map(e=>({key:e.key,model:e.model||'',off:!!e.off})),...main.filter(m=>!saved.some(e=>id(e)===id(m))).map(m=>({key:m.key,model:m.model||'',off:false}))]:main.map(m=>({key:m.key,model:m.model||'',off:false}));
- const dr=drawer('Model order for '+ident(n).name,'<div id="ordBody"></div>',`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="ordGo">Save</button>`,{size:'sm'});
- const paint=()=>{dr.querySelector('#ordBody').innerHTML=`<label class="chk-row ord-own">${toggle(own,'Own order for this agent','id="ordOwn"')}<span><b>Own order for this agent</b><small class="hint">${own?'Its switches, fallbacks and outage moves follow this list.':'It follows the main order on this page.'}</small></span></label>
-  <div class="ord-list${own?'':' off'}" aria-label="Order for ${esc(ident(n).name)}">${list.map((e,i)=>`<div class="ord-row${e.off?' is-off':''}"><span class="ord-n">${i+1}</span><span class="ord-t">${esc(name(e))}</span><span class="pri-btns"><button class="ghost icon-btn" data-ord-mv="${i}:-1" aria-label="Move up" ${own&&i?'':'disabled'}>${icon('chevU',16)}</button><button class="ghost icon-btn" data-ord-mv="${i}:1" aria-label="Move down" ${own&&i<list.length-1?'':'disabled'}>${icon('chevD',16)}</button></span>${toggle(!e.off,'Use '+name(e)+' for this agent','data-ord-on="'+i+'"'+(own?'':' disabled'))}</div>`).join('')}</div>`;
-  dr.querySelector('#ordOwn').onchange=x=>{own=x.target.checked;paint()};
-  dr.querySelectorAll('[data-ord-mv]').forEach(b=>b.onclick=()=>{const [i,s]=b.dataset.ordMv.split(':').map(Number),j=i+s;if(!list[j])return;[list[i],list[j]]=[list[j],list[i]];paint()});
-  dr.querySelectorAll('[data-ord-on]').forEach(t=>t.onchange=()=>{list[+t.dataset.ordOn].off=!t.checked;paint()})};
- paint();
- dr.querySelector('#ordGo').onclick=async e=>{if(own&&list.every(x=>x.off))return toast('Keep at least one model on for this agent','err');e.currentTarget.disabled=true;
-  try{await UI('/ui/accounts/order',{method:'PUT',body:{agent:n,order:own?list:null}});closeLayers();toast(ident(n).name+(own?' now follows its own order':' follows the main order again'));reload()}catch(er){e.currentTarget.disabled=false;fail(er)}}};
+ let mode=useMode(main,saved),list=saved?[...saved.filter(e=>main.some(m=>ordId(m)===ordId(e))).map(e=>({key:e.key,model:e.model||'',off:!!e.off})),...main.filter(m=>!saved.some(e=>ordId(e)===ordId(m))).map(m=>({key:m.key,model:m.model||'',off:false}))]:main.map(m=>({key:m.key,model:m.model||'',off:false}));
+ const canRoutine=main.some(e=>lvKind(e)!=='claude');   // Routine needs something that is not Claude, or nothing would be left on
+ const CH=[['priority','Important work','Follows your Priority list, Claude first, in your order.'],['routine','Routine work','Gemini, then ChatGPT. Never uses Claude.'],['custom','Custom','Its own list: pick which accounts and in what order.']];
+ const now=src.find(s=>s.key===r.entry);
+ const dr=drawer(ident(n).name,`<p class="hint use-now-line">${esc(modelLabel(r.model)||'No model yet')}${now?' on <b>'+esc(now.name)+'</b>':''}</p><div id="ordBody"></div>
+  <h3 class="use-h">Move it now</h3><p class="hint">Puts it on one account at once, from its next message. Its rule above still decides where it goes when that account runs low.</p>
+  <select id="useNow" aria-label="Move ${esc(ident(n).name)} now to">${src.filter(s=>!s.isTeam||s.key===r.entry).map(s=>`<option value="${esc(s.key)}" ${s.key===r.entry?'selected':''} ${s.ok?'':'disabled'}>${esc(s.name)}${s.used!=null?' · '+s.used+'% used':''}</option>`).join('')}</select>`,
+  admin?`<button class="ghost" data-act="close">Cancel</button><button class="primary" id="ordGo">Save</button>`:`<button class="ghost" data-act="close">Close</button>`,{size:'sm'});
+ // the choices are drawn once; a choice only moves the highlight and folds the custom list open or shut (animated, no redraw)
+ const box=dr.querySelector('#ordBody');
+ const paintList=()=>{const l=box.querySelector('.ord-list');if(!l)return;l.innerHTML=list.map((e,i)=>`<div class="ord-row${e.off?' is-off':''}"><span class="ord-n">${i+1}</span><span class="ord-t">${esc(name(e))}</span><span class="pri-btns"><button class="ghost icon-btn" data-ord-mv="${i}:-1" aria-label="Move up" ${i?'':'disabled'}>${icon('chevU',16)}</button><button class="ghost icon-btn" data-ord-mv="${i}:1" aria-label="Move down" ${i<list.length-1?'':'disabled'}>${icon('chevD',16)}</button></span>${toggle(!e.off,'Use '+name(e)+' for this agent','data-ord-on="'+i+'"')}</div>`).join('');
+  l.querySelectorAll('[data-ord-mv]').forEach(b=>b.onclick=()=>{const [i,s]=b.dataset.ordMv.split(':').map(Number),j=i+s;if(!list[j])return;[list[i],list[j]]=[list[j],list[i]];paintList()});
+  l.querySelectorAll('[data-ord-on]').forEach(t=>t.onchange=()=>{list[+t.dataset.ordOn].off=!t.checked;t.closest('.ord-row').classList.toggle('is-off',!t.checked)})};
+ const setMode=k=>{const was=mode;mode=k;if(k==='custom'&&was!=='custom'){list=was==='routine'?routineOrder(main):main.map(m=>({key:m.key,model:m.model||'',off:false}));paintList()}
+  box.querySelectorAll('[data-use-mode]').forEach(b=>{const on=b.dataset.useMode===k;b.classList.toggle('on',on);b.setAttribute('aria-checked',on)});box.querySelector('.use-custom')?.classList.toggle('open',k==='custom')};
+ if(admin){box.innerHTML=`<h3 class="use-h">What it may use</h3><div class="use-choices" role="radiogroup" aria-label="What ${esc(ident(n).name)} may use">${CH.map(([k,t,h])=>{const no=k==='routine'&&!canRoutine;return `<button type="button" class="use-choice${mode===k?' on':''}" role="radio" aria-checked="${mode===k}" data-use-mode="${k}"${no?' disabled':''}><b>${t}</b><small>${no?'Add a Gemini or ChatGPT account to Priority first.':h}</small></button>`}).join('')}</div>
+  <div class="use-custom${mode==='custom'?' open':''}"><div class="ord-list" aria-label="Order for ${esc(ident(n).name)}"></div></div>`;
+  paintList();box.querySelectorAll('[data-use-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.useMode))}
+ dr.querySelector('#useNow').onchange=async e=>{const k=e.target.value,pe=main.find(x=>x.key===k);try{await UI('/ui/accounts/use',{method:'POST',body:{profile:n,key:k,model:pe?.model||''}});toast(ident(n).name+' now uses '+(src.find(s=>s.key===k)?.name||k));Pages._acctFresh=true;reload()}catch(er){fail(er);e.target.value=r.entry||''}};
+ const go=dr.querySelector('#ordGo');if(go)go.onclick=async e=>{if(mode==='custom'&&list.every(x=>x.off))return toast('Keep at least one account on for this agent','err');e.currentTarget.disabled=true;
+  const order=mode==='priority'?null:mode==='routine'?routineOrder(main):list;
+  try{await UI('/ui/accounts/order',{method:'PUT',body:{agent:n,order}});closeLayers();toast(ident(n).name+': '+(mode==='priority'?'follows your Priority list':mode==='routine'?'Gemini, then ChatGPT, never Claude':'its own list')+', from its next message');Pages._acctFresh=true;reload()}catch(er){e.currentTarget.disabled=false;fail(er)}}};
 // solo: the entries a person took out of their group ("key|model"); left as it is on the server when not sent
 async function savePri(list,solo){try{await UI('/ui/accounts/priority',{method:'PUT',body:{priority:list.map(e=>({key:e.key,model:e.model||''})),...(solo?{solo}:{})}});reload()}catch(e){fail(e)}}
 // the list as groups (Pages._groups): the flat list in group order, and which entries stand outside their group
@@ -205,10 +224,9 @@ ACT['pool-mode']=async a=>{if(a.classList.contains('on'))return;try{await put(UI
 // a group's accounts fold open and shut smoothly; which ones are shut is remembered on this device
 ACT['pool-fold']=a=>{const p=a.closest('.pri-pool'),open=!p.classList.contains('open');p.classList.toggle('open',open);a.setAttribute('aria-expanded',open);{const l=a.querySelector('span');if(l)l.textContent=open?'Hide':'Show'}
  try{const l=new Set(JSON.parse(localStorage.getItem('aq-pools-shut')||'[]'));if(open)l.delete(p.dataset.pool);else l.add(p.dataset.pool);localStorage.setItem('aq-pools-shut',JSON.stringify([...l]))}catch{}};
-Pages.priAddMenu=el=>{const pri=Pages._pri,has=(k,m)=>pri.some(e=>e.key===k&&e.model===m);const items=[];
- for(const s of Pages._acctSrc.filter(x=>!x.isTeam)){if(!pri.some(e=>e.key===s.key)){items.push({label:s.name,icon:s.key.startsWith('claude:')?'user':'cpu',run:()=>savePri([...pri,{key:s.key,model:''}])});continue}
-  for(const m of (s.models||[]).filter(m=>!has(s.key,m)))items.push({label:s.name+' · '+modelLabel(m),sub:'Again, with this model',icon:s.key.startsWith('claude:')?'user':'cpu',run:()=>savePri([...pri,{key:s.key,model:m}])})}
- menu(el,items.length?items:[{header:'Every account and model is in the list'}])};
+Pages.priAddMenu=el=>{const pri=Pages._pri||[],items=(Pages._acctSrc||[]).filter(x=>!x.isTeam&&!pri.some(e=>e.key===x.key))
+  .map(s=>({label:s.name,sub:s.ok?s.sub:'Needs sign-in',icon:s.key.startsWith('claude:')?'user':'cpu',run:()=>savePri([...pri,{key:s.key,model:''}])}));
+ menu(el,items.length?items:[{header:'Every account is in the list'}])};
 
 /* ---------- the ⋯ menu, the same on every account card: Reconnect, Rename, Choose agents…, its place in the priority
    list, and Remove. The same words for every kind of account (25 Oct). What does not apply is shown greyed with why. ---------- */
@@ -216,10 +234,11 @@ Pages.acctMenu=el=>{const s=(Pages._acctSrc||[]).find(x=>x.key===el.dataset.key)
  const move=dir=>{[gs[i],gs[i+dir]]=[gs[i+dir],gs[i]];saveGroups(gs)};   // an account in a group moves with its group
  const out=!(s.kind==='claude'&&s.id==='main');
  const moreOf={'p:openai-codex':'ChatGPT','p:antigravity-subscription':'Google'}[s.key.split('#')[0]];
+ const more=i<0?[]:(s.models||[]).filter(m=>!pri.some(e=>e.key===s.key&&e.model===m));
  menu(el,[...(moreOf?[{label:'Add another '+moreOf+' account',sub:'Each account gets its own card',icon:'plus',run:()=>Connect.add()},'-']:[]),s.extra?{label:'Reconnect',sub:'Remove it, then add it again',icon:'plug',disabled:true}:{label:'Reconnect',sub:s.kind==='key'?'Paste a new key':'Sign in again as this account',icon:'plug',run:()=>Pages.reconnect(s.key,s.name)},
   {label:'Rename',icon:'edit',run:()=>acctRename(s)},
   {label:'Choose agents…',sub:!s.ok?'Reconnect it first':plural((Object.values(Pages._acct?.route||{})).filter(r=>r.entry===s.key).length,'agent')+' on it',icon:'user',run:()=>acctAgents(s)},'-',
-  ...(i<0?[{label:'Add to priority',icon:'plus',run:()=>savePri([...pri,{key:s.key,model:''}])}]:[{label:'Move up in priority',icon:'chevU',disabled:i===0,run:()=>move(-1)},{label:'Move down in priority',icon:'chevD',disabled:i>=gs.length-1,run:()=>move(1)}]),'-',
+  ...(i<0?[{label:'Add to priority',icon:'plus',run:()=>savePri([...pri,{key:s.key,model:''}])}]:[{label:'Move up in priority',icon:'chevU',disabled:i===0,run:()=>move(-1)},{label:'Move down in priority',icon:'chevD',disabled:i>=gs.length-1,run:()=>move(1)},...(more.length?[{label:'Add again with one model',sub:'Its own entry that always uses that model',icon:'plus',run:()=>setTimeout(()=>menu(el,more.map(m=>({label:modelLabel(m),icon:'cpu',run:()=>savePri([...pri,{key:s.key,model:m}])}))),0)}]:[])]),'-',
   out?{label:'Remove',icon:'trash',bad:true,run:()=>acctRemove(s)}:{label:'Remove',sub:'The main account stays',icon:'trash',disabled:true}])};
 // Rename: one route for every account; an empty name goes back to the provider's own
 async function acctRename(s){const v=await promptBox('Rename '+s.name,'Name',s.name,'Rename');if(v==null||v.trim()===s.name)return;
@@ -259,7 +278,4 @@ ACT['agy-out']=async a=>{const n=a?.dataset?.name||'Google AI Pro';if(!await con
 
 
 
-ACT['use-level']=async a=>{const n=a.dataset.agent,lv=a.dataset.lv,d=Pages._acct||{};
- try{if((d.levels||{})[n]===lv){await put(UI,'/ui/accounts/order',{agent:n,order:null});toast(ident(n).name+' follows the main order again')}
-  else{await put(UI,'/ui/accounts/order',{agent:n,order:levelOrder(d.priority||[],lv),level:lv});toast(ident(n).name+': '+LEVELS.find(x=>x[0]===lv)[1]+', applied on its next message')}
-  Pages._acctFresh=true;reload()}catch(e){fail(e)}};
+
