@@ -794,6 +794,8 @@ if(LIVE_APP){setTimeout(()=>agentHealth().catch(()=>{}),30000);setInterval(()=>a
 if(LIVE_APP){rec.add('notify tool',{run:()=>syncNotifyTool(),reads:['cfg'],every:3600e3,why:'was every 10 min'})}
 // old engine environments (~400 MB each): the engine's own cleanup once a day
 if(LIVE_APP){const gc=()=>shx('timeout 900 hermes pm gc >/dev/null 2>&1').catch(()=>{});setTimeout(gc,30*60e3).unref();setInterval(gc,24*3600e3).unref()}
+// a terminal's ~/workspaces is the real workspaces folder (tools-workspaces.mjs: Donna's PDF, 21 Nov 2026), 2 minutes after start and daily
+if(LIVE_APP){const tw=()=>import('./tools-workspaces.mjs').then(m=>m.linkAll({HERMES_HOME,WORK:path.join(homedir(),'workspaces')})).catch(e=>console.warn('tools workspaces: '+e.message));setTimeout(tw,2*60e3).unref();setInterval(tw,24*3600e3).unref()}
 // leftovers of deleted agents: a folder with only logs/ (a command still ran during the delete) is removed
 const sweepGhosts=async()=>{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}).catch(()=>[])){if(!d.isDirectory()||d.name.startsWith('.'))continue;
  const dir=path.join(HERMES_HOME,'profiles',d.name);if(await isAgent(d.name))continue;const st=await stat(dir).catch(()=>null);const inside=await readdir(dir).catch(()=>['?']);
