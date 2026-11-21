@@ -365,6 +365,12 @@ def replied_and_forwarded_audio_is_transcribed_documents_are_not():
     f = ns["_event_media_is_stt_input"]
     ev = lambda t, mt: types.SimpleNamespace(message_type=t, media_types=[mt])
     assert f(ev(MessageType.VOICE, "audio/ogg", ), 0)
+    if "upstream (v0.23.3)" in src:
+        # v0.23.3: a replied-to voice note comes as TEXT with the note as speech input; AUDIO is never transcribed
+        assert f(ev(MessageType.TEXT, "audio/ogg"), 0), "replied-to voice note (TEXT + audio) is transcribed"
+        assert not f(ev(MessageType.AUDIO, "audio/ogg"), 0), "the bot's own voice note / an audio file is not"
+        assert not f(ev(MessageType.DOCUMENT, "audio/ogg"), 0), "a document stays a file"
+        return
     assert f(ev(MessageType.AUDIO, "audio/ogg"), 0), "replied-to voice note (AUDIO) is transcribed"
     assert f(ev(MessageType.AUDIO, ""), 0)
     assert not f(ev(MessageType.DOCUMENT, "audio/ogg"), 0), "a document stays a file"

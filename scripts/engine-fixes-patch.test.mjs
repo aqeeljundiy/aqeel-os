@@ -5,11 +5,11 @@ import assert from 'node:assert/strict';
 import {FIXES,FILES,fixFile} from './engine-fixes-patch.mjs';
 import {kirimPatch} from './kirim-signature-patch.mjs';
 
-test('an edit whose place moved uses its alt for the newer engine',()=>{
+test('on the newer engine the audio fix only marks that upstream does it (its AUDIO means never transcribe)',()=>{
  const src='def f(event, index):\n    mtype, mime = 1, 2\n    if mtype in {MessageType.AUDIO, MessageType.DOCUMENT}:\n        return False\n    return mime.startswith("audio/") or (mtype == MessageType.VOICE and mime in {"", "application/octet-stream"})\n';
  const r=fixFile('gateway/run.py',src);
  assert.ok(r.applied.some(n=>/transcribed like voice notes/.test(n)),JSON.stringify(r));
- assert.match(r.out,/aqeelos:audio-stt:/);assert.match(r.out,/if mtype == MessageType.AUDIO:\n        return not mime or mime.startswith\("audio\/"\)/);
+ assert.match(r.out,/aqeelos:audio-stt: upstream \(v0\.23\.3\)/);assert.match(r.out,/if mtype in \{MessageType\.AUDIO, MessageType\.DOCUMENT\}:\n        return False/,'upstream\'s rule stands');
  assert.equal(fixFile('gateway/run.py',r.out).out,null,'a second run changes nothing');
 });
 

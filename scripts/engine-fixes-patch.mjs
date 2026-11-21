@@ -710,14 +710,15 @@ def _redact_phones_enabled() -> bool:
 // where that text still is) and a second entry for the new file. The older engine (Elkiya until it moves) is unchanged.
 {const fix=(tag,file)=>FIXES.find(f=>f.tag===tag&&(!file||f.file===file)),edit=(tag,why)=>fix(tag).edits.find(e=>e.why===why);
  const alt=(tag,why,a)=>{const e=edit(tag,why);(e.alts||=[]).push(typeof a==='function'?a(e):a)};
+ // v0.23.3 does it itself (a typed reply to a person's voice note stays TEXT with the note as speech input) and uses AUDIO
+ // on purpose for what is never transcribed (the bot's own voice note, an audio file): only the mark goes in, so the
+ // live test sees the fix accounted for, and upstream's rule stands
  alt('aqeelos:audio-stt','which audio goes to speech-to-text',{
   from:'    if mtype in {MessageType.AUDIO, MessageType.DOCUMENT}:\n        return False\n    return mime.startswith("audio/") or (mtype == MessageType.VOICE and mime in {"", "application/octet-stream"})\n',
-  to:`    # aqeelos:audio-stt: an audio message (a replied-to or forwarded voice note, an .ogg) is transcribed too; the
-    # agent still gets the file. Agents with their own Linux user cannot run speech-to-text themselves.
-    if mtype == MessageType.DOCUMENT:
+  to:`    # aqeelos:audio-stt: upstream (v0.23.3) keeps a replied-to voice note as speech input itself; AUDIO marks what is
+    # never transcribed (the bot's own voice note, an audio file), so nothing changes here
+    if mtype in {MessageType.AUDIO, MessageType.DOCUMENT}:
         return False
-    if mtype == MessageType.AUDIO:
-        return not mime or mime.startswith("audio/")
     return mime.startswith("audio/") or (mtype == MessageType.VOICE and mime in {"", "application/octet-stream"})
 `});
  const oldLog='                logger.error(\n                    "[%s] Dropping inbound message: no gateway message handler "\n                    "is installed on this adapter. The adapter is connected and "\n                    "can send, but every inbound message is discarded.",\n                    self.name,\n                )\n';
@@ -768,14 +769,6 @@ def _redact_enabled() -> bool:
   {why:'the phone pass',from:'    if "+" in text and not keep_phone_numbers:  # opt-out: agent.redact_phone_policy\n',
    to:'    if "+" in text and not keep_phone_numbers and _aq_phones_masked():  # opt-out: agent.redact_phone_policy; aqeelos:phone-redaction-setting\n'}]})}
 
-// the engine's own tests of the audio rule say what aqeelos:audio-stt does (v0.23.3 added two that test the old rule)
-FIXES.push({tag:'aqeelos:audio-stt-tests',name:'the engine tests of the audio rule follow aqeelos:audio-stt',file:'tests/gateway/relay/test_wire_voice_media.py',edits:[
- {why:'the legacy voice note test',from:'    def test_legacy_audio_typed_voice_note_stays_out_of_stt(self):\n',
-  to:'    def test_legacy_audio_typed_voice_note_stays_out_of_stt(self):\n        # aqeelos:audio-stt-tests: an audio-typed voice note IS transcribed (the agent still gets the file)\n'},
- {why:'its expectation',from:'                media=[{"url": "https://gw/relay/media/x", "kind": "voice", "mime": "audio/ogg"}],\n                media_urls=["https://gw/relay/media/x"],\n            )\n        )\n        assert _event_media_is_stt_input(ev, 0) is False\n',
-  to:'                media=[{"url": "https://gw/relay/media/x", "kind": "voice", "mime": "audio/ogg"}],\n                media_urls=["https://gw/relay/media/x"],\n            )\n        )\n        assert _event_media_is_stt_input(ev, 0) is True\n'},
- {why:'the music upload expectation',from:'                media=[{"url": "https://cdn/x/song.mp3", "kind": "audio", "mime": "audio/mpeg"}],\n                media_urls=["https://cdn/x/song.mp3"],\n            )\n        )\n        assert _event_media_is_stt_input(ev, 0) is False\n',
-  to:'                media=[{"url": "https://cdn/x/song.mp3", "kind": "audio", "mime": "audio/mpeg"}],\n                media_urls=["https://cdn/x/song.mp3"],\n            )\n        )\n        assert _event_media_is_stt_input(ev, 0) is True  # aqeelos:audio-stt: audio is transcribed too\n'}]});
 
 // an engine that already has an older text of a fix gets the newer one in place (the tag alone would keep the old text, and the
 // engine check would then see the live engine differ from a clean one): {file, name, from, to}
