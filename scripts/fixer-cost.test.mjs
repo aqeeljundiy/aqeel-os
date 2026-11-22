@@ -199,3 +199,13 @@ test('AU-33: the same Health topic filed again within a week shares the earlier 
  assert.equal(+topicCost(items,runs,items[1],now).toFixed(2),2.9,'i1 (3 days ago) counts, i3 (9 days) and another topic do not');
  assert.equal(+topicCost(items,runs,{...items[1],runBase:{cost:0}},now).toFixed(2),0.4,'after Try again only its own');
  assert.equal(topicCost(items,runs,{id:'i4'},now),7,'no topic key: its own')});
+
+test('a question held for an issue that has ended is withdrawn; the question names the problem (23 Nov 2026)',async()=>{
+ const DATA=await mkdtemp(path.join(tmpdir(),'fc-'));const retired=[];
+ await writeFile(path.join(DATA,'team-policy.json'),JSON.stringify({teams:[],owner:{name:'Owner'},fixer:{on:false,agent:'default'}}));
+ const fx=createIssues({sandbox:fakeFixerSandbox(),DATA,home:DATA,bin:'x',fixerHome:DATA,now:()=>T,tellOwner:async()=>{},ready:async()=>true,log:()=>{},tz:()=>'UTC',retireQ:async o=>{retired.push(o)}});
+ await fx.file({agent:'a',missing:'A schedule keeps failing: Threads outbound DM runner',evidence:'e'});const db=await fx._db(),i=db.items[0];
+ i.heldQ='q49f95c8271ac';i.state='needs_human';await fx.tick();assert.deepEqual(retired,[],'still open: the question stays');
+ i.state='gone';await fx.tick();assert.deepEqual(retired,[{kind:'fixer',issue:i.id}]);assert.equal(i.heldQ,undefined);
+ await fx.tick();assert.equal(retired.length,1,'once');
+ const src=(await import('node:fs')).readFileSync(new URL('../app/issues.mjs',import.meta.url),'utf8');assert.match(src,/question:clip\('Let the fixer change '\+prot\.map/,'the question names the files and the problem')});

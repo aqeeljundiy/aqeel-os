@@ -329,7 +329,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // 12 Nov 2026: the cloud fixer (cloud-fixer.mjs); needCloud / cloudOk: the one "Needs you" item that asks to set it up; window: the maintenance window; onLimit(agent, text): an answer that said a Claude account hit a limit
  cloud=null,needCloud=async()=>{},cloudOk=async()=>{},window=()=>DEFAULT_WINDOW,onLimit=async()=>{},
  // ask: files a Question for the owner (questions.mjs) → {qid}; a fix run that needs a choice between approaches asks it instead of telling
- ask=async()=>null,
+ ask=async()=>null,retireQ=async()=>0,
  // limits: the shared "AI provider not available" state (provider-limits.mjs); nothing that needs a model starts while it holds
  limits=null,
  // onOver(n): the open issues alone are more than the list's cap (n of them; 0 = back under it). defer: how the sorter is started after a filing
@@ -544,6 +544,9 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
  // switched off (fixer.on false): a run already going still has its result saved; nothing new starts and nothing reloads
  async function tick(){if(running)return;running=true;try{await load();const pol=await policy();await sweep().catch(e=>log('issues: sweep: '+e.message));await publishWaiting().catch(e=>log('issues: publish: '+e.message));await cloudTick(pol).catch(e=>log('issues: cloud: '+e.message));
   sortNext().catch(e=>log('issues: sort: '+e.message));
+  // a question held for an issue that has ended (gone, closed, fixed) is withdrawn (23 Nov 2026: three "let the fixer change keys?" questions
+  // stayed on Needs you after their issues had cleared by themselves)
+  for(const i of db.items)if(i.heldQ&&ENDED.includes(i.state)){const q=i.heldQ;delete i.heldQ;await save();await retireQ({kind:'fixer',issue:i.id}).catch(e=>log('issues: withdraw question '+q+': '+e.message))}
   const cur=Object.values(db.runs).find(r=>!r.done);if(cur)return await check(cur,pol);if(pol.fixer?.on===false||db.pause)return;
   // a change waiting to be reloaded or rolled back comes first
   {const b=db.items.find(i=>i.state==='reloaded-back');if(b)return await afterTry(b)}
@@ -845,7 +848,7 @@ export function createIssues({DATA,home,bin,fixerHome,now=()=>Date.now(),reply=a
   if(!prot.length||i.typed||i.approved===i.tries-1||i.approved===true||pol.fixer?.trustReports===true)return false;
   await watch.restore(dir,own);await rollBack(fr.changes);i.tries--;h.outcome='wanted to change keys or settings on a report nobody typed: put back, the owner is asked';h.held=prot;
   i.state='needs_human';i.need='The fixer wants to change '+prot.length+' protected file'+(prot.length===1?'':'s')+' ('+prot.map(f=>path.basename(path.dirname(f))+'/'+path.basename(f)).slice(0,6).join(', ')+') to fix this. Nothing was changed. '+clip(fr.summary,300);i.updated=now();
-  const q=await ask({kind:'fixer',issue:i.id,agent:i.agent,question:'Let the fixer change keys or settings for this problem?',options:[{label:'Do not change them',effect:'The problem stays for a person to fix',recommended:true},{label:'Let it change them',effect:HELD_OK}]}).catch(e=>{log('issues: question not filed: '+e.message);return null});
+  const q=await ask({kind:'fixer',issue:i.id,agent:i.agent,question:clip('Let the fixer change '+prot.map(f=>path.basename(f)).slice(0,3).join(', ')+' to fix: '+String(i.missing||'this problem'),230),options:[{label:'Do not change them',effect:'The problem stays for a person to fix',recommended:true},{label:'Let it change them',effect:HELD_OK}]}).catch(e=>{log('issues: question not filed: '+e.message);return null});
   if(q){i.qid=q.qid;i.heldQ=q.qid}await save();const to=await tell(i,nameOf(i.agent)+': a fix needs your OK\n\nProblem: '+clip(i.missing,300)+'\nThe fixer wants to change: '+prot.join(', ')+'\nWhy: '+clip(fr.summary,400)+'\n\nNothing was changed. Answer on Needs you (issue '+i.id+').').catch(()=>null);i.told=to;await save();log('issues: '+i.id+' waits for the owner: protected files');return true}
  // the owner answered a question about this issue (questions.mjs onAnswer): the answer goes into the next try, which starts at once
  const answered=(id,q)=>queue(async()=>{await load();const i=db.items.find(x=>x.id===id);if(!i)return null;const held=!!i.heldQ&&q.qid===i.heldQ;if(held){delete i.heldQ;if(q.answered.effect===HELD_OK)i.approved=true;else{delete i.qid;i.noRetry=true;i.history.push({kind:'person',at:now(),status:'answer',summary:'Not allowed to change keys or settings'});await save();return view(i)}}
