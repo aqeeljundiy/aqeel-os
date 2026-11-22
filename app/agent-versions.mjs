@@ -303,7 +303,8 @@ export function createAgentVersions({guard=()=>null,DATA,HERMES_HOME,DASH,DASH_T
     if(rec.restored.length)log('agent-versions: '+a+': restored '+rec.restored.length+' change(s) a rollback undid only because the AI provider was not available')}
    out.push(rec)}
   return out}
- async function restoreAllFalseRollbacks(o){const out={};for(const a of (await listAgents()).filter(x=>!x.includes('--'))){try{const r=await restoreFalseRollbacks(a,o);if(r.length)out[a]=r}catch(e){log('agent-versions restore '+a+': '+e.message)}}return out}
+ async function restoreAllFalseRollbacks(o){const out={};for(const a of (await listAgents()).filter(x=>!x.includes('--'))){try{const r=(await restoreFalseRollbacks(a,o)).filter(x=>x.restored?.length||x.left?.length);if(r.length)out[a]=r}   // 23 Nov 2026: ones put back earlier were listed again at every start, so they looked unsolved
+ catch(e){log('agent-versions restore '+a+': '+e.message)}}return out}
  async function arm(a){return lock(a,async()=>{const d=await load(a);d.watch={since:d.watch?.since&&now()-d.watch.since<HOUR?d.watch.since:now(),due:now()+3*60e3,fails:0};await save(a)})}
  async function skillsTick(){for(const a of (await listAgents()).filter(x=>x!=='default'&&!x.includes('--'))){try{const v=(await skillsSnap(a,{by:nameOf(a),why:'its own skill change'})).filter(x=>x.undoable);if(v.length)log('agent-versions: '+a+' changed '+v.length+' skill(s)')}catch(e){log('agent-versions skills '+a+': '+e.message)}}}
 
