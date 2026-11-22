@@ -107,7 +107,9 @@ for(let i=0;i<pages.length;i++){const p=pages[i];
  if(shift>worst){worst=shift;worstAt=p;worstBy=[...new Set(shiftBy)].slice(0,4)}if(shift>SHIFT_MAX){bad++;out.push('✗ '+p+' moves while it loads (layout shift '+shift.toFixed(2)+', limit '+SHIFT_MAX+'): '+[...new Set(shiftBy)].slice(0,4).join(', ')+': draw it whole (Stage) or keep the space'+how())}
  if(flick.length){bad++;out.push('✗ '+p+' flickers: '+[...new Set(flick)].slice(0,3).join(', ')+how())}
  const err=[...document.querySelectorAll('#view .state-box.err')].map(x=>x.textContent.trim().slice(0,140));
- const txt=(()=>{const v=document.querySelector('#view');if(!v)return '';const c=v.cloneNode(true);c.querySelectorAll('.log,pre,code,#logBox').forEach(e=>e.remove());return c.textContent||''})();const nul=/\bnull\b|\bundefined\b|NaN|\[object Object\]/.test(txt);
+ const txt=(()=>{const v=document.querySelector('#view');if(!v)return '';const c=v.cloneNode(true);c.querySelectorAll('.log,pre,code,#logBox,[data-user-content]').forEach(e=>e.remove());return c.textContent||''})();
+ // 23 Nov 2026: an issue's own text ("curl … -o /dev/null") failed every night's check on Elkiya; a path is not a broken value
+ const nul=/(?<![\/\w.-])null\b|\bundefined\b|\bNaN\b|\[object Object\]/.test(txt);
  if(!window.SWEEP_LOOSE&&(err.length||nul)){bad++;out.push('✗ '+p+' '+(err.join(' / ')||'shows null/undefined text'))}
  // 12 Nov 2026 (UI walk): a row of tabs says it is one to screen readers and the keyboard (core.js ariaTabs)
  {const t=[...document.querySelectorAll('#view .tabs')].filter(x=>x.offsetParent&&(x.getAttribute('role')!=='tablist'||!x.querySelector('[role=tab][aria-selected=true]')));if(t.length){bad++;out.push('✗ '+p+' has tabs without tab roles or a chosen tab ('+t.map(x=>x.dataset.tabs||'?').join(', ')+')')}}
