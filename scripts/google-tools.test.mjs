@@ -165,14 +165,14 @@ test('google_accounts lists names, emails and what each may do',async()=>{const 
  const r=await t.call('bot','google_accounts',{});assert.match(r.text,/main \(leave account out\) · me@example\.com · may: everything/);assert.match(r.text,/account: p · o@example\.com · may: read, edit · shared with you \(edit\)/)});
 
 test('gmail mail rules: list in words, add with a label made if missing, remove; making one needs the send level',async()=>{let made;const {t,calls,logs}=await make({files:{'google_token.json':own()},routes:[
- ['GET',/settings\/filters$/,()=>({status:200,body:{filter:[{id:'F1',criteria:{from:'ads@meta.com'},action:{removeLabelIds:['INBOX'],addLabelIds:['L9']}}]}})],
+ ['GET',/settings\/filters$/,()=>({status:200,body:{filter:[{id:'F1',criteria:{from:'ads@example.com'},action:{removeLabelIds:['INBOX'],addLabelIds:['L9']}}]}})],
  ['GET',/\/labels$/,()=>({status:200,body:{labels:[{id:'L9',name:'Meta'}]}})],
  ['POST',/\/labels$/,(u,o)=>({status:200,body:{id:'L10',name:JSON.parse(o.body).name}})],
  ['POST',/settings\/filters$/,(u,o)=>{made=JSON.parse(o.body);return {status:200,body:{id:'F2'}}}],
  ['DELETE',/settings\/filters\/F1$/,()=>({status:204,body:''})]]});
- const l=await t.call('bot','google_gmail',{action:'filters'});assert.match(l.text,/filter_id F1 · when from "ads@meta\.com" · then archive, label Meta/);
- const a=await t.call('bot','google_gmail',{action:'add_filter',from:'news@x.com',archive:true,label:'Newsletters'});assert.equal(a.isError,undefined,a.text);assert.match(a.text,/Made mail rule F2/);
- assert.deepEqual(made,{criteria:{from:'news@x.com'},action:{addLabelIds:['L10'],removeLabelIds:['INBOX']}});
+ const l=await t.call('bot','google_gmail',{action:'filters'});assert.match(l.text,/filter_id F1 · when from "ads@example\.com" · then archive, label Meta/);
+ const a=await t.call('bot','google_gmail',{action:'add_filter',from:'news@example.com',archive:true,label:'Newsletters'});assert.equal(a.isError,undefined,a.text);assert.match(a.text,/Made mail rule F2/);
+ assert.deepEqual(made,{criteria:{from:'news@example.com'},action:{addLabelIds:['L10'],removeLabelIds:['INBOX']}});
  assert.equal((await t.call('bot','google_gmail',{action:'add_filter',archive:true})).isError,true,'no criteria');
  assert.match((await t.call('bot','google_gmail',{action:'remove_filter',filter_id:'F1'})).text,/Removed mail rule F1/);assert.ok(logs.some(m=>/made a Gmail filter/.test(m)));
  const d=await make({files:{'google_token.json':own()},policy:{google:{'me@example.com':{agents:{bot:['read','draft']}}}}});
