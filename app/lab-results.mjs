@@ -2,7 +2,7 @@
 // browser", but customer chats have no browser, so every COA request was handed to the team. The line's lab results page is public and
 // drawn on the server: aqeelOS reads it, and the tool lab_results gives the latest reports for a product (batch, purity, test date and the
 // report's own link). Line setting kirimdev lines.<agent>.labResults = {url: "https://…/lab-results"}.
-export const CACHE_MS=15*60e3,MAX_BYTES=4e6;
+const CACHE_MS=15*60e3,MAX_BYTES=4e6;
 const text=h=>String(h||'').replace(/<!--.*?-->/gs,'').replace(/<[^>]+>/g,' ').replace(/&amp;/g,'&').replace(/&#x27;|&#39;/g,"'").replace(/&quot;/g,'"').replace(/\s+/g,' ').trim();
 // every report card on the page: {product, code, batch, purity, date, path}
 export function parseLabResults(html){const out=[];

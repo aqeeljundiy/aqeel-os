@@ -16,7 +16,7 @@ import {allowed as skillAllowed,setRule as setSkillRule,rules as skillRules} fro
 import {createAgentDefaults} from './agent-defaults.mjs';
 import {createWhy} from './why.mjs';
 import {createChatHistory} from './chat-history.mjs';
-import {createIssues,engineSortRun,personOf} from './issues.mjs';import {createFixerRunUsage} from './fixer-usage.mjs';import {createLabResults} from './lab-results.mjs';import {engineProcs,staleProcs,currentEnv} from './engine-procs.mjs';
+import {createIssues,engineSortRun,personOf} from './issues.mjs';import {createFixerRunUsage} from './fixer-usage.mjs';import {createLabResults} from './lab-results.mjs';import {createDashWatch} from './dash-watch.mjs';
 import {createLimitState} from './provider-limits.mjs';
 import {createAgentMemory} from './agent-memory.mjs';
 import {createTeamSettings} from './team-settings.mjs';
@@ -407,7 +407,7 @@ async function syncNotifyOnce(){
 async function displayName(a){const i=String((await readIds())[a]?.name||'').trim();if(i)return i;const y=await readFile(path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'profile.yaml'),'utf8').catch(()=>'');return (/^display_name:\s*"?([^"\n]+)"?/m.exec(y)||[])[1]?.trim()||(a==='default'?'Main agent':prettyId(a))}
 /* The engine tells models that chats from an app are plain text ("no markdown"), so replies came out as flat
    paragraphs although aqeelOS shows formatting. Each agent gets the engine's own override with the truth. */
-const CHAT_HINT="You're replying in aqeelOS, a chat app that shows Markdown. Format for easy reading, like a well-written Claude or ChatGPT reply: short answers stay short and conversational; longer ones start with the outcome, then use ## headings for sections, bullet or numbered lists, tables for comparisons, and code blocks for code or commands. Bold the key numbers, names, dates and decisions (for example: UPS **$120 → **Acme**) so the reply can be skimmed. Never send more than two plain paragraphs in a row: start a section with a bold lead-in (**Short answer** …, **What changed** …, **Next step** …) and put lists of points in bullets. Put the one thing the person must do in a quote line that starts with **Next step:**, and a real risk or blocker in a quote line that starts with ⚠️; aqeelOS shows these as soft boxes, so use at most one or two per reply. Write every link as [a short name](url) (for example [Weekly sales report](https://docs.google.com/…)), never a bare URL; aqeelOS shows them as small labelled buttons. Put the one main document on a line of its own and it shows as a card. For the state of items in a list, add [[Done]], [[Needs you]] or [[Failed]] after the item; aqeelOS shows these as small coloured labels (use them only for real states, not decoration). While working, keep progress notes to one short line each and lead the final answer with the result. File/media delivery: images referenced as MEDIA:/absolute/path tags (.png/.jpg/.jpeg/.gif/.webp/.bmp, up to 5MB) are shown inline in the chat. Non-image files are not shown inline, so state the plain file path instead of a MEDIA: tag.";
+import {CHAT_HINT} from './chat-hint.mjs';
 async function ensureChatHint(a){const cfgFile=path.join(a==='default'?HERMES_HOME:path.join(HERMES_HOME,'profiles',a),'config.yaml');const y=await readFile(cfgFile,'utf8').catch(()=>'');
  // app chats (api_server) and scheduled runs that show their result in the app (delivered "local") read the same way
  if(y.split('shows these as small coloured labels').length>2)return;   // already the current wording, twice
@@ -783,33 +783,16 @@ async function memGuard(){const {used,max}=await memNow();if(!max)return;const p
  for(const b of list){const id=b.user_id||b.profile_id;if(!id)continue;const r=await fetch('http://127.0.0.1:50325/api/v1/browser/stop?user_id='+encodeURIComponent(id),{headers:h,signal:AbortSignal.timeout(8000)}).then(r=>r.json()).catch(()=>null);if(r?.code===0)n++}
  if(n)memActed=Date.now();if(n){console.warn('memory guard: memory at',Math.round(pct*100)+'%, closed',n,'AdsPower browser(s)');noteSys('memory-freed','RAM was almost full, so '+n+' AdsPower browser'+(n>1?'s were':' was')+' closed. They reopen when an agent needs them.')}}
 if(LIVE_APP)setInterval(()=>memGuard().catch(e=>console.warn('memory guard',e.message)),120000).unref();
-// the dashboard (settings, channels, sign-ins, dictation) can be killed when the box runs out of memory: if it does
-// not answer twice in a row, it is started again (in its managed session, like the engine)
-let dashMissing=0,dashRestarted=0,dashTries=0,dashStopped=false;   // dashStopped: a restore stopped it on purpose
-if(LIVE_APP)setInterval(async()=>{if(dashStopped)return;const ok=await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(8000)}).then(r=>r.status<500,()=>false);
- if(ok){dashMissing=0;dashTries=0;return}if(Date.now()-dashRestarted<Math.min(60,5*2**dashTries)*60e3)return;if(++dashMissing<2)return;dashMissing=0;dashRestarted=Date.now();dashTries++;console.warn('dashboard watch: the dashboard stopped answering; starting it again');
- await shx('tmux kill-session -t dashboard 2>/dev/null; ~/services.sh >/dev/null 2>&1')},60000).unref();
-// an engine process left on an old environment after an update or rollback (engine-procs.mjs, AU-47, 23 Nov 2026: a dashboard from a
-// rolled-back update broke every message to the owner for two days): a dashboard is started again cleanly; a gateway is said on Health
-// (its restarts keep their own rules and windows)
-let envNoted=0;
-if(LIVE_APP)setInterval(async()=>{if(dashStopped)return;try{const cur=await currentEnv(HERMES_HOME);const stale=staleProcs(await engineProcs(),cur);if(!stale.length)return;
- const dash=stale.filter(p=>p.kind==='dashboard');
- if(dash.length){console.warn('engine processes: the dashboard runs an old environment ('+dash.map(p=>p.pid+' on '+p.env.slice(0,8)).join(', ')+', current '+String(cur).slice(0,8)+'); starting it again');
-  for(const p of dash){try{process.kill(p.pid,'SIGTERM')}catch{}}await new Promise(r=>setTimeout(r,5000));dashRestarted=Date.now();
-  await shx('tmux kill-session -t dashboard 2>/dev/null; ~/services.sh >/dev/null 2>&1');
-  await bottlenecks.event('engine','The engine dashboard was on an old version and was started again','It was left running from an engine update or rollback ('+dash[0].env.slice(0,8)+' instead of '+String(cur).slice(0,8)+'). Messages to you go through it.',{info:true,topic:'engine-env-dashboard'}).catch(()=>{})}
- const gw=stale.filter(p=>p.kind==='gateway');
- if(gw.length&&Date.now()-envNoted>6*3600e3){envNoted=Date.now();console.warn('engine processes: the gateway runs an old environment',gw.map(p=>p.pid).join(', '));
-  await bottlenecks.event('engine','The engine runs an older version than the one installed','The gateway still runs '+gw[0].env.slice(0,8)+' (installed: '+String(cur).slice(0,8)+'). The next engine restart in the quiet hours fixes it.',{topic:'engine-env-gateway'}).catch(()=>{})}}
- catch(e){console.warn('engine processes',e.message)}},10*60e3).unref();
+// the engine dashboard: started again when it stops answering or runs an old environment (dash-watch.mjs)
+const dashWatch=createDashWatch({DASH,HERMES_HOME,shx,event:(t,d,o)=>bottlenecks.event('engine',t,d,o)});if(LIVE_APP)setInterval(dashWatch.tick,60000).unref();
 // only the live app (isLive, install.mjs) sets agents' tools; a test copy on another port must not repoint them
 if(LIVE_APP){setTimeout(()=>agentHealth().catch(()=>{}),30000);setInterval(()=>agentHealth().catch(()=>{}),300000).unref()}
 if(LIVE_APP){rec.add('notify tool',{run:()=>syncNotifyTool(),reads:['cfg'],every:3600e3,why:'was every 10 min'})}
 // old engine environments (~400 MB each): the engine's own cleanup once a day
-if(LIVE_APP){const gc=()=>shx('timeout 900 hermes pm gc >/dev/null 2>&1').catch(()=>{});setTimeout(gc,30*60e3).unref();setInterval(gc,24*3600e3).unref()}
+// once a day: the engine's own cleanup, and the daily jobs pushed below (tools workspaces, Google share folding)
+const dailyJobs=[];if(LIVE_APP){const gc=()=>shx('timeout 900 hermes pm gc >/dev/null 2>&1').catch(()=>{});setTimeout(gc,30*60e3).unref();setInterval(()=>{gc();for(const j of dailyJobs)Promise.resolve().then(j).catch(()=>{})},24*3600e3).unref()}
 // a terminal's ~/workspaces is the real workspaces folder (tools-workspaces.mjs: Donna's PDF, 21 Nov 2026), 2 minutes after start and daily
-if(LIVE_APP){const tw=()=>import('./tools-workspaces.mjs').then(m=>m.linkAll({HERMES_HOME,WORK:path.join(homedir(),'workspaces')})).catch(e=>console.warn('tools workspaces: '+e.message));setTimeout(tw,2*60e3).unref();setInterval(tw,24*3600e3).unref()}
+if(LIVE_APP){const tw=()=>import('./tools-workspaces.mjs').then(m=>m.linkAll({HERMES_HOME,WORK:path.join(homedir(),'workspaces')})).catch(e=>console.warn('tools workspaces: '+e.message));setTimeout(tw,2*60e3).unref();dailyJobs.push(tw)}
 // leftovers of deleted agents: a folder with only logs/ (a command still ran during the delete) is removed
 const sweepGhosts=async()=>{for(const d of await readdir(path.join(HERMES_HOME,'profiles'),{withFileTypes:true}).catch(()=>[])){if(!d.isDirectory()||d.name.startsWith('.'))continue;
  const dir=path.join(HERMES_HOME,'profiles',d.name);if(await isAgent(d.name))continue;const st=await stat(dir).catch(()=>null);const inside=await readdir(dir).catch(()=>['?']);
@@ -857,7 +840,7 @@ const googleFiles=createGoogleFiles({HERMES_HOME,WORK:path.join(homedir(),'works
 const googleShares=createGoogleShares({HERMES_HOME,DATA,WORK:path.join(homedir(),'workspaces'),agents:()=>agentNames(),levelOf:gfLevel,held:a=>googleFiles.locked(a)});
 if(LIVE_APP){const t=()=>googleFiles.ensureClients().catch(e=>console.warn('google files',e.message));setTimeout(t,30e3).unref();setInterval(t,5*60e3).unref()}
 // full copies of the owner's Google accounts in other agents' folders become shared keys (google-shares.mjs fold), 3 minutes after start and daily
-if(LIVE_APP){const t=()=>googleShares.fold().then(r=>{const ok=r.filter(x=>x.changed);if(ok.length)console.log('google shares: '+ok.length+' copy(ies) now shared keys: '+ok.map(x=>x.agent+' '+x.email+' ('+x.level+')').join(', '))}).catch(e=>console.warn('google fold',e.message));setTimeout(t,3*60e3).unref();setInterval(t,24*3600e3).unref()}
+if(LIVE_APP){const t=()=>googleShares.fold().then(r=>{const ok=r.filter(x=>x.changed);if(ok.length)console.log('google shares: '+ok.length+' copy(ies) now shared keys: '+ok.map(x=>x.agent+' '+x.email+' ('+x.level+')').join(', '))}).catch(e=>console.warn('google fold',e.message));setTimeout(t,3*60e3).unref();dailyJobs.push(t)}
 if(LIVE_APP){const t=()=>googleShares.renew().then(r=>{if(r.renewed||r.removed)console.log('google shares: renewed',r.renewed,'removed',r.removed)}).catch(e=>console.warn('google shares',e.message));setInterval(t,5*60e3).unref();setTimeout(t,60e3).unref()}
 const access=createAccess({googleShares,HERMES_HOME,DATA,listAgents:()=>listAgents(),reload:(a,why)=>agentReload.plugins([a].flat(),why),readConfig,setKey,hermes:hcmd,editEnv,names:a=>agentName(a),writeJson:(f,v)=>writeJsonAtomic(f,v),restart:why=>restartGateway(why).catch(()=>{}),
  own:{n8n:{owner:'aqeelOS',note:'every agent has its own n8n user',grant:a=>n8n.ensure(a)}},
@@ -911,10 +894,10 @@ const backups=createBackups({detach:LIVE_APP,DATA,HOME:homedir(),HERMES_HOME,tz:
  // a restore stops the agents and the engine's dashboard (it keeps the chats database and settings open too), and the
  // watches leave both alone until it starts them again (services.sh starts both)
  stopEngine:async()=>{while(gwRestarting)await gwRestarting.catch(()=>{});   // a restart already under way finishes first (new ones wait for the restore)
-  gwStopped=true;dashStopped=true;await shx(stopGatewayCmd({dashboard:true,yes:false}),stopTimeoutMs());
+  gwStopped=true;dashWatch.stopped=true;await shx(stopGatewayCmd({dashboard:true,yes:false}),stopTimeoutMs());
   for(let i=0;i<30&&await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false);i++)await new Promise(r=>setTimeout(r,1000));
   if(await fetch(DASH.origin+'/api/status',{signal:AbortSignal.timeout(2000)}).then(()=>true,()=>false))throw Error('the engine dashboard still answers after 30 s')},
- startEngine:async()=>{dashStopped=false;gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true,restore:true})}});restoreBusy=()=>backups.busy();holdWrites(()=>backups.writesHeld());if(LIVE_APP)backups.schedule();
+ startEngine:async()=>{dashWatch.stopped=false;gwStopped=false;await restartGateway('agents restored from a backup',{wait:false,bridges:true,restore:true})}});restoreBusy=()=>backups.busy();holdWrites(()=>backups.writesHeld());if(LIVE_APP)backups.schedule();
 // a published app without a logo: the colour tile, and one Needs-you question per app
 const liveIcons=async(a,r)=>{const ask={kind:'app',issue:'live-logo-'+a.slug};if(r.needsLogo)await questions.file(ask,{question:'No logo found for the app '+a.name+': add its mark',options:[{label:'I will add its logo',effect:'Put logo.svg in the project (its public folder) in Code, then publish again: the icon follows.',recommended:true},{label:'Use its first letter',effect:'From the next publish, a letter on the colour tile. Add a logo any time to replace it.'}],allowOther:false});else await questions.retire(ask)};
 const live=createLive({DATA,DOMAIN:hostSetting('liveDomain'),SECRET,PUBLIC_URL,auto:LIVE_APP,onIcons:liveIcons});

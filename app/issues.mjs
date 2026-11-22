@@ -128,7 +128,7 @@ export const turnLimit=(pol,kind,esc=false)=>{const t=pol?.fixer?.maxTurns||{},v
 export const runCost=(runs,issue)=>{let c=0;for(const r of Object.values(runs||{}))if(r.issue===issue.id&&!r.notStarted)c+=Number(r.usage?.cost)||0;return Math.max(0,c-(Number(issue.runBase?.cost)||0))};
 // a problem that comes back as a new issue (same Health topic, within 7 days) shares the earlier one's budget (AU-33, 21 Nov 2026: the
 // same continue-support "stopped" topic was filed twice in one day and paid twice)
-export const SAME_TOPIC_DAYS=7;
+const SAME_TOPIC_DAYS=7;
 export const topicCost=(items,runs,issue,now=Date.now())=>{if(!issue?.key||issue.runBase)return runCost(runs,issue);   // after Try again: its own fresh count only
  let c=0;
  for(const x of items||[])if(x.id===issue.id||x.key===issue.key&&(Number(x.created)||0)>now-SAME_TOPIC_DAYS*864e5)c+=runCost(runs,x);return c};
