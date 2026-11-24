@@ -858,7 +858,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  // reply()'s checks and send, shared with sendResi. A refusal carries a code (agent-ops.mjs op "resi" answers with it); queued(ids) runs
  // once the message is in the outbox, before anything leaves
  const coded=(code,m)=>Object.assign(Error(m),{code});
- async function guardedSend(agent,to,text,queued=()=>{}){const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
+ async function guardedSend(agent,to,text,queued=()=>{},{check=false}={}){const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
   const num=String(to||'').replace(/\D/g,'');await state();const gone=st.known[agent+'|'+num]?'outside_24h':'no_chat';
   if(modeOf(line)==='draft')throw coded('not_live','This line is in Draft: only a person on the team sends messages to customers (they approve your DRAFT posts, or write in Kirimdev). Nothing was sent.');
   if(num&&!within24h(agent,num)){const other=Object.keys(st.recent).find(k=>k.endsWith('|'+num)&&k.split('|')[0]!==agent&&now()-st.recent[k]<=24*3600e3);
@@ -873,6 +873,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    if(g.hold&&(g.kinds||[]).length&&g.kinds.every(k=>['payment','wait','language'].includes(k)))throw coded('guard','Not sent: '+g.hold);if(!g.hold&&g.attached?.length)parts=g.parts}
   const sig=parts.join('\n---\n'),last=st.lastReply[agent+'|'+num];
   if(last&&last.text===sig&&now()-last.at<10*60e3)throw coded('guard','That exact message was already sent to this customer '+Math.max(1,Math.round((now()-last.at)/60e3))+' minute(s) ago. It was not sent again.');
+  if(check)return {num,sent:[],check:true};   // op "resi" check: every refusal above ran; nothing prepared, queued or sent
   const ops=[];for(const p of withCaptions(parts)){const id=await prepare(agent,line,num,p);if(id)ops.push(id)}if(ops.length)queued(ops);await saveState();
   if(!ops.length)throw Error('Nothing to send: aqeelOS has no picture for those tags.');
   for(const id of ops){sent.push(await deliver(id));await wait(1500)}
@@ -880,12 +881,14 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  // a courier's tracking number (resi) for a customer, asked by the ops agent (agent-ops.mjs op "resi"): the brand's fixed text, sent by code
  // through reply()'s checks, once per line, number and resi. Unlike reply() it never releases a hold: a person's hold on the chat stays.
  // One at a time, so a repeat that comes in while the first is still sending answers "already" instead of sending twice.
+ // With {check:true} (the ops agent's dry run) every refusal is checked and nothing is sent or kept.
  let resiChain=Promise.resolve();
- function sendResi(agent,to,resi,text,by=''){const p=resiChain.then(async()=>{const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
+ function sendResi(agent,to,resi,text,by='',{check=false}={}){const p=resiChain.then(async()=>{const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
    const num=String(to||'').replace(/\D/g,''),k=line.phoneNumberId+'|'+num+'|'+String(resi).toUpperCase();await state();const R=st.resi||={};   // a resi typed again in other case is the same parcel
    for(const [x,t] of Object.entries(R))if(now()-t>30*86400e3)delete R[x];if(R[k])return {sent:false,already:true};
    // a person answering this chat right now: deliver() would keep the message for later and a new message from them cancels it; refused instead
    const until=pausedUntil(agent,'',num);if(until>now())throw coded('guard','A person on the team is answering this chat right now (until '+new Date(until).toISOString().slice(11,16)+' UTC), so the resi was not sent. Try again after that.');
+   if(check){await guardedSend(agent,num,text,()=>{},{check:true});return {sent:false,check:true}}
    let ids=null;try{await guardedSend(agent,num,text,x=>{ids=x;R[k]=now()})}
    catch(e){if(!ids)throw e;   // refused before anything was queued: nothing to remember
     // the exit guard held it (or it was cancelled): nothing left, a later call may try again. Otherwise the outbox keeps trying by itself.

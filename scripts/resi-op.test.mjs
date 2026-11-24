@@ -116,3 +116,19 @@ test('the ops agent gets .tools/resi with its own signed address and no key; a l
  for(const a of ['line-a','line-b'])assert.equal(await stat(path.join(t.WORK,a,'.tools','resi')).catch(()=>null),null,a);
  assert.ok(await stat(path.join(t.WORK,'line-a','.tools','label')),'the line helpers are still written');
  assert.equal(await t.ops.ensureClients(),0,'unchanged files are left alone')});
+
+// 24 Nov 2026: the ops agent's dry run asks whether a resi would go (WhatsApp's 24 hours, the line's mode, a person answering) before going live
+test('check:true runs every check and sends nothing, keeps nothing: ok, already, and each refusal code',async()=>{const t=await make();
+ assert.deepEqual(await t.resi({check:true}).then(r=>[r.status,r.json.code]),[403,'no_chat']);
+ await t.wrote('line-a','111');
+ assert.deepEqual(await t.resi({check:true}).then(r=>[r.status,r.json]),[200,{ok:true,sent:false,check:true}]);
+ assert.equal(t.sent.length,0);assert.ok(!t.klog.some(m=>/resi message was sent/.test(m)),'nothing logged as sent');
+ const st=await t.k._state();assert.deepEqual(Object.keys(st.resi||{}),[],'nothing remembered');assert.equal(Object.keys(st.outbox||{}).length,0,'nothing queued');
+ // the real send still goes after a check; a check after it answers already
+ assert.equal((await t.resi()).json.sent,true);assert.equal(t.sent.length,1);
+ assert.deepEqual((await t.resi({check:true})).json,{ok:true,sent:false,already:true});
+ t.box.clock+=25*3600e3;assert.equal((await t.resi({check:true,resi:'EM.NEW0003'})).json.code,'outside_24h');
+ const p=await make();await p.wrote('line-a','111');await p.post('line-a',teamWrote('111',NUM,'cnv_1'),'message.sent');assert.equal((await p.resi({check:true})).json.code,'guard');
+ const d=await make({modeA:'draft'});await d.wrote('line-a','111');assert.equal((await d.resi({check:true})).json.code,'not_live');
+ const e=await make({modeA:'test'});await e.wrote('line-a','111');assert.equal((await e.resi({check:true})).json.code,'not_tester');
+ assert.equal(t.sent.length+p.sent.length+d.sent.length+e.sent.length,1)});

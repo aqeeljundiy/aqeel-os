@@ -53,7 +53,7 @@ export function createAgentOps({HERMES_HOME,WORK=HERMES_HOME&&path.join(path.dir
   if(!RESI.test(resi)||!/\d/.test(resi)||LINKY.test(resi))return no(400,'bad_input','resi: one tracking number, 4 to 60 letters, digits, dots and dashes, with at least one digit, no spaces and no web address.');
   if(!courier)return no(400,'bad_input','courier: one of '+COURIERS.join(', ')+'.');
   const text=String(b.text).split('{resi}').join(resi).split('{courier}').join(courier);
-  try{const r=await kirimdev.sendResi(agent,phone,resi,text,a);return {status:200,json:r.already?{ok:true,sent:false,already:true}:{ok:true,sent:true}}}
+  try{const r=await kirimdev.sendResi(agent,phone,resi,text,a,{check:req.check===true});return {status:200,json:r.already?{ok:true,sent:false,already:true}:r.check?{ok:true,sent:false,check:true}:{ok:true,sent:true}}}
   catch(e){const code=['not_live','not_tester','no_chat','outside_24h','bad_input','retry'].includes(e.code)?e.code:'guard';return no(code==='retry'?502:code==='bad_input'?400:403,code,e.message)}}
  async function call(agent,req){const a=String(agent).split('--')[0],L=await kirimdev.lines().catch(()=>({})),line=L[a];
   if(!line){const c=await resiConf();return c.ops.includes(a)?opsCall(a,req,c,L):fail(404,'This agent has no Kirimdev line.')}
@@ -114,6 +114,7 @@ except Exception as x:print('aqeelOS could not be reached: '+str(x),file=sys.std
 # aqeelOS: a courier tracking number (resi) to a customer, on that brand's Kirimdev line, through aqeelOS (no key in this folder). Written by aqeelOS; edits are replaced.
 # usage: resi '{"brand":"<brand>","phone":"<customer number>","resi":"<tracking number>","courier":"<courier>"}'
 #        resi whoami                    (the brands this agent may send a resi for)
+#        add "check":true to the json to run every check and send nothing: {"ok":true,"sent":false,"check":true} or the refusal
 # prints aqeelOS's answer: {"ok":true,"sent":true} | {"ok":true,"sent":false,"already":true} | {"error":"...","code":"..."} (exit code 1)
 import json,sys,urllib.request,urllib.error
 U=${JSON.stringify(u)}
