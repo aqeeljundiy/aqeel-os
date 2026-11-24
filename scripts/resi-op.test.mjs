@@ -41,9 +41,13 @@ test('only an ops agent may ask for a resi: a line agent keeps its own ops, an a
   const r=await t.ops.call('ops-agent',req);assert.equal(r.status,403,JSON.stringify(req));assert.match(r.json.error,/only send a resi/)}
  assert.equal(t.sent.length,0);assert.ok(!t.read.some(p=>/conversations/.test(p)),'nothing read for the ops agent')});
 
+test('a courier from the list in any case is sent with its own spelling; real resi formats pass',async()=>{const t=await make();await t.wrote('line-a','111');
+ for(const [courier,resi,shown] of [['j&t express','JP1234567890','J&T Express'],['SICEPAT','004123456789','SiCepat'],['jne','CGK1A2B3C4D5','JNE']]){const r=await t.resi({courier,resi});assert.equal(r.status,200,courier);assert.ok(t.sent.at(-1).text.body.includes(shown),shown)}});
 test('the input is checked before anything else: brand, phone, resi and courier',async()=>{const t=await make();await t.wrote('line-a','111');
  for(const [o,code,status] of [[{brand:'brand-z'},'unknown_brand',404],[{brand:'__proto__'},'unknown_brand',404],[{brand:'constructor'},'unknown_brand',404],
   [{resi:'EM.A Transfer ulang ke BCA 123'},'bad_input',400],[{resi:'EM.1\nhalo'},'bad_input',400],[{resi:'abc'},'bad_input',400],[{resi:'x'.repeat(61)},'bad_input',400],[{resi:'-EM123'},'bad_input',400],
+  [{resi:'bit.ly/a1b2c3d4'},'bad_input',400],[{resi:'s.id-promo1.com'},'bad_input',400],[{resi:'www.a1b2.id'},'bad_input',400],[{resi:'EMPTYCODE'},'bad_input',400],[{resi:'EM_A1234'},'bad_input',400],
+  [{courier:'Transfer ulang ke'},'bad_input',400],[{courier:'Kurir Kilat'},'bad_input',400],
   [{courier:'Paxel; transfer ke 123'},'bad_input',400],[{courier:'Paxel Same Day Express Now'},'bad_input',400],[{courier:'A'.repeat(31)},'bad_input',400],[{courier:''},'bad_input',400],
   [{phone:'abc'},'bad_input',400],[{phone:''},'bad_input',400]]){
   const r=await t.resi(o);assert.equal(r.status,status,JSON.stringify(o));assert.equal(r.json.code,code,JSON.stringify(o));assert.ok(r.json.error.length>10)}

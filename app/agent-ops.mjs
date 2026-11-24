@@ -28,7 +28,10 @@ import {readStore} from './store.mjs';
 import {DATA_DIR} from './install.mjs';
 
 const READ=/^(conversations|messages|contacts)(\/[\w.:-]+){0,3}$/;
-const RESI=/^[A-Za-z0-9][A-Za-z0-9._\/-]{3,59}$/,COURIER=/^[A-Za-z][A-Za-z&-]*(?: [A-Za-z&-]+){0,2}$/;
+// What the ops agent passes lands in the customer's WhatsApp: one tracking code (letters, digits, . and -, at least one digit,
+// never something that reads as a web address) and a courier from this list, written its own way.
+const RESI=/^[A-Za-z0-9][A-Za-z0-9.-]{3,59}$/,LINKY=/^(https?|www)\b|\.(com|id|co|ly|me|io|net|org|link|site|xyz|app|info|biz|to|gl|gg|my)$/i;
+const COURIERS=['Paxel','JNE','J&T Express','SiCepat','AnterAja','Lion Parcel','GoSend','GrabExpress','TIKI','Pos Indonesia','Ninja Xpress','SAP Express','ID Express'];
 export function createAgentOps({HERMES_HOME,WORK=HERMES_HOME&&path.join(path.dirname(HERMES_HOME),'workspaces'),DATA=DATA_DIR,PORT,sig,sign,relayKeys,kirimdev,enginePython,readConfig,googleTools,listAgents,log=m=>console.log(m)}){
  sig||=a=>sign('agent-ops:'+a).slice(0,32);
  // every agent's scripts call its connected tools (tool-bridge.mjs, 17 Nov 2026): /tool-call/<agent>/<sig>, helpers written with the Kirimdev ones
@@ -45,10 +48,10 @@ export function createAgentOps({HERMES_HOME,WORK=HERMES_HOME&&path.join(path.dir
   const brand=String(req.brand||''),b=Object.hasOwn(brands,brand)?brands[brand]:null,agent=String(b?.agent||'');
   if(!b)return no(404,'unknown_brand','No brand "'+brand.slice(0,40)+'" in resi.json. Brands: '+(Object.keys(brands).join(', ')||'none')+'.');
   if(!L[agent]||!String(b.text||'').trim())return no(404,'unknown_brand','Brand '+brand+' is not set up: resi.json needs its line agent (one with a Kirimdev line) and its text.');
-  const phone=String(req.phone||'').replace(/\D/g,'').replace(/^0/,'62').replace(/^8/,'628'),resi=String(req.resi||''),courier=String(req.courier||'');
+  const phone=String(req.phone||'').replace(/\D/g,'').replace(/^0/,'62').replace(/^8/,'628'),resi=String(req.resi||''),courier=COURIERS.find(c=>c.toLowerCase()===String(req.courier||'').trim().toLowerCase());
   if(!/^\d{8,15}$/.test(phone))return no(400,'bad_input','phone: the customer\'s WhatsApp number, like 62812…, 0812… or 812….');
-  if(!RESI.test(resi))return no(400,'bad_input','resi: one tracking number, 4 to 60 letters, digits and . _ / - with no spaces.');
-  if(courier.length>30||!COURIER.test(courier))return no(400,'bad_input','courier: the courier\'s name, up to three words of letters, 30 characters at most.');
+  if(!RESI.test(resi)||!/\d/.test(resi)||LINKY.test(resi))return no(400,'bad_input','resi: one tracking number, 4 to 60 letters, digits, dots and dashes, with at least one digit, no spaces and no web address.');
+  if(!courier)return no(400,'bad_input','courier: one of '+COURIERS.join(', ')+'.');
   const text=String(b.text).split('{resi}').join(resi).split('{courier}').join(courier);
   try{const r=await kirimdev.sendResi(agent,phone,resi,text,a);return {status:200,json:r.already?{ok:true,sent:false,already:true}:{ok:true,sent:true}}}
   catch(e){const code=['not_live','not_tester','no_chat','outside_24h','bad_input','retry'].includes(e.code)?e.code:'guard';return no(code==='retry'?502:code==='bad_input'?400:403,code,e.message)}}
