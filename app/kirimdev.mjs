@@ -850,29 +850,49 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
 
  // the agent's whatsapp_reply tool: only to someone who wrote to its own line in the last 24 hours (a tester in Test). Never in Draft
  // (audit H5): there only a person sends. The same text is not sent twice within 10 minutes (audit M5: a turn run again after a restart).
- async function reply(agent,to,text){const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
-  const num=String(to||'').replace(/\D/g,'');await state();
-  if(modeOf(line)==='draft')throw Error('This line is in Draft: only a person on the team sends messages to customers (they approve your DRAFT posts, or write in Kirimdev). Nothing was sent.');
-  if(num&&!within24h(agent,num)){const other=Object.keys(st.recent).find(k=>k.endsWith('|'+num)&&k.split('|')[0]!==agent&&now()-st.recent[k]<=24*3600e3);
-   if(other)throw Error('That number wrote to another Kirimdev line ('+other.split('|')[0]+'), not to yours. Never answer another brand\'s customers; that agent answers them.')}
-  if(!num||!within24h(agent,num))throw Error('That number has not written to this Kirimdev line in the last 24 hours, so WhatsApp does not allow a reply. Ask the team to contact them another way.');
-  if(modeOf(line)==='test'&&!testerNow(agent,line,num))throw Error('This line is in Test, so it only answers its testers.');
-  let parts=splitReply(text);if(!parts.length)throw Error('Write the text to send.');const sent=[];
-  // the same exit guard as an answered message (14 Nov 2026: this tool only got the leak check): language, payment claims, wait-only
-  {const since=now()-Math.max(0,Number(line.paymentRecentMin??60)||0)*60e3;
-   const g=guardReply(parts,{paid:paidSince?await paidSince(agent,num,since).catch(()=>false):null,qrPics:qrSince?await qrSince(agent,num,since).catch(()=>[]):[],ctx:await guardCtx(agent,line,num,{})});
-   // leaks are left to deliver(), which stops them and tells the team once; what only this guard sees is refused here, for the agent to rewrite
-   if(g.hold&&(g.kinds||[]).length&&g.kinds.every(k=>['payment','wait','language'].includes(k)))throw Error('Not sent: '+g.hold);if(!g.hold&&g.attached?.length)parts=g.parts}
-  const sig=parts.join('\n---\n'),last=st.lastReply[agent+'|'+num];
-  if(last&&last.text===sig&&now()-last.at<10*60e3)throw Error('That exact message was already sent to this customer '+Math.max(1,Math.round((now()-last.at)/60e3))+' minute(s) ago. It was not sent again.');
-  const ops=[];for(const p of withCaptions(parts)){const id=await prepare(agent,line,num,p);if(id)ops.push(id)}await saveState();
-  if(!ops.length)throw Error('Nothing to send: aqeelOS has no picture for those tags.');
-  for(const id of ops){sent.push(await deliver(id));await wait(1500)}
-  st.lastReply[agent+'|'+num]={text:sig,at:now()};noteSent(agent,num,parts);
+ async function reply(agent,to,text){const {num,sent}=await guardedSend(agent,to,text);
   // the team's answer relayed from the Questions topic ends the wait after a handoff: the chat is the agent's again
   if(release(agent,num,'the team\'s answer was sent'))for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===num){delete st.pending[k];delete st.turns[k];clearTimer(timers.get(k));timers.delete(k)}
   for(const [id,w] of Object.entries(st.waits||{}))if(w.agent===agent&&w.from===num)delete st.waits[id];
   await saveState();return sent.filter(Boolean)}
+ // reply()'s checks and send, shared with sendResi. A refusal carries a code (agent-ops.mjs op "resi" answers with it); queued(ids) runs
+ // once the message is in the outbox, before anything leaves
+ const coded=(code,m)=>Object.assign(Error(m),{code});
+ async function guardedSend(agent,to,text,queued=()=>{}){const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
+  const num=String(to||'').replace(/\D/g,'');await state();const gone=st.known[agent+'|'+num]?'outside_24h':'no_chat';
+  if(modeOf(line)==='draft')throw coded('not_live','This line is in Draft: only a person on the team sends messages to customers (they approve your DRAFT posts, or write in Kirimdev). Nothing was sent.');
+  if(num&&!within24h(agent,num)){const other=Object.keys(st.recent).find(k=>k.endsWith('|'+num)&&k.split('|')[0]!==agent&&now()-st.recent[k]<=24*3600e3);
+   if(other)throw coded(gone,'That number wrote to another Kirimdev line ('+other.split('|')[0]+'), not to yours. Never answer another brand\'s customers; that agent answers them.')}
+  if(!num||!within24h(agent,num))throw coded(gone,'That number has not written to this Kirimdev line in the last 24 hours, so WhatsApp does not allow a reply. Ask the team to contact them another way.');
+  if(modeOf(line)==='test'&&!testerNow(agent,line,num))throw coded('not_tester','This line is in Test, so it only answers its testers.');
+  let parts=splitReply(text);if(!parts.length)throw coded('bad_input','Write the text to send.');const sent=[];
+  // the same exit guard as an answered message (14 Nov 2026: this tool only got the leak check): language, payment claims, wait-only
+  {const since=now()-Math.max(0,Number(line.paymentRecentMin??60)||0)*60e3;
+   const g=guardReply(parts,{paid:paidSince?await paidSince(agent,num,since).catch(()=>false):null,qrPics:qrSince?await qrSince(agent,num,since).catch(()=>[]):[],ctx:await guardCtx(agent,line,num,{})});
+   // leaks are left to deliver(), which stops them and tells the team once; what only this guard sees is refused here, for the agent to rewrite
+   if(g.hold&&(g.kinds||[]).length&&g.kinds.every(k=>['payment','wait','language'].includes(k)))throw coded('guard','Not sent: '+g.hold);if(!g.hold&&g.attached?.length)parts=g.parts}
+  const sig=parts.join('\n---\n'),last=st.lastReply[agent+'|'+num];
+  if(last&&last.text===sig&&now()-last.at<10*60e3)throw coded('guard','That exact message was already sent to this customer '+Math.max(1,Math.round((now()-last.at)/60e3))+' minute(s) ago. It was not sent again.');
+  const ops=[];for(const p of withCaptions(parts)){const id=await prepare(agent,line,num,p);if(id)ops.push(id)}if(ops.length)queued(ops);await saveState();
+  if(!ops.length)throw Error('Nothing to send: aqeelOS has no picture for those tags.');
+  for(const id of ops){sent.push(await deliver(id));await wait(1500)}
+  st.lastReply[agent+'|'+num]={text:sig,at:now()};noteSent(agent,num,parts);return {num,sent}}
+ // a courier's tracking number (resi) for a customer, asked by the ops agent (agent-ops.mjs op "resi"): the brand's fixed text, sent by code
+ // through reply()'s checks, once per line, number and resi. Unlike reply() it never releases a hold: a person's hold on the chat stays.
+ // One at a time, so a repeat that comes in while the first is still sending answers "already" instead of sending twice.
+ let resiChain=Promise.resolve();
+ function sendResi(agent,to,resi,text,by=''){const p=resiChain.then(async()=>{const line=await lineOf(agent);if(!line)throw Error('This agent has no Kirimdev line.');
+   const num=String(to||'').replace(/\D/g,''),k=line.phoneNumberId+'|'+num+'|'+String(resi).toUpperCase();await state();const R=st.resi||={};   // a resi typed again in other case is the same parcel
+   for(const [x,t] of Object.entries(R))if(now()-t>30*86400e3)delete R[x];if(R[k])return {sent:false,already:true};
+   // a person answering this chat right now: deliver() would keep the message for later and a new message from them cancels it; refused instead
+   const until=pausedUntil(agent,'',num);if(until>now())throw coded('guard','A person on the team is answering this chat right now (until '+new Date(until).toISOString().slice(11,16)+' UTC), so the resi was not sent. Try again after that.');
+   let ids=null;try{await guardedSend(agent,num,text,x=>{ids=x;R[k]=now()})}
+   catch(e){if(!ids)throw e;   // refused before anything was queued: nothing to remember
+    // the exit guard held it (or it was cancelled): nothing left, a later call may try again. Otherwise the outbox keeps trying by itself.
+    const held=ids.every(id=>['held','cancelled'].includes(st.outbox[id]?.status));if(held){delete R[k];await saveState()}
+    throw held?coded('guard',e.message):coded('retry','The resi message is queued but not sent yet ('+e.message+'). aqeelOS keeps trying by itself; do not send it by hand.')}
+   await saveState();log('kirimdev '+agent+': the resi message was sent to '+tail(num)+(by?' (asked by '+by+')':''));return {sent:true}});
+  resiChain=p.catch(()=>{});return p}
  // a send aqeelOS did not make itself but knows about (a payment helper that sends its own QR, Test only): while it runs, its echo from
  // Kirimdev waits, and the message ids it reports are ours, so the echo is not taken for a team member's reply (audit H2: 31 of 38 replies dropped)
  async function external(agent,to,promise){const line=await lineOf(agent);if(!line)return promise;await state();const fk=String(line.phoneNumberId)+'|'+String(to||'').replace(/\D/g,'');
@@ -1132,4 +1152,4 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   await fixQuiet().catch(e=>log('kirimdev quiet time: '+e.message));
   if(!civ){civ=setInterval(()=>check().catch(e=>log('kirimdev check: '+e.message)),checkEvery);civ.unref?.();setTimer(()=>check().catch(e=>log('kirimdev check: '+e.message)),60e3)?.unref?.()}
   for(const a of Object.keys(await lines()))await ensureEvents(a).catch(e=>log('kirimdev '+a+': could not add message.sent to the webhook: '+e.message))}
- return {msgText,teamPost:telegram,receive,reply,teamMessage,external,alertTeam,sweepQueries,release:async(agent,num,by='')=>{await state();const r=release(agent,String(num||'').replace(/\D/g,''),'released by '+(by||'an admin'));if(r){for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===String(num).replace(/\D/g,''))schedule(k,{debounceSec:5});await saveState()}return r},releaseRef:async(agent,ref,by='')=>{await state();const h=Object.values(st.holds).find(x=>x.agent===agent&&x.until>now()&&holdRef(x.from)===String(ref||''));if(!h)return false;const num=String(h.from);const r=release(agent,num,'released by '+(by||'an admin'));if(r){for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===num)schedule(k,{debounceSec:5});await saveState()}return r},sendDocument,deliveryCheck,draft,labelContact,clearTesterLabels,labelList,connect,webhook,ensureEvents,status,check,health,setKey,numbers,saveLine,connectWebhook,disconnect,renewSecret,testSend,poll,fixQuiet,account:async()=>{await state();return health().account},setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}
+ return {msgText,teamPost:telegram,receive,reply,sendResi,teamMessage,external,alertTeam,sweepQueries,release:async(agent,num,by='')=>{await state();const r=release(agent,String(num||'').replace(/\D/g,''),'released by '+(by||'an admin'));if(r){for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===String(num).replace(/\D/g,''))schedule(k,{debounceSec:5});await saveState()}return r},releaseRef:async(agent,ref,by='')=>{await state();const h=Object.values(st.holds).find(x=>x.agent===agent&&x.until>now()&&holdRef(x.from)===String(ref||''));if(!h)return false;const num=String(h.from);const r=release(agent,num,'released by '+(by||'an admin'));if(r){for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===num)schedule(k,{debounceSec:5});await saveState()}return r},sendDocument,deliveryCheck,draft,labelContact,clearTesterLabels,labelList,connect,webhook,ensureEvents,status,check,health,setKey,numbers,saveLine,connectWebhook,disconnect,renewSecret,testSend,poll,fixQuiet,account:async()=>{await state();return health().account},setMode,setPause,resume,lines,_api:api,_tick:tick,_state:state}}

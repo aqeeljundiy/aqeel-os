@@ -14,19 +14,46 @@
 // Payments are not here on purpose: they are made only by create_payment inside a customer chat.
 // The app writes the scripts that call it (ensureClients): .tools/kirim + kirim_cli.py (same commands as before) and .tools/label,
 // for every line agent whose folder no longer holds the Kirimdev key. scripts/migrate-agent-keys.mjs takes the keys out.
+// The ops agent (24 Nov 2026): it reads the packers' Telegram replies and has no line. Handing it both brands' signatures would undo the
+// above, so it gets its own address that takes only two ops, and aqeelOS code (no agent, no AI) does the send:
+//   {op:"resi", brand, phone, resi, courier}      the brand's fixed resi text, once per line, number and resi, on that brand's line,
+//                                                 through reply()'s checks but never releasing a person's hold (kirimdev.sendResi)
+//   {op:"whoami"}                                 {ops:true, brands}
+// Box config, never in the repo: DATA/resi.json {"ops":["<agent>"],"brands":{"<brand>":{"agent":"<line agent>","text":"…{resi}…{courier}…"}}}.
+// An agent with a line keeps the line ops above only, even when listed in "ops". .tools/resi is written for each ops agent.
 import {readFile,writeFile,rename,stat,chmod} from 'node:fs/promises';
 import path from 'node:path';
 import {createToolBridge} from './tool-bridge.mjs';
+import {readStore} from './store.mjs';
+import {DATA_DIR} from './install.mjs';
 
 const READ=/^(conversations|messages|contacts)(\/[\w.:-]+){0,3}$/;
-export function createAgentOps({HERMES_HOME,WORK=HERMES_HOME&&path.join(path.dirname(HERMES_HOME),'workspaces'),PORT,sig,sign,relayKeys,kirimdev,enginePython,readConfig,googleTools,listAgents,log=m=>console.log(m)}){
+const RESI=/^[A-Za-z0-9][A-Za-z0-9._\/-]{3,59}$/,COURIER=/^[A-Za-z][A-Za-z&-]*(?: [A-Za-z&-]+){0,2}$/;
+export function createAgentOps({HERMES_HOME,WORK=HERMES_HOME&&path.join(path.dirname(HERMES_HOME),'workspaces'),DATA=DATA_DIR,PORT,sig,sign,relayKeys,kirimdev,enginePython,readConfig,googleTools,listAgents,log=m=>console.log(m)}){
  sig||=a=>sign('agent-ops:'+a).slice(0,32);
  // every agent's scripts call its connected tools (tool-bridge.mjs, 17 Nov 2026): /tool-call/<agent>/<sig>, helpers written with the Kirimdev ones
  // signed with the relay key like /google-files/ (17 Nov 2026: signed with the app secret, relay healing re-signed the helper with the relay key and every call was refused)
  const tools=relayKeys&&enginePython?createToolBridge({HERMES_HOME,WORK,PORT,sig:a=>relayKeys.sign('tool-call:',a),python:enginePython,readConfig,googleTools,log}):null;
  const url=a=>`http://127.0.0.1:${PORT}/agent-ops/${a}/${sig(a)}`;
- const fail=(status,error)=>({status,json:{error}});
- async function call(agent,req){const a=String(agent).split('--')[0],line=(await kirimdev.lines().catch(()=>({})))[a];if(!line)return fail(404,'This agent has no Kirimdev line.');
+ const fail=(status,error)=>({status,json:{error}}),no=(status,code,error)=>({status,json:{error,code}});
+ const resiConf=async()=>{const c=await readStore(path.join(DATA,'resi.json'),{});
+  return {ops:(Array.isArray(c?.ops)?c.ops:[]).map(String).filter(a=>/^[\w-]{1,64}$/.test(a)),brands:c?.brands&&typeof c.brands==='object'?c.brands:{}}};
+ // the ops agent: no line of its own, only whoami and a brand's resi message (the code is what its script goes by)
+ async function opsCall(a,req,{brands},L){const op=String(req?.op||'');
+  if(op==='whoami')return {status:200,json:{ops:true,brands:Object.keys(brands),note:'aqeelOS sends a brand\'s fixed resi text on that brand\'s line; this agent holds no key and can send nothing else'}};
+  if(op!=='resi')return fail(403,'This agent may only send a resi message (op resi) and ask whoami here.');
+  const brand=String(req.brand||''),b=Object.hasOwn(brands,brand)?brands[brand]:null,agent=String(b?.agent||'');
+  if(!b)return no(404,'unknown_brand','No brand "'+brand.slice(0,40)+'" in resi.json. Brands: '+(Object.keys(brands).join(', ')||'none')+'.');
+  if(!L[agent]||!String(b.text||'').trim())return no(404,'unknown_brand','Brand '+brand+' is not set up: resi.json needs its line agent (one with a Kirimdev line) and its text.');
+  const phone=String(req.phone||'').replace(/\D/g,'').replace(/^0/,'62').replace(/^8/,'628'),resi=String(req.resi||''),courier=String(req.courier||'');
+  if(!/^\d{8,15}$/.test(phone))return no(400,'bad_input','phone: the customer\'s WhatsApp number, like 62812…, 0812… or 812….');
+  if(!RESI.test(resi))return no(400,'bad_input','resi: one tracking number, 4 to 60 letters, digits and . _ / - with no spaces.');
+  if(courier.length>30||!COURIER.test(courier))return no(400,'bad_input','courier: the courier\'s name, up to three words of letters, 30 characters at most.');
+  const text=String(b.text).split('{resi}').join(resi).split('{courier}').join(courier);
+  try{const r=await kirimdev.sendResi(agent,phone,resi,text,a);return {status:200,json:r.already?{ok:true,sent:false,already:true}:{ok:true,sent:true}}}
+  catch(e){const code=['not_live','not_tester','no_chat','outside_24h','bad_input','retry'].includes(e.code)?e.code:'guard';return no(code==='retry'?502:code==='bad_input'?400:403,code,e.message)}}
+ async function call(agent,req){const a=String(agent).split('--')[0],L=await kirimdev.lines().catch(()=>({})),line=L[a];
+  if(!line){const c=await resiConf();return c.ops.includes(a)?opsCall(a,req,c,L):fail(404,'This agent has no Kirimdev line.')}
   const pid=String(line.phoneNumberId),op=String(req?.op||'');
   if(op==='whoami')return {status:200,json:{line:pid,persona:line.persona||a,mode:line.mode||'test',note:'aqeelOS makes this agent\'s Kirimdev calls; the agent holds no key'}};
   if(op==='label'){try{const r=await kirimdev.labelContact(a,{conversationId:String(req.conversationId||''),phone:String(req.phone||'').replace(/\D/g,''),add:req.add,remove:req.remove,source:'agent',run:'ops'});return {status:200,json:r}}catch(e){return fail(403,e.message)}}
@@ -80,10 +107,26 @@ try:print(urllib.request.urlopen(urllib.request.Request(U,json.dumps(req).encode
 except urllib.error.HTTPError as x:print(x.read().decode(),file=sys.stderr);sys.exit(1)
 except Exception as x:print('aqeelOS could not be reached: '+str(x),file=sys.stderr);sys.exit(1)
 `;
- // only for a line agent whose folder no longer holds the key (the migration ran): until then its own scripts are left alone
- async function ensureClients(){let n=0;for(const a of Object.keys(await kirimdev.lines().catch(()=>({})))){const dir=path.join(WORK,a,'.tools');
+ const RESI_CLI=u=>`#!/usr/bin/env python3
+# aqeelOS: a courier tracking number (resi) to a customer, on that brand's Kirimdev line, through aqeelOS (no key in this folder). Written by aqeelOS; edits are replaced.
+# usage: resi '{"brand":"<brand>","phone":"<customer number>","resi":"<tracking number>","courier":"<courier>"}'
+#        resi whoami                    (the brands this agent may send a resi for)
+# prints aqeelOS's answer: {"ok":true,"sent":true} | {"ok":true,"sent":false,"already":true} | {"error":"...","code":"..."} (exit code 1)
+import json,sys,urllib.request,urllib.error
+U=${JSON.stringify(u)}
+a=sys.argv[1:]
+try:req={"op":"whoami"} if a==['whoami'] else {**json.loads(a[0]),"op":"resi"}
+except Exception:print(json.dumps({"error":"usage: resi '<json with brand, phone, resi, courier>' | resi whoami","code":"bad_input"}));sys.exit(1)
+try:print(urllib.request.urlopen(urllib.request.Request(U,json.dumps(req).encode(),{"content-type":"application/json"}),timeout=90).read().decode())
+except urllib.error.HTTPError as x:print(x.read().decode());sys.exit(1)
+except Exception as x:print(json.dumps({"error":"aqeelOS could not be reached: "+str(x)}));sys.exit(1)
+`;
+ // only for a line agent whose folder no longer holds the key (the migration ran): until then its own scripts are left alone; an ops agent
+ // without a line of its own gets .tools/resi the same way
+ async function ensureClients(){let n=0;const L=await kirimdev.lines().catch(()=>({}));
+  for(const [a,files] of [...Object.keys(L).map(a=>[a,[['kirim_cli.py',CLI(url(a),a),0o664],['kirim',KIRIM(a),0o775],['label',LABEL(url(a)),0o775]]]),...(await resiConf()).ops.filter(a=>!L[a]).map(a=>[a,[['resi',RESI_CLI(url(a)),0o775]]])]){const dir=path.join(WORK,a,'.tools');
    if(!await stat(dir).catch(()=>null)||await stat(path.join(WORK,a,'.secrets','KIRIMDEV_API_KEY')).catch(()=>null))continue;
-   for(const [name,want,mode] of [['kirim_cli.py',CLI(url(a),a),0o664],['kirim',KIRIM(a),0o775],['label',LABEL(url(a)),0o775]]){const f=path.join(dir,name);if((await readFile(f,'utf8').catch(()=>''))===want)continue;
+   for(const [name,want,mode] of files){const f=path.join(dir,name);if((await readFile(f,'utf8').catch(()=>''))===want)continue;
     const t=f+'.'+process.pid+'.tmp';await writeFile(t,want);await chmod(t,mode);await rename(t,f);n++}
    if(n)log('agent ops: Kirimdev helpers set for '+a)}
   if(tools&&listAgents)n+=await tools.ensureClients(await listAgents()).catch(e=>(log('tool bridge: '+e.message),0));
