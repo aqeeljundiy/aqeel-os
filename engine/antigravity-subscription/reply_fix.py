@@ -178,3 +178,21 @@ def own_turn(text):
     if not m:
         return text, ""
     return text[:m.start()].rstrip(), text[m.start():]
+
+
+# 25 Nov 2026 (Elkiya, Threads image check): the engine's image tool awaits chat.completions.create, and the ACP bridge this
+# plugin builds on says it is async-safe while its create answers at once ("'types.SimpleNamespace' object can't be awaited").
+# Called from a thread that runs an event loop, create now hands back something to await, and the agy run goes to a worker
+# thread so the loop (every chat on the box) keeps going. Everywhere else it answers at once, exactly as before.
+def loop_safe(create):
+    import asyncio
+    import functools
+
+    @functools.wraps(create)
+    def wrapped(*args, **kwargs):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return create(*args, **kwargs)
+        return asyncio.to_thread(create, *args, **kwargs)
+    return wrapped

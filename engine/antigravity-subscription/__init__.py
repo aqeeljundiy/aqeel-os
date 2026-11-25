@@ -27,9 +27,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries, engine_call, with_calls as _with_calls, own_turn as _own_turn
+    from .reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries, engine_call, with_calls as _with_calls, own_turn as _own_turn, loop_safe as _loop_safe
 except ImportError:  # loaded as a plain module (the engine's plugin loader or a test)
-    from reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries, engine_call
+    from reply_fix import clean as _clean, whole as _whole, retry_note as _retry_note, with_retries as _with_retries, engine_call, with_calls as _with_calls, own_turn as _own_turn, loop_safe as _loop_safe
 from providers import register_provider
 from providers.base import ProviderProfile
 
@@ -177,6 +177,11 @@ def _make_client_class():
 
     class AntigravityClient(CopilotACPClient):
         """Same facade as the engine's ACP bridge; the prompt goes to `agy` in print mode instead of an ACP session."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            # awaitable for the engine's async callers (the image tool), unchanged for everyone else; reply_fix.loop_safe
+            self.chat.completions.create = _loop_safe(self._create_chat_completion)
 
         def _create_chat_completion(self, *, messages=None, **kw):
             # Gemini sees its own earlier tool calls with their arguments (reply_fix.with_calls, 21 Nov 2026)

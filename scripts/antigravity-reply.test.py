@@ -105,3 +105,20 @@ check("made up from the start: nothing kept", rf.own_turn("Tool:\n[result of ter
 check("a bare result label is a new turn too", rf.own_turn("ok\n[result of terminal]\nx")[0] == "ok")
 check("words like 'Tool:' inside a sentence stay", rf.own_turn("The Tool: terminal is fine.\nUser: name")[0] == "The Tool: terminal is fine.\nUser: name")
 check("a normal answer is kept whole", rf.own_turn("halo kak, makasih ya") == ("halo kak, makasih ya", ""))
+
+# 25 Nov 2026: create is awaitable for async callers (the engine's image tool) and answers at once for sync callers
+import asyncio, threading
+calls = []
+def fake_create(**kw):
+    calls.append(threading.get_ident())
+    return {"answer": kw.get("x")}
+safe = rf.loop_safe(fake_create)
+check("a sync caller gets the answer at once", safe(x=1) == {"answer": 1})
+async def from_loop():
+    return await safe(x=2)
+loop_thread = []
+async def main():
+    loop_thread.append(threading.get_ident())
+    return await from_loop()
+check("an async caller can await it and gets the answer", asyncio.run(main()) == {"answer": 2})
+check("the agy run is off the event loop's thread", calls[-1] != loop_thread[0])
