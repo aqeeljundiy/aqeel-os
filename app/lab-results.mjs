@@ -14,7 +14,7 @@ export function parseLabResults(html){const out=[];
  return out}
 const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
 const tokens=s=>String(s||'').toLowerCase().match(/[a-z]+|\d+/g)||[];
-// the reports for a product the customer named ("reta 10", "Retatrutide 10mg", "RT10"), newest first; no product: the newest of each
+// the reports for a product the customer named ("examp 10", "Examplin 10mg", "RT10"), newest first; no product: the newest of each
 export function pick(list,query,{max=5}={}){const t=Date.parse,byDate=(a,b)=>(t(b.date)||0)-(t(a.date)||0);
  const q=tokens(query);if(!q.length){const seen=new Set();return [...list].sort(byDate).filter(r=>!seen.has(r.code||r.product)&&seen.add(r.code||r.product)).slice(0,12)}
  return list.filter(r=>{const hay=norm(r.product+' '+r.code);return q.every(w=>hay.includes(w))}).sort(byDate).slice(0,max)}

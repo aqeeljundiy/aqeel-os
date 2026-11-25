@@ -672,7 +672,7 @@ test('a HANDOFF post carries the customer\'s earlier orders and past-use answers
 
 test('a delivery check message that arrives after the check gave up corrects the stored result (AU-37, 20 Nov 2026)',async()=>{
  const {lateProbe,PROBE_WAIT}=await import('../app/kirimdev.mjs');assert.ok(PROBE_WAIT>=180e3,'waits 3 minutes now, not 90 s');
- const res={at:1000,agent:'biomarkers-support',id:'abc123def456',sent:false,arrived:false,picture:false,why:'The line never received the check message from the main WhatsApp (webhook or polling not running?).'};
+ const res={at:1000,agent:'shop-support',id:'abc123def456',sent:false,arrived:false,picture:false,why:'The line never received the check message from the main WhatsApp (webhook or polling not running?).'};
  const fixed=lateProbe(res,'aqeelOS delivery check, please ignore. aqeelos-probe:abc123def456w',151000);
  assert.equal(fixed.lineReceives,true);assert.match(fixed.why,/150 s after it was sent/);assert.equal(fixed.late,151000);
  assert.equal(lateProbe(res,'aqeelos-probe:zzzzzzzzzzzzw',151000),null,'another check\'s message');
