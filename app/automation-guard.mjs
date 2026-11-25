@@ -87,10 +87,14 @@ export function newestTool(list,prefix){const v=n=>(n.slice(prefix.length+1).mat
  return (list||[]).filter(n=>n.startsWith(prefix+'-')&&/\d/.test(n.charAt(prefix.length+1))).sort((a,b)=>{const x=v(a),y=v(b);for(let i=0;i<Math.max(x.length,y.length);i++){const d=(x[i]||0)-(y[i]||0);if(d)return d}return 0}).pop()||null}
 // a scheduled job's reply (the "## Response" part of its output file) that says a tool was not there
 export const responseOf=md=>{const i=String(md||'').search(/^## Response\s*$/m);return i<0?'':String(md).slice(i).replace(/^## Response\s*/,'')};
-const TOOLISH=/\btools?\b|\bMCP\b|server|mcp__|\w+_\w+/i;
+// 25 Nov 2026: "@eve_natsfit - parent post unavailable" in a skip list was read as a missing tool, because the tool words were
+// looked for anywhere in the reply and an @username with an underscore looked like a tool name. Now only the words around
+// the match count, and a name right after @ is a person, not a tool.
+const TOOLISH=/\btools?\b|\bMCP\b|server|mcp__|(?<![@\w])[a-z]+_[a-z][\w]*/i;
 export function toolFailed(reply){const r=String(reply||'');if(!r.trim())return null;
  const m=/is not a known tool|failed to connect|gagal jalan|tidak tersedia|not available|unavailable/i.exec(r);if(!m)return null;
- if(/tidak tersedia|not available|unavailable|gagal jalan/i.test(m[0])&&!TOOLISH.test(r))return null;
+ const near=r.slice(Math.max(0,m.index-80),m.index+m[0].length+80);
+ if(/tidak tersedia|not available|unavailable|gagal jalan/i.test(m[0])&&!TOOLISH.test(near))return null;
  const i=Math.max(0,m.index-120);return r.slice(i,m.index+120).replace(/\s+/g,' ').trim()}
 
 /* ---------- reading logs as they grow (also used by connected-accounts.mjs) ---------- */

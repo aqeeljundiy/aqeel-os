@@ -81,3 +81,9 @@ test('Health: an extra number folds into its agent; only a server that differs s
  assert.deepEqual(out[0].servers.map(s=>[s.label||s.name,s.state,s.agent||'']),[['notion','signin',''],['n8n','ok',''],['n8n (extra number)','broken','default--whatsapp-2']]);
  assert.deepEqual(out[0].jobs.map(j=>[j.id,j.agent]),[['j1','default--whatsapp-2']]);
  assert.equal(out[1].name,'Sela')});
+
+test('a skip list that says a post is unavailable is not a missing tool (25 Nov 2026)',()=>{
+ const r='QUEUED 7\n\nSkipped candidates:\n- @auliaaprdll - seller pitching via DM\n- @eve_natsfit - parent post unavailable\n- @meta.ai - bot (I used @delinacha above it)\n- @kellyabowen - story, no question\n- @wh0opsy3 - possible Malaysian';
+ assert.equal(toolFailed(r),null);
+ assert.ok(toolFailed('google_sheets is unavailable right now, so the sync stopped.'));
+ assert.ok(toolFailed('The MCP server for airtable is not available.'))});
