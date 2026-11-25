@@ -125,3 +125,13 @@ test('at start, a post with no flagged answer left loses its Bottlenecks item',a
  const x=await rig({pages:['p']});await x.pl.set('ct',{rules:R});const u='https://www.threads.com/@cove.example/post/Dfconvo3';
  await x.pl.record('ct',{post_url:u,text:'kak itu 4x maksudnya sebulan ya'});x.tick(3*3600e3);await x.pl.record('ct',{post_url:u,text:'soal kisaran per bulan aku ga berani sebut angka'});
  await x.pl.tick();assert.ok(x.solved.some(s=>s[0]==='ct'&&s[1]==='repeat|ct|'+u),'the item for this post is solved')});
+
+test('a post the agent deleted on purpose is withdrawn: no second look, no alert, no slowdown; a real takedown stays (25 Nov 2026)',async()=>{const text='reta itu retatrutide kak, peptide buat bantu';
+ const x=await rig({pages:['p\n'+text,'p\nnothing']});await x.pl.set('ct',{rules:R});await x.pl.record('ct',{post_url:'https://www.threads.com/@a/post/9',text});
+ let w=await x.pl.withdraw('ct',{post_url:'https://www.threads.com/@a/post/9',text:'reta itu retatrutide'});assert.equal(w.ok,true);
+ x.tick(31*60e3);await x.pl.tick();assert.equal(x.tg.length,0);assert.equal((await x.pl.view('ct')).recent[0].status,'withdrawn');assert.equal((await x.pl.view('ct')).status.slowed,false);
+ assert.equal((await x.pl.view('ct')).status.today,1);
+ w=await x.pl.withdraw('ct',{post_url:'https://www.threads.com/@a/post/404'});assert.equal(w.ok,false);
+ const y=await rig({pages:['p\nnothing']});await y.pl.set('ct',{rules:R});await y.pl.record('ct',{post_url:'https://www.threads.com/@a/post/8',text});
+ w=await y.pl.withdraw('ct',{post_url:'https://www.threads.com/@a/post/8'});assert.equal(w.ok,false);assert.match(w.text,/already found it missing/);
+ assert.equal((await y.pl.view('ct')).status.slowed,true)});

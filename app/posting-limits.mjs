@@ -206,6 +206,16 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
   if(op==='sending'){if(e.status==='pending'){e.status='sending';e.sendingAt=now();await keep(a)}return {ok:['sending','checking','visible','recorded','unchecked'].includes(e.status),text:'ok'}}
   if(e.status==='pending'){posts.set(a,l.filter(x=>x!==e));await keep(a);return {ok:true,text:'Cancelled: it no longer counts.'}}
   return {ok:false,text:'Not cancelled: its state is '+e.status+'. It counts against the limits.'}})}
+ // withdrawn (25 Nov 2026): the agent deleted its own post on purpose (the owner asked; Continue Threads, 22 and 25 Nov). The 30-minute
+ // look then found it gone, called it "not visible", told the team and slowed the agent for 6 hours. The delete script reports the
+ // deletion right after it confirmed it, while the post is still visible here: it is then never looked at again and slows nothing. It
+ // still counts against the limits. A post already flagged missing cannot be withdrawn: a real takedown keeps its alert and slowdown.
+ async function withdraw(a,{post_url,text}={}){const u=String(post_url||'').trim(),t=String(text||'').replace(/\s+/g,' ').trim().toLowerCase().slice(0,40);
+  if(!/^https:\/\/\S+$/.test(u))return {ok:false,text:'post_url is the full https:// link of the post the deleted reply was on.'};
+  return exclusive(a,async()=>{const l=await entries(a),c=l.filter(x=>x.post===u&&(!t||String(x.text||'').replace(/\s+/g,' ').trim().toLowerCase().startsWith(t))).sort((x,y)=>y.at-x.at);
+   const e=c.find(x=>['visible','checking','unchecked','recorded'].includes(x.status));
+   if(!e)return {ok:false,text:c.some(x=>x.status==='missing')?'Not withdrawn: aqeelOS had already found it missing before the deletion was reported, so its alert and slowdown stay.':'No recorded post matches this link'+(t?' and text':'')+'. Nothing changed.'};
+   e.status='withdrawn';e.withdrawnAt=now();await keep(a);log('posting: '+a+' post '+e.id+' withdrawn (deleted on purpose by the agent)');return {ok:true,text:'Withdrawn: not checked again, no slowdown. It still counts against the limits.'}})}
  async function alert(a,r,e,how){const who=nameOf(a),short=String(e.text).replace(/\s+/g,' ').slice(0,140);
   const title=who+': a post is not visible on Threads';
   const detail=(how==='later'?'It was visible at first and was gone '+r.recheckMin+' min later. ':how==='nocheck'?'aqeelOS could not open Threads to check it for an hour. ':'It was not visible right after posting. ')+'Post: '+(e.post||'unknown')+'. Text: "'+short+'". '+who+' posts at most '+r.afterMissingPerHour+' an hour for the next '+r.afterMissingHours+' hours.';
@@ -342,4 +352,4 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
   // every other signature in the agents' folders too (relay-heal.mjs), so none of them can go stale after a key rotation
   if(live&&heal){const r=await heal.sweep().catch(e=>({changed:[],failed:[],err:e.message}));if(r.changed.length)log('relay keys: '+r.changed.length+' file(s) in the agents folders carried an old signature and were made again')}}
  const usesLimits=async a=>!!(await rulesOf(a))?.on;
- return {gate,allowNow,guard,mark,record,line,tick,view,set,ensure,staleKey,usesLimits,gateName,silence:async a=>{silenceAt.delete(a);const r=await rulesOf(a);if(r?.on)await silence(a,r,await entries(a))}}}
+ return {gate,allowNow,guard,mark,record,withdraw,line,tick,view,set,ensure,staleKey,usesLimits,gateName,silence:async a=>{silenceAt.delete(a);const r=await rulesOf(a);if(r?.on)await silence(a,r,await entries(a))}}}

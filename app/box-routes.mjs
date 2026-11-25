@@ -92,13 +92,14 @@ async function srMcp(req,res,ms){const ra=req.socket.remoteAddress||'';if(!/^(12
    if(!relayKeys.ok(mh[3],'relay:',mh[1]))return send(res,403,'bad signature'),true;
    const e=await eventHooks.runNow(mh[1],mh[2]).catch(e=>e.message);res.writeHead(e?500:200,{'content-type':'text/plain; charset=utf-8'});return res.end((e||'ok')+'\n'),true}}
   // for a script that posts without a model (the comment queue, 12 Nov 2026): GET ?json=1&kind=comment on the gate says {allow,n,reason} (it reserves nothing); POST /posting-record does what the record_post tool does.
-  // The guard of every script that posts (scripts/posting-guard.py, posting-limits.mjs): POST /posting-check {kind} -> {allow,ticket,reason}, /posting-sending {ticket}, /posting-record {ticket,kind,ref,text}, /posting-cancel {ticket}
-  {const mj=/^\/posting-(gate|record|check|sending|cancel)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mj&&(mj[1]!=='gate'||url.searchParams.get('json')==='1')){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only'),true;
+  // The guard of every script that posts (scripts/posting-guard.py, posting-limits.mjs): POST /posting-check {kind} -> {allow,ticket,reason}, /posting-sending {ticket}, /posting-record {ticket,kind,ref,text}, /posting-cancel {ticket}, /posting-withdrawn {post_url,text} (deleted on purpose)
+  {const mj=/^\/posting-(gate|record|check|sending|cancel|withdrawn)\/([\w-]+)\/([\w-]+)$/.exec(p);if(mj&&(mj[1]!=='gate'||url.searchParams.get('json')==='1')){const ra=req.socket.remoteAddress||'';if(!/^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/.test(ra))return send(res,403,'local only'),true;
    if(!relayKeys.ok(mj[3],'relay:',mj[2])){postingLimits.staleKey(mj[2]);return send(res,403,'bad signature'),true}
    if(mj[1]==='gate')return send(res,200,await postingLimits.allowNow(mj[2].split('--')[0],url.searchParams.get('kind')||'').catch(e=>({allow:false,n:0,reason:'aqeelOS could not check the limits ('+e.message+')'}))),true;
    if(req.method!=='POST')return send(res,405,{error:'POST only'}),true;let b={};try{b=JSON.parse(await readBody(req,65536))}catch{return send(res,400,{error:'bad json'}),true}
    const ag=mj[2].split('--')[0];
    if(mj[1]==='check'){const g=await postingLimits.guard(ag,b.kind).catch(e=>({allow:false,reason:'aqeelOS could not check the limits ('+e.message+'), so nothing may be posted.'}));return send(res,g.allow?200:409,g),true}
+   if(mj[1]==='withdrawn'){const g=await postingLimits.withdraw(ag,b).catch(e=>({ok:false,text:e.message}));return send(res,g.ok?200:409,g),true}
    if(mj[1]==='sending'||mj[1]==='cancel'){const g=await postingLimits.mark(ag,b.ticket,mj[1]).catch(e=>({ok:false,text:e.message}));return send(res,g.ok?200:409,g),true}
    const r=await postingLimits.record(ag,b).catch(e=>({isError:true,text:e.message}));return send(res,r.isError?409:200,{ok:!r.isError,text:r.text}),true}}
   // the posting gate an agent's posting schedule runs first (posting-limits.mjs): from this box only, signed per agent

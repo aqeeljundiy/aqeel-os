@@ -209,6 +209,8 @@
   "POST /mockup/zz-probe": { "cells": "DNNDDDD", "src": "server.mjs:2534" },
   "GET /posting-cancel/a/a": { "cells": "DDDDDDD", "src": "box-routes.mjs:96" },
   "POST /posting-cancel/a/a": { "cells": "DDDDDDD", "src": "box-routes.mjs:96" },
+  "GET /posting-withdrawn/a/a": { "cells": "DDDDDDD", "src": "box-routes.mjs:96" },
+  "POST /posting-withdrawn/a/a": { "cells": "DDDDDDD", "src": "box-routes.mjs:96" },
   "GET /posting-check/a/a": { "cells": "DDDDDDD", "src": "box-routes.mjs:96" },
   "POST /posting-check/a/a": { "cells": "DDDDDDD", "src": "box-routes.mjs:96" },
   "GET /posting-gate/a/a": { "cells": "DDDDDDD", "src": "box-routes.mjs:105" },

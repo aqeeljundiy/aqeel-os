@@ -14,6 +14,7 @@ aqeelOS decides with the agent's Run rules (app/posting-limits.mjs); this file o
       posting-guard sending "$T"
       posting-guard record comment "$URL" --ticket "$T" [--text-file F]
       posting-guard cancel "$T"                           # nothing was posted (only before sending)
+      posting-guard withdrawn "$POST_URL" [--text-file F]  # we deleted our own post on purpose: no "not visible" alert
       posting-guard act comment "$URL"                    # check + sending + record in one step, for a script that cannot be patched in two places
       posting-guard peek comment                          # what the limits say now; reserves nothing
 
@@ -161,6 +162,16 @@ def record_raw(kind, ref="", text=None, ticket=None, lead=None):
     return st == 200 and j.get("ok"), j.get("text", "")
 
 
+def withdrawn_raw(post_url, text=None):
+    """the agent deleted its own post on purpose (25 Nov 2026): tell aqeelOS right after the delete is confirmed, so the
+    30-minute look does not report it as taken down and slow the agent. A post already flagged missing stays flagged."""
+    body = {"post_url": post_url}
+    if text:
+        body["text"] = text
+    st, j = _post("withdrawn", body, tries=3)
+    return st == 200 and j.get("ok"), j.get("text", "")
+
+
 def cancel_raw(ticket):
     try:
         st, j = _post("cancel", {"ticket": ticket}, tries=2)
@@ -276,6 +287,14 @@ def main(argv):
             ok, text = record_raw(a[0], a[1] if len(a) > 1 else "", tx, ticket)
             print(("POSTING_GUARD: " if ok else "POSTING_GUARD_STOP: ") + text)
             return 0 if ok else EXIT_REFUSED   # a record that says STOP: the post stands, the run must not post more
+        if cmd == "withdrawn" and a:
+            tf, tx = _opt(a, "--text-file"), _opt(a, "--text")
+            if tf:
+                with open(tf) as fh:
+                    tx = fh.read().strip()
+            ok, text = withdrawn_raw(a[0], tx)
+            print(("WITHDRAWN: " if ok else "NOT_WITHDRAWN: ") + text)
+            return 0 if ok else EXIT_REFUSED
         if cmd == "cancel" and a:
             ok = cancel_raw(a[0])
             return 0 if ok else EXIT_REFUSED
@@ -305,7 +324,7 @@ def main(argv):
     except RuntimeError as e:
         sys.stderr.write("REFUSED_POSTING_LIMIT: aqeelOS did not answer, so nothing may be posted (%s)\n" % _mask(e))
         return EXIT_ERROR
-    sys.stderr.write("usage: posting-guard check|sending|record|cancel|act|peek ...  (posting-guard --help)\n")
+    sys.stderr.write("usage: posting-guard check|sending|record|cancel|withdrawn|act|peek ...  (posting-guard --help)\n")
     return 2
 
 
