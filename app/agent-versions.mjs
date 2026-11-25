@@ -121,7 +121,10 @@ export function createAgentVersions({guard=()=>null,DATA,HERMES_HOME,DASH,DASH_T
   // Those are aqeelOS's, never a self-change: not undoable and they never arm the "still answers" watch (undoing them
   // put the copies back, the engine dropped them again: a loop every few minutes)
   const shared=path.join(HERMES_HOME,'skills');const blob=async(rev,f)=>{const r=await git(a,['rev-parse','--verify','-q',rev+':'+f]);return r.ok?r.out.trim():null};
-  const sameAsShared=async fs=>{if(a==='default'||!fs.length)return false;for(const [s,f] of fs){if(s!=='A'&&s!=='D')return false;
+  // 26 Nov 2026: an edit that leaves the copy equal to the shared one is the main agent's change reaching it (accounts.mjs
+  // giveSkills follows the main copy), not the agent's: Donna's one-line edit to workspace-organisation reached 12 agents, each
+  // was logged as their own, armed the watch, and on a slow box 8 of them were rolled back (several times over)
+  const sameAsShared=async fs=>{if(a==='default'||!fs.length)return false;for(const [s,f] of fs){if(s!=='A'&&s!=='D'&&s!=='M')return false;
    const h=await git(a,['hash-object','--',path.join(shared,f)]);if(!h.ok||!h.out.trim())return false;if(await blob(s==='D'?before:after,f)!==h.out.trim())return false}return true};
   const out=[];for(const [k,l] of bySkill){const mine=files.filter(x=>x[1].startsWith(k+'/')||x[1]===k);const dup=!sync&&await sameAsShared(mine);const sys=sync||dup;
    out.push(await record(a,{kind:'skill',target:k,what:l.slice(0,6).join('; ')+(l.length>6?' +'+(l.length-6):''),why:sync?'aqeelOS skill sync':dup?'copy of a shared skill (no change in what it sees)':(why||''),by:sync?'aqeelOS (skill sync)':dup?'aqeelOS (shared skill copy)':(by||nameOf(a)),undoable:!sys,before:{commit:before,files:mine.map(x=>x[1])},after:{commit:after}}))}return out}
@@ -246,7 +249,11 @@ export function createAgentVersions({guard=()=>null,DATA,HERMES_HOME,DASH,DASH_T
   return r.ok?{text:'Sent to your own topic in '+(g.name||'your team group')+'.'}:{isError:true,text:'Telegram refused: '+(r.description||'unknown')}}
 
  // ---- "does it still answer" + automatic rollback ----
- async function watchTick(){if(!live||!ping)return;for(const a of (await listAgents()).filter(x=>x!=='default'&&!x.includes('--'))){const d=await load(a);const w=d.watch;if(!w||w.due>now())continue;
+ // one watch pass at a time: a pass pings every armed agent (up to 2 min each), so on a slow box the minute timer started
+ // the next pass while one ran and both rolled back the same agent (26 Nov 2026: Sesa undone 4 times in one second)
+ let watching=false;
+ async function watchTick(){if(!live||!ping||watching)return {skipped:true};watching=true;try{return await watchPass()}finally{watching=false}}
+ async function watchPass(){for(const a of (await listAgents()).filter(x=>x!=='default'&&!x.includes('--'))){const d=await load(a);const w=d.watch;if(!w||w.due>now())continue;
   // a deleted agent (tombstone in profiles/.deleted, its dir may linger) is gone on purpose, not broken: disarm, never roll back
   if(await stat(path.join(HERMES_HOME,'profiles','.deleted',a)).catch(()=>null)){await lock(a,async()=>{const d1=await load(a);if(d1.watch){d1.watch=null;d1.events.push({kind:'ok',at:now(),text:'agent deleted; watch stopped'});await save(a)}});continue}
   // its own chats running right now count as answering; otherwise a short ping run of its own

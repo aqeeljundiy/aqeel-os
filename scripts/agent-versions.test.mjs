@@ -110,6 +110,22 @@ test('skills: a copy equal to the shared tier coming and going is not a self-cha
   // an own copy that differs from the shared one is still the agent's change
   await writeFile(path.join(own,'SKILL.md'),'my edit\n');const [mine]=await v.skillsSnap('bot',{by:'Bot'});assert.equal(mine.undoable,true);assert.ok((await v.load('bot')).watch)}finally{d.srv.close()}});
 
+test('skills: the main agent edit reaching a copy (equal to the shared one again) is not a self-change',async()=>{
+ let pings=0;const {v,d,H,tick}=await make({ping:async()=>{pings++;return {ok:false,why:'exit 1'}}});
+ try{const own=path.join(H,'profiles','bot','skills','productivity','ws'),sh=path.join(H,'skills','productivity','ws');
+  await mkdir(own,{recursive:true});await mkdir(sh,{recursive:true});await writeFile(path.join(sh,'SKILL.md'),'v1\n');await writeFile(path.join(own,'SKILL.md'),'v1\n');
+  await v.skillsSnap('bot');
+  await writeFile(path.join(sh,'SKILL.md'),'v2 from Donna\n');await writeFile(path.join(own,'SKILL.md'),'v2 from Donna\n');
+  const [x]=await v.skillsSnap('bot',{by:'Bot',why:'its own skill change'});
+  assert.equal(x.undoable,false);assert.match(x.by,/shared skill copy/);assert.equal((await v.load('bot')).watch,null);
+  tick(10*60e3);await v.watchTick();assert.equal(pings,0)}finally{d.srv.close()}});
+
+test('watch: overlapping ticks run one pass; the agent is rolled back once',async()=>{
+ let release;const gate=new Promise(r=>release=r);let pings=0;
+ const {v,d,cfg,tick}=await make({ping:async()=>{pings++;await gate;return {ok:false,why:'exit 1'}}});
+ try{await v.mySetting('bot','stt.language','xx',{by:'Bot'});tick(4*60e3);
+  const a=v.watchTick(),b=await v.watchTick();assert.deepEqual(b,{skipped:true});release();await a;assert.equal(pings,1)}finally{d.srv.close()}});
+
 test('watch: a ping that could not tell (engine restarting) counts no miss and never rolls back',async()=>{
  const {v,d,cfg,tick}=await make({ping:async()=>({ok:false,unsure:true,why:'restarting'})});
  try{await v.mySetting('bot','stt.language','xx',{by:'Bot'});for(let i=0;i<4;i++){tick(5*60e3);await v.watchTick()}
