@@ -24,7 +24,7 @@ export async function answerItem({items,id,choice,value,text,conflicts,questions
  throw bad('Do this one on Health: '+((x.action&&x.action.label)||x.label||'open the item there')+'.')}
 
 // an alert or an agent's report already solved (20 Nov 2026: Airtable alerts stayed after Airtable worked again), marked done
-// as the Health button does: aq-needs.mjs done <id> "<reason>"; only an event or report that is in Needs you now
+// as the Health button does: aq-needs.mjs done <id> "<reason>"; only an event or report that Health shows now (Needs you or the list below it)
 export async function localDone(req,res,{needs,done,readBody,send}){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
  const id=String(b.id||''),why=String(b.reason||'').trim();if(!/^(event\|e|report\|r)[0-9a-f]{6,}$/.test(id))return send(res,400,{error:'Give an event|e… or report|r… id from the list.'});
  if(!why)return send(res,400,{error:'Give a reason.'});if(!(await needs()).some(x=>x.id===id))return send(res,404,{error:'No such item in Needs you.'});
