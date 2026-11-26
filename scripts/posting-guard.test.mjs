@@ -83,7 +83,9 @@ test('guard: a comment is looked up on the public page, and a missing one fails 
 
 test('a comment Threads holds by local law where the check runs is visible, not missing (27 Nov 2026, India exit)',async()=>{
  const text='halo kak ini jawabannya lengkap banget';const law="This content isn't available to everyone\nThis content isn't available in your location because of a legal request. It has been restricted in the location where it goes against local law.";
- const x=await rig({pages:['p\nother',law]});const g=await x.pl.guard('ct','comment');await x.pl.mark('ct',g.ticket,'sending');
+ const x=await rig({pages:['p\nother',law]});
+ const live=await rig({pages:['p\nother',"Log in\nThis content isn't available to everyone\nIt can't be seen by certain audiences. \nSee Why"]});const lg=await live.pl.guard('ct','comment');await live.pl.mark('ct',lg.ticket,'sending');
+ assert.match((await live.pl.record('ct',{kind:'comment',ticket:lg.ticket,ref:'https://www.threads.com/@a/post/1',text})).text,/visible to the public/,'the page as the box really sees it');const g=await x.pl.guard('ct','comment');await x.pl.mark('ct',g.ticket,'sending');
  const r=await x.pl.record('ct',{kind:'comment',ticket:g.ticket,ref:'https://www.threads.com/@a/post/1',text});assert.notEqual(r.isError,true);assert.match(r.text,/visible to the public/);
  assert.equal((await x.pl.view('ct')).recent.find(e=>e.id===g.ticket).status,'visible','not missing, so no slowdown');
  // a page that is simply gone is still missing
