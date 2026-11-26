@@ -113,6 +113,11 @@ export function gateTextKinds(list,j){const clock=list[0]?.d.clock||'';if(!j.all
 export const squash=s=>String(s||'').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,'');
 export function needle(text){const s=squash(String(text||'').split('\n').find(l=>squash(l).length>=12)||text);return s.slice(0,40)}
 export const seen=(page,text)=>{const n=needle(text);return n.length>=6&&squash(page).includes(n)};
+// 27 Nov 2026: Threads hides a post by country after a legal request ("This content isn't available to everyone ... restricted in
+// the location where it goes against local law"). The check browser runs where the box is (India for Elkiya), so a comment the
+// target country sees in full looked "not visible" and slowed the agent for 6 hours. On the post's own page that notice means the
+// post exists and is public elsewhere: it counts as visible. A deleted or owner-hidden post never shows this notice.
+export const heldByLaw=page=>/against local law|restricted in the location where/i.test(String(page||''));
 
 // a public page as someone signed out sees it: a fresh headless Chrome with an empty profile, closed after each look
 export function headlessLook({chrome='/opt/aqeelos/chrome/chrome',wait=9000}={}){let chain=Promise.resolve();
@@ -224,7 +229,8 @@ export function createPostingLimits({DATA,WORK,HERMES_HOME,PORT,live=true,reconn
   e.alerted=now();e.alertSent=!!sent;log('posting: '+a+' post '+e.id+' not visible ('+how+')'+(m&&!sent?', alert not delivered':''))}
  // look on the public page first, then on the post itself
  // 'unchecked' when no page could be opened at all (the check browser failed): that is not the post's fault
- async function check(a,r,e){let looked=false;for(const u of [r.checkUrl,e.post].filter(Boolean)){try{const p=await look(u);looked=true;if(seen(p,e.text))return 'visible'}catch{}}return looked?'missing':'unchecked'}
+ async function check(a,r,e){let looked=false;for(const u of [r.checkUrl,e.post].filter(Boolean)){try{const p=await look(u);looked=true;if(seen(p,e.text))return 'visible';
+  if(u===e.post&&heldByLaw(p)){e.heldByLaw=now();log('posting: '+a+' post '+e.id+' is held by local law where the check runs, counted as visible');return 'visible'}}catch{}}return looked?'missing':'unchecked'}
 
  // record_post (the agent's tool) and /posting-record (the posting scripts): what was just posted. With a ticket from guard() it closes that ticket;
  // without one it closes the oldest open ticket of that kind from the last half hour, or counts as a new post. A post over the limits, or made while the
