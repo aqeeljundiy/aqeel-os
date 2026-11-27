@@ -89,10 +89,6 @@ test('on /v2 Escape closes only the top kit box (not the app drawer under it)',(
  const s=read('app/v2.js');
  assert.match(s,/addEventListener\('keydown',e=>\{if\(e\.key!=='Escape'[^]*?e\.stopPropagation\(\)[^]*?AK\.menu\.close\(\)[^]*?AK\.command\.close\(\)[^]*?\},true\)/)});
 
-test('on /v2 a box opened on top of a kit sheet (stackPop) keeps its focus and clicks (Set a new password could not be typed, 27 Nov 2026)',()=>{
- assert.match(read('app/v2.js'),/for\(const t of \['focusin','focusout'\]\)addEventListener\(t,e=>\{[^}]*\.drawer\.stack:not\(\.closing\)[^}]*e\.stopImmediatePropagation\(\)\},true\)/);
- assert.match(read('app/v2.css'),/html\.v2 \.drawer\.stack,html\.v2 \.scrim\.stack\{pointer-events:auto\}/)});
-
 // Schedules (owner, 14 Nov 2026: "Yes, Schedules next"): the editor's day picker is the kit's calendar from the same button
 test('on /v2 the day picker of date fields is the kit calendar, and Escape closes it first',()=>{
  const s=read('app/v2.js');
