@@ -131,8 +131,14 @@ export {guardReply,leaks,internalLine,internalText};
 
 // CH-7 (19 Nov 2026): "release 4567" (also lepas, lepaskan, buka; "chat"/"tahanan" may follow) from a team member in the team group: the
 // digits a held chat's number ends in (at least 4). Anything else is null. A quoted post it answers ([Replying to …]) is skipped.
-export function parseRelease(raw){const t=String(raw||'').replace(/^\[Replying to[\s\S]*?"\]\s*/,'').replace(/^@\w+\s+/,'').trim();
+const cmdText=raw=>String(raw||'').replace(/^\[Replying to[\s\S]*?"\]\s*/,'').replace(/^@\w+\s+/,'').trim();
+export function parseRelease(raw){const t=cmdText(raw);
  const m=/^(?:release|lepas(?:kan)?|buka)\s+(?:(?:chat|tahanan)\s+)?\+?(\d[\d\s-]{2,18}\d)[.!]?$/i.exec(t);return m?m[1].replace(/\D/g,''):null}
+// Row 9/40 (27 Nov 2026): "protokol 4567" (also protocol, "kirim protokol 4567") from a team member: the protocol of the chat whose number ends in
+// those digits is now set on the member profile, so the agent checks it and sends its PDF (teamMessage, protocolTurn). Same digits rule as release.
+function parseProtocol(raw){const m=/^(?:kirim\s+)?proto[ck]ol\s+\+?(\d[\d\s-]{2,18}\d)[.!]?$/i.exec(cmdText(raw));return m?m[1].replace(/\D/g,''):null}
+const PROTOCOL_NOTE='\n\nNOTE from aqeelOS, not from the customer: the team says this customer\'s protocol is now set on the member profile, so the team started this turn (any new customer messages are above; answer them too). Check get_protocol. If it has their protocol, send it with send_protocol_pdf and write one short message that it was sent, only after the tool confirms success. If none is found or sending fails, reply exactly: HANDOFF: <the tool\'s actual result>. Never invent, prescribe or change a protocol.';
+const PROTOCOL_FACT='The team started this reply, not a new customer message: the customer\'s protocol is now set on the member profile, so the agent checks it with get_protocol and sends its PDF with send_protocol_pdf (a document aqeelOS sends apart from this text). A reply about the protocol PDF without a customer question is therefore not out of the blue.';
 // What a team member's Telegram message says about a draft (audit H5). Only these count: "ok" (also oke, okay, ya, yes, kirim, send, setuju,
 // approve, 👍, ✅), "no" (tidak, jangan, drop, batal, discard, ❌, 👎), or a text to send instead, which must be marked: "kirim: <text>"
 // (send:, edit:, ganti:). "ok nanti saya cek" is none of them and sends nothing. The draft's number comes from "#12" in the message or from
@@ -342,7 +348,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    // a message during a team member's pause is kept, not dropped (audit 6 Nov: "mau pakai CC" was never answered): it waits
    // for the pause to end, and is answered then unless the team answered it meanwhile
    const paused=until>now();if(paused)log('kirimdev '+agent+': '+tail(m.from)+' wrote while a team member is answering; kept until '+new Date(until).toISOString());
-   st.pending[key]={agent,from:m.from,conversationId:m.conversationId,name:testerName(line,m),at:st.pending[key]?.at||now(),token:randomUUID(),messages:[...(st.pending[key]?.messages||[]),m.text],...(paused||hold||st.pending[key]?.waited?{waited:true}:{})};
+   st.pending[key]={agent,from:m.from,conversationId:m.conversationId,name:testerName(line,m),at:st.pending[key]?.at||now(),token:randomUUID(),...(st.pending[key]?.protocol?{protocol:true}:{}),messages:[...(st.pending[key]?.messages||[]),m.text],...(paused||hold||st.pending[key]?.waited?{waited:true}:{})};
    // handed to the team (audit H4): the agent stays silent in this chat. The message is kept, the team's alert is refreshed, and the
    // customer gets the line's wait text at most once an hour. A person's reply, a release on the page or the long timeout ends it.
    if(hold){log('kirimdev '+agent+': '+tail(m.from)+' wrote while the chat is with the team; the agent stays silent');await nudgeHold(agent,line,hold,m.text);schedule(key,{debounceSec:Math.ceil((Math.max(hold.until,until)-now())/1000)+5});continue}
@@ -455,7 +461,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    delete st.fails?.[key];
    // Only consume the snapshot we answered, never a newer arrival.
    if(st.pending[key]?.token===p.token)delete st.pending[key];
-   else if(st.pending[key]&&(st.cut[key]||'')===epoch)st.pending[key].messages=st.pending[key].messages.slice((p.messages||[]).length);
+   else if(st.pending[key]&&(st.cut[key]||'')===epoch){st.pending[key].messages=st.pending[key].messages.slice((p.messages||[]).length);if(p.protocol)delete st.pending[key].protocol}   // the protocol was checked in this turn
    delete st.turns[key];await saveState();
   }finally{running.delete(key);if(acquired)active--;
    if(st?.pending[key]&&!later)schedule(key,{debounceSec:5})}}
@@ -478,7 +484,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
  // the second look before sending (kirim-review.mjs): on unless the line says review 'off'. The guard's result passes through unless the
  // reviewer holds it; a reviewer that fails holds it too (fail closed), except when the AI provider itself is down (the run waits for it)
  const reviewOn=line=>String(line?.review??'on')!=='off';
- async function review(agent,line,g,{newMessages=[],history=''}={}){if(!reviewReply||!reviewOn(line))return g;
+ async function review(agent,line,g,{newMessages=[],history='',protocol=false}={}){if(!reviewReply||!reviewOn(line))return g;
   // in Test every payment is the small test amount on purpose (customer-tools.mjs); the check held those as wrong amounts and two holds handed the chat to the team (19 Nov 2026)
   const ta=Number(line.payment?.testAmount)>0?Number(line.payment.testAmount):10000,facts=modeOf(line)==='test'?['This line is in TEST mode: every QRIS, VA or card payment is made for the test amount of '+(line.payment?.currency||'Rp')+ta.toLocaleString('id-ID')+' on purpose, instead of the order total. A payment, QR or receipt of that amount is correct and is never a reason to hold.']:[];
   // the line's own fixed facts for the check (kirimdev.json lines.<agent>.reviewFacts), e.g. a strike-through price set by the team that
@@ -487,6 +493,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   facts.push('A part like [FOTO: name] or [FOTO: name | caption] is a picture aqeelOS sends in its place (create_payment tells the agent to put its QR this way); it is never shown as text and is not a reason to hold. "---" only separates messages.');
   facts.push('A QRIS has a top amount, so a bigger total is split into several QRs; several QRs adding up to the order total are correct.');
   for(const f of Array.isArray(line.reviewFacts)?line.reviewFacts.slice(0,20):[])if(String(f).trim())facts.push(String(f).trim().slice(0,400));
+  if(protocol)facts.push(PROTOCOL_FACT);
   // the line's price list held by aqeelOS (price-catalog.mjs, what quote_order and create_payment charge): the check never saw it and held
   // right prices as "not backed by any source" (Gilang's Tirzepatide 10mg Rp3.600.000, 17 Nov 2026)
   const cat=await catalog.of(agent).catch(()=>null),pl=Object.values(cat?.products||{}).slice(0,80);
@@ -517,7 +524,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    // 14 Nov 2026 (owner: a misread question can be fatal, and handing every hard one to a person needs a person every day): read every
    // word, then answer, or ask one short question; never guess
    '\n\nRead every word of the customer\'s new messages before you answer, slang, abbreviations and typos included, and the Text: of any customer photo. Several short messages are one question: answer all of it in one reply. If anything they ask could mean two things (a dose, a quantity, a product, a date, yes or no), ask them one short question about exactly that instead of guessing.'+
-   '\n\nNew inbound messages (authoritative even if provider history is delayed):\n'+(p.messages||[]).map(t=>'CUSTOMER: '+(t||'(a photo or file, shown in the conversation above)')).join('\n')+
+   '\n\nNew inbound messages (authoritative even if provider history is delayed):\n'+(p.messages||[]).map(t=>'CUSTOMER: '+(t||'(a photo or file, shown in the conversation above)')).join('\n')+(p.protocol&&line.protocolPdf?PROTOCOL_NOTE:'')+
    '\n\nWrite ONLY the WhatsApp reply text to send next ('+(line.language?'in '+line.language+', or in the customer\'s own language when they write another':'in the customer\'s own language')+', WhatsApp formatting with *bold*, short paragraphs). Do NOT send anything yourself. Output only the message addressed to the customer, never an operator preface, draft commentary, or a statement that you have not sent it. Never only ask the customer to wait: nothing brings you back to this chat later, so answer now or hand off. '+
    'If several messages are needed, separate them with a line containing only ---. If this must go to a human (handoff rules), reply exactly: HANDOFF: <reason, and what you already checked (sheet, past chats) and found>';
   const ctxRun={session:conversationSession(agent,line.phoneNumberId,p.conversationId||p.from,epoch),run:{since:epoch,line:line.phoneNumberId,conversation:p.conversationId||'',phone:p.from,mode,tester:testerNow(agent,line,p.from,p.conversationId||'')}};
@@ -566,7 +573,7 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
    // the first reply without the team's greeting template (TS-7)
    if(greet.text&&!quizData((p.messages||[]).join('\n'))){const c=templateCover(g.parts.filter(x=>!TAGGED.test(x)).join('\n'),greet.text);
     if(c!==null&&c<0.4)return {...g,kinds:['greeting'],hold:'This is the first reply to a new lead and it leaves out the team\'s greeting template ('+greet.from+'). Write it again with the template, as your rules say: answer their question first if they asked one, then the template, in one message.'}}
-   return await review(agent,line,g,{newMessages:(p.messages||[]).map(m=>m||'(a photo or file)'),history:hist})};
+   return await review(agent,line,g,{newMessages:(p.messages||[]).map(m=>m||'(a photo or file)'),history:hist,protocol:!!(p.protocol&&line.protocolPdf)})};
   let g=await check(out);
   // held by the exit guard (audit H6): the customer gets nothing wrong. The reply is written once more with the reason; if that is
   // held too (or is nothing), a person gets the chat with the held text, which only the team sees.
@@ -738,6 +745,20 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   const sent=[];for(const id of d.outbound){sent.push(await deliver(id));await wait(1500)}d.status='sent';d.doneAt=now();release(agent,d.from,'a person sent a draft');await saveState();log('kirimdev '+agent+': draft #'+id+' sent, approved by '+d.by);
   let labels=null;if(d.labels&&!d.labelsSet){labels=await labelContact(agent,{conversationId:d.conversationId,phone:d.from,...d.labels,source:'approved',run:'draft'+d.id}).catch(e=>({set:false,why:e.message}));if(labels.set){d.labelsSet=true;await saveState()}}
   return {sent:sent.filter(Boolean).length,...(labels?{labels}:{})}}
+ // Row 9/40 (27 Nov 2026): after a "protokolnya mana?" handoff the team sets the protocol on the member profile, but nothing ran the customer
+ // turn again, so the PDF went out only when the customer asked once more. A team signal (parseProtocol, or a reply to the HANDOFF post that
+ // says protokol) schedules ONE turn for that chat with PROTOCOL_NOTE. The turn keeps every rule: its tools reach only this chat's number,
+ // Test answers only testers, WhatsApp's 24 hours, Draft never sends, and get_protocol (never the agent) says whether there is a protocol.
+ // Gives '' when the turn is scheduled, else why not.
+ async function protocolTurn(agent,line,num,by){const kn=st.known[agent+'|'+num]||{},h=st.holds[agent+'|'+num],conv=kn.conv||h?.conversationId||'';
+  if(!line.protocolPdf)return 'this line has no protocol PDF';
+  if(modeOf(line)==='draft')return 'this line is in Draft, so the team sends the protocol itself';
+  if(modeOf(line)==='test'&&!testerNow(agent,line,num,conv))return 'this line is in Test, so it only answers its testers';
+  if(!within24h(agent,num))return 'the customer last wrote more than 24 hours ago, so WhatsApp allows no message';
+  const key=agent+'|'+line.phoneNumberId+'|'+(conv||num),p=st.pending[key];
+  // what the customer wrote meanwhile is kept and answered in the same turn; asked for now, so not answered as late (TURN_MAX)
+  st.pending[key]={agent,from:num,conversationId:conv,name:p?.name||kn.name||h?.name||'customer',messages:p?.messages||[],at:now(),token:randomUUID(),protocol:true};
+  schedule(key,{debounceSec:5});await saveState();log('kirimdev '+agent+': '+by+' says the protocol of '+tail(num)+' is set; the agent checks it and sends its PDF');return ''}
  // A message a PERSON wrote in the team's topic, handed over by the engine's gateway hook (engine/hooks/aqeelos-team) with the sender's
  // Telegram id. Checked here in code: it is the line's own team group, the sender is on the line's approvers list
  // (lines.<agent>.approvers: [{who, telegramId}]), and the text is exactly an approval for one waiting draft. Anything else changes nothing.
@@ -746,22 +767,35 @@ export function createKirimdev({onEvent=()=>{},DATA,WORK,apiKey,saveKey=null,bri
   // CH-7 (19 Nov 2026): The team lead could not let a held chat go: only an admin could, on Channels, and he has no aqeelOS sign-in. A person on the
   // line's approvers list, or on the team that looks after this agent (teamPerson: the team policy), writes "release 4567" in any topic of
   // the team group; the one held chat whose number ends in those digits is let go and its waiting messages are answered. Nothing is sent.
+  const whoOf=async()=>(line.approvers||[]).find(x=>String(x?.telegramId||'')===String(userId||'')&&String(userId||''))?.who||(String(userId||'')?(await teamPerson(agent,String(userId)).catch(()=>null))?.name:null);
   const rd=parseRelease(text);if(rd){const say=m=>telegram(agent,t.chatId,threadId||t.threadId,m).catch(()=>false);
-   const who=(line.approvers||[]).find(x=>String(x?.telegramId||'')===String(userId||'')&&String(userId||''))?.who||(String(userId||'')?(await teamPerson(agent,String(userId)).catch(()=>null))?.name:null);
+   const who=await whoOf();
    if(!who){await say('✋ Not released: this Telegram account is not on '+line.persona+'’s team list. An admin adds it, or releases the chat on Channels.');return {handled:false,why:'not an approver'}}
    const held=Object.values(st.holds).filter(h=>h.agent===agent&&String(h.from).endsWith(rd));
    if(held.length!==1){await say(held.length?'✋ '+held.length+' held chats end in '+rd+': write more digits of the number.':'✋ No chat ending in '+rd+' is held for the team on '+line.persona+'.');return {handled:false,why:held.length?'which chat':'not held'}}
    const num=String(held[0].from);release(agent,num,'released by '+who+' in Telegram');for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===num)schedule(k,{debounceSec:5});await saveState();
    await say('✅ The chat ending in '+rd+' is no longer held, released by '+who+'. '+line.persona+' answers its waiting messages in a few seconds.');return {handled:true,released:num}}
+  // row 9/40: "protokol 4567" in any topic: the one chat of the last 24 hours ending in those digits; a hold on it ends (the team is done with it)
+  const pd=parseProtocol(text);if(pd){const say=m=>telegram(agent,t.chatId,threadId||t.threadId,m).catch(()=>false);
+   const who=await whoOf();if(!who){await say('✋ Not sent: this Telegram account is not on '+line.persona+'’s team list. An admin adds it on Channels › Kirimdev.');return {handled:false,why:'not an approver'}}
+   const nums=Object.keys(st.recent).filter(k=>k.startsWith(agent+'|')&&k.endsWith(pd)).map(k=>k.slice(agent.length+1)).filter(n=>within24h(agent,n));
+   if(nums.length!==1){await say(nums.length?'✋ '+nums.length+' chats of the last 24 hours end in '+pd+': write more digits of the number.':'✋ No chat ending in '+pd+' wrote to '+line.persona+' in the last 24 hours, so WhatsApp allows no message there.');return {handled:false,why:nums.length?'which chat':'no chat'}}
+   const no=await protocolTurn(agent,line,nums[0],who);if(no){await say('✋ Not sent: '+no+'.');return {handled:false,why:no}}
+   if(release(agent,nums[0],'protokol from '+who+' in Telegram'))await saveState();
+   await say('✅ '+line.persona+' checks the protocol of the chat ending in '+pd+' on the member profile and sends its PDF in a few seconds (asked by '+who+'). If none is found, it hands off again with what it found.');return {handled:true,protocol:nums[0]}}
   // i6cd97e7e (20 Nov 2026): the team answered a HANDOFF post (a reply to it; the engine quotes the post, whose first line names the number)
   // but the chat stayed held until its hold ran out, so the customer's next messages waited. A reply from someone on the line's team or
   // approvers ends the hold TEAM_GRACE later, so the team's own answer goes first, and the waiting messages are answered then.
   {const rq=/^\[Replying to:[^\n]*?HANDOFF[^\n]*?\+(\d{5,15})/.exec(String(text||''));if(rq&&String(userId||'')){
    const who=(line.approvers||[]).some(x=>String(x?.telegramId||'')===String(userId))||!!(await teamPerson(agent,String(userId)).catch(()=>null));
    const h=who&&Object.values(st.holds).find(x=>x.agent===agent&&String(x.from)===rq[1]);
-   if(h){if(!h.teamAt){h.teamAt=now();h.until=Math.min(h.until,now()+TEAM_GRACE);for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===h.from)schedule(k,{debounceSec:Math.round(TEAM_GRACE/1000)+5});
+   if(h&&!h.teamAt){h.teamAt=now();h.until=Math.min(h.until,now()+TEAM_GRACE);for(const [k,p] of Object.entries(st.pending))if(p.agent===agent&&p.from===h.from)schedule(k,{debounceSec:Math.round(TEAM_GRACE/1000)+5});
      await saveState();log('kirimdev '+agent+': the team answered the handoff for …'+String(h.from).slice(-4)+'; the hold ends in '+Math.round(TEAM_GRACE/60e3)+' min')}
-    return {handled:true,graced:String(h.from)}}}}
+   // row 9/40: a reply that says protokol ("protokol sudah diset"): the post names the chat, whose hold may be over already (releaseMin); the
+   // turn waits for the hold's TEAM_GRACE like the customer's own messages, so the team's answer goes first
+   let pt=null;if(who&&line.protocolPdf&&/proto[ck]ol/i.test(cmdText(text))){pt=await protocolTurn(agent,line,rq[1],'the team (a reply to the HANDOFF post)');
+    await telegram(agent,t.chatId,threadId||t.threadId,pt?'✋ '+line.persona+' does not send the protocol of the chat ending in '+rq[1].slice(-4)+': '+pt+'.':'✅ '+line.persona+' checks the protocol of the chat ending in '+rq[1].slice(-4)+' on the member profile and sends its PDF'+(holdOf(agent,rq[1])?' when the hold ends (within '+Math.round(TEAM_GRACE/60e3)+' min)':' in a few seconds')+'. If none is found, it hands off again with what it found.').catch(()=>false)}
+   if(h||pt==='')return {handled:true,...(h?{graced:String(h.from)}:{}),...(pt===''?{protocol:rq[1]}:{})}}}
   if(t.threadId&&threadId&&String(t.threadId)!==String(threadId))return {handled:false,why:'not the Questions topic'};
   const waiting=Object.values(st.drafts).filter(d=>d.agent===agent&&d.status==='waiting');if(!waiting.length)return {handled:false,why:'no draft is waiting'};
   const a=parseApproval(text);if(!a)return {handled:false,why:'not an approval'};
