@@ -25,7 +25,9 @@ export async function answerItem({items,id,choice,value,text,conflicts,questions
 
 // an alert or an agent's report already solved (20 Nov 2026: Airtable alerts stayed after Airtable worked again), marked done
 // as the Health button does: aq-needs.mjs done <id> "<reason>"; only an event or report that Health shows now (Needs you or the list below it)
-export async function localDone(req,res,{needs,done,readBody,send}){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+// 25 Nov 2026: besides Needs you, also the alerts System › Health shows below it (stale ones could not be closed from the box)
+export async function localDone(req,res,{needs:own,issues,done,readBody,send}){let b={};try{b=JSON.parse(await readBody(req,4096))}catch{}
+ const needs=async()=>[...await own(),...(issues?await issues.list({admin:true,mayUse:()=>true}):[])];
  const id=String(b.id||''),why=String(b.reason||'').trim();if(!/^(event\|e|report\|r)[0-9a-f]{6,}$/.test(id))return send(res,400,{error:'Give an event|e… or report|r… id from the list.'});
  if(!why)return send(res,400,{error:'Give a reason.'});if(!(await needs()).some(x=>x.id===id))return send(res,404,{error:'No such item in Needs you.'});
  await done(id);console.log('local owner: done',id,'('+why.slice(0,200)+')');return send(res,200,{ok:true,id})}

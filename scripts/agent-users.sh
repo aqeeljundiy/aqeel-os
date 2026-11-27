@@ -23,9 +23,9 @@ HOMEC=${AQEELOS_HOME:-${_oh:-$HOME}}
 REQ=$HOMEC/.aqeelos-agent-users
 DONE=$REQ.done
 PORTS=$HOMEC/.aqeelos-agent-ports
-# first display and Chrome port (21 Nov 2026, AU-35): a test copy (its root under /tmp) numbers its screens from :140, never from :40,
+# first display and Chrome port (21 Nov 2026, AU-35): a test copy (its root under /tmp or $TMPDIR, as on GitHub's runners) numbers its screens from :140, never from :40,
 # so a test screen that outlives its run cannot hold a real agent's display (P&P pixel-agent's :40 was held for 204 h by one)
-case "$HOMEC" in /tmp/*) DISP0=${AQ_DISPLAY_BASE:-140}; CDP0=${AQ_CDP_BASE:-29600};; *) DISP0=${AQ_DISPLAY_BASE:-40}; CDP0=${AQ_CDP_BASE:-9600};; esac
+case "$HOMEC" in /tmp/*|"${TMPDIR:-/tmp}"/*) DISP0=${AQ_DISPLAY_BASE:-140}; CDP0=${AQ_CDP_BASE:-29600};; *) DISP0=${AQ_DISPLAY_BASE:-40}; CDP0=${AQ_CDP_BASE:-9600};; esac
 UIDS=$HOMEC/.aqeelos-agent-uids
 KEYS=/etc/ssh/agent-keys
 PUB=$HOMEC/.hermes/agent-ssh/id_ed25519.pub
