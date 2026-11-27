@@ -153,6 +153,8 @@ html.v2 .ak-sheet:has(.drawer)>.ak-sheet__head{display:none}
 html.v2 .ak-sheet:has(.drawer)>.ak-sheet__body{padding:0;overflow:hidden;display:flex;flex-direction:column;min-height:0}
 html.v2 .ak-sheet:has(.drawer)>.ak-sheet__body>div{flex:1;min-height:0;display:flex;flex-direction:column}
 html.v2 .ak-sheet .drawer-body{overflow-y:auto;min-height:0}
+/* a kit menu can leave body at pointer-events:none; a box on top of a sheet takes clicks anyway (27 Nov 2026) */
+html.v2 .drawer.stack,html.v2 .scrim.stack{pointer-events:auto}
 html.v2 .ak-modal:has(.drawer){width:min(560px,calc(100vw - 24px));max-height:min(88vh,920px)}
 html.v2 .ak-modal:has(.drawer.sm){width:min(440px,calc(100vw - 24px))}
 html.v2 .ak-modal:has(.drawer.lg){width:min(780px,calc(100vw - 24px))}

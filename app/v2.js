@@ -127,6 +127,10 @@
   // (its head, body, buttons, typing guard, focus and backdrop) and the kit's sheet carries it: it moves in and out, and on a
   // phone it is a bottom sheet you can drag down. modal="false": the app's own backdrop and the boxes it opens on top
   // (questions, pickers) stay usable; a close by the person asks the app first (askClose: "Discard what you typed?").
+  // the kit's sheet keeps focus inside itself even with modal="false": a box the app opens on top of it (stackPop: a new
+  // password, a sign-in email) got its focus pulled back, so nothing could be typed (People › More › Set a new password,
+  // 27 Nov 2026). Focus moving into such a box never reaches the kit's trap.
+  for(const t of ['focusin','focusout'])addEventListener(t,e=>{const x=t==='focusin'?e.target:e.relatedTarget;if(x?.closest?.('.drawer.stack:not(.closing)'))e.stopImmediatePropagation()},true);
   if(typeof drawer==='function'&&customElements.get('ak-drawer')){const ownDrawer=drawer;
    window.drawer=(title,body,foot='',opt={})=>{const d=ownDrawer(title,body,foot,opt);if(!d?.isConnected)return d;
     const kd=document.createElement('ak-drawer');kd.className='v2-host';kd.setAttribute('heading',String(title??''));kd.setAttribute('modal','false');kd.setAttribute('side',opt.side?'right':'center');
