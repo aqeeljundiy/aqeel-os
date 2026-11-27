@@ -119,7 +119,7 @@ export const seen=(page,text)=>{const n=needle(text);return n.length>=6&&squash(
 // post exists and is public elsewhere: it counts as visible. A deleted or owner-hidden post never shows this notice.
 // The signed-out page itself only says "This content isn't available to everyone / It can't be seen by certain audiences" (the
 // legal wording sits behind See Why), checked live 27 Nov.
-export const heldByLaw=page=>/against local law|restricted in the location where|isn.t available to everyone|can.t be seen by certain audiences/i.test(String(page||''));
+const heldByLaw=page=>/against local law|restricted in the location where|isn.t available to everyone|can.t be seen by certain audiences/i.test(String(page||''));
 
 // a public page as someone signed out sees it: a fresh headless Chrome with an empty profile, closed after each look
 export function headlessLook({chrome='/opt/aqeelos/chrome/chrome',wait=9000}={}){let chain=Promise.resolve();
