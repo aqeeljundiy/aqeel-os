@@ -38,6 +38,7 @@ import {createAddons,probeMcp,RUNS_CODE_MSG} from './addons.mjs';   // personal 
 import {setupGuideLines} from './setup-guide.mjs';   // how every agent onboards people to any app (11 Nov 2026)
 import {createEscalations} from './escalations.mjs';import {createChatReview} from './chat-review.mjs';import {createTerminalCheck} from './terminal-check.mjs';
 import {createEfficiencyView} from './efficiency-view.mjs';
+import {createStaleReplayCheck} from './stale-replay.mjs';   // a days-old "STILL IN PROGRESS" order must not override newer messages (29 Nov 2026)
 import {createBrowserAsks} from './browser-ask.mjs';   // no card wait when no web chat is looking (EN-8)
 import {createReconciler,createAgentGate,statSig,ledgerSig} from './reconcile.mjs';
 import {createConnect,firstModelFor} from './connect.mjs';
@@ -746,6 +747,7 @@ async function gatewayWatch(){estop.tick().catch(()=>{});if(gwStopped||gwRestart
  const bad=log.some(l=>{const t=Date.parse(l.slice(0,19).replace(' ','T')+'Z');return t&&t>since+5000&&Date.now()-t<10*60e3});
  if(bad){console.warn('gateway watch: the gateway the engine started cannot reach Claude; restarting it properly');return restartGateway('gateway outside its session cannot reach Claude',{auto:true})}}
 if(LIVE_APP){setInterval(()=>gatewayWatch().catch(()=>{}),60000).unref()}
+if(LIVE_APP){const staleTick=createStaleReplayCheck({hermesHome:HERMES_HOME,logsDir:path.join(homedir(),'logs','aqeelos'),log:m=>console.log(m)});setTimeout(()=>staleTick().catch(()=>{}),180000).unref();setInterval(()=>staleTick().catch(()=>{}),3600e3).unref()}   // old pinned requests in chats (29 Nov 2026, app/stale-replay.mjs)
 /* After an engine update (from the app or by itself), the renames are applied again and, once nothing is in
    progress, the engine restarts once so people see aqeelOS again in channel messages, prompts and errors. */
 const engineHead={v:null,t:0};
