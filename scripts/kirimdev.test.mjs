@@ -588,6 +588,54 @@ test('a team reply to the HANDOFF post ends the hold 3 minutes later; others do 
 test('parseRelease: release/lepas/buka and at least 4 digits; anything else is nothing',()=>{
  for(const [t,want] of [['release 4567','4567'],['Lepas 0812-0000-4567','081200004567'],['buka chat +62 812 4567','628124567'],['@team lepaskan tahanan 4567.','4567'],['[Replying to: "x"]\n\nrelease 4567','4567']])assert.equal(parseRelease(t),want,t);
  for(const t of ['release','release 312','tolong release 4567','release 4567 ya','ok','lepas aja'])assert.equal(parseRelease(t),null,t)});
+// Row 9/40 (27 Nov 2026): after a "protokolnya mana?" handoff the team set the protocol on the member profile, but the PDF went out only when the
+// customer asked again. A team signal now runs ONE turn for that chat that checks get_protocol and sends the PDF, within the line's rules.
+const protoTeam=()=>{const team=new Map([['7001','Mira']]);return {teamPerson:async(a,uid)=>a==='cove-support'&&team.has(uid)?{name:team.get(uid)}:null}};
+const protoSays=q=>/NOTE from aqeelOS/.test(q)?'Protokol kakak sudah saya kirim ya':'HANDOFF: get_protocol found no protocol yet';
+const PDF={protocolPdf:{baseUrl:'https://member.example.com'}};
+// read like "release": protokol/protocol and at least 4 digits; tested through teamMessage, since the parser is not exported (main's tests replace this file in CI)
+test('row 9/40: "protokol <digits>" is read like release; anything else is not a protocol request',async()=>{
+ const t=await make({kd:protoTeam(),agentSays:protoSays,extra:PDF});await t.post(meta('628124567','halo kak'));await t.settle();
+ const say=text=>t.k.teamMessage('cove-support',{chatId:-100,threadId:9,userId:'7001',text});
+ for(const s of ['protokol 4567','Protocol +62 812 4567','kirim protokol 24567.','@team protokol 4567','[Replying to: "x"]\n\nprotokol 4567'])assert.equal((await say(s)).protocol,'628124567',s);
+ for(const s of ['protokol','protokol 312','protokol sudah diset','tolong protokol 4567','protokol 4567 ya','release 4567'])assert.equal((await say(s)).protocol,undefined,s)});
+test('row 9/40: "protokol <last digits>" from the team runs one turn for that chat that checks and sends its protocol; others change nothing',async()=>{
+ const t=await make({kd:protoTeam(),agentSays:protoSays,extra:PDF});
+ await t.post(meta('628123','protokolnya mana kak?'));await t.settle();assert.equal((await t.k.status())[0].holds.length,1);const n=t.asked.length;
+ const say=(text,o={})=>t.k.teamMessage('cove-support',{chatId:-100,threadId:9,userId:'7001',text,...o});
+ assert.equal((await say('protokol 8123',{userId:'9999'})).why,'not an approver');assert.match(t.posts.at(-1)[3],/not on Rory’s team list/);
+ assert.equal((await say('protokol 8123',{chatId:-555})).why,'not the team group');
+ assert.equal((await say('protokol 5555')).why,'no chat');
+ await t.settle();assert.equal(t.asked.length,n,'no turn after the refusals');assert.equal((await t.k.status())[0].holds.length,1,'still held after the refusals');
+ const r=await say('protokol 8123');assert.equal(r.handled,true);assert.equal(r.protocol,'628123');assert.match(t.posts.at(-1)[3],/checks the protocol of the chat ending in 8123 .*sends its PDF/);
+ assert.deepEqual(t.posts.at(-1).slice(0,3),['cove-support',-100,9],'answered in the topic it was asked in');
+ assert.deepEqual((await t.k._state()).holds,{},'the team is done with the chat: no longer held');
+ await t.settle();assert.equal(t.asked.length,n+1,'one turn');const [,q,ctx]=t.asked.at(-1);
+ assert.match(q,/NOTE from aqeelOS.*Check get_protocol.*send_protocol_pdf.*HANDOFF: <the tool's actual result>.*Never invent/s);
+ assert.equal(ctx.run.phone,'628123','the tools reach only this chat\'s own number');assert.equal(t.sent.at(-1).to,'628123');assert.equal(t.sent.at(-1).text.body,'Protokol kakak sudah saya kirim ya');
+ await t.post(meta('628123','makasih kak'));await t.settle();assert.equal(t.asked.length,n+2);assert.doesNotMatch(t.asked.at(-1)[1],/NOTE from aqeelOS/,'once: the next message is an ordinary turn')});
+test('row 9/40: the protocol turn keeps the line\'s rules: no protocolPdf, Draft, a stranger in Test, past 24 hours',async()=>{
+ for(const [o,from,conv,why,later] of [[{},'628123','cnv_A',/no protocol PDF/],[{mode:'draft',extra:PDF},'628123','cnv_A',/Draft/],[{extra:PDF},'628999','cnv_Z',/Test, so it only answers its testers/],[{extra:PDF},'628123','cnv_A',/no chat/,24*3600e3+1000]]){
+  const t=await make({kd:protoTeam(),agentSays:protoSays,...o});await t.post(meta(from,'protokolnya mana kak?','wamid.'+Math.random(),conv));await t.settle();const n=t.asked.length,s=t.sent.length;if(later)t.later(later);
+  const r=await t.k.teamMessage('cove-support',{chatId:-100,threadId:9,userId:'7001',text:'protokol '+from.slice(-4)});assert.equal(r.handled,false);assert.match(r.why,why);assert.match(t.posts.at(-1)[3],/^✋/);
+  await t.settle();assert.equal(t.asked.length,n,'no turn');assert.equal(t.sent.length,s,'nothing sent')}});
+test('row 9/40: a team reply to the HANDOFF post that says protokol runs that turn after the hold, with what the customer wrote meanwhile; other replies do not',async()=>{
+ const seen=[];const t=await make({kd:protoTeam(),agentSays:protoSays,extra:PDF,reviewReply:async(a,prompt)=>{seen.push(prompt);return '{"ok":true}'}});
+ await t.post(meta('628123','protokolnya mana kak?'));await t.settle();const n=t.asked.length;
+ const quote='[Replying to: "❓ HANDOFF (Rory, Ari, +628123)\nCustomer asked: protokolnya mana kak?"]\n\n';
+ const say=(text,o={})=>t.k.teamMessage('cove-support',{chatId:-100,threadId:3,userId:'7001',text,...o});
+ assert.equal((await say(quote+'protokol sudah diset',{userId:'9999'})).handled,false,'not on the team: nothing');
+ const plain=await say(quote+'sudah saya jawab kak');assert.equal(plain.graced,'628123');assert.equal(plain.protocol,undefined,'the quoted question says protokol, the reply does not: only the hold ends');
+ const r=await say(quote+'protokol sudah diset ya');assert.equal(r.handled,true);assert.equal(r.protocol,'628123');assert.match(t.posts.at(-1)[3],/sends its PDF when the hold ends/);
+ await t.post(meta('628123','halo kak?'));await t.settle();assert.equal(t.asked.length,n,'the hold still runs: the team\'s own answer goes first');
+ t.later(3*60e3+1000);await t.settle();assert.equal(t.asked.length,n+1,'one turn for the note and the customer\'s message');const q=t.asked.at(-1)[1];
+ assert.match(q,/CUSTOMER: halo kak\?[\s\S]*NOTE from aqeelOS/);assert.ok(seen.some(p=>/The team started this reply, not a new customer message/.test(p)),'the check before sending knows why there is no customer question');
+ assert.equal(t.sent.at(-1).text.body,'Protokol kakak sudah saya kirim ya');
+ // the hold already ran out (releaseMin) when the team set it: the post still names the chat
+ const u=await make({kd:protoTeam(),agentSays:protoSays,extra:{...PDF,handoff:{...LOCALE.handoff,releaseMin:5}}});await u.post(meta('628123','protokolnya mana kak?'));await u.settle();
+ u.later(6*60e3);assert.equal((await u.k.status())[0].holds.length,0);const m=u.asked.length;
+ const r2=await u.k.teamMessage('cove-support',{chatId:-100,threadId:3,userId:'7001',text:quote+'Protokol sudah ada di member app'});assert.deepEqual([r2.handled,r2.protocol],[true,'628123']);assert.match(u.posts.at(-1)[3],/sends its PDF in a few seconds/);
+ await u.settle();assert.equal(u.asked.length,m+1);assert.match(u.asked.at(-1)[1],/NOTE from aqeelOS/)});
 
 // wait for the customer to finish (owner, 14 Nov 2026): answer once they are quiet, all of it together
 test('the agent waits until the customer has been quiet (90 s by default), never past the longest wait (180 s)',async()=>{const t=await make();
